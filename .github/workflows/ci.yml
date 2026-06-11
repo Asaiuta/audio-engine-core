@@ -1,0 +1,108 @@
+name: CI
+
+# Continuous integration for the standalone `audio-engine-core` crate.
+# Runs format/lint/doc checks plus a cross-platform test matrix that exercises
+# the native libsoxr dependency on each OS.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Fast feedback: formatting, lints, and documentation on a single platform.
+  lint:
+    name: fmt + clippy + doc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy (all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: clippy (no default features)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+
+      # Mirror the docs.rs build. libsoxr-sys skips its pkg-config probe when
+      # DOCS_RS is set and ships pregenerated FFI bindings, so doc builds need
+      # no system libsoxr -- we set DOCS_RS here to verify that path stays green.
+      - name: doc (docs.rs parity)
+        env:
+          DOCS_RS: "1"
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --all-features
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Install libsoxr (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libsoxr
+
+      - name: Install libsoxr (Windows / vcpkg)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install soxr:x64-windows
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --all-features
+
+      - name: Test (all features)
+        run: cargo test --all-features
+
+      - name: Test (no default features)
+        run: cargo test --no-default-features
+
+  # Verify the crate packages cleanly the same way `cargo publish` would.
+  package:
+    name: package (publish dry-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo package
+        run: cargo package --all-features
