@@ -1,0 +1,543 @@
+//! Tube Saturation / Soft Clipping Processor
+//!
+//! Provides analog-style warmth through non-linear waveshaping.
+//! Uses tanh-based soft clipping to add harmonics without harsh distortion.
+//!
+//! # Design
+//!
+//! - Threshold-based: only affects samples above threshold
+//! - Tanh waveshaping: smooth, musical saturation curve
+//! - Drive control: intensity of the effect
+//! - Mix control: blend between dry and saturated signal
+//! - High-pass mode: only saturate high frequencies (exciter mode)
+//!
+//! # Use Cases
+//!
+//! - Add warmth to digital recordings
+//! - Restore transient energy lost in limiting
+//! - Simulate analog console coloration
+//! - High-frequency exciter for presence boost
+
+/// Saturation type / character
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SaturationType {
+    #[default]
+    Tape, // Warm, gentle compression
+    Tube,       // Rich even harmonics
+    Transistor, // Edgy, odd harmonics
+}
+
+/// Tube Saturation processor with configurable drive and mix
+///
+/// When highpass_mode is enabled, only high frequencies (>4kHz) are saturated,
+/// creating a more transparent "exciter" effect without muddying the low end.
+///
+/// Configuration is done through the `set_*` methods; current values can be read
+/// back with [`Saturation::get_settings`]. For shared mutable access from another
+/// thread, wrap this in `Arc<Mutex<Saturation>>`.
+pub struct Saturation {
+    /// Saturation type
+    sat_type: SaturationType,
+    /// Drive amount (0.0 - 2.0, default 0.25)
+    drive: f64,
+    /// Threshold where saturation begins (linear, default 0.88)
+    threshold: f64,
+    /// Mix between dry and wet (0.0 - 1.0, default 0.2)
+    mix: f64,
+    /// Input gain (dB, applied before saturation, default 0.0)
+    input_gain_db: f64,
+    /// Output gain compensation (dB, default 0.0)
+    output_gain_db: f64,
+    /// Cached linear input gain.
+    input_gain_linear: f64,
+    /// Cached linear output gain.
+    output_gain_linear: f64,
+    /// Enable/disable
+    enabled: bool,
+
+    // High-pass mode for exciter functionality
+    /// Enable high-pass separation (only saturate highs)
+    highpass_mode: bool,
+    /// HPF cutoff frequency in Hz (default: 4000)
+    highpass_cutoff: f64,
+
+    // Sample rate for HPF coefficient calculation
+    sample_rate: f64,
+    // Cached HPF coefficient (recalculated when sample_rate or cutoff changes)
+    hpf_coef: f64,
+
+    // P1-5 fix: Per-channel HPF state (supports arbitrary channel count, not just stereo)
+    /// HPF filter state per channel (y[n-1])
+    hpf_states: Vec<f64>,
+    /// Previous input per channel (x[n-1])
+    prev_inputs: Vec<f64>,
+}
+
+impl Saturation {
+    /// Create a new saturation processor with default settings
+    pub fn new() -> Self {
+        let mut instance = Self {
+            sat_type: SaturationType::Tube,
+            drive: 0.25,
+            threshold: 0.88,
+            mix: 0.2,
+            input_gain_db: 0.0,
+            output_gain_db: 0.0,
+            input_gain_linear: 1.0,
+            output_gain_linear: 1.0,
+            enabled: true,
+            highpass_mode: false,
+            highpass_cutoff: 4000.0,
+            sample_rate: 44100.0,
+            hpf_coef: 0.0, // Will be calculated below
+            // P1-5 fix: Initialize for 2 channels by default, grows on demand
+            hpf_states: vec![0.0; 2],
+            prev_inputs: vec![0.0; 2],
+        };
+        // Initialize HPF coefficient immediately (fixes MINOR-03)
+        instance.update_hpf_coef();
+        instance
+    }
+
+    /// Create with specific saturation type
+    pub fn with_type(sat_type: SaturationType) -> Self {
+        Self {
+            sat_type,
+            ..Self::new()
+        }
+    }
+
+    /// Set drive amount (0.0 - 2.0)
+    pub fn set_drive(&mut self, drive: f64) {
+        self.drive = drive.clamp(0.0, 2.0);
+    }
+
+    /// Set threshold (0.0 - 1.0)
+    pub fn set_threshold(&mut self, threshold: f64) {
+        self.threshold = threshold.clamp(0.0, 1.0);
+    }
+
+    /// Set mix amount (0.0 - 1.0)
+    pub fn set_mix(&mut self, mix: f64) {
+        self.mix = mix.clamp(0.0, 1.0);
+    }
+
+    /// Set input gain (dB) - applied before saturation
+    pub fn set_input_gain(&mut self, gain_db: f64) {
+        self.input_gain_db = gain_db;
+        self.input_gain_linear = db_to_linear(gain_db);
+    }
+
+    /// Set output gain (dB) - applied only to saturated samples for compensation
+    pub fn set_output_gain(&mut self, gain_db: f64) {
+        self.output_gain_db = gain_db;
+        self.output_gain_linear = db_to_linear(gain_db);
+    }
+
+    /// Enable/disable saturation
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    /// Set saturation type
+    pub fn set_type(&mut self, sat_type: SaturationType) {
+        self.sat_type = sat_type;
+    }
+
+    /// Enable/disable high-pass mode (exciter mode)
+    pub fn set_highpass_mode(&mut self, enabled: bool) {
+        self.highpass_mode = enabled;
+    }
+
+    /// Set high-pass cutoff frequency in Hz
+    pub fn set_highpass_cutoff(&mut self, hz: f64) {
+        self.highpass_cutoff = hz.clamp(1000.0, 12000.0);
+        self.update_hpf_coef();
+    }
+
+    /// Update sample rate and recalculate HPF coefficient
+    pub fn set_sample_rate(&mut self, sr: f64) {
+        self.sample_rate = sr;
+        self.update_hpf_coef();
+    }
+
+    /// Pre-size the per-channel HPF state for `channels`, off the audio thread.
+    ///
+    /// Call this during setup (when the processor is built for a stream) so
+    /// `process_highpass` never resizes `hpf_states`/`prev_inputs` on the realtime
+    /// audio thread. Defaults keep the stereo size when `channels == 0`.
+    pub fn set_channel_count(&mut self, channels: usize) {
+        let channels = channels.max(1);
+        if self.hpf_states.len() != channels {
+            self.hpf_states.resize(channels, 0.0);
+            self.prev_inputs.resize(channels, 0.0);
+        }
+    }
+
+    /// Recalculate HPF coefficient based on current cutoff and sample rate
+    fn update_hpf_coef(&mut self) {
+        // Correct first-order RC HPF: α = fs / (fs + 2π·fc)
+        // For difference equation y[n] = α·y[n-1] + α·(x[n] - x[n-1])
+        // α close to 1.0 = low cutoff (passes more), α close to 0.0 = high cutoff
+        self.hpf_coef =
+            self.sample_rate / (self.sample_rate + std::f64::consts::TAU * self.highpass_cutoff);
+    }
+
+    /// Process interleaved f64 samples in-place
+    pub fn process(&mut self, samples: &mut [f64]) {
+        self.process_with_channels(samples, 2) // Default to stereo
+    }
+
+    /// Process interleaved f64 samples with specified channel count
+    pub fn process_with_channels(&mut self, samples: &mut [f64], channels: usize) {
+        if !self.enabled {
+            return;
+        }
+
+        if self.highpass_mode {
+            self.process_highpass(samples, channels);
+        } else {
+            self.process_fullband(samples);
+        }
+    }
+
+    /// Process with explicit sample rate (for cases where SR differs from cached value)
+    pub fn process_with_sr(&mut self, samples: &mut [f64], channels: usize, sample_rate: f64) {
+        if (self.sample_rate - sample_rate).abs() > 1.0 {
+            self.set_sample_rate(sample_rate);
+        }
+        self.process_with_channels(samples, channels);
+    }
+
+    /// Full-band saturation (original behavior)
+    fn process_fullband(&mut self, samples: &mut [f64]) {
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let one_minus_mix = 1.0 - mix;
+        let sat_type = self.sat_type;
+
+        for sample in samples.iter_mut() {
+            let dry = *sample * input_gain;
+
+            if dry.abs() > threshold {
+                let driven = dry * drive_plus1;
+                let saturated = Self::apply_saturation_type(sat_type, driven);
+                *sample = (dry * one_minus_mix + saturated * mix) * output_gain;
+            } else {
+                *sample = dry;
+            }
+        }
+    }
+
+    /// High-pass separated saturation (exciter mode)
+    /// Only saturates frequencies above the cutoff.
+    /// P1-5 fix: Supports arbitrary channel count (was hardcoded to L/R only).
+    fn process_highpass(&mut self, samples: &mut [f64], channels: usize) {
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
+        let alpha = self.hpf_coef;
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let sat_type = self.sat_type;
+
+        // HPF state is sized off the audio thread via `set_channel_count`; never
+        // resize here, which would allocate on the realtime audio thread. If this
+        // fires, a caller processed more channels than it was set up for.
+        debug_assert!(
+            self.hpf_states.len() >= channels,
+            "Saturation HPF state undersized for {} channels (have {}); call set_channel_count during setup",
+            channels,
+            self.hpf_states.len()
+        );
+
+        let frames = samples.len() / channels;
+        for frame in 0..frames {
+            for ch in 0..channels {
+                let idx = frame * channels + ch;
+                if idx >= samples.len() {
+                    break;
+                }
+
+                let input = samples[idx] * input_gain;
+
+                // First-order HPF: y[n] = α·y[n-1] + α·(x[n] - x[n-1])
+                let high = alpha * self.hpf_states[ch] + alpha * (input - self.prev_inputs[ch]);
+                self.hpf_states[ch] = high;
+                self.prev_inputs[ch] = input;
+                #[cfg(not(any(
+                    target_arch = "x86",
+                    target_arch = "x86_64",
+                    target_arch = "aarch64"
+                )))]
+                {
+                    self.hpf_states[ch] =
+                        crate::runtime::flush_subnormal_sample(self.hpf_states[ch]);
+                    self.prev_inputs[ch] =
+                        crate::runtime::flush_subnormal_sample(self.prev_inputs[ch]);
+                }
+
+                // Apply saturation to high frequencies only
+                let saturated_high = if high.abs() > threshold {
+                    let driven = high * drive_plus1;
+                    Self::apply_saturation_type(sat_type, driven)
+                } else {
+                    high
+                };
+
+                // Mix: input + (saturated_high - high) * mix
+                samples[idx] = (input + (saturated_high - high) * mix) * output_gain;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn apply_saturation_type(sat_type: SaturationType, x: f64) -> f64 {
+        match sat_type {
+            SaturationType::Tape => x.signum() * (1.0 - (-x.abs()).exp()),
+            SaturationType::Tube => x.tanh(),
+            SaturationType::Transistor => {
+                // Piecewise cubic: x - x³/3 for |x| ≤ 1.5, then smoothly limited
+                // Fix discontinuity: clamp to value at boundary (1.5 - 1.5³/3 = 0.375)
+                if x.abs() <= 1.5 {
+                    x - (x * x * x) / 3.0
+                } else {
+                    x.signum() * 0.375
+                }
+            }
+        }
+    }
+
+    /// Reset filter state
+    pub fn reset(&mut self) {
+        self.hpf_states.fill(0.0);
+        self.prev_inputs.fill(0.0);
+    }
+
+    /// Get current settings as a struct
+    pub fn get_settings(&self) -> SaturationSettings {
+        SaturationSettings {
+            sat_type: self.sat_type,
+            drive: self.drive,
+            threshold: self.threshold,
+            mix: self.mix,
+            input_gain_db: self.input_gain_db,
+            output_gain_db: self.output_gain_db,
+            enabled: self.enabled,
+            highpass_mode: self.highpass_mode,
+            highpass_cutoff: self.highpass_cutoff,
+        }
+    }
+}
+
+impl Default for Saturation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Settings struct for API responses
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SaturationSettings {
+    pub sat_type: SaturationType,
+    pub drive: f64,
+    pub threshold: f64,
+    pub mix: f64,
+    pub input_gain_db: f64,
+    pub output_gain_db: f64,
+    pub enabled: bool,
+    pub highpass_mode: bool,
+    pub highpass_cutoff: f64,
+}
+
+// P1-4 fix: Use centralized db_to_linear from dsp module instead of local duplicate
+use super::dsp::db_to_linear;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tube_saturation() {
+        let mut sat = Saturation::with_type(SaturationType::Tube);
+        sat.set_enabled(true);
+        sat.set_mix(1.0); // 100% wet for testing
+
+        // Test that loud signals are compressed
+        let mut samples = vec![0.9, -0.9, 0.5, -0.5];
+        sat.process(&mut samples);
+
+        // tanh(0.9) ≈ 0.716
+        assert!(samples[0].abs() < 0.9);
+        assert!(samples[1].abs() < 0.9);
+
+        // Lower signals should pass through relatively unchanged
+        // tanh(0.5) ≈ 0.462, which is close to 0.5
+        assert!((samples[2].abs() - 0.5).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_disabled() {
+        let mut sat = Saturation::new();
+        sat.set_enabled(false);
+
+        let mut samples = vec![0.9, -0.9, 0.5, -0.5];
+        sat.process(&mut samples);
+
+        // Should pass through unchanged when disabled
+        assert!((samples[0] - 0.9).abs() < 1e-10);
+        assert!((samples[1] - (-0.9)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cached_linear_gains_update_with_db_setters() {
+        let mut sat = Saturation::new();
+
+        sat.set_input_gain(6.0);
+        sat.set_output_gain(-3.0);
+
+        assert!((sat.input_gain_linear - db_to_linear(6.0)).abs() < 1e-12);
+        assert!((sat.output_gain_linear - db_to_linear(-3.0)).abs() < 1e-12);
+        assert_eq!(sat.input_gain_db, 6.0);
+        assert_eq!(sat.output_gain_db, -3.0);
+    }
+
+    #[test]
+    fn test_threshold() {
+        let mut sat = Saturation::with_type(SaturationType::Tube);
+        sat.set_enabled(true);
+        sat.set_threshold(0.8);
+        sat.set_mix(1.0);
+
+        // Below threshold should pass unchanged
+        let mut samples = vec![0.5];
+        sat.process(&mut samples);
+        assert!((samples[0] - 0.5).abs() < 1e-10);
+
+        // Above threshold should be saturated
+        let mut samples = vec![0.9];
+        sat.process(&mut samples);
+        assert!(samples[0].abs() < 0.9);
+    }
+
+    #[test]
+    fn test_mix() {
+        let mut sat = Saturation::with_type(SaturationType::Tube);
+        sat.set_enabled(true);
+        sat.set_drive(0.0); // No drive for this test
+        sat.set_mix(0.5);
+
+        let mut samples = vec![1.0];
+        sat.process(&mut samples);
+
+        // Mix of tanh(1) ≈ 0.762 and 1.0
+        // Result should be between the two
+        let expected = (1.0 + 1.0_f64.tanh()) * 0.5;
+        assert!((samples[0] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_hpf_coefficient() {
+        let mut sat = Saturation::new();
+        sat.set_sample_rate(44100.0);
+        sat.set_highpass_cutoff(4000.0);
+
+        // Correct HPF coefficient: fs/(fs + 2π*fc) ≈ 0.637 (old) -> 0.637 (same formula value)
+        // Actually: 44100 / (44100 + 2π*4000) = 44100 / 69231.9 ≈ 0.637
+        // Wait - the old formula 1/(1 + 2π*fc/fs) = 1/(1 + 2π*4000/44100) = 1/(1.5697) = 0.6371
+        // The new formula fs/(fs + 2π*fc) = 44100/(44100 + 25131.9) = 44100/69231.9 = 0.6371
+        // These are algebraically identical! The fix is about the comment and usage context.
+        let expected = 44100.0 / (44100.0 + std::f64::consts::TAU * 4000.0);
+        assert!((sat.hpf_coef - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_hpf_dc_rejection() {
+        let mut sat = Saturation::new();
+        sat.set_highpass_mode(true);
+        sat.set_highpass_cutoff(4000.0);
+        sat.set_sample_rate(44100.0);
+        sat.set_mix(0.5); // With mix
+        sat.set_threshold(2.0); // Don't trigger saturation
+
+        // DC signal - HPF should reject DC, so high component → 0
+        // Output should be close to input (low freq passes through)
+        let mut samples: Vec<f64> = vec![0.0; 200]; // 100 stereo samples
+        for i in 0..100 {
+            samples[i * 2] = 1.0; // L = 1.0 (DC)
+            samples[i * 2 + 1] = 1.0; // R = 1.0 (DC)
+        }
+        sat.process_with_channels(&mut samples, 2);
+
+        // For DC input: high freq → 0, low freq ≈ input
+        // Output ≈ input because low passes through and high is near 0
+        // After initial transient, output should be close to DC input (1.0)
+        let last_l: f64 = samples.iter().skip(180).step_by(2).take(10).sum::<f64>() / 10.0;
+        let last_r: f64 = samples.iter().skip(181).step_by(2).take(10).sum::<f64>() / 10.0;
+
+        // DC should pass through (high freq blocked, low freq = DC)
+        assert!(
+            (last_l - 1.0).abs() < 0.1,
+            "L output should be close to 1.0, got {}",
+            last_l
+        );
+        assert!(
+            (last_r - 1.0).abs() < 0.1,
+            "R output should be close to 1.0, got {}",
+            last_r
+        );
+    }
+
+    #[test]
+    fn test_highpass_flushes_denormals_with_audio_thread_init() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
+        let mut sat = Saturation::new();
+        sat.set_highpass_mode(true);
+        let subnormal = f64::from_bits(1);
+        sat.hpf_states[0] = subnormal;
+        sat.prev_inputs[0] = -subnormal;
+        let mut samples = vec![0.0, 0.0];
+        sat.process_with_channels(&mut samples, 2);
+        assert_eq!(sat.hpf_states[0], 0.0);
+        assert_eq!(sat.prev_inputs[0], 0.0);
+    }
+
+    #[test]
+    fn test_highpass_multichannel_after_set_channel_count_does_not_panic() {
+        let mut sat = Saturation::new();
+        sat.set_highpass_mode(true);
+        sat.set_channel_count(6);
+
+        // 6-channel interleaved buffer (8 frames). Before the fix this would
+        // resize hpf_states/prev_inputs on the (would-be) audio thread; now the
+        // state is pre-sized and process_highpass must not resize.
+        let mut samples = vec![0.5; 6 * 8];
+        sat.process_with_channels(&mut samples, 6);
+
+        assert_eq!(sat.hpf_states.len(), 6);
+        assert_eq!(sat.prev_inputs.len(), 6);
+    }
+
+    #[test]
+    fn test_set_channel_count_resizes_state_off_rt() {
+        let mut sat = Saturation::new();
+        assert_eq!(sat.hpf_states.len(), 2);
+        sat.set_channel_count(8);
+        assert_eq!(sat.hpf_states.len(), 8);
+        assert_eq!(sat.prev_inputs.len(), 8);
+        // Zero channels falls back to a mono-safe size rather than emptying state.
+        sat.set_channel_count(0);
+        assert_eq!(sat.hpf_states.len(), 1);
+    }
+}

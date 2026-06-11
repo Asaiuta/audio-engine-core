@@ -1,0 +1,10 @@
+# Build artifacts
+/target/
+
+# This crate is published from a workspace; the lockfile is tracked at the
+# workspace root, not here.
+Cargo.lock
+
+# Editor / OS noise
+*.swp
+.DS_Store

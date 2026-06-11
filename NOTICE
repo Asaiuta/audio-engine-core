@@ -1,0 +1,26 @@
+audio-engine-core
+Copyright (c) 2026 Asaiuta and the Lyne audio-engine-core contributors
+
+This product is licensed under the terms of either the MIT license or the
+Apache License, Version 2.0, at your option. See LICENSE-MIT and LICENSE-APACHE.
+
+-------------------------------------------------------------------------------
+Third-party native dependency: SoXR (libsoxr)
+-------------------------------------------------------------------------------
+
+This crate links against the SoXR resampling library (libsoxr) through the
+`soxr` crate. libsoxr is distributed under the GNU Lesser General Public
+License, version 2.1 (LGPL-2.1).
+
+libsoxr is a separate work, not part of this crate's source. The permissive
+MIT/Apache-2.0 license of audio-engine-core applies only to the Rust source in
+this crate. When you build or distribute a binary that statically links
+libsoxr, the LGPL-2.1 terms for libsoxr still apply — most notably the
+requirement to allow the end user to relink against a modified libsoxr.
+
+For LGPL-2.1 compliance options (dynamic linking, providing object files, or
+otherwise enabling relinking), see the libsoxr project:
+  https://sourceforge.net/projects/soxr/
+
+If you build without the resampling functionality, libsoxr is not linked. See
+the crate feature documentation in README.md.

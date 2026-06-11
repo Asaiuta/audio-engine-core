@@ -1,0 +1,51 @@
+[package]
+name = "audio-engine-core"
+version = "0.1.0"
+edition = "2021"
+description = "Reusable decoder, DSP, loudness, resampling, and streaming pipeline primitives"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Asaiuta/audio-engine-core"
+homepage = "https://github.com/Asaiuta/audio-engine-core"
+documentation = "https://docs.rs/audio-engine-core"
+readme = "README.md"
+keywords = ["audio", "dsp", "decoder", "resampler", "loudness"]
+categories = ["multimedia::audio", "algorithms"]
+
+[lib]
+name = "audio_engine_core"
+path = "src/lib.rs"
+
+[dependencies]
+symphonia = { version = "0.5", features = ["all"] }
+soxr = "0.6.0"
+rayon = "1.10"
+parking_lot = "0.12"
+rustfft = "6.2"
+rand = "0.8"
+ebur128 = "0.1"
+atomic_float = "1.0"
+arc-swap = "1.7"
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+log = "0.4"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
+
+[features]
+default = ["http", "loudness-db"]
+# HTTP/HTTPS streaming decode (Range requests + full download fallback).
+# Disable for local-file-only builds to drop the reqwest/rustls dependency tree.
+http = ["dep:reqwest"]
+# SQLite-backed loudness metadata persistence (LoudnessDatabase, TrackLoudness).
+# Disable if you only need realtime DSP/decoding and not on-disk loudness storage.
+loudness-db = ["dep:rusqlite"]
+
+[dev-dependencies]
+assert_no_alloc = "1.1"
+
+[package.metadata.vcpkg]
+dependencies = ["soxr"]
+
+[build-dependencies]
+pkg-config = "0.3"
+vcpkg = "0.2"
