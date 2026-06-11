@@ -68,12 +68,29 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install libsoxr
 
-      - name: Install libsoxr (Windows / vcpkg)
+      # libsoxr-sys probes the native library with pkg-config only (no vcpkg
+      # support), so on Windows we provide soxr + pkgconf via MSYS2/MinGW. The
+      # crate stays on the default MSVC toolchain; build.rs turns the MinGW DLL
+      # into an MSVC import library with gendef + lib.exe (hence the tools pkg).
+      - name: Set up MSYS2 with soxr + pkg-config (Windows)
         if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-soxr
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-tools-git
+
+      - name: Expose MSYS2 soxr to the MSVC build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          vcpkg install soxr:x64-windows
-          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-          echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
+          $mingw = "${{ steps.msys2.outputs.msys2-location }}\mingw64"
+          "$mingw\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "PKG_CONFIG_PATH=$mingw\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
