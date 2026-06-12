@@ -123,6 +123,9 @@ differ by CPU, compiler version, and load.
 ```bash
 cargo bench --bench audio_callback_chain_perf -- --quick
 cargo bench --bench audio_resampler_streaming_perf -- --quick
+cargo bench --bench audio_convolver_perf -- --quick
+cargo bench --bench audio_lockfree_params_perf -- --quick
+cargo bench --bench audio_fir_eq_perf -- --quick
 cargo bench --bench audio_quality_measurements -- --quick
 ```
 
@@ -139,9 +142,29 @@ in-crate processing.
 | DSP chain, no convolver (EQ, saturation, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 18.4 ns | 18.8 us | `audio_callback_chain_perf` |
 | DSP chain with convolver | 27.8 ns | 28.5 us | `audio_callback_chain_perf` |
 | Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
+| `FFTConvolver` alone, 256-tap IR, stereo | ~10 ns | n/a | `audio_convolver_perf` |
+| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 9.6 ns | 9.8 us | `audio_fir_eq_perf` |
 
 For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
 chain measured here uses well under one callback period.
+
+### Lock-free parameter reads
+
+The atomic parameter snapshots (`AtomicEqParams`, `AtomicVolumeParams`, and the
+rest) are the mechanism for pushing parameter changes into the audio callback
+without locks. Reading the full set of cached parameters once per callback costs
+about **7 ns** with the generation-based snapshot path, versus ~50 ns for a
+naive split-atomic field-by-field read and ~83 ns for an unconditional
+`ArcSwap` guard load — an ~86% to ~92% improvement (`audio_lockfree_params_perf`).
+
+### FIR EQ IR generation
+
+`FirEq` designs a linear- or minimum-phase impulse response from 10 band gains;
+the IR is then convolved (typically with `FFTConvolver`) to apply the EQ.
+Generation is an offline/control-thread cost, not a per-sample one. On this
+machine a 511-tap linear-phase design regenerates in ~31 us; minimum-phase
+designs cost roughly 3x more because of the extra cepstral phase shaping, and
+cost scales with tap count (`audio_fir_eq_perf`).
 
 ### Objective audio-quality measurements
 

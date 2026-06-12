@@ -59,6 +59,18 @@ harness = false
 name = "audio_quality_measurements"
 harness = false
 
+[[bench]]
+name = "audio_convolver_perf"
+harness = false
+
+[[bench]]
+name = "audio_lockfree_params_perf"
+harness = false
+
+[[bench]]
+name = "audio_fir_eq_perf"
+harness = false
+
 [package.metadata.vcpkg]
 dependencies = ["soxr"]
 
