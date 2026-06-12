@@ -113,6 +113,69 @@ network I/O out of an audio callback. Allocate and configure processors before
 entering the realtime path, then update parameters through the provided atomic
 snapshot types.
 
+## Performance And Audio Quality
+
+These numbers come from the benchmarks in `benches/`, which run entirely against
+this crate's public API. They are evidence for one machine and one configuration,
+not a universal claim. Reproduce them with `cargo bench`; the exact values will
+differ by CPU, compiler version, and load.
+
+```bash
+cargo bench --bench audio_callback_chain_perf -- --quick
+cargo bench --bench audio_resampler_streaming_perf -- --quick
+cargo bench --bench audio_quality_measurements -- --quick
+```
+
+Drop `--quick` for the longer multi-trial runs the numbers below were taken from.
+
+### Realtime processing budget
+
+Per-sample/per-buffer cost of the DSP and resampler paths at a 512-frame buffer.
+These exclude the decoder and the OS audio device write; they measure only the
+in-crate processing.
+
+| Path | Per sample | Per 512-frame buffer | Bench |
+| --- | ---: | ---: | --- |
+| DSP chain, no convolver (EQ, saturation, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 18.4 ns | 18.8 us | `audio_callback_chain_perf` |
+| DSP chain with convolver | 27.8 ns | 28.5 us | `audio_callback_chain_perf` |
+| Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
+
+For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
+chain measured here uses well under one callback period.
+
+### Objective audio-quality measurements
+
+`audio_quality_measurements` generates synthetic f64 signals, runs them through
+this crate's processor modules, and analyzes the rendered buffers numerically.
+This is native-rendered-buffer evidence, not analog output capture: no audio
+device, OS mixer, DAC/ADC loopback, or microphone is involved, and it does not
+replace listening tests.
+
+| Metric | Result |
+| --- | ---: |
+| Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB |
+| Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB |
+| 20 kHz resampler gain | -0.0062 dB |
+| Worst fitted alias attenuation, 96 kHz to 48 kHz | -294.7 dB |
+| Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
+| Limiter below-threshold THD+N | -238.3 dB |
+| `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
+
+The noise shapers (`NoiseShaper`) redistribute quantization error spectrally
+rather than lowering broadband noise: the shaped curves strongly reduce the
+2-6 kHz band while pushing energy into 14-18 kHz, for up to a +34.9 dB
+ear-band advantage over flat TPDF dither.
+
+The benchmark also includes an optional EBU Tech 3341/3342 expected-value corpus
+check. It is skipped unless the `libebur128/test` reference vectors are present
+(they are not bundled with this crate); the deterministic `LoudnessMeter` parity
+fixtures above always run.
+
+One known limitation, kept visible: the sample-peak/lookahead limiter is not an
+intersample-true-peak guarantee. The full output-chain true-peak probe is
+report-only, and on stressed material it can leave the worst true peak close to
+the limiter ceiling rather than below a strict -1 dBTP target.
+
 ## License
 
 Licensed under either of

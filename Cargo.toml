@@ -42,6 +42,22 @@ loudness-db = ["dep:rusqlite"]
 
 [dev-dependencies]
 assert_no_alloc = "1.1"
+serde_json = "1"
+
+# Custom-harness benchmarks (run with `cargo bench --bench <name> -- --quick`).
+# These exercise only this crate's processor/resampler modules; they use a
+# plain `main()` rather than a bench framework, hence `harness = false`.
+[[bench]]
+name = "audio_resampler_streaming_perf"
+harness = false
+
+[[bench]]
+name = "audio_callback_chain_perf"
+harness = false
+
+[[bench]]
+name = "audio_quality_measurements"
+harness = false
 
 [package.metadata.vcpkg]
 dependencies = ["soxr"]
