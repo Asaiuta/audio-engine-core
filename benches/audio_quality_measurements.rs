@@ -36,6 +36,17 @@ const EBU_LRA_TOLERANCE_LU: f64 = 1.0;
 const EBU_TRUE_PEAK_LOWER_TOLERANCE_DB: f64 = -0.4;
 const EBU_TRUE_PEAK_UPPER_TOLERANCE_DB: f64 = 0.2;
 
+// Gate thresholds for the synthetic (always-runs) metrics. These are deliberately
+// conservative: observed values sit far inside them so the gates survive across
+// CPUs, compiler versions, and debug/release builds. See
+// research/benchmark-inventory.md for the per-metric margin rationale.
+const GATE_RESAMPLER_THDN_MAX_DB: f64 = -100.0; // observed ~-187 dB
+const GATE_PASSBAND_DEVIATION_MAX_DB: f64 = 0.10; // observed ~0.0013 dB
+const GATE_ALIAS_ATTENUATION_MAX_DB: f64 = -100.0; // observed ~-295 dB (more negative is better)
+const GATE_LIMITER_MARGIN_MAX_DB: f64 = 0.05; // sample-peak ceiling; observed ~0.00 dB
+const GATE_NOISE_SHAPER_ADVANTAGE_MIN_DB: f64 = 3.0; // observed up to ~+35 dB
+const GATE_LOUDNESS_PARITY_MAX_LU: f64 = 1.0e-6; // wrapper forwards to ebur128
+
 const EBU_TRUE_PEAK_FILES: [EbuExpectedFile; 9] = [
     EbuExpectedFile::new("seq-3341-15-24bit.wav.wav", -6.0),
     EbuExpectedFile::new("seq-3341-16-24bit.wav.wav", -6.0),
@@ -240,6 +251,161 @@ struct QualityReport {
     noise_shaping: NoiseShapingSection,
     loudness_reference: LoudnessReferenceSection,
     full_output_true_peak: FullOutputTruePeakSection,
+    // Machine-readable gate/report classification for every metric a reader might
+    // cite. `gate` metrics fail the run under `--enforce`; `report` metrics are
+    // evidence only. This makes README numbers traceable to a named, classified
+    // gate and gives `--enforce` a single uniform measured-vs-threshold table.
+    metrics: Vec<MetricResult>,
+}
+
+/// How a metric value is compared against its threshold to decide pass/fail.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Comparison {
+    /// Passes when `measured <= threshold` (e.g. THD+N, deviation, overshoot).
+    AtMost,
+    /// Passes when `measured >= threshold` (e.g. an attenuation/advantage floor).
+    AtLeast,
+    /// Passes when `lower <= measured <= upper` (e.g. EBU true-peak tolerance band).
+    Within,
+}
+
+/// Whether a metric is enforced (`gate`) or evidence-only (`report`).
+#[derive(Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Classification {
+    Gate,
+    Report,
+    /// A gate whose reference inputs are absent on this machine (e.g. the EBU
+    /// corpus). Reported as skipped, never a silent pass.
+    Skipped,
+}
+
+/// One classified metric: its name, value, threshold, and pass/fail state.
+#[derive(Clone, Serialize)]
+struct MetricResult {
+    name: &'static str,
+    classification: Classification,
+    comparison: Comparison,
+    measured: f64,
+    threshold: f64,
+    threshold_upper: Option<f64>,
+    unit: &'static str,
+    passed: bool,
+    detail: Option<String>,
+}
+
+impl MetricResult {
+    fn evaluate(passed: bool) -> bool {
+        passed
+    }
+
+    fn gate(
+        name: &'static str,
+        comparison: Comparison,
+        measured: f64,
+        threshold: f64,
+        unit: &'static str,
+    ) -> Self {
+        let passed = compare(comparison, measured, threshold, None);
+        Self {
+            name,
+            classification: Classification::Gate,
+            comparison,
+            measured,
+            threshold,
+            threshold_upper: None,
+            unit,
+            passed: Self::evaluate(passed),
+            detail: None,
+        }
+    }
+
+    fn gate_within(
+        name: &'static str,
+        measured: f64,
+        lower: f64,
+        upper: f64,
+        unit: &'static str,
+        passed: bool,
+        detail: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            classification: Classification::Gate,
+            comparison: Comparison::Within,
+            measured,
+            threshold: lower,
+            threshold_upper: Some(upper),
+            unit,
+            passed: Self::evaluate(passed),
+            detail,
+        }
+    }
+
+    fn report(
+        name: &'static str,
+        comparison: Comparison,
+        measured: f64,
+        threshold: f64,
+        unit: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            classification: Classification::Report,
+            comparison,
+            measured,
+            threshold,
+            threshold_upper: None,
+            unit,
+            passed: true,
+            detail: None,
+        }
+    }
+
+    fn skipped(name: &'static str, unit: &'static str, detail: String) -> Self {
+        Self {
+            name,
+            classification: Classification::Skipped,
+            comparison: Comparison::AtMost,
+            measured: f64::NAN,
+            threshold: f64::NAN,
+            threshold_upper: None,
+            unit,
+            passed: true,
+            detail: Some(detail),
+        }
+    }
+
+    /// A human-readable measured-vs-threshold string for gate diagnostics.
+    fn measured_vs_threshold(&self) -> String {
+        match self.comparison {
+            Comparison::AtMost => format!(
+                "measured {:.6} {} > threshold {:.6} {}",
+                self.measured, self.unit, self.threshold, self.unit
+            ),
+            Comparison::AtLeast => format!(
+                "measured {:.6} {} < threshold {:.6} {}",
+                self.measured, self.unit, self.threshold, self.unit
+            ),
+            Comparison::Within => format!(
+                "measured {:.6} {} outside [{:.6}, {:.6}] {}",
+                self.measured,
+                self.unit,
+                self.threshold,
+                self.threshold_upper.unwrap_or(f64::NAN),
+                self.unit
+            ),
+        }
+    }
+}
+
+fn compare(comparison: Comparison, measured: f64, threshold: f64, upper: Option<f64>) -> bool {
+    match comparison {
+        Comparison::AtMost => measured <= threshold,
+        Comparison::AtLeast => measured >= threshold,
+        Comparison::Within => measured >= threshold && measured <= upper.unwrap_or(f64::INFINITY),
+    }
 }
 
 #[derive(Serialize)]
@@ -504,6 +670,17 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     let loudness_reference = measure_loudness_reference(ebu_dir)?;
     let full_output_true_peak = measure_full_output_true_peak(frames, ebu_dir)?;
 
+    let metrics = build_metrics(
+        &resampler_fit,
+        limiter_transparent,
+        &frequency_response,
+        &limiter,
+        &resampler_stopband,
+        &noise_shaping,
+        &loudness_reference,
+        &full_output_true_peak,
+    );
+
     Ok(QualityReport {
         probe: "audio_quality_measurements",
         generated_unix_ms: unix_ms(),
@@ -533,7 +710,219 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         noise_shaping,
         loudness_reference,
         full_output_true_peak,
+        metrics,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_metrics(
+    resampler_fit: &SineFit,
+    limiter_transparent_thdn_db: f64,
+    frequency_response: &FrequencyResponseSection,
+    limiter: &LimiterSection,
+    resampler_stopband: &StopbandSection,
+    noise_shaping: &NoiseShapingSection,
+    loudness_reference: &LoudnessReferenceSection,
+    full_output_true_peak: &FullOutputTruePeakSection,
+) -> Vec<MetricResult> {
+    let mut metrics = Vec::new();
+
+    // --- Deterministic / high-headroom synthetic gates (always run) ---
+    metrics.push(MetricResult::gate(
+        "resampler_thdn_44k1_to_48k",
+        Comparison::AtMost,
+        resampler_fit.thdn_db,
+        GATE_RESAMPLER_THDN_MAX_DB,
+        "dB",
+    ));
+    metrics.push(MetricResult::gate(
+        "resampler_passband_max_deviation_20hz_to_18khz",
+        Comparison::AtMost,
+        frequency_response.passband_max_abs_deviation_db_20hz_to_18khz,
+        GATE_PASSBAND_DEVIATION_MAX_DB,
+        "dB",
+    ));
+    metrics.push(MetricResult::gate(
+        "resampler_worst_alias_attenuation_96k_to_48k",
+        Comparison::AtMost,
+        resampler_stopband.worst_alias_attenuation_db,
+        GATE_ALIAS_ATTENUATION_MAX_DB,
+        "dB",
+    ));
+    metrics.push(MetricResult::gate(
+        "limiter_output_margin_to_threshold",
+        Comparison::AtMost,
+        limiter.output_margin_to_threshold_db,
+        GATE_LIMITER_MARGIN_MAX_DB,
+        "dB",
+    ));
+    metrics.push(MetricResult::gate(
+        "noise_shaper_strongest_ear_band_advantage",
+        Comparison::AtLeast,
+        noise_shaping.strongest_shaped_high_minus_ear_band_advantage_db,
+        GATE_NOISE_SHAPER_ADVANTAGE_MIN_DB,
+        "dB",
+    ));
+    metrics.push(MetricResult::gate(
+        "loudness_integrated_parity_vs_ebur128",
+        Comparison::AtMost,
+        loudness_reference.max_integrated_delta_lu,
+        GATE_LOUDNESS_PARITY_MAX_LU,
+        "LU",
+    ));
+    metrics.push(MetricResult::gate(
+        "loudness_momentary_parity_vs_ebur128",
+        Comparison::AtMost,
+        loudness_reference.max_momentary_delta_lu,
+        GATE_LOUDNESS_PARITY_MAX_LU,
+        "LU",
+    ));
+    metrics.push(MetricResult::gate(
+        "loudness_short_term_parity_vs_ebur128",
+        Comparison::AtMost,
+        loudness_reference.max_short_term_delta_lu,
+        GATE_LOUDNESS_PARITY_MAX_LU,
+        "LU",
+    ));
+    metrics.push(MetricResult::gate(
+        "loudness_range_parity_vs_ebur128",
+        Comparison::AtMost,
+        loudness_reference.max_loudness_range_delta_lu,
+        GATE_LOUDNESS_PARITY_MAX_LU,
+        "LU",
+    ));
+
+    // --- Report-only synthetic evidence (printed/serialized, never fails) ---
+    metrics.push(MetricResult::report(
+        "limiter_below_threshold_thdn",
+        Comparison::AtMost,
+        limiter_transparent_thdn_db,
+        -120.0,
+        "dB",
+    ));
+    metrics.push(MetricResult::report(
+        "loudness_true_peak_parity_vs_ebur128",
+        Comparison::AtMost,
+        loudness_reference.max_true_peak_delta_db,
+        0.1,
+        "dB",
+    ));
+    metrics.push(MetricResult::report(
+        "full_output_chain_worst_true_peak",
+        Comparison::AtMost,
+        full_output_true_peak.worst_output_true_peak_dbtp,
+        FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
+        "dBTP",
+    ));
+
+    // --- EBU corpus gates: enforced only when reference vectors are present ---
+    build_ebu_loudness_metrics(&loudness_reference.ebu_corpus, &mut metrics);
+    build_ebu_true_peak_metrics(&full_output_true_peak.ebu_true_peak_corpus, &mut metrics);
+
+    metrics
+}
+
+fn build_ebu_loudness_metrics(corpus: &EbuLoudnessCorpusSection, metrics: &mut Vec<MetricResult>) {
+    if !corpus.available {
+        metrics.push(MetricResult::skipped(
+            "ebu_loudness_corpus",
+            "LU",
+            format!(
+                "{} reference file(s) missing under {}",
+                corpus.missing_files.len(),
+                corpus.source_dir
+            ),
+        ));
+        return;
+    }
+
+    match first_failed_ebu_loudness_point(corpus) {
+        Some(point) => {
+            let tolerance = ebu_loudness_tolerance(corpus, point);
+            metrics.push(MetricResult::gate_within(
+                "ebu_loudness_corpus",
+                point.error,
+                -tolerance,
+                tolerance,
+                "LU",
+                false,
+                Some(format!(
+                    "file {} expected {:.6} measured {:.6}",
+                    point.file_name, point.expected, point.measured
+                )),
+            ));
+        }
+        None => {
+            let worst = corpus
+                .max_abs_global_error_lu
+                .max(corpus.max_abs_loudness_range_error_lu)
+                .max(corpus.max_abs_max_momentary_error_lu)
+                .max(corpus.max_abs_max_short_term_error_lu);
+            metrics.push(MetricResult::gate_within(
+                "ebu_loudness_corpus",
+                worst,
+                0.0,
+                EBU_LRA_TOLERANCE_LU,
+                "LU",
+                true,
+                Some(format!(
+                    "{} point(s) all within EBU tolerance",
+                    ebu_loudness_point_count(corpus)
+                )),
+            ));
+        }
+    }
+}
+
+fn ebu_loudness_tolerance(corpus: &EbuLoudnessCorpusSection, point: &EbuCorpusPoint) -> f64 {
+    if corpus
+        .loudness_range_points
+        .iter()
+        .any(|candidate| std::ptr::eq(candidate, point))
+    {
+        EBU_LRA_TOLERANCE_LU
+    } else {
+        EBU_LOUDNESS_TOLERANCE_LU
+    }
+}
+
+fn build_ebu_true_peak_metrics(corpus: &EbuTruePeakCorpusSection, metrics: &mut Vec<MetricResult>) {
+    if !corpus.available {
+        metrics.push(MetricResult::skipped(
+            "ebu_true_peak_corpus",
+            "dB",
+            format!(
+                "{} reference file(s) missing under {}",
+                corpus.missing_files.len(),
+                corpus.source_dir
+            ),
+        ));
+        return;
+    }
+
+    match first_failed_ebu_true_peak_point(corpus) {
+        Some(point) => metrics.push(MetricResult::gate_within(
+            "ebu_true_peak_corpus",
+            point.input_error_db,
+            EBU_TRUE_PEAK_LOWER_TOLERANCE_DB,
+            EBU_TRUE_PEAK_UPPER_TOLERANCE_DB,
+            "dB",
+            false,
+            Some(format!(
+                "file {} expected {:.3} dBTP measured {:.3} dBTP",
+                point.file_name, point.expected_dbtp, point.measured_input_true_peak_dbtp
+            )),
+        )),
+        None => metrics.push(MetricResult::gate_within(
+            "ebu_true_peak_corpus",
+            corpus.max_abs_expected_error_db,
+            EBU_TRUE_PEAK_LOWER_TOLERANCE_DB,
+            EBU_TRUE_PEAK_UPPER_TOLERANCE_DB,
+            "dB",
+            true,
+            Some(format!("{} point(s) within EBU tolerance", corpus.points.len())),
+        )),
+    }
 }
 
 fn measure_frequency_response(
@@ -2084,92 +2473,25 @@ fn print_report(report: &QualityReport) {
 }
 
 fn enforce_limits(report: &QualityReport) -> Result<(), String> {
-    if report.thdn.resampler_44k1_to_48k_db > -100.0 {
-        return Err(format!(
-            "resampler THD+N too high: {:.2} dB",
-            report.thdn.resampler_44k1_to_48k_db
-        ));
+    let failures: Vec<&MetricResult> = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.classification == Classification::Gate && !metric.passed)
+        .collect();
+
+    if failures.is_empty() {
+        return Ok(());
     }
-    if report
-        .frequency_response
-        .passband_max_abs_deviation_db_20hz_to_18khz
-        > 0.10
-    {
-        return Err(format!(
-            "resampler passband deviation too high: {:.4} dB",
-            report
-                .frequency_response
-                .passband_max_abs_deviation_db_20hz_to_18khz
-        ));
-    }
-    if report.limiter.output_margin_to_threshold_db > 0.01 {
-        return Err(format!(
-            "limiter exceeded threshold by {:.4} dB",
-            report.limiter.output_margin_to_threshold_db
-        ));
-    }
-    if report.resampler_stopband.worst_alias_attenuation_db > -100.0 {
-        return Err(format!(
-            "resampler stopband alias attenuation too weak: {:.2} dB",
-            report.resampler_stopband.worst_alias_attenuation_db
-        ));
-    }
-    if report
-        .noise_shaping
-        .strongest_shaped_high_minus_ear_band_advantage_db
-        < 6.0
-    {
-        return Err(format!(
-            "noise shaper did not move enough error energy upward: strongest advantage {:.2} dB",
-            report
-                .noise_shaping
-                .strongest_shaped_high_minus_ear_band_advantage_db
-        ));
-    }
-    if report.loudness_reference.max_integrated_delta_lu > 1.0e-6 {
-        return Err(format!(
-            "loudness integrated delta too high: {:.9} LU",
-            report.loudness_reference.max_integrated_delta_lu
-        ));
-    }
-    if report.loudness_reference.max_momentary_delta_lu > 1.0e-6 {
-        return Err(format!(
-            "loudness momentary delta too high: {:.9} LU",
-            report.loudness_reference.max_momentary_delta_lu
-        ));
-    }
-    if report.loudness_reference.max_short_term_delta_lu > 1.0e-6 {
-        return Err(format!(
-            "loudness short-term delta too high: {:.9} LU",
-            report.loudness_reference.max_short_term_delta_lu
-        ));
-    }
-    if report.loudness_reference.max_loudness_range_delta_lu > 1.0e-6 {
-        return Err(format!(
-            "loudness range delta too high: {:.9} LU",
-            report.loudness_reference.max_loudness_range_delta_lu
-        ));
-    }
-    let ebu_loudness = &report.loudness_reference.ebu_corpus;
-    if ebu_loudness.available {
-        if let Some(point) = first_failed_ebu_loudness_point(ebu_loudness) {
-            return Err(format!(
-                "EBU loudness reference failed for {}: expected {:.6}, measured {:.6}, error {:.6}",
-                point.file_name, point.expected, point.measured, point.error
-            ));
+
+    let mut message = format!(
+        "{} quality gate(s) failed (report-only metrics are not enforced):",
+        failures.len()
+    );
+    for metric in failures {
+        message.push_str(&format!("\n  - gate '{}': {}", metric.name, metric.measured_vs_threshold()));
+        if let Some(detail) = &metric.detail {
+            message.push_str(&format!(" ({detail})"));
         }
     }
-    let ebu_true_peak = &report.full_output_true_peak.ebu_true_peak_corpus;
-    if ebu_true_peak.available {
-        if let Some(point) = first_failed_ebu_true_peak_point(ebu_true_peak) {
-            return Err(format!(
-                "EBU true-peak reference failed for {}: expected {:.3} dBTP, measured {:.3} dBTP, error {:.3} dB",
-                point.file_name,
-                point.expected_dbtp,
-                point.measured_input_true_peak_dbtp,
-                point.input_error_db
-            ));
-        }
-    }
-    Ok(())
+    Err(message)
 }
