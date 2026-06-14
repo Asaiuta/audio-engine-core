@@ -60,6 +60,28 @@ Concretely:
   (non-finite samples, sample-rate changes) where the processor is stateful.
 - Run `cargo clippy --all-targets -- -D warnings` clean.
 
+## Benchmark Gate Convention
+
+The quality benches (`benches/`, custom-main `harness = false`) follow a
+report-vs-gate contract established by `audio_quality_measurements.rs`. New or
+extended benches must keep it:
+
+- **Classify every metric** as `gate` (fails the run), `report` (evidence only,
+  never fails), or `skipped` (a gate whose reference inputs are absent — e.g.
+  the EBU corpus). A missing corpus is reported as `skipped` with the
+  missing-file count, **never a silent pass**.
+- **`--enforce`** turns gate failures into a non-zero exit; the diagnostic must
+  name the metric and print measured-vs-threshold. Without `--enforce` the bench
+  only reports.
+- **`--out <path>`** emits machine-readable JSON (classified metric table +
+  conditions) so README/doc values are traceable to a specific run.
+- **Conservative thresholds.** Gate margins must survive debug/release and
+  cross-CPU/compiler variance. Tight gates are only for deterministic
+  bit-parity metrics (e.g. `LoudnessMeter` vs `ebur128` at `1e-6 LU`);
+  float/FFT/timing-dependent metrics get wide margins or stay `report`. Record
+  the observed value and margin rationale in the task's benchmark inventory.
+- **No network**, and `--quick` must stay fast for local dev.
+
 ## Code Review Checklist
 
 - [ ] Hot path: no alloc/lock/log/IO/panic/unbounded work.

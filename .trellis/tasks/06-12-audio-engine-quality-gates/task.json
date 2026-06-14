@@ -3,7 +3,7 @@
   "name": "audio-engine-quality-gates",
   "title": "Audio quality gates and benchmark evidence",
   "description": "Turn audio-quality and realtime-performance claims into repeatable benchmark gates and documented evidence.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "quality",
   "scope": "audio quality measurements, performance benches, README evidence policy",
   "package": "backend",
