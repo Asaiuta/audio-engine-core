@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/06-12-audio-engine-decoder-format-capability/research/decoder-capability-audit.md", "reason": "Verify the implementation closed the audited gaps: typed errors on unsupported/corrupt input, seek tolerance asserted, and the post-seek encoder_delay re-trim bug is fixed"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Confirm new error paths follow the crate's typed-error conventions and no panic in the decode path"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Evidence policy — README/format-support claims may only be updated after the corresponding tests pass"}

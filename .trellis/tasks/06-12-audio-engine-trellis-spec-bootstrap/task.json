@@ -1,0 +1,36 @@
+{
+  "id": "audio-engine-trellis-spec-bootstrap",
+  "name": "audio-engine-trellis-spec-bootstrap",
+  "title": "Trellis backend spec bootstrap for audio core",
+  "description": "Populate Trellis backend spec files with actual Rust/audio-core conventions before implementing the larger feature roadmap.",
+  "status": "in_progress",
+  "dev_type": "docs",
+  "scope": "Trellis backend spec, realtime DSP conventions, task context quality",
+  "package": "backend",
+  "priority": "P1",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    ".trellis/spec/backend/index.md",
+    ".trellis/spec/backend/directory-structure.md",
+    ".trellis/spec/backend/error-handling.md",
+    ".trellis/spec/backend/logging-guidelines.md",
+    ".trellis/spec/backend/quality-guidelines.md",
+    "CONTRIBUTING.md",
+    "README.md"
+  ],
+  "notes": "The current Trellis backend spec is still mostly bootstrap text; this should precede complex implementation tasks.",
+  "meta": {
+    "theme": "spec-bootstrap"
+  }
+}

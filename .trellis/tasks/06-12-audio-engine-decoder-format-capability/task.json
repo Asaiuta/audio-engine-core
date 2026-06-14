@@ -1,0 +1,34 @@
+{
+  "id": "audio-engine-decoder-format-capability",
+  "name": "audio-engine-decoder-format-capability",
+  "title": "Decoder and format capability upgrades",
+  "description": "Audit and extend decoder, metadata, seek, and format capability boundaries around Symphonia-based streaming decode.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "decoder, metadata, streaming source, format support, gapless/seek correctness",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/decoder/streaming.rs",
+    "src/decoder/source.rs",
+    "src/decoder/metadata.rs",
+    "src/decoder/tests.rs",
+    "src/decoder/error.rs"
+  ],
+  "notes": "Keeps Symphonia as the base but makes supported/unsupported format behavior explicit and testable.",
+  "meta": {
+    "theme": "format-capability"
+  }
+}

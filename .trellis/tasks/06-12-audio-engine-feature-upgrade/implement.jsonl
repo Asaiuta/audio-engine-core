@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend project guidance and links to local conventions."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing, benchmark, and realtime-safety expectations."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Consistent invalid input and failure handling."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Avoid hot-path logging and keep benchmark output useful."}
+{"file": ".trellis/tasks/06-12-audio-engine-feature-upgrade/research/current-algorithm-audit.md", "reason": "Shared source-backed audit and evidence policy."}
+{"file": ".trellis/spec/guides/index.md", "reason": "Cross-cutting planning and design guidance."}

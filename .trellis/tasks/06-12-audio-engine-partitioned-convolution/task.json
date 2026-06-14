@@ -1,0 +1,34 @@
+{
+  "id": "audio-engine-partitioned-convolution",
+  "name": "audio-engine-partitioned-convolution",
+  "title": "Partitioned convolution for long impulse responses",
+  "description": "Introduce a partitioned FFT convolution path for long impulse responses while retaining the current short-IR path.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "FFT convolution performance and long impulse response scalability",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/processor/convolver.rs",
+    "src/processor/fir_eq.rs",
+    "src/processor/adapters.rs",
+    "benches/audio_convolver_perf.rs",
+    "benches/audio_fir_eq_perf.rs"
+  ],
+  "notes": "Current overlap-save convolver is good for short/medium IRs; long room/reverb IRs need partitioning to keep callback cost bounded.",
+  "meta": {
+    "routing_rule": "Keep FFTConvolver for short IRs and add a measured threshold for partitioned mode."
+  }
+}

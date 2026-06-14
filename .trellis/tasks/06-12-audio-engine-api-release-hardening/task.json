@@ -1,0 +1,37 @@
+{
+  "id": "audio-engine-api-release-hardening",
+  "name": "audio-engine-api-release-hardening",
+  "title": "Public API and crate release hardening",
+  "description": "Stabilize public API, feature flags, documentation, examples, and crate release readiness after DSP capability work.",
+  "status": "planning",
+  "dev_type": "release-hardening",
+  "scope": "public API, semver, feature flags, docs, examples, packaging",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/lib.rs",
+    "Cargo.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "NOTICE",
+    "examples/resample_sine.rs",
+    "examples/equalizer_curve.rs"
+  ],
+  "notes": "Should run after behavior tasks settle so the public crate surface reflects actual capabilities.",
+  "meta": {
+    "theme": "public-crate-readiness"
+  }
+}

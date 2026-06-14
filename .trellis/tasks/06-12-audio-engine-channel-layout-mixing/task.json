@@ -1,0 +1,34 @@
+{
+  "id": "audio-engine-channel-layout-mixing",
+  "name": "audio-engine-channel-layout-mixing",
+  "title": "Channel layout mixing and mapping",
+  "description": "Add explicit channel layout mapping, downmix, and multichannel validation rules for DSP and decode paths.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "channel layout metadata, downmix/upmix policy, multichannel DSP safety",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/decoder/metadata.rs",
+    "src/decoder/streaming.rs",
+    "src/processor/loudness/meter.rs",
+    "src/processor/dsp_chain.rs",
+    "src/processor/adapters.rs"
+  ],
+  "notes": "Covers 5.1/7.1 layout correctness and channel-order assumptions that are not solved by individual DSP modules.",
+  "meta": {
+    "theme": "channel-layout"
+  }
+}

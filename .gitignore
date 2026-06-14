@@ -8,3 +8,11 @@ Cargo.lock
 # Editor / OS noise
 *.swp
 .DS_Store
+
+# Local agent-tooling scaffolding (per-developer, not part of the crate or the
+# tracked Trellis workflow). Trellis itself lives under .trellis/ and IS tracked.
+.agents/
+.claude/
+.codex/
+.snow/
+AGENTS.md

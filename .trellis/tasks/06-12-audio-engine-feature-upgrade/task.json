@@ -1,0 +1,62 @@
+{
+  "id": "audio-engine-feature-upgrade",
+  "name": "audio-engine-feature-upgrade",
+  "title": "Audio engine feature upgrade roadmap",
+  "description": "Plan and split audio-engine feature upgrades needed to move from mature DSP building blocks toward evidence-backed high-end playback processing.",
+  "status": "planning",
+  "dev_type": "feature-planning",
+  "scope": "audio DSP feature roadmap and task decomposition",
+  "package": "backend",
+  "priority": "P1",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "06-12-audio-engine-true-peak-limiter",
+    "06-12-audio-engine-quality-gates",
+    "06-12-audio-engine-oversampled-saturation",
+    "06-12-audio-engine-partitioned-convolution",
+    "06-12-audio-engine-eq-perceptual-dsp",
+    "06-12-audio-engine-decoder-format-capability",
+    "06-12-audio-engine-channel-layout-mixing",
+    "06-12-audio-engine-api-release-hardening",
+    "06-12-audio-engine-trellis-spec-bootstrap"
+  ],
+  "parent": null,
+  "relatedFiles": [
+    "src/processor/loudness/limiter.rs",
+    "src/processor/loudness/meter.rs",
+    "src/processor/saturation.rs",
+    "src/processor/convolver.rs",
+    "src/processor/eq.rs",
+    "src/processor/fir_eq.rs",
+    "src/processor/dynamic_loudness.rs",
+    "src/processor/crossfeed.rs",
+    "src/decoder/streaming.rs",
+    "src/decoder/metadata.rs",
+    "benches/audio_quality_measurements.rs",
+    "README.md"
+  ],
+  "notes": "Created after source-backed algorithm audit: not every current DSP module is industry-leading; upgrades should prioritize measurable gaps before marketing claims.",
+  "meta": {
+    "recommended_sequence": [
+      "06-12-audio-engine-trellis-spec-bootstrap",
+      "06-12-audio-engine-quality-gates",
+      "06-12-audio-engine-true-peak-limiter",
+      "06-12-audio-engine-oversampled-saturation",
+      "06-12-audio-engine-partitioned-convolution",
+      "06-12-audio-engine-eq-perceptual-dsp",
+      "06-12-audio-engine-channel-layout-mixing",
+      "06-12-audio-engine-decoder-format-capability",
+      "06-12-audio-engine-api-release-hardening"
+    ],
+    "coverage_note": "Expanded after follow-up to include omitted EQ/perceptual DSP, decoder/format, channel layout, API/release, and Trellis spec work."
+  }
+}

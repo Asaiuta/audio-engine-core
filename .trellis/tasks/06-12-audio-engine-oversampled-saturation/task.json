@@ -1,0 +1,34 @@
+{
+  "id": "audio-engine-oversampled-saturation",
+  "name": "audio-engine-oversampled-saturation",
+  "title": "Oversampled anti aliasing saturation",
+  "description": "Add anti-aliasing or oversampled processing for the nonlinear saturation modes while preserving realtime safety.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "saturation DSP quality modes and aliasing measurements",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-12",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/processor/saturation.rs",
+    "src/processor/adapters.rs",
+    "src/processor/lockfree_params.rs",
+    "benches/audio_quality_measurements.rs",
+    "benches/audio_callback_chain_perf.rs"
+  ],
+  "notes": "Current tanh/exp/cubic waveshaping is classic but can alias on high-frequency or driven material.",
+  "meta": {
+    "quality_target": "Show reduced alias energy versus current fullband saturation at equal settings."
+  }
+}
