@@ -29,6 +29,36 @@ larger player continues to evolve.
 
 Those layers remain in the root Lyne application crate.
 
+## Decoding & Format Support
+
+Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) with all
+of its bundled codecs/containers compiled in. The crate does not add custom
+codecs; instead it makes the support boundary explicit and tested.
+
+- **Supported input** is whatever the bundled Symphonia build can probe and
+  decode (e.g. WAV, FLAC, MP3, AAC/MP4, OGG/Vorbis). `StreamingDecoder` exposes
+  the decoded sample rate, channel count, and (when known) total frame count and
+  duration via `decoder.info`. Positional channel layout is not yet surfaced;
+  only the channel *count* is reported.
+- **Unsupported / unrecognized input** returns the typed
+  `DecoderError::UnsupportedFormat` rather than a generic stringly error. A
+  container that probes but has no decodable audio track returns
+  `DecoderError::NoAudioTrack`.
+- **Corrupt or truncated input** has a defined policy: the decoder either
+  returns a typed error or yields the partial samples it could recover. It never
+  panics and never silently reports a full successful decode of missing data.
+
+### Seeking
+
+`StreamingDecoder::seek` uses Symphonia's `SeekMode::Coarse` only; a sample-exact
+(`Accurate`) mode is intentionally not exposed. A coarse seek lands on a
+packet/frame boundary at or before the requested time, so the realized position
+has bounded inaccuracy — treat it as "within roughly one packet of the target"
+rather than sample-exact. The documented bound is
+`StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`, and the realized position is
+readable via `decoder.current_frame()`. Encoder-delay (gapless) trimming applies
+only at the true start of the stream, never after a seek.
+
 ## Cargo Features
 
 Both features below are enabled by default. Disable them with
