@@ -13,6 +13,15 @@ use super::source::{
 };
 
 /// Streaming audio decoder using Symphonia.
+///
+/// ## Seek contract
+///
+/// [`StreamingDecoder::seek`] uses Symphonia's `SeekMode::Coarse` only; a
+/// sample-exact (`Accurate`) mode is intentionally not exposed. Coarse seeking
+/// lands on a packet/frame boundary at or before the requested time, so the
+/// post-seek position has bounded inaccuracy. Callers must treat the realized
+/// position as "within roughly one packet of the target" rather than
+/// sample-exact (see [`StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`]).
 pub struct StreamingDecoder {
     format_reader: Box<dyn symphonia::core::formats::FormatReader>,
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
@@ -21,6 +30,12 @@ pub struct StreamingDecoder {
     sample_buf: Option<SampleBuffer<f64>>,
     samples_output: u64,
     finished: bool,
+    /// True only while the decoder is positioned at the true start of the
+    /// stream and the leading `encoder_delay` has not yet been consumed. Set
+    /// to `false` once start-delay trimming completes, and crucially is *not*
+    /// re-armed by [`StreamingDecoder::seek`] — encoder-delay compensation must
+    /// apply at true stream start only, never after an arbitrary seek.
+    at_stream_start: bool,
     cancel_token: Option<DecodeCancelToken>,
 }
 
@@ -47,7 +62,7 @@ impl StreamingDecoder {
         let metadata_opts = MetadataOptions::default();
         let mut probed = symphonia::default::get_probe()
             .format(&hint, mss, &format_opts, &metadata_opts)
-            .map_err(|e| DecoderError::Probe(e.to_string()))?;
+            .map_err(map_probe_error)?;
 
         let mut metadata = extract_metadata(&mut probed);
 
@@ -111,9 +126,21 @@ impl StreamingDecoder {
             sample_buf: None,
             samples_output: 0,
             finished: false,
+            at_stream_start: true,
             cancel_token,
         })
     }
+
+    /// Documented post-seek position tolerance, in frames.
+    ///
+    /// [`StreamingDecoder::seek`] is `SeekMode::Coarse`, which lands at or
+    /// before the requested time on a packet boundary. The realized first-frame
+    /// position after a seek may therefore differ from the exact target by up
+    /// to (roughly) one packet. Tests assert the realized position falls within
+    /// this many frames of the requested target rather than claiming
+    /// sample-exact seeking. The value is generous enough to cover the largest
+    /// common packet sizes (e.g. AAC 1024, MP3 1152) plus codec priming.
+    pub const SEEK_COARSE_TOLERANCE_FRAMES: u64 = 4_096;
 
     pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
         if self.finished {
@@ -184,15 +211,26 @@ impl StreamingDecoder {
             let mut start = 0;
             let mut end = samples.len();
 
-            let delay_frames = self.info.encoder_delay as u64;
-            let delay_samples = delay_frames * channels as u64;
-            if self.samples_output < delay_samples {
-                let skip = (delay_samples - self.samples_output).min(end as u64) as usize;
-                start += skip;
-                self.samples_output += skip as u64;
-                if start == end {
-                    continue;
+            // Encoder-delay trimming applies ONLY at the true start of the
+            // stream. `at_stream_start` is cleared once the leading delay is
+            // fully consumed and is never re-armed by `seek()`, so a seek to a
+            // non-zero position does not re-trim `encoder_delay` from the
+            // post-seek stream.
+            if self.at_stream_start {
+                let delay_frames = self.info.encoder_delay as u64;
+                let delay_samples = delay_frames * channels as u64;
+                if self.samples_output < delay_samples {
+                    let skip = (delay_samples - self.samples_output).min(end as u64) as usize;
+                    start += skip;
+                    self.samples_output += skip as u64;
+                    if start == end {
+                        continue;
+                    }
                 }
+                // Either there was no delay or it has now been fully skipped;
+                // real audio samples are about to be emitted, so we have left
+                // the start-of-stream region.
+                self.at_stream_start = false;
             }
 
             let total_frames = self.info.total_frames.unwrap_or(u64::MAX);
@@ -280,6 +318,17 @@ impl StreamingDecoder {
         Ok(all_samples)
     }
 
+    /// Seek to `time_secs` using Symphonia's coarse seek mode.
+    ///
+    /// Seeking is **Coarse only** (`SeekMode::Coarse`): the decoder lands on a
+    /// packet boundary at or before the requested time, so the realized
+    /// position has bounded inaccuracy (see [`Self::SEEK_COARSE_TOLERANCE_FRAMES`]).
+    /// A sample-exact (`Accurate`) mode is intentionally not offered.
+    ///
+    /// `samples_output` is reset so end-padding accounting tracks the new
+    /// position, but encoder-delay trimming is **not** re-armed: the leading
+    /// `encoder_delay` is only trimmed at the true start of the stream, never
+    /// after a seek to a non-zero position.
     pub fn seek(&mut self, time_secs: f64) -> Result<(), DecoderError> {
         use symphonia::core::formats::SeekTo;
         use symphonia::core::units::Time;
@@ -289,14 +338,62 @@ impl StreamingDecoder {
             track_id: Some(self.track_id),
         };
 
-        self.format_reader
+        let seeked_to = self
+            .format_reader
             .seek(symphonia::core::formats::SeekMode::Coarse, seek_to)
-            .map_err(|e| DecoderError::Decoder(e.to_string()))?;
+            .map_err(map_seek_error)?;
 
         self.decoder.reset();
         self.finished = false;
-        self.samples_output = 0;
+        // Track the realized seek position (in frames) so end-padding trimming
+        // stays correct relative to the stream. Crucially, `at_stream_start`
+        // is NOT reset to true here, so the post-seek stream is not re-trimmed
+        // for encoder delay.
+        self.samples_output = seeked_to.actual_ts.saturating_mul(self.info.channels as u64);
+        self.at_stream_start = false;
 
         Ok(())
+    }
+
+    /// Realized first-decoded-frame position after the most recent seek, in
+    /// frames. Returns `samples_output / channels`; immediately after a
+    /// successful `seek()` this reflects the coarse seek target.
+    pub fn current_frame(&self) -> u64 {
+        let channels = self.info.channels.max(1) as u64;
+        self.samples_output / channels
+    }
+}
+
+/// Map a Symphonia probe failure to a typed [`DecoderError`].
+///
+/// Genuinely unrecognized / unsupported container input surfaces as the typed
+/// [`DecoderError::UnsupportedFormat`] rather than a stringly generic error.
+/// Symphonia signals "no registered format matched the input" as either
+/// `Error::Unsupported` or, for short/garbage byte streams that exhaust the
+/// probe window, an `Error::IoError(UnexpectedEof)`; both mean "this is not a
+/// container we can decode", so both map to `UnsupportedFormat`. Any other
+/// failure keeps its description under [`DecoderError::Probe`] (documented
+/// reason string).
+fn map_probe_error(e: symphonia::core::errors::Error) -> DecoderError {
+    use symphonia::core::errors::Error;
+    match e {
+        Error::Unsupported(_) => DecoderError::UnsupportedFormat,
+        Error::IoError(io) if io.kind() == std::io::ErrorKind::UnexpectedEof => {
+            DecoderError::UnsupportedFormat
+        }
+        other => DecoderError::Probe(other.to_string()),
+    }
+}
+
+/// Map a Symphonia seek failure to a typed [`DecoderError`].
+///
+/// Unsupported/unseekable streams surface as [`DecoderError::UnsupportedFormat`]
+/// rather than a stringly-typed generic error; other failures keep their
+/// description under [`DecoderError::Decoder`].
+fn map_seek_error(e: symphonia::core::errors::Error) -> DecoderError {
+    use symphonia::core::errors::Error;
+    match e {
+        Error::Unsupported(_) => DecoderError::UnsupportedFormat,
+        other => DecoderError::Decoder(other.to_string()),
     }
 }

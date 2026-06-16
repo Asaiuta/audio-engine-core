@@ -3,7 +3,7 @@
   "name": "audio-engine-decoder-format-capability",
   "title": "Decoder and format capability upgrades",
   "description": "Audit and extend decoder, metadata, seek, and format capability boundaries around Symphonia-based streaming decode.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature",
   "scope": "decoder, metadata, streaming source, format support, gapless/seek correctness",
   "package": "backend",
