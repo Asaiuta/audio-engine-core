@@ -1,5 +1,6 @@
 //! EBU R128 loudness meter and 4x FIR true peak detector.
 
+use crate::channel_layout::{ChannelLayout, ChannelPosition};
 use crate::processor::dsp::linear_to_db;
 use std::sync::OnceLock;
 
@@ -36,8 +37,39 @@ pub struct LoudnessMeter {
 
 impl LoudnessMeter {
     pub fn new(channels: usize, sample_rate: u32) -> Self {
+        Self::with_layout(&ChannelLayout::from_count(channels), sample_rate)
+    }
+
+    /// Create a meter with an explicit channel layout.
+    ///
+    /// The layout sets the EBU R128 channel map explicitly instead of relying
+    /// on ebur128's channel-index default. This matters for layouts the default
+    /// map handles incorrectly: for 8-channel input the default leaves channels
+    /// 6–7 (the 7.1 side/back surrounds) `Unused`, so they contribute nothing
+    /// to loudness; an explicit layout weights them as surrounds (+1.5 dB) per
+    /// EBU R128. The LFE channel is always excluded from the measurement.
+    ///
+    /// For mono/stereo/5.1 the derived map matches ebur128's default, so
+    /// existing measurements are unchanged.
+    pub fn with_layout(layout: &ChannelLayout, sample_rate: u32) -> Self {
+        let channels = layout.channel_count();
+        // Construction-time only (not the hot path): allocating the channel map
+        // and (re)designing the ebur128 state here is allowed.
         let ebur128 =
-            ebur128::EbuR128::new(channels as u32, sample_rate, ebur128::Mode::all()).ok();
+            match ebur128::EbuR128::new(channels as u32, sample_rate, ebur128::Mode::all()) {
+                Ok(mut ebur) => {
+                    let channel_map: Vec<ebur128::Channel> = layout
+                        .positions()
+                        .iter()
+                        .map(|p| ebur128_channel(*p))
+                        .collect();
+                    // Falls back to the ebur128 default map if this ever fails;
+                    // never blocks meter creation.
+                    let _ = ebur.set_channel_map(&channel_map);
+                    Some(ebur)
+                }
+                Err(_) => None,
+            };
 
         // Create true peak detector for each channel
         let true_peak_detectors = (0..channels).map(|_| TruePeakDetector::new()).collect();
@@ -309,6 +341,27 @@ fn sinc(x: f64) -> f64 {
     }
 }
 
+/// Map a [`ChannelPosition`] to the corresponding `ebur128::Channel` for R128
+/// weighting. Surround (rear/side) positions become `LeftSurround`/
+/// `RightSurround` (weighted +1.5 dB); LFE and unclassified channels become
+/// `Unused` (excluded from the measurement).
+fn ebur128_channel(position: ChannelPosition) -> ebur128::Channel {
+    use ebur128::Channel as C;
+    use ChannelPosition as P;
+    match position {
+        P::FrontLeft => C::Left,
+        P::FrontRight => C::Right,
+        P::FrontCenter => C::Center,
+        P::LowFrequency => C::Unused,
+        P::RearLeft | P::SideLeft => C::LeftSurround,
+        P::RearRight | P::SideRight => C::RightSurround,
+        P::FrontLeftCenter => C::MpSC,
+        P::FrontRightCenter => C::MmSC,
+        P::RearCenter => C::Mp180,
+        P::Unspecified => C::Unused,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +489,67 @@ mod tests {
 
         assert!(detector.max_true_peak() >= 1.0);
         assert!(detector.max_true_peak() < 1.1);
+    }
+
+    /// A steady tone placed only in a channel, at `sample_rate` for 1 second.
+    fn tone_in_channel(channels: usize, channel: usize, sample_rate: u32) -> Vec<f64> {
+        let frames = sample_rate as usize;
+        let mut samples = vec![0.0; frames * channels];
+        for f in 0..frames {
+            let s = (f as f64 * std::f64::consts::TAU * 997.0 / sample_rate as f64).sin() * 0.1;
+            samples[f * channels + channel] = s;
+        }
+        samples
+    }
+
+    #[test]
+    fn explicit_layout_weights_7_1_side_surrounds_like_rear_surrounds() {
+        use crate::channel_layout::ChannelLayout;
+        let sample_rate = 48_000;
+        let layout = ChannelLayout::surround_7_1();
+
+        let measure = |channel: usize| {
+            let mut meter = LoudnessMeter::with_layout(&layout, sample_rate);
+            meter.process(&tone_in_channel(8, channel, sample_rate));
+            meter.integrated_loudness()
+        };
+
+        let rear_left = measure(4); // Ls — weighted by ebur128's default map too
+        let side_left = measure(6); // SL — default map leaves this channel Unused
+
+        assert!(rear_left.is_finite() && side_left.is_finite());
+        assert!(rear_left > -70.0, "rear-left surround measured {rear_left}");
+        // Both are surrounds with identical energy, so loudness should match.
+        assert!(
+            (rear_left - side_left).abs() < 0.1,
+            "Ls {rear_left} vs SL {side_left} should match (both surrounds)"
+        );
+    }
+
+    #[test]
+    fn explicit_layout_fixes_7_1_weighting_vs_ebur128_default_map() {
+        use crate::channel_layout::ChannelLayout;
+        let sample_rate = 48_000;
+        let samples = tone_in_channel(8, 6, sample_rate); // side-left only
+
+        // ebur128's DEFAULT 8-channel map marks channel 6 Unused, so the energy
+        // is dropped and no loudness registers.
+        let mut default_ebur =
+            ebur128::EbuR128::new(8, sample_rate, ebur128::Mode::all()).unwrap();
+        default_ebur.add_frames_f64(&samples).unwrap();
+        let default_loudness = default_ebur
+            .loudness_global()
+            .unwrap_or(f64::NEG_INFINITY);
+
+        // Our layout-mapped meter weights channel 6 as a surround.
+        let mut meter = LoudnessMeter::with_layout(&ChannelLayout::surround_7_1(), sample_rate);
+        meter.process(&samples);
+        let mapped_loudness = meter.integrated_loudness();
+
+        assert!(mapped_loudness > -70.0, "mapped loudness {mapped_loudness}");
+        assert!(
+            default_loudness < mapped_loudness - 10.0,
+            "default map {default_loudness} should be far below layout-mapped {mapped_loudness}"
+        );
     }
 }
