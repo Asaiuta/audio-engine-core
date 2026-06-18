@@ -15,7 +15,7 @@
   "branch": "feat/channel-layout-mixing",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "f9eb8ce",
   "pr_url": null,
   "subtasks": [],
   "children": [],
