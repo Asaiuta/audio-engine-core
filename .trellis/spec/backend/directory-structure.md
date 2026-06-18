@@ -18,6 +18,7 @@ layer — every module is a reusable primitive.
 ```
 src/
 ├── lib.rs            # crate root: module decls + curated public re-exports
+├── channel_layout.rs # ChannelLayout, ChannelPosition (positional channel roles)
 ├── config.rs         # LoudnessConfig, NormalizationMode
 ├── decoder.rs        # decoder module root (StreamingDecoder)
 ├── diagnostics.rs    # diagnostic helpers
@@ -43,6 +44,7 @@ src/
     ├── automix_analysis.rs # offline automix analysis
     ├── lockfree_params.rs  # atomic parameter snapshots (RT boundary)
     ├── adapters.rs   # AudioProcessor adapters over each processor
+    ├── downmix.rs    # Downmixer + DownmixCoefficients (pre-chain layout mapping)
     ├── dsp_chain.rs  # DspChain: composable processing chain
     ├── traits.rs     # AudioProcessor, ProcessResult
     ├── loudness_db.rs        # optional `loudness-db` feature (SQLite)

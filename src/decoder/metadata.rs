@@ -1,6 +1,8 @@
 use symphonia::core::meta::{MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::ProbeResult;
 
+use crate::channel_layout::ChannelLayout;
+
 /// Track metadata extracted from audio file tags.
 #[derive(Debug, Clone, Default)]
 pub struct TrackMetadata {
@@ -25,6 +27,14 @@ pub struct TrackMetadata {
 pub struct AudioInfo {
     pub sample_rate: u32,
     pub channels: usize,
+    /// Positional channel layout for the `channels` interleaved channels.
+    ///
+    /// Derived from the container's channel mask when available, otherwise a
+    /// best-effort standard layout for the channel count (see
+    /// [`ChannelLayout::from_count`]). Carries channel-order information that a
+    /// bare `channels` count cannot, so downstream downmix and loudness
+    /// weighting can reason about which slot is which speaker.
+    pub channel_layout: ChannelLayout,
     pub bits_per_sample: Option<u32>,
     pub total_frames: Option<u64>,
     pub duration_secs: Option<f64>,

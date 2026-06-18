@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use symphonia::core::audio::SampleBuffer;
+use symphonia::core::audio::{Channels, SampleBuffer};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::meta::MetadataOptions;
 
+use crate::channel_layout::{ChannelLayout, ChannelPosition};
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
 use super::source::{
@@ -81,6 +82,7 @@ impl StreamingDecoder {
         let codec_params = &track.codec_params;
         let sample_rate = codec_params.sample_rate.unwrap_or(44100);
         let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
+        let channel_layout = layout_from_codec(codec_params.channels, channels);
         let bits_per_sample = codec_params.bits_per_sample;
         let total_frames = codec_params.n_frames;
         let duration_secs = total_frames.map(|f| f as f64 / sample_rate as f64);
@@ -98,6 +100,7 @@ impl StreamingDecoder {
         let info = AudioInfo {
             sample_rate,
             channels,
+            channel_layout,
             bits_per_sample,
             total_frames,
             duration_secs,
@@ -382,6 +385,47 @@ fn map_probe_error(e: symphonia::core::errors::Error) -> DecoderError {
             DecoderError::UnsupportedFormat
         }
         other => DecoderError::Probe(other.to_string()),
+    }
+}
+
+/// Derive a positional [`ChannelLayout`] from the container's channel mask.
+///
+/// Symphonia reports channels in ascending channel-mask bit order, which is the
+/// same order it interleaves decoded samples, so we walk the known positions in
+/// that order. If the mask contains channels we do not classify (e.g. height
+/// channels) the derived count would be shorter than the actual interleave, so
+/// we fall back to a count-based layout to stay consistent with the buffer.
+fn layout_from_codec(channels: Option<Channels>, count: usize) -> ChannelLayout {
+    let Some(channels) = channels else {
+        return ChannelLayout::from_count(count);
+    };
+
+    // Ascending channel-mask bit order == Symphonia's interleave order.
+    let ordered = [
+        (Channels::FRONT_LEFT, ChannelPosition::FrontLeft),
+        (Channels::FRONT_RIGHT, ChannelPosition::FrontRight),
+        (Channels::FRONT_CENTRE, ChannelPosition::FrontCenter),
+        (Channels::LFE1, ChannelPosition::LowFrequency),
+        (Channels::REAR_LEFT, ChannelPosition::RearLeft),
+        (Channels::REAR_RIGHT, ChannelPosition::RearRight),
+        (Channels::FRONT_LEFT_CENTRE, ChannelPosition::FrontLeftCenter),
+        (Channels::FRONT_RIGHT_CENTRE, ChannelPosition::FrontRightCenter),
+        (Channels::REAR_CENTRE, ChannelPosition::RearCenter),
+        (Channels::SIDE_LEFT, ChannelPosition::SideLeft),
+        (Channels::SIDE_RIGHT, ChannelPosition::SideRight),
+    ];
+
+    let mut positions = Vec::with_capacity(count);
+    for (flag, position) in ordered {
+        if channels.contains(flag) {
+            positions.push(position);
+        }
+    }
+
+    if positions.len() == count {
+        ChannelLayout::from_positions(positions)
+    } else {
+        ChannelLayout::from_count(count)
     }
 }
 

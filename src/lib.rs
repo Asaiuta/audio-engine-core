@@ -25,6 +25,7 @@
 //!
 //! See the `examples/` directory for runnable resampling and EQ programs.
 
+pub mod channel_layout;
 pub mod config;
 pub mod decoder;
 pub mod diagnostics;
@@ -32,14 +33,15 @@ pub mod pipeline;
 pub mod processor;
 pub mod runtime;
 
+pub use channel_layout::{ChannelLayout, ChannelPosition};
 pub use config::{LoudnessConfig, NormalizationMode};
 pub use decoder::StreamingDecoder;
 pub use pipeline::{AudioPipeline, PipelineError};
 pub use processor::{
     analyze_automix, AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode,
-    AutomixAnalysisOptions, Equalizer, FFTConvolver, GainRamp, LoudnessInfo, LoudnessMeter,
-    LoudnessNormalizer, NoiseShaper, PeakLimiter, Resampler, SpectrumAnalyzer, StreamingResampler,
-    TruePeakDetector, VolumeController,
+    AutomixAnalysisOptions, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
+    GainRamp, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, PeakLimiter, Resampler,
+    SpectrumAnalyzer, StreamingResampler, TruePeakDetector, VolumeController,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

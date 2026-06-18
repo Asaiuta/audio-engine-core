@@ -39,6 +39,7 @@ mod spectrum;
 
 // New unified abstraction modules
 pub mod adapters;
+pub mod downmix;
 pub mod dsp_chain;
 pub mod lockfree_params;
 pub mod traits;
@@ -73,6 +74,7 @@ pub use adapters::{
     NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
 };
 pub use dsp_chain::DspChain;
+pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
