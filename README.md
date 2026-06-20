@@ -212,6 +212,8 @@ replace listening tests.
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | -294.7 dB |
 | Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
 | Limiter below-threshold THD+N | -238.3 dB |
+| True-peak mode, intersample-stress output (input +0.10 dBTP / -3.01 dBFS) | -1.00 dBTP |
+| Sample-peak mode, same input (never engages) | +0.10 dBTP |
 | `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
 
 The noise shapers (`NoiseShaper`) redistribute quantization error spectrally
@@ -224,10 +226,15 @@ check. It is skipped unless the `libebur128/test` reference vectors are present
 (they are not bundled with this crate); the deterministic `LoudnessMeter` parity
 fixtures above always run.
 
-One known limitation, kept visible: the sample-peak/lookahead limiter is not an
-intersample-true-peak guarantee. The full output-chain true-peak probe is
-report-only, and on stressed material it can leave the worst true peak close to
-the limiter ceiling rather than below a strict -1 dBTP target.
+`PeakLimiter` defaults to 4x-oversampled intersample (true-peak) detection: on
+an intersample-stress signal whose sample peak sits below the ceiling but whose
+true peak is +0.10 dBTP, true-peak mode pulls the output to -1.00 dBTP while the
+legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. The limiter
+runs at source rate, so one known limitation is kept visible: the full
+output-chain true-peak probe is report-only, and resampling plus final
+quantization downstream of the limiter can re-introduce intersample peaks, so on
+stressed material the worst end-to-end true peak can still land close to the
+ceiling rather than strictly below the -1 dBTP target.
 
 ## License
 

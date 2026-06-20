@@ -1,0 +1,35 @@
+{
+  "id": "audio-engine-output-render-chain",
+  "name": "audio-engine-output-render-chain",
+  "title": "Unified output render chain",
+  "description": "Unify offline quality rendering, callback/perf-chain construction, and output-chain measurement around one canonical node-order definition.",
+  "status": "in_progress",
+  "dev_type": "refactor",
+  "scope": "output render chain, DSP chain builder, quality/performance benches",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "Asaiuta",
+  "assignee": "Asaiuta",
+  "createdAt": "2026-06-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "feat/channel-layout-mixing",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "06-12-audio-engine-feature-upgrade",
+  "relatedFiles": [
+    "src/processor/dsp_chain.rs",
+    "src/processor/adapters.rs",
+    "benches/audio_quality_measurements.rs",
+    "benches/audio_callback_chain_perf.rs",
+    "src/pipeline.rs"
+  ],
+  "notes": "Created from the full-output-chain true-peak audit: the current benchmark path is not the same chain as runtime or perf benches.",
+  "meta": {
+    "theme": "output-chain-convergence",
+    "full_output_true_peak_status": "report-only until the measured path is rebuilt from the shared chain definition and downstream callback convergence is validated"
+  }
+}

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec entry point: pre-dev checklist + quality bar"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Callback-direction builder output must stay alloc-free/lock-free/no-IO"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Gate vs report-only classification; how quality metrics/benches are structured"}

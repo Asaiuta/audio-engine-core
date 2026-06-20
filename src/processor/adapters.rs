@@ -319,12 +319,13 @@ impl PeakLimiterProcessor {
         let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         Self {
-            limiter: PeakLimiter::new(
+            limiter: PeakLimiter::with_mode(
                 channels,
                 sample_rate,
                 cached.threshold_db,
                 10.0,
                 cached.release_ms,
+                cached.mode,
             ),
             params,
             cached_params,
@@ -343,7 +344,10 @@ impl PeakLimiterProcessor {
             self.cached_params = current;
             self.cached_generation = generation;
 
-            // In-place update — NO PeakLimiter::new(), NO heap allocation
+            // In-place updates only — NO PeakLimiter::new(), NO heap allocation.
+            // set_mode is allocation-free (buffers pre-sized for the worst case)
+            // and resets internal state when the active window changes.
+            self.limiter.set_mode(self.cached.mode);
             self.limiter.set_threshold(self.cached.threshold_db);
             self.limiter.set_release_ms(self.cached.release_ms);
             // If enabled state changed, limiter reset may be needed
@@ -351,6 +355,11 @@ impl PeakLimiterProcessor {
                 self.limiter.reset();
             }
         }
+    }
+
+    /// Current limiter gain reduction in dB.
+    pub fn gain_reduction_db(&self) -> f64 {
+        self.limiter.gain_reduction_db()
     }
 }
 
@@ -384,12 +393,13 @@ impl AudioProcessor for PeakLimiterProcessor {
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
         self.sample_rate = sample_rate as u32;
-        self.limiter = PeakLimiter::new(
+        self.limiter = PeakLimiter::with_mode(
             self.channels,
             self.sample_rate,
             self.cached.threshold_db,
             10.0,
             self.cached.release_ms,
+            self.cached.mode,
         );
     }
 }
@@ -803,6 +813,7 @@ impl AudioProcessor for ConvolverProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::loudness::LimiterMode;
 
     #[test]
     fn test_convolver_processor_swaps_in_and_processes() {
@@ -1098,5 +1109,67 @@ mod tests {
         }
 
         out
+    }
+
+    #[test]
+    fn peak_limiter_processor_defaults_to_true_peak_mode() {
+        let params = Arc::new(AtomicPeakLimiterParams::new());
+        let proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+        assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+    }
+
+    #[test]
+    fn peak_limiter_processor_applies_mode_snapshot() {
+        let params = Arc::new(AtomicPeakLimiterParams::new());
+        let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+        assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+
+        // Control thread switches mode; the snapshot is applied on the next
+        // process() sync.
+        params.set_mode(LimiterMode::SamplePeak);
+        let mut buffer = vec![0.25; 256 * 2];
+        proc.process(&mut buffer, 2);
+        assert_eq!(proc.limiter.mode(), LimiterMode::SamplePeak);
+
+        params.set_mode(LimiterMode::TruePeak);
+        proc.process(&mut buffer, 2);
+        assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+    }
+
+    #[test]
+    fn peak_limiter_processor_mode_switch_is_allocation_free_in_process() {
+        let params = Arc::new(AtomicPeakLimiterParams::new());
+        let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+        let mut buffer = vec![0.3; 256 * 2];
+        // Warm up the cached generation so the first asserted block is steady.
+        proc.process(&mut buffer, 2);
+
+        // Flipping the atomic mode and processing must not allocate on the
+        // audio thread: the limiter switches in place.
+        assert_no_alloc::assert_no_alloc(|| {
+            for i in 0..200 {
+                let mode = if i % 2 == 0 {
+                    LimiterMode::SamplePeak
+                } else {
+                    LimiterMode::TruePeak
+                };
+                params.set_mode(mode);
+                proc.process(&mut buffer, 2);
+            }
+        });
+    }
+
+    #[test]
+    fn peak_limiter_processor_disabled_bypasses() {
+        let params = Arc::new(AtomicPeakLimiterParams::new());
+        let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+
+        params.set_enabled(false);
+        let mut buffer = vec![1.5; 256 * 2];
+        let original = buffer.clone();
+        let result = proc.process(&mut buffer, 2);
+
+        assert_eq!(result, ProcessResult::Bypassed);
+        assert_eq!(buffer, original);
     }
 }

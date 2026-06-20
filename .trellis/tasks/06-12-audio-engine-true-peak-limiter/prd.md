@@ -15,12 +15,12 @@ Add a true-peak limiting path that can keep rendered output below the configured
 
 ## Acceptance Criteria
 
-- [ ] Synthetic intersample-peak fixtures that currently expose the limitation are limited below the configured ceiling with a defined tolerance.
-- [ ] Tests cover mono, stereo, and at least one multichannel layout.
-- [ ] Tests cover cross-buffer continuity, reset behavior, silence, sustained over-threshold material, and non-finite sample handling policy.
-- [ ] Realtime processing tests assert no steady-state allocation for the limiter path.
-- [ ] `audio_quality_measurements` reports the limiter method accurately and includes true-peak stress results.
-- [ ] README limitation text is updated only after measured evidence supports the new behavior.
+- [x] Synthetic intersample-peak fixtures that currently expose the limitation are limited below the configured ceiling with a defined tolerance.
+- [x] Tests cover mono, stereo, and at least one multichannel layout.
+- [x] Tests cover cross-buffer continuity, reset behavior, silence, sustained over-threshold material, and non-finite sample handling policy.
+- [x] Realtime processing tests assert no steady-state allocation for the limiter path.
+- [x] `audio_quality_measurements` reports the limiter method accurately and includes true-peak stress results.
+- [x] README limitation text is updated only after measured evidence supports the new behavior.
 
 ## Validation Commands
 
@@ -39,6 +39,13 @@ Add a true-peak limiting path that can keep rendered output below the configured
 
 ## Technical Notes
 
-- Current risk: `PeakLimiter` is named and documented as true peak in places, but implementation is lookahead sample-peak limiting.
-- Existing true-peak measurement logic in `LoudnessMeter` is measurement-oriented and can inform fixtures, but the limiter needs a control path suitable for realtime processing.
+- Original risk resolved: `PeakLimiter` now defaults to `LimiterMode::TruePeak`,
+  with `LimiterMode::SamplePeak` preserved for legacy sample-peak behavior.
+- The limiter shares the 4x FIR intersample detector shape with
+  `LoudnessMeter`, pre-sizes buffers/detectors for runtime mode switching, and
+  keeps the adapter `process()` path allocation-free.
+- Remaining limitation: full output-chain true peak stays report-only because
+  downstream resampling/quantization can reintroduce intersample peaks after the
+  source-rate limiter. Follow-up ownership lives in
+  `../06-18-audio-engine-output-render-chain/`.
 - Shared audit: `../06-12-audio-engine-feature-upgrade/research/current-algorithm-audit.md`.

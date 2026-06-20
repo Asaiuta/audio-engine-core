@@ -38,10 +38,14 @@ pub use config::{LoudnessConfig, NormalizationMode};
 pub use decoder::StreamingDecoder;
 pub use pipeline::{AudioPipeline, PipelineError};
 pub use processor::{
-    analyze_automix, AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode,
-    AutomixAnalysisOptions, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
-    GainRamp, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, PeakLimiter, Resampler,
-    SpectrumAnalyzer, StreamingResampler, TruePeakDetector, VolumeController,
+    analyze_automix, callback_stage_names, callback_stage_order_csv,
+    canonical_output_stage_descriptors, offline_stage_names, offline_stage_order_csv,
+    AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
+    DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver, GainRamp, LimiterMode,
+    LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, OutputChainBuilder,
+    OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter,
+    RenderedOutput, Resampler, SpectrumAnalyzer, StreamingResampler, TruePeakDetector,
+    VolumeController,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

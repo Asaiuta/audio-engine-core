@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality check entry point"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify node-order parity + per-sample equivalence tests meet quality bar"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Confirm callback-direction chain preserves RT-safety invariants"}

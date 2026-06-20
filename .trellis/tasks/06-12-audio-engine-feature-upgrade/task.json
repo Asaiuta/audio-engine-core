@@ -3,7 +3,7 @@
   "name": "audio-engine-feature-upgrade",
   "title": "Audio engine feature upgrade roadmap",
   "description": "Plan and split audio-engine feature upgrades needed to move from mature DSP building blocks toward evidence-backed high-end playback processing.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature-planning",
   "scope": "audio DSP feature roadmap and task decomposition",
   "package": "backend",
@@ -27,7 +27,8 @@
     "06-12-audio-engine-decoder-format-capability",
     "06-12-audio-engine-channel-layout-mixing",
     "06-12-audio-engine-api-release-hardening",
-    "06-12-audio-engine-trellis-spec-bootstrap"
+    "06-12-audio-engine-trellis-spec-bootstrap",
+    "06-18-audio-engine-output-render-chain"
   ],
   "parent": null,
   "relatedFiles": [
@@ -57,6 +58,24 @@
       "06-12-audio-engine-decoder-format-capability",
       "06-12-audio-engine-api-release-hardening"
     ],
-    "coverage_note": "Expanded after follow-up to include omitted EQ/perceptual DSP, decoder/format, channel layout, API/release, and Trellis spec work."
+    "coverage_note": "Expanded after follow-up to include omitted EQ/perceptual DSP, decoder/format, channel layout, API/release, Trellis spec work, and output render chain convergence.",
+    "progress": {
+      "completed": [
+        "06-12-audio-engine-trellis-spec-bootstrap",
+        "06-12-audio-engine-quality-gates",
+        "06-12-audio-engine-decoder-format-capability",
+        "06-12-audio-engine-channel-layout-mixing",
+        "06-12-audio-engine-true-peak-limiter"
+      ],
+      "in_progress": [
+        "06-18-audio-engine-output-render-chain"
+      ],
+      "remaining": [
+        "06-12-audio-engine-oversampled-saturation",
+        "06-12-audio-engine-partitioned-convolution",
+        "06-12-audio-engine-eq-perceptual-dsp",
+        "06-12-audio-engine-api-release-hardening"
+      ]
+    }
   }
 }

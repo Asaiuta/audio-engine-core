@@ -6,19 +6,16 @@ use std::time::{Duration, Instant};
 use arc_swap::ArcSwapOption;
 
 use audio_engine_core::processor::{
-    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
-    AtomicVolumeParams, ConvolverProcessor, CrossfeedProcessor, DspChain, DynamicLoudnessProcessor,
-    EqProcessor, FFTConvolver, NoiseShaperCurve, PeakLimiterProcessor, SaturationProcessor,
-    SaturationTypeValue, VolumeProcessor, EQ_BANDS,
+    callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
+    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
+    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, DspChain, FFTConvolver,
+    NoiseShaperCurve, OutputChainBuilder, OutputChainParams, SaturationTypeValue, EQ_BANDS,
 };
 
 const CHANNELS: usize = 2;
 const SAMPLE_RATE: f64 = 48_000.0;
 const BUFFER_FRAMES: [usize; 4] = [64, 128, 256, 512];
 const WARMUP_BUFFERS: usize = 256;
-const NODE_ORDER: &str =
-    "Equalizer,Saturation,Crossfeed,Convolver,Volume,DynamicLoudness,PeakLimiter";
 
 #[derive(Clone, Copy)]
 enum Scenario {
@@ -68,6 +65,7 @@ fn main() {
     } else {
         (2_000, 3)
     };
+    let node_order = callback_stage_order_csv();
 
     println!(
         "audio_callback_chain_perf mode={} sample_rate={} channels={} nodes={} copy_input=true coverage=dsp_chain_only",
@@ -80,7 +78,7 @@ fn main() {
         },
         SAMPLE_RATE as u32,
         CHANNELS,
-        NODE_ORDER
+        node_order
     );
     println!(
         "audio_callback_chain_note excludes=cpal_device_write,decoder,resampler,spectrum,loudness_normalization_pre_gain,gapless_state_machine"
@@ -136,11 +134,9 @@ fn benchmark_scenario(
     best.expect("at least one trial")
 }
 
-// Rebuilds the same lock-free DSP chain the Lyne realtime callback runs, using
-// only the crate's public `DspChain` + processor adapters. The node order and
-// parameter configuration mirror the integration's `build_dsp_chain`, so the
-// timings here track the realtime callback's DSP cost (it excludes the decoder,
-// resampler, spectrum packing, and the OS device write).
+// Rebuilds the callback-safe output chain from the crate's canonical builder.
+// The timings here track realtime DSP cost and exclude decoder, upstream
+// playback resampling, spectrum packing, and the OS device write.
 fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
     let eq_params = Arc::new(AtomicEqParams::new());
     let saturation_params = Arc::new(AtomicSaturationParams::new());
@@ -173,23 +169,22 @@ fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
         ))));
     }
 
-    let mut chain = DspChain::new(SAMPLE_RATE);
-    chain.add(EqProcessor::new(CHANNELS, SAMPLE_RATE, eq_params));
-    chain.add(SaturationProcessor::new(CHANNELS, saturation_params));
-    chain.add(CrossfeedProcessor::new(SAMPLE_RATE, crossfeed_params));
-    chain.add(ConvolverProcessor::new(convolver_swap, convolver_enabled));
-    chain.add(VolumeProcessor::new(volume_params));
-    chain.add(DynamicLoudnessProcessor::new(
-        CHANNELS,
-        SAMPLE_RATE as u32,
+    let chain = OutputChainBuilder::new(OutputChainParams {
+        channels: CHANNELS,
+        source_sample_rate: SAMPLE_RATE as u32,
+        output_sample_rate: SAMPLE_RATE as u32,
+        eq_params,
+        saturation_params,
+        crossfeed_params,
+        convolver_swap,
+        convolver_enabled,
+        volume_params,
         dynamic_loudness_params,
         dynamic_loudness_telemetry,
-    ));
-    chain.add(PeakLimiterProcessor::new(
-        CHANNELS,
-        SAMPLE_RATE as u32,
         limiter_params,
-    ));
+        noise_shaper_params,
+    })
+    .build_callback_chain();
 
     ChainBundle { chain }
 }

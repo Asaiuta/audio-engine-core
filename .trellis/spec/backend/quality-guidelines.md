@@ -19,10 +19,12 @@ Concretely:
 
 - **Do not strengthen README / doc claims without current measured evidence.**
   Regenerate the number, or label it as machine/config-specific, or keep the
-  limitation note. The README already keeps one such note visible (the
-  sample-peak/lookahead limiter is not an intersample-true-peak guarantee) —
-  that note stays until the true-peak limiter task proves otherwise with
-  measurements.
+  limitation note. The limiter now defaults to 4x-oversampled true-peak
+  detection (measured: an intersample-stress input at +0.10 dBTP is pulled to
+  -1.00 dBTP); the remaining visible limitation is that the limiter runs at
+  source rate, so the full output-chain true-peak probe stays report-only
+  because downstream resampling/quantization can re-introduce intersample
+  peaks.
 - **No marketing absolutes.** "Industry-leading", "all algorithms are optimal",
   etc. are forbidden unless a measurement backs the specific claim. The audit
   classifies IIR/FIR EQ, crossfeed, saturation, and FFT convolution as classic,

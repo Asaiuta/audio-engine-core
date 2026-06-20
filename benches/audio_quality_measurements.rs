@@ -1,11 +1,18 @@
 use std::f64::consts::PI;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use arc_swap::ArcSwapOption;
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
-    LoudnessMeter, NoiseShaper, NoiseShaperCurve, PeakLimiter, StreamingResampler,
+    offline_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
+    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
+    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, FFTConvolver, LimiterMode,
+    LoudnessMeter, NoiseShaper, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
+    PeakLimiter, RenderedOutput, StreamingResampler, EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -419,7 +426,7 @@ struct Conditions {
     limiter_method: &'static str,
     noise_shaping_method: &'static str,
     loudness_reference_method: &'static str,
-    full_output_true_peak_method: &'static str,
+    full_output_true_peak_method: String,
 }
 
 #[derive(Serialize)]
@@ -454,6 +461,13 @@ struct LimiterSection {
     output_margin_to_threshold_db: f64,
     final_gain_reduction_db: f64,
     transparent_sine_thdn_db: f64,
+    // Intersample (true-peak) stress: a signal whose sample peak sits below the
+    // ceiling but whose reconstructed true peak exceeds it. Compares the default
+    // true-peak mode against legacy sample-peak mode to show the guarantee.
+    intersample_stress_input_sample_peak_dbfs: f64,
+    intersample_stress_input_true_peak_dbtp: f64,
+    intersample_stress_true_peak_mode_output_dbtp: f64,
+    intersample_stress_sample_peak_mode_output_dbtp: f64,
 }
 
 #[derive(Serialize)]
@@ -562,7 +576,7 @@ struct EbuCorpusPoint {
 #[derive(Serialize)]
 struct FullOutputTruePeakSection {
     output_sample_rate_hz: u32,
-    chain: &'static str,
+    chain: String,
     limiter_threshold_dbfs: f64,
     final_noise_shaper_bits: u32,
     points: Vec<FullOutputTruePeakPoint>,
@@ -692,10 +706,13 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
             thdn_method: "least-squares sine fit with DC term, THD+N = residual_rms / fitted_sine_rms",
             frequency_response_method: "single-tone amplitude fit after 44.1 kHz -> 48 kHz resampling",
             stopband_method: "96 kHz -> 48 kHz resampling of above-output-Nyquist tones; alias fit plus broad residual RMS",
-            limiter_method: "PeakLimiter in-place processing, sample-peak ceiling and below-threshold THD+N",
+            limiter_method: "PeakLimiter (default 4x-oversampled true-peak detection) in-place processing; reports sample-peak ceiling, below-threshold THD+N, and intersample-peak stress vs legacy sample-peak mode",
             noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands",
             loudness_reference_method: "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
-            full_output_true_peak_method: "offline source buffer -> sample-peak limiter/DSP slot -> optional StreamingResampler -> 24-bit final NoiseShaper -> f32 output -> 4x FIR true-peak meter",
+            full_output_true_peak_method: format!(
+                "offline canonical output chain: {} -> LoudnessMeter true-peak analysis",
+                offline_stage_order_csv()
+            ),
         },
         thdn: ThdnSection {
             analyzer_floor_db: analyzer_fit.thdn_db,
@@ -797,6 +814,13 @@ fn build_metrics(
             limiter_transparent_thdn_db,
             -120.0,
             "dB",
+        ),
+        MetricResult::report(
+            "limiter_true_peak_mode_intersample_stress_output",
+            Comparison::AtMost,
+            limiter.intersample_stress_true_peak_mode_output_dbtp,
+            LIMITER_THRESHOLD_DBFS + 0.1,
+            "dBTP",
         ),
         MetricResult::report(
             "loudness_true_peak_parity_vs_ebur128",
@@ -919,7 +943,10 @@ fn build_ebu_true_peak_metrics(corpus: &EbuTruePeakCorpusSection, metrics: &mut 
             EBU_TRUE_PEAK_UPPER_TOLERANCE_DB,
             "dB",
             true,
-            Some(format!("{} point(s) within EBU tolerance", corpus.points.len())),
+            Some(format!(
+                "{} point(s) within EBU tolerance",
+                corpus.points.len()
+            )),
         )),
     }
 }
@@ -1012,6 +1039,32 @@ fn measure_limiter(
     let output_peak = max_abs(&samples);
     let output_peak_dbfs = dbfs(output_peak);
 
+    // Intersample-peak stress: Fs/4 sine sampled 45° off-peak so every sample
+    // sits at amplitude·√½ (below the ceiling) while the reconstructed true peak
+    // reaches `amplitude`. True-peak mode must pull the output true peak under
+    // the ceiling; sample-peak mode leaves it above (it never engages).
+    let stress_mono = intersample_stress_mono(frames, 1.0);
+    let mut stress_tp = stereo_from_mono(&stress_mono);
+    let mut stress_sp = stress_tp.clone();
+    PeakLimiter::with_mode(
+        CHANNELS,
+        SAMPLE_RATE,
+        LIMITER_THRESHOLD_DBFS,
+        LIMITER_LOOKAHEAD_MS,
+        LIMITER_RELEASE_MS,
+        LimiterMode::TruePeak,
+    )
+    .process(&mut stress_tp);
+    PeakLimiter::with_mode(
+        CHANNELS,
+        SAMPLE_RATE,
+        LIMITER_THRESHOLD_DBFS,
+        LIMITER_LOOKAHEAD_MS,
+        LIMITER_RELEASE_MS,
+        LimiterMode::SamplePeak,
+    )
+    .process(&mut stress_sp);
+
     Ok(LimiterSection {
         threshold_dbfs: LIMITER_THRESHOLD_DBFS,
         input_peak_dbfs: dbfs(input_peak),
@@ -1019,6 +1072,22 @@ fn measure_limiter(
         output_margin_to_threshold_db: output_peak_dbfs - LIMITER_THRESHOLD_DBFS,
         final_gain_reduction_db: limiter.gain_reduction_db(),
         transparent_sine_thdn_db,
+        intersample_stress_input_sample_peak_dbfs: dbfs(max_abs(&stress_mono)),
+        intersample_stress_input_true_peak_dbtp: measure_true_peak_db(
+            &stereo_from_mono(&stress_mono),
+            CHANNELS,
+            SAMPLE_RATE,
+        )?,
+        intersample_stress_true_peak_mode_output_dbtp: measure_true_peak_db(
+            &stress_tp,
+            CHANNELS,
+            SAMPLE_RATE,
+        )?,
+        intersample_stress_sample_peak_mode_output_dbtp: measure_true_peak_db(
+            &stress_sp,
+            CHANNELS,
+            SAMPLE_RATE,
+        )?,
     })
 }
 
@@ -1602,7 +1671,7 @@ fn measure_full_output_true_peak(
 
     Ok(FullOutputTruePeakSection {
         output_sample_rate_hz: RESAMPLE_TO,
-        chain: "source f64 -> PeakLimiter -> StreamingResampler when needed -> NoiseShaper(24-bit) -> f32 output -> LoudnessMeter true-peak",
+        chain: offline_stage_order_csv(),
         limiter_threshold_dbfs: FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
         final_noise_shaper_bits: FULL_OUTPUT_CHAIN_BITS,
         points,
@@ -1693,43 +1762,50 @@ fn measure_full_output_true_peak_point(
     })
 }
 
-struct RenderedOutput {
-    samples: Vec<f64>,
-    final_limiter_gain_reduction_db: f64,
-}
-
 fn render_full_output_chain(
     samples: &[f64],
     source_sample_rate: u32,
     channels: usize,
 ) -> Result<RenderedOutput, String> {
-    let mut output = samples.to_vec();
-    let mut limiter = PeakLimiter::new(
+    let eq_params = Arc::new(AtomicEqParams::new());
+    let saturation_params = Arc::new(AtomicSaturationParams::new());
+    let crossfeed_params = Arc::new(AtomicCrossfeedParams::new());
+    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+    let volume_params = Arc::new(AtomicVolumeParams::new());
+    let noise_shaper_params = Arc::new(AtomicNoiseShaperParams::new());
+    let dynamic_loudness_params = Arc::new(AtomicDynamicLoudnessParams::new());
+
+    eq_params.write(&[0.0; EQ_BANDS], false);
+    saturation_params.set_enabled(false);
+    crossfeed_params.set_enabled(false);
+    limiter_params.set_threshold(FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP);
+    limiter_params.set_release(LIMITER_RELEASE_MS);
+    limiter_params.set_enabled(true);
+    volume_params.set_volume(1.0);
+    volume_params.set_muted(false);
+    dynamic_loudness_params.set_enabled(false);
+    noise_shaper_params.set_enabled(true);
+    noise_shaper_params.set_bits(FULL_OUTPUT_CHAIN_BITS);
+    noise_shaper_params.set_curve(NoiseShaperCurve::auto_select(RESAMPLE_TO));
+
+    let mut chain = OutputChainBuilder::new(OutputChainParams {
         channels,
         source_sample_rate,
-        FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
-        LIMITER_LOOKAHEAD_MS,
-        LIMITER_RELEASE_MS,
-    );
-    limiter.process(&mut output);
-    let final_limiter_gain_reduction_db = limiter.gain_reduction_db();
-
-    if source_sample_rate != RESAMPLE_TO {
-        output = resample_interleaved(&output, channels, source_sample_rate, RESAMPLE_TO)?;
-    }
-
-    let mut shaper = NoiseShaper::new(channels, RESAMPLE_TO, FULL_OUTPUT_CHAIN_BITS);
-    shaper.set_curve(NoiseShaperCurve::auto_select(RESAMPLE_TO));
-    shaper.process(&mut output, channels);
-
-    for sample in &mut output {
-        *sample = *sample as f32 as f64;
-    }
-
-    Ok(RenderedOutput {
-        samples: output,
-        final_limiter_gain_reduction_db,
+        output_sample_rate: RESAMPLE_TO,
+        eq_params,
+        saturation_params,
+        crossfeed_params,
+        convolver_swap: Arc::new(ArcSwapOption::<FFTConvolver>::empty()),
+        convolver_enabled: Arc::new(AtomicBool::new(false)),
+        volume_params,
+        dynamic_loudness_params,
+        dynamic_loudness_telemetry: Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+        limiter_params,
+        noise_shaper_params,
     })
+    .build_render_chain()?;
+
+    Ok(chain.render(samples))
 }
 
 fn resample_mono(input: &[f64], from_rate: u32, to_rate: u32) -> Result<Vec<f64>, String> {
@@ -1746,36 +1822,6 @@ fn resample_mono(input: &[f64], from_rate: u32, to_rate: u32) -> Result<Vec<f64>
         .saturating_add(256);
     let mut output = Vec::with_capacity(estimated_len);
     for chunk in input.chunks(4096) {
-        resampler.process_chunk_append(chunk, &mut output);
-    }
-    resampler.flush_into(&mut output);
-    Ok(output)
-}
-
-fn resample_interleaved(
-    input: &[f64],
-    channels: usize,
-    from_rate: u32,
-    to_rate: u32,
-) -> Result<Vec<f64>, String> {
-    let mut resampler = StreamingResampler::with_quality(
-        channels,
-        from_rate,
-        to_rate,
-        PhaseResponse::Linear,
-        ResampleQuality::UltraHigh,
-    )
-    .map_err(|err| {
-        format!("failed to create interleaved resampler {from_rate}->{to_rate}: {err}")
-    })?;
-
-    let input_frames = input.len() / channels;
-    let estimated_samples = ((input_frames as f64 * to_rate as f64 / from_rate as f64).ceil()
-        as usize)
-        .saturating_add(256)
-        * channels;
-    let mut output = Vec::with_capacity(estimated_samples);
-    for chunk in input.chunks(channels * 4096) {
         resampler.process_chunk_append(chunk, &mut output);
     }
     resampler.flush_into(&mut output);
@@ -2165,6 +2211,16 @@ fn limiter_stress_signal(
     samples
 }
 
+/// Fs/4 sine sampled 45° off-peak: samples sit at amplitude·√½ (below a -1 dBTP
+/// ceiling) while the reconstructed intersample peak reaches `amplitude`.
+fn intersample_stress_mono(frames: usize, amplitude: f64) -> Vec<f64> {
+    let mut mono = Vec::with_capacity(frames);
+    for n in 0..frames {
+        mono.push(amplitude * (PI * (n as f64 + 0.5) / 2.0).sin());
+    }
+    mono
+}
+
 fn stereo_from_mono(mono: &[f64]) -> Vec<f64> {
     let mut stereo = Vec::with_capacity(mono.len() * CHANNELS);
     for &sample in mono {
@@ -2363,6 +2419,13 @@ fn print_report(report: &QualityReport) {
         report.limiter.transparent_sine_thdn_db
     );
     println!(
+        "quality_limiter_intersample_stress input_sample_peak_dbfs={:.2} input_true_peak_dbtp={:.2} true_peak_mode_output_dbtp={:.2} sample_peak_mode_output_dbtp={:.2}",
+        report.limiter.intersample_stress_input_sample_peak_dbfs,
+        report.limiter.intersample_stress_input_true_peak_dbtp,
+        report.limiter.intersample_stress_true_peak_mode_output_dbtp,
+        report.limiter.intersample_stress_sample_peak_mode_output_dbtp
+    );
+    println!(
         "quality_stopband from_rate={} to_rate={} worst_alias_attenuation_db={:.2} worst_residual_attenuation_db={:.2}",
         report.resampler_stopband.from_rate_hz,
         report.resampler_stopband.to_rate_hz,
@@ -2487,7 +2550,11 @@ fn enforce_limits(report: &QualityReport) -> Result<(), String> {
         failures.len()
     );
     for metric in failures {
-        message.push_str(&format!("\n  - gate '{}': {}", metric.name, metric.measured_vs_threshold()));
+        message.push_str(&format!(
+            "\n  - gate '{}': {}",
+            metric.name,
+            metric.measured_vs_threshold()
+        ));
         if let Some(detail) = &metric.detail {
             message.push_str(&format!(" ({detail})"));
         }
