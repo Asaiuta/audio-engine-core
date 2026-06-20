@@ -21,8 +21,14 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill backend guidelines
-- [ ] Add code examples
+- [x] Fill backend guidelines
+- [x] Add code examples
+
+## Completion Note
+
+Completed on 2026-06-18. The backend spec now contains source-backed
+guidelines for realtime safety, directory structure, error handling, logging,
+quality evidence, and the optional loudness database path.
 
 ---
 
