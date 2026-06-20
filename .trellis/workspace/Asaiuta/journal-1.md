@@ -71,3 +71,35 @@ Started the P1 quality-gates task (corrected the auto-selected current-task poin
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Unified output render chain
+
+**Date**: 2026-06-20
+**Task**: Unified output render chain
+
+### Summary
+
+Unified the canonical output chain builder across offline quality rendering and callback/perf construction; preserved true-peak evidence as measured/report-only where appropriate.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ec675c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
