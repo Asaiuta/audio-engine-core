@@ -20,6 +20,8 @@ use std::sync::{
 use arc_swap::{ArcSwap, Guard};
 use atomic_float::AtomicF64;
 
+use crate::processor::loudness::LimiterMode;
+
 struct SharedParams<T> {
     current: ArcSwap<T>,
     generation: AtomicU64,
@@ -500,6 +502,7 @@ pub struct PeakLimiterParamsSnapshot {
     pub threshold_db: f64,
     pub release_ms: f64,
     pub enabled: bool,
+    pub mode: LimiterMode,
 }
 
 impl Default for PeakLimiterParamsSnapshot {
@@ -508,6 +511,7 @@ impl Default for PeakLimiterParamsSnapshot {
             threshold_db: -1.0,
             release_ms: 150.0,
             enabled: true,
+            mode: LimiterMode::TruePeak,
         }
     }
 }
@@ -535,6 +539,18 @@ impl AtomicPeakLimiterParams {
     pub fn set_release(&self, ms: f64) {
         self.shared.update(|snapshot| {
             snapshot.release_ms = ms.clamp(10.0, 1000.0);
+        });
+    }
+
+    /// Select the detection [`LimiterMode`].
+    ///
+    /// The adapter applies mode changes in place with pre-sized limiter
+    /// buffers, resetting limiter state when the active delay window changes.
+    /// Set this from the control thread, not inside the audio callback.
+    #[inline]
+    pub fn set_mode(&self, mode: LimiterMode) {
+        self.shared.update(|snapshot| {
+            snapshot.mode = mode;
         });
     }
 

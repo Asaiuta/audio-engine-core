@@ -1,8 +1,46 @@
-//! True-peak limiter with 10ms look-ahead and exponential release.
+//! Look-ahead peak limiter with selectable detection mode.
 //!
-//! Ring-buffered, allocation-free in the audio callback path.
+//! Two modes share one look-ahead/release control path:
+//!
+//! - [`LimiterMode::TruePeak`] (default): per-channel 4x polyphase-FIR
+//!   intersample-peak detection (libebur128-compatible, reused from the meter).
+//!   The limiter keeps rendered output below the configured ceiling on
+//!   intersample-peak stress material.
+//! - [`LimiterMode::SamplePeak`]: classic sample-peak look-ahead. Cheaper, but
+//!   only guarantees the ceiling against raw sample values, not reconstructed
+//!   intersample peaks.
+//!
+//! Both modes are ring-buffered and allocation-free in the audio callback path.
+//!
+//! # Latency
+//!
+//! Output is delayed by `lookahead_frames` in sample-peak mode. In true-peak
+//! mode the delay is `lookahead_frames + TRUE_PEAK_DELAY` (the extra
+//! [`TRUE_PEAK_DELAY`] frames cover the FIR span so every output sample's full
+//! intersample-peak contribution is known before it leaves the buffer).
 
+use super::meter::{true_peak_fir, TruePeakDetector, TRUE_PEAK_DELAY};
 use crate::processor::dsp::{db_to_linear, linear_to_db};
+
+/// Peak detection strategy for [`PeakLimiter`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LimiterMode {
+    /// 4x-oversampled intersample (true) peak detection. Default.
+    #[default]
+    TruePeak,
+    /// Sample-peak detection (legacy behavior; no intersample guarantee).
+    SamplePeak,
+}
+
+/// Active output delay (frames) for a mode: true-peak pads by the FIR span so
+/// an output sample's full intersample-peak contribution is inside its window.
+#[inline]
+fn delay_frames_for(mode: LimiterMode, lookahead_frames: usize) -> usize {
+    match mode {
+        LimiterMode::TruePeak => lookahead_frames + TRUE_PEAK_DELAY,
+        LimiterMode::SamplePeak => lookahead_frames,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct MonotonicMaxQueue {
@@ -83,21 +121,34 @@ impl MonotonicMaxQueue {
     }
 }
 
-/// True Peak Limiter with look-ahead and proper release behavior.
+/// Look-ahead peak limiter with selectable [`LimiterMode`].
 ///
 /// # Design
 ///
-/// - 10ms look-ahead buffer for peak detection
+/// - Look-ahead buffer for peak detection (10 ms default)
 /// - -1.0 dBTP threshold (EBU R128 recommendation)
-/// - Proper release coefficient using exponential smoothing
-/// - Fixed ring buffer avoids heap allocation in audio callback
+/// - Instant attack, exponential release
+/// - Fixed ring buffer avoids heap allocation in the audio callback
+/// - True-peak mode adds per-channel 4x oversampled intersample detection
 pub struct PeakLimiter {
     /// Linear threshold (e.g., 0.8913 for -1 dB)
     threshold: f64,
-    /// Look-ahead buffer size in frames
+    /// Detection strategy.
+    mode: LimiterMode,
+    /// Genuine look-ahead window in frames. Used to recompute `delay_frames`
+    /// when the mode switches at runtime.
     lookahead_frames: usize,
-    /// Fixed-size ring buffer (frames * channels)
+    /// Active output delay in frames: `lookahead_frames` in sample-peak mode, or
+    /// `lookahead_frames + TRUE_PEAK_DELAY` in true-peak mode. Selects how much
+    /// of the (worst-case-sized) delay buffer and peak queue are in use.
+    delay_frames: usize,
+    /// Fixed-size ring buffer, always sized for the worst case
+    /// (`(lookahead_frames + TRUE_PEAK_DELAY) * channels`) so a runtime mode
+    /// switch never reallocates on the audio thread.
     delay_buffer: Box<[f64]>,
+    /// Per-channel intersample-peak detectors. Always allocated (even in
+    /// sample-peak mode) so switching into true-peak mode is allocation-free.
+    true_peak_detectors: Vec<TruePeakDetector>,
     /// Sliding maximum of per-frame peaks in the delay buffer
     peak_queue: MonotonicMaxQueue,
     /// Monotonic input frame index used by `peak_queue`
@@ -115,7 +166,7 @@ pub struct PeakLimiter {
 }
 
 impl PeakLimiter {
-    /// Create a new True Peak Limiter
+    /// Create a new peak limiter in the default [`LimiterMode::TruePeak`] mode.
     ///
     /// # Arguments
     /// * `channels` - Number of audio channels
@@ -130,24 +181,55 @@ impl PeakLimiter {
         lookahead_ms: f64,
         release_ms: f64,
     ) -> Self {
+        Self::with_mode(
+            channels,
+            sample_rate,
+            threshold_db,
+            lookahead_ms,
+            release_ms,
+            LimiterMode::default(),
+        )
+    }
+
+    /// Create a new peak limiter with an explicit detection [`LimiterMode`].
+    pub fn with_mode(
+        channels: usize,
+        sample_rate: u32,
+        threshold_db: f64,
+        lookahead_ms: f64,
+        release_ms: f64,
+        mode: LimiterMode,
+    ) -> Self {
         let threshold = db_to_linear(threshold_db);
         let lookahead_frames = ((lookahead_ms / 1000.0) * sample_rate as f64).ceil() as usize;
         let lookahead_frames = lookahead_frames.max(1);
+
+        // Active window depends on mode; the buffer/queue are sized for the
+        // worst case (true-peak) so switching modes never reallocates.
+        let delay_frames = delay_frames_for(mode, lookahead_frames);
+        let max_delay_frames = lookahead_frames + TRUE_PEAK_DELAY;
 
         // Release coefficient: exp(-1 / tau) where tau = release_samples
         // This gives us a coefficient < 1 for multiplication
         let release_samples = (release_ms / 1000.0) * sample_rate as f64;
         let release_coeff = (-1.0 / release_samples).exp();
 
-        // Pre-allocate fixed-size buffer
-        let buffer_size = lookahead_frames * channels;
-        let delay_buffer = vec![0.0; buffer_size].into_boxed_slice();
+        // Warm the shared FIR table during setup, never on the first callback.
+        let _ = true_peak_fir();
+
+        // Pre-allocate fixed-size buffers for the worst case. Detectors are
+        // always allocated so a switch into true-peak mode is allocation-free.
+        let delay_buffer = vec![0.0; max_delay_frames * channels].into_boxed_slice();
+        let true_peak_detectors = (0..channels).map(|_| TruePeakDetector::new()).collect();
 
         Self {
             threshold,
+            mode,
             lookahead_frames,
+            delay_frames,
             delay_buffer,
-            peak_queue: MonotonicMaxQueue::new(lookahead_frames),
+            true_peak_detectors,
+            peak_queue: MonotonicMaxQueue::new(max_delay_frames),
             global_frame: 0,
             write_pos: 0,
             gain_reduction: 1.0,
@@ -155,6 +237,26 @@ impl PeakLimiter {
             channels,
             sample_rate: sample_rate as f64,
         }
+    }
+
+    /// Detection mode in effect.
+    pub fn mode(&self) -> LimiterMode {
+        self.mode
+    }
+
+    /// Switch the detection [`LimiterMode`] in place.
+    ///
+    /// Real-time safe: no allocation (buffers/detectors are pre-sized for the
+    /// worst case at construction) and no locks. Changing the active window
+    /// invalidates in-flight delay/queue state, so this resets the limiter; do
+    /// not call it mid-stream if a glitch-free transition is required.
+    pub fn set_mode(&mut self, mode: LimiterMode) {
+        if mode == self.mode {
+            return;
+        }
+        self.mode = mode;
+        self.delay_frames = delay_frames_for(mode, self.lookahead_frames);
+        self.reset();
     }
 
     /// Process interleaved samples in-place
@@ -170,10 +272,15 @@ impl PeakLimiter {
             return;
         }
 
+        let fir = match self.mode {
+            LimiterMode::TruePeak => Some(true_peak_fir()),
+            LimiterMode::SamplePeak => None,
+        };
+
         for frame in 0..frames {
-            // Step 1: Read peak across all channels in the look-ahead window.
-            // Query before writing the current input frame to preserve the
-            // existing delay-buffer semantics exactly.
+            // Step 1: Read peak across the look-ahead window. Query before
+            // writing the current input frame to preserve delay-buffer
+            // semantics exactly.
             let peak = self.peak_queue.current_peak();
 
             // Step 2: Calculate required gain reduction (instant attack)
@@ -183,9 +290,8 @@ impl PeakLimiter {
                 1.0
             };
 
-            // Step 3: Apply release smoothing (gain_reduction can only decrease or recover)
-            // Instant attack: take minimum of current and target
-            // Smooth release: recover towards 1.0 using multiplication
+            // Step 3: Apply release smoothing (gain_reduction can only decrease
+            // instantly on attack or recover smoothly on release).
             if target_gain < self.gain_reduction {
                 // Attack: instant
                 self.gain_reduction = target_gain;
@@ -197,13 +303,21 @@ impl PeakLimiter {
                 self.gain_reduction = self.gain_reduction.min(target_gain);
             }
 
-            // Step 4: Read from delay buffer, write new samples, apply gain
+            // Step 4: Read from delay buffer, write new samples, apply gain.
+            // The per-frame control peak is either the sample peak across
+            // channels or the max intersample peak from the FIR detectors.
             let mut frame_peak = 0.0_f64;
             for ch in 0..self.channels {
                 let input_idx = frame * self.channels + ch;
                 let buffer_idx = self.write_pos * self.channels + ch;
                 let input = samples[input_idx];
-                frame_peak = frame_peak.max(input.abs());
+
+                frame_peak = match fir {
+                    Some(fir) => {
+                        frame_peak.max(self.true_peak_detectors[ch].intersample_peak(input, fir))
+                    }
+                    None => frame_peak.max(input.abs()),
+                };
 
                 // Get delayed sample
                 let delayed = self.delay_buffer[buffer_idx];
@@ -218,15 +332,15 @@ impl PeakLimiter {
             self.push_frame_peak(frame_peak);
 
             // Advance write position
-            self.write_pos = (self.write_pos + 1) % self.lookahead_frames;
+            self.write_pos = (self.write_pos + 1) % self.delay_frames;
         }
     }
 
     #[inline]
     fn push_frame_peak(&mut self, frame_peak: f64) {
-        if self.global_frame >= self.lookahead_frames as u64 {
+        if self.global_frame >= self.delay_frames as u64 {
             self.peak_queue
-                .expire_through(self.global_frame - self.lookahead_frames as u64);
+                .expire_through(self.global_frame - self.delay_frames as u64);
         }
         self.peak_queue.push(self.global_frame, frame_peak);
         self.global_frame = self.global_frame.wrapping_add(1);
@@ -262,6 +376,9 @@ impl PeakLimiter {
     pub fn reset(&mut self) {
         for sample in self.delay_buffer.iter_mut() {
             *sample = 0.0;
+        }
+        for detector in &mut self.true_peak_detectors {
+            detector.reset();
         }
         self.peak_queue.clear();
         self.global_frame = 0;
@@ -385,7 +502,8 @@ mod tests {
 
     #[test]
     fn monotonic_queue_matches_legacy_scan_for_transient_corpus() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter =
+            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut legacy = LegacyPeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = deterministic_transient_corpus(2_000, 2);
         let mut expected = samples.clone();
@@ -415,7 +533,8 @@ mod tests {
 
     #[test]
     fn monotonic_queue_handles_sustained_pre_clipping() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter =
+            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut samples = vec![1.2; 2_000 * 2];
 
         limiter.process(&mut samples);
@@ -445,7 +564,8 @@ mod tests {
 
     #[test]
     fn lookahead_one_frame_matches_legacy_scan() {
-        let mut limiter = PeakLimiter::new(2, 1_000, -1.0, 1.0, 10.0);
+        let mut limiter =
+            PeakLimiter::with_mode(2, 1_000, -1.0, 1.0, 10.0, LimiterMode::SamplePeak);
         let mut legacy = LegacyPeakLimiter::new(2, 1_000, -1.0, 1.0, 10.0);
         let mut samples = deterministic_transient_corpus(128, 2);
         let mut expected = samples.clone();
@@ -458,7 +578,8 @@ mod tests {
 
     #[test]
     fn non_finite_samples_do_not_poison_queue_peak() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter =
+            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut samples = vec![0.2; 64 * 2];
         samples[4] = f64::NAN;
         samples[9] = f64::INFINITY;
@@ -484,5 +605,223 @@ mod tests {
                 limiter.process(&mut samples);
             }
         });
+    }
+
+    // --- True-peak mode -----------------------------------------------------
+
+    use crate::processor::loudness::TruePeakDetector;
+
+    /// Sine at Fs/4 sampled 45° off-peak: every sample sits at ±amplitude·√½
+    /// (well below a -1 dBTP ceiling) while the reconstructed intersample peak
+    /// reaches `amplitude`. This is the canonical case a sample-peak limiter
+    /// misses and a true-peak limiter must catch.
+    fn intersample_stress(frames: usize, channels: usize, amplitude: f64) -> Vec<f64> {
+        let mut samples = Vec::with_capacity(frames * channels);
+        for n in 0..frames {
+            let value = amplitude * (std::f64::consts::PI * (n as f64 + 0.5) / 2.0).sin();
+            for _ in 0..channels {
+                samples.push(value);
+            }
+        }
+        samples
+    }
+
+    /// Measure the interleaved buffer's true peak (linear) with the same 4x FIR
+    /// the limiter detects with, so the assertion reflects the actual guarantee.
+    fn measure_true_peak(samples: &[f64], channels: usize) -> f64 {
+        let mut detectors: Vec<TruePeakDetector> =
+            (0..channels).map(|_| TruePeakDetector::new()).collect();
+        for (ch, detector) in detectors.iter_mut().enumerate() {
+            detector.process_strided(samples, ch, channels);
+        }
+        detectors
+            .iter()
+            .map(|d| d.max_true_peak())
+            .fold(0.0_f64, f64::max)
+    }
+
+    fn sample_peak(samples: &[f64]) -> f64 {
+        samples.iter().map(|s| s.abs()).fold(0.0_f64, f64::max)
+    }
+
+    #[test]
+    fn default_mode_is_true_peak() {
+        let limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        assert_eq!(limiter.mode(), LimiterMode::TruePeak);
+    }
+
+    #[test]
+    fn true_peak_mode_limits_intersample_stress_below_ceiling() {
+        let ceiling = db_to_linear(-1.0);
+        let mut samples = intersample_stress(4_000, 2, 1.0);
+
+        // Sample peak is below the ceiling, so the input alone looks "safe".
+        assert!(sample_peak(&samples) < ceiling);
+
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        limiter.process(&mut samples);
+
+        // Ignore the leading delay (zeros) when judging steady-state output.
+        let steady = &samples[2 * limiter.delay_frames..];
+        let out_tp = measure_true_peak(steady, 2);
+        let tol = db_to_linear(0.1); // measured with the same FIR as detection
+        assert!(
+            out_tp <= ceiling * tol,
+            "true-peak output {out_tp} exceeds ceiling {ceiling}"
+        );
+    }
+
+    #[test]
+    fn sample_peak_mode_misses_what_true_peak_catches() {
+        let ceiling = db_to_linear(-1.0);
+        let mut sp = intersample_stress(4_000, 2, 1.0);
+        let mut tp = sp.clone();
+
+        PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak)
+            .process(&mut sp);
+        PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::TruePeak)
+            .process(&mut tp);
+
+        // Sample-peak mode never engages (sample peak < ceiling) and leaves the
+        // intersample peak above the ceiling; true-peak mode pulls it under.
+        assert!(measure_true_peak(&sp, 2) > ceiling);
+        assert!(measure_true_peak(&tp[2 * 490..], 2) <= ceiling * db_to_linear(0.1));
+    }
+
+    #[test]
+    fn true_peak_covers_mono_stereo_and_multichannel() {
+        let ceiling = db_to_linear(-1.0);
+        for channels in [1usize, 2, 6] {
+            let mut samples = intersample_stress(4_000, channels, 1.0);
+            let mut limiter = PeakLimiter::new(channels, 48_000, -1.0, 10.0, 100.0);
+            limiter.process(&mut samples);
+
+            let steady = &samples[channels * limiter.delay_frames..];
+            let out_tp = measure_true_peak(steady, channels);
+            assert!(
+                out_tp <= ceiling * db_to_linear(0.1),
+                "channels={channels}: true-peak output {out_tp} exceeds ceiling {ceiling}"
+            );
+        }
+    }
+
+    #[test]
+    fn true_peak_preserves_cross_buffer_continuity() {
+        let source = intersample_stress(6_400, 2, 1.0);
+        let mut one_shot = source.clone();
+        let mut chunked = source;
+
+        let mut one_shot_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut chunked_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+
+        one_shot_limiter.process(&mut one_shot);
+        for chunk in chunked.chunks_mut(64 * 2) {
+            chunked_limiter.process(chunk);
+        }
+
+        assert_samples_eq(&chunked, &one_shot);
+    }
+
+    #[test]
+    fn true_peak_resets_all_state() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut samples = intersample_stress(1_000, 2, 1.0);
+
+        limiter.process(&mut samples);
+        assert!(limiter.peak_queue.current_peak() > 0.0);
+        assert!(limiter.gain_reduction < 1.0);
+
+        limiter.reset();
+
+        assert_eq!(limiter.peak_queue.current_peak(), 0.0);
+        assert_eq!(limiter.global_frame, 0);
+        assert_eq!(limiter.write_pos, 0);
+        assert_eq!(limiter.gain_reduction, 1.0);
+        for detector in &limiter.true_peak_detectors {
+            assert_eq!(detector.max_true_peak(), 0.0);
+        }
+    }
+
+    #[test]
+    fn true_peak_silence_stays_silent_and_unity_gain() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut samples = vec![0.0; 2_000 * 2];
+
+        limiter.process(&mut samples);
+
+        assert!(samples.iter().all(|s| *s == 0.0));
+        assert_eq!(limiter.gain_reduction, 1.0);
+    }
+
+    #[test]
+    fn true_peak_bounds_sustained_over_threshold_material() {
+        let ceiling = db_to_linear(-1.0);
+        let mut samples = intersample_stress(4_000, 2, 1.5);
+        // Both sample peak and true peak are over the ceiling here.
+        assert!(sample_peak(&samples) > ceiling);
+
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        limiter.process(&mut samples);
+
+        let steady = &samples[2 * limiter.delay_frames..];
+        assert!(measure_true_peak(steady, 2) <= ceiling * db_to_linear(0.1));
+    }
+
+    #[test]
+    fn true_peak_recovers_after_non_finite_samples() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut samples = vec![0.2; 64 * 2];
+        samples[4] = f64::NAN;
+        samples[9] = f64::INFINITY;
+
+        // Policy: non-finite input is not sanitized, but must not panic and the
+        // detector/queue must recover to a finite state once it flushes through.
+        limiter.process(&mut samples);
+
+        let mut finite = vec![0.25; 4_000 * 2];
+        limiter.process(&mut finite);
+
+        assert!(limiter.peak_queue.current_peak().is_finite());
+        assert!(limiter.gain_reduction.is_finite());
+    }
+
+    #[test]
+    fn true_peak_process_is_steady_state_no_alloc() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut samples = intersample_stress(64, 2, 1.0);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..1_000 {
+                limiter.process(&mut samples);
+            }
+        });
+    }
+
+    #[test]
+    fn set_mode_is_allocation_free_and_switches_active_delay() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        assert_eq!(limiter.mode(), LimiterMode::TruePeak);
+        let true_peak_delay = limiter.delay_frames;
+
+        let mut samples = intersample_stress(64, 2, 1.0);
+
+        // Switching modes and processing both ways must not allocate: buffers
+        // and detectors are pre-sized for the worst case at construction.
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..100 {
+                limiter.set_mode(LimiterMode::SamplePeak);
+                limiter.process(&mut samples);
+                limiter.set_mode(LimiterMode::TruePeak);
+                limiter.process(&mut samples);
+            }
+        });
+
+        // Active delay tracks the mode (sample-peak is shorter by the FIR span).
+        limiter.set_mode(LimiterMode::SamplePeak);
+        assert_eq!(limiter.delay_frames + TRUE_PEAK_DELAY, true_peak_delay);
+        // Idempotent: re-selecting the current mode is a no-op (no reset churn).
+        let before = limiter.delay_frames;
+        limiter.set_mode(LimiterMode::SamplePeak);
+        assert_eq!(limiter.delay_frames, before);
     }
 }

@@ -99,6 +99,17 @@ impl DspChain {
         self.processors.len()
     }
 
+    /// Return processor names in execution order.
+    ///
+    /// This is intended for setup-time diagnostics and tests. It allocates the
+    /// returned vector, so do not call it from the realtime callback.
+    pub fn processor_names(&self) -> Vec<&'static str> {
+        self.processors
+            .iter()
+            .map(|processor| processor.name())
+            .collect()
+    }
+
     /// Check if chain is empty
     pub fn is_empty(&self) -> bool {
         self.processors.is_empty()
@@ -231,6 +242,15 @@ mod tests {
         let mut buffer = vec![1.0];
         chain.process(&mut buffer, 1);
         assert_eq!(buffer, vec![3.0]);
+    }
+
+    #[test]
+    fn test_processor_names_follow_execution_order() {
+        let mut chain = DspChain::new(44100.0);
+        chain.add(DoublerProcessor::new());
+        chain.add(AdderProcessor::new());
+
+        assert_eq!(chain.processor_names(), vec!["Doubler", "Adder"]);
     }
 
     #[test]

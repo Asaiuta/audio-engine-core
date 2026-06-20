@@ -6,14 +6,17 @@ use std::sync::OnceLock;
 
 const TRUE_PEAK_PHASES: usize = 4;
 const TRUE_PEAK_FIR_TAPS: usize = 49;
-const TRUE_PEAK_DELAY: usize = TRUE_PEAK_FIR_TAPS.div_ceil(TRUE_PEAK_PHASES);
+/// Span (in input samples) of one polyphase branch. The limiter reuses this as
+/// its detector-delay pad so an output sample's full intersample-peak
+/// contribution is always inside its look-ahead window.
+pub(crate) const TRUE_PEAK_DELAY: usize = TRUE_PEAK_FIR_TAPS.div_ceil(TRUE_PEAK_PHASES);
 const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_DELAY * 2;
 const TRUE_PEAK_INTER_SAMPLE_TAPS: usize = TRUE_PEAK_DELAY - 1;
 
 static TRUE_PEAK_FIR: OnceLock<TruePeakFir> = OnceLock::new();
 
 #[derive(Clone, Copy)]
-struct TruePeakFir {
+pub(crate) struct TruePeakFir {
     sample_phase_coeff: f64,
     inter_sample_coeffs: [[f64; TRUE_PEAK_INTER_SAMPLE_TAPS]; TRUE_PEAK_PHASES - 1],
 }
@@ -195,8 +198,10 @@ impl LoudnessMeter {
 /// a bounded, no-heap process path. Formal BS.1770 conformance still depends on
 /// validating against reference corpus data.
 ///
-/// This is used for measurement, not limiting. The limiter above
-/// handles peak limiting without oversampling (acceptable for most use cases).
+/// This drives loudness/true-peak *measurement*. The same per-sample FIR also
+/// backs the limiter's default true-peak detection mode (via
+/// [`Self::intersample_peak`]), so measurement and limiting share one
+/// interpolator shape.
 pub struct TruePeakDetector {
     /// Causal FIR history duplicated once so dot products read contiguous slices.
     history: [f64; TRUE_PEAK_HISTORY_LEN],
@@ -235,8 +240,16 @@ impl TruePeakDetector {
 
     #[inline]
     fn process_sample(&mut self, sample: f64, fir: &TruePeakFir) {
-        self.max_true_peak = self.max_true_peak.max(sample.abs());
+        self.max_true_peak = self.max_true_peak.max(self.intersample_peak(sample, fir));
+    }
 
+    /// Push one sample and return the intersample peak attributable to the
+    /// current detector position (max of the sample magnitude and the three
+    /// interpolated phases). Unlike [`Self::process_sample`] this does not
+    /// accumulate into `max_true_peak`, so the limiter can use it as a
+    /// per-frame control signal without carrying a running maximum.
+    #[inline]
+    pub(crate) fn intersample_peak(&mut self, sample: f64, fir: &TruePeakFir) -> f64 {
         self.history[self.write_pos] = sample;
         self.history[self.write_pos + TRUE_PEAK_DELAY] = sample;
 
@@ -246,16 +259,16 @@ impl TruePeakDetector {
         let phase2 = dot12_contiguous(history, &fir.inter_sample_coeffs[1]);
         let phase3 = dot12_contiguous(history, &fir.inter_sample_coeffs[2]);
 
-        self.max_true_peak = self
-            .max_true_peak
-            .max(phase1.abs())
-            .max(phase2.abs())
-            .max(phase3.abs());
-
         self.write_pos += 1;
         if self.write_pos == TRUE_PEAK_DELAY {
             self.write_pos = 0;
         }
+
+        sample
+            .abs()
+            .max(phase1.abs())
+            .max(phase2.abs())
+            .max(phase3.abs())
     }
 
     /// Get maximum true peak detected (linear)
@@ -282,7 +295,7 @@ impl Default for TruePeakDetector {
     }
 }
 
-fn true_peak_fir() -> &'static TruePeakFir {
+pub(crate) fn true_peak_fir() -> &'static TruePeakFir {
     TRUE_PEAK_FIR.get_or_init(generate_true_peak_fir)
 }
 
@@ -534,12 +547,9 @@ mod tests {
 
         // ebur128's DEFAULT 8-channel map marks channel 6 Unused, so the energy
         // is dropped and no loudness registers.
-        let mut default_ebur =
-            ebur128::EbuR128::new(8, sample_rate, ebur128::Mode::all()).unwrap();
+        let mut default_ebur = ebur128::EbuR128::new(8, sample_rate, ebur128::Mode::all()).unwrap();
         default_ebur.add_frames_f64(&samples).unwrap();
-        let default_loudness = default_ebur
-            .loudness_global()
-            .unwrap_or(f64::NEG_INFINITY);
+        let default_loudness = default_ebur.loudness_global().unwrap_or(f64::NEG_INFINITY);
 
         // Our layout-mapped meter weights channel 6 as a surround.
         let mut meter = LoudnessMeter::with_layout(&ChannelLayout::surround_7_1(), sample_rate);

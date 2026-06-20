@@ -20,7 +20,7 @@ mod ramp;
 
 pub use atomic_state::AtomicLoudnessState;
 pub use info::LoudnessInfo;
-pub use limiter::PeakLimiter;
+pub use limiter::{LimiterMode, PeakLimiter};
 pub use meter::{LoudnessMeter, TruePeakDetector};
 pub use normalizer::LoudnessNormalizer;
 pub use ramp::GainRamp;

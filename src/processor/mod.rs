@@ -33,6 +33,7 @@ mod fir_eq;
 mod loudness;
 #[cfg(feature = "loudness-db")]
 mod loudness_db;
+mod output_chain;
 mod resampler;
 mod saturation;
 mod spectrum;
@@ -56,13 +57,18 @@ pub use dynamic_loudness::{AtomicDynamicLoudnessState, DynamicLoudness, LOUDNESS
 pub use eq::{BiquadSection, Equalizer};
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
-    AtomicLoudnessState, GainRamp, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, PeakLimiter,
-    TruePeakDetector,
+    AtomicLoudnessState, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer,
+    PeakLimiter, TruePeakDetector,
 };
 #[cfg(feature = "loudness-db")]
 pub use loudness_db::{
     DatabaseStats, LoudnessDatabase, TrackLoudness, CURRENT_SCAN_VERSION,
     DEFAULT_BROADCAST_TARGET_LUFS, DEFAULT_STREAMING_TARGET_LUFS,
+};
+pub use output_chain::{
+    callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
+    offline_stage_names, offline_stage_order_csv, OutputChainBuilder, OutputChainParams,
+    OutputRenderChain, OutputStageDescriptor, OutputStageId, RenderedOutput,
 };
 pub use resampler::{ResampleOutput, Resampler, ResamplerError, StreamingResampler};
 pub use saturation::{Saturation, SaturationSettings, SaturationType};
@@ -73,8 +79,8 @@ pub use adapters::{
     ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor, EqProcessor,
     NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
 };
-pub use dsp_chain::DspChain;
 pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
+pub use dsp_chain::DspChain;
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
