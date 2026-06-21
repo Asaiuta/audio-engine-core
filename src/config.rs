@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub use crate::processor::SaturationType;
+pub use crate::processor::{SaturationQuality, SaturationType};
 
 /// Resampling quality preset, trading CPU cost for stopband attenuation and
 /// transition-band sharpness.
@@ -91,6 +91,9 @@ impl Default for LoudnessConfig {
 pub struct SaturationConfig {
     /// Saturation character.
     pub sat_type: SaturationType,
+    /// Processing quality / antialiasing mode.
+    #[serde(default)]
+    pub quality: SaturationQuality,
     /// Drive amount (0.0–2.0); higher adds more harmonics.
     pub drive: f64,
     /// Linear threshold above which saturation engages.
@@ -109,6 +112,7 @@ impl Default for SaturationConfig {
     fn default() -> Self {
         Self {
             sat_type: SaturationType::Tube,
+            quality: SaturationQuality::Direct,
             drive: 0.25,
             threshold: 0.88,
             mix: 0.2,

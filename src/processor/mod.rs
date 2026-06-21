@@ -71,7 +71,7 @@ pub use output_chain::{
     OutputRenderChain, OutputStageDescriptor, OutputStageId, RenderedOutput,
 };
 pub use resampler::{ResampleOutput, Resampler, ResamplerError, StreamingResampler};
-pub use saturation::{Saturation, SaturationSettings, SaturationType};
+pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};
 pub use spectrum::SpectrumAnalyzer;
 
 // Re-export unified abstraction types
@@ -86,6 +86,6 @@ pub use lockfree_params::{
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, CrossfeedParamsSnapshot, DynamicLoudnessParamsSnapshot, EqParamsSnapshot,
     NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, SaturationParamsSnapshot,
-    SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
+    SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
 };
 pub use traits::{AudioProcessor, ProcessResult};

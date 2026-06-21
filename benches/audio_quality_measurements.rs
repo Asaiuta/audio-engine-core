@@ -12,7 +12,8 @@ use audio_engine_core::processor::{
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, FFTConvolver, LimiterMode,
     LoudnessMeter, NoiseShaper, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
-    PeakLimiter, RenderedOutput, StreamingResampler, EQ_BANDS,
+    PeakLimiter, RenderedOutput, Saturation, SaturationQuality, SaturationType, StreamingResampler,
+    EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -42,6 +43,10 @@ const EBU_LOUDNESS_TOLERANCE_LU: f64 = 0.1;
 const EBU_LRA_TOLERANCE_LU: f64 = 1.0;
 const EBU_TRUE_PEAK_LOWER_TOLERANCE_DB: f64 = -0.4;
 const EBU_TRUE_PEAK_UPPER_TOLERANCE_DB: f64 = 0.2;
+const SATURATION_ALIAS_STRESS_FREQUENCY_HZ: f64 = 11_000.0;
+const SATURATION_ALIAS_AMPLITUDE_DBFS: f64 = -2.0;
+const SATURATION_ALIAS_DRIVE: f64 = 1.35;
+const SATURATION_ALIAS_MIX: f64 = 1.0;
 
 // Gate thresholds for the synthetic (always-runs) metrics. These are deliberately
 // conservative: observed values sit far inside them so the gates survive across
@@ -50,6 +55,7 @@ const EBU_TRUE_PEAK_UPPER_TOLERANCE_DB: f64 = 0.2;
 const GATE_RESAMPLER_THDN_MAX_DB: f64 = -100.0; // observed ~-187 dB
 const GATE_PASSBAND_DEVIATION_MAX_DB: f64 = 0.10; // observed ~0.0013 dB
 const GATE_ALIAS_ATTENUATION_MAX_DB: f64 = -100.0; // observed ~-295 dB (more negative is better)
+const GATE_SATURATION_ALIAS_REDUCTION_MIN_DB: f64 = 6.0;
 const GATE_LIMITER_MARGIN_MAX_DB: f64 = 0.05; // sample-peak ceiling; observed ~0.00 dB
 const GATE_NOISE_SHAPER_ADVANTAGE_MIN_DB: f64 = 3.0; // observed up to ~+35 dB
 const GATE_LOUDNESS_PARITY_MAX_LU: f64 = 1.0e-6; // wrapper forwards to ebur128
@@ -255,6 +261,7 @@ struct QualityReport {
     frequency_response: FrequencyResponseSection,
     limiter: LimiterSection,
     resampler_stopband: StopbandSection,
+    saturation_aliasing: SaturationAliasingSection,
     noise_shaping: NoiseShapingSection,
     loudness_reference: LoudnessReferenceSection,
     full_output_true_peak: FullOutputTruePeakSection,
@@ -423,6 +430,7 @@ struct Conditions {
     thdn_method: &'static str,
     frequency_response_method: &'static str,
     stopband_method: &'static str,
+    saturation_aliasing_method: &'static str,
     limiter_method: &'static str,
     noise_shaping_method: &'static str,
     loudness_reference_method: &'static str,
@@ -486,6 +494,32 @@ struct StopbandPoint {
     alias_attenuation_db: f64,
     residual_rms_attenuation_db: f64,
     output_alias_amplitude_dbfs: f64,
+}
+
+#[derive(Serialize)]
+struct SaturationAliasingSection {
+    sample_rate_hz: u32,
+    saturation_type: &'static str,
+    upgraded_quality: &'static str,
+    stress_frequency_hz: f64,
+    input_amplitude_dbfs: f64,
+    drive: f64,
+    mix: f64,
+    direct_fundamental_dbfs: f64,
+    upgraded_fundamental_dbfs: f64,
+    direct_alias_energy_dbfs: f64,
+    upgraded_alias_energy_dbfs: f64,
+    alias_reduction_db: f64,
+    points: Vec<SaturationAliasPoint>,
+}
+
+#[derive(Serialize)]
+struct SaturationAliasPoint {
+    harmonic: u32,
+    folded_frequency_hz: f64,
+    direct_alias_dbfs: f64,
+    upgraded_alias_dbfs: f64,
+    reduction_db: f64,
 }
 
 #[derive(Serialize)]
@@ -680,6 +714,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     let frequency_response = measure_frequency_response(frames, amplitude)?;
     let limiter = measure_limiter(frames, test_frequency, amplitude, limiter_transparent)?;
     let resampler_stopband = measure_stopband(frames)?;
+    let saturation_aliasing = measure_saturation_aliasing(frames)?;
     let noise_shaping = measure_noise_shaping(frames)?;
     let loudness_reference = measure_loudness_reference(ebu_dir)?;
     let full_output_true_peak = measure_full_output_true_peak(frames, ebu_dir)?;
@@ -690,6 +725,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         &frequency_response,
         &limiter,
         &resampler_stopband,
+        &saturation_aliasing,
         &noise_shaping,
         &loudness_reference,
         &full_output_true_peak,
@@ -706,6 +742,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
             thdn_method: "least-squares sine fit with DC term, THD+N = residual_rms / fitted_sine_rms",
             frequency_response_method: "single-tone amplitude fit after 44.1 kHz -> 48 kHz resampling",
             stopband_method: "96 kHz -> 48 kHz resampling of above-output-Nyquist tones; alias fit plus broad residual RMS",
+            saturation_aliasing_method: "11 kHz driven tube waveshaper; fit folded above-Nyquist harmonics and compare source-rate Direct vs Oversampled4x alias energy",
             limiter_method: "PeakLimiter (default 4x-oversampled true-peak detection) in-place processing; reports sample-peak ceiling, below-threshold THD+N, and intersample-peak stress vs legacy sample-peak mode",
             noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands",
             loudness_reference_method: "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
@@ -724,6 +761,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         frequency_response,
         limiter,
         resampler_stopband,
+        saturation_aliasing,
         noise_shaping,
         loudness_reference,
         full_output_true_peak,
@@ -738,6 +776,7 @@ fn build_metrics(
     frequency_response: &FrequencyResponseSection,
     limiter: &LimiterSection,
     resampler_stopband: &StopbandSection,
+    saturation_aliasing: &SaturationAliasingSection,
     noise_shaping: &NoiseShapingSection,
     loudness_reference: &LoudnessReferenceSection,
     full_output_true_peak: &FullOutputTruePeakSection,
@@ -763,6 +802,13 @@ fn build_metrics(
             Comparison::AtMost,
             resampler_stopband.worst_alias_attenuation_db,
             GATE_ALIAS_ATTENUATION_MAX_DB,
+            "dB",
+        ),
+        MetricResult::gate(
+            "saturation_oversampled4x_alias_reduction",
+            Comparison::AtLeast,
+            saturation_aliasing.alias_reduction_db,
+            GATE_SATURATION_ALIAS_REDUCTION_MIN_DB,
             "dB",
         ),
         MetricResult::gate(
@@ -1131,6 +1177,101 @@ fn measure_stopband(frames: usize) -> Result<StopbandSection, String> {
         worst_alias_attenuation_db,
         worst_residual_attenuation_db,
     })
+}
+
+fn measure_saturation_aliasing(frames: usize) -> Result<SaturationAliasingSection, String> {
+    let amplitude = db_to_linear(SATURATION_ALIAS_AMPLITUDE_DBFS);
+    let input = sine_mono(
+        frames,
+        SAMPLE_RATE,
+        SATURATION_ALIAS_STRESS_FREQUENCY_HZ,
+        amplitude,
+    );
+    let direct = process_saturation_stress(&input, SaturationQuality::Direct);
+    let upgraded = process_saturation_stress(&input, SaturationQuality::Oversampled4x);
+    let skip = output_skip_frames(SAMPLE_RATE);
+    let take = direct.len().saturating_sub(skip * 2);
+
+    let direct_fundamental = fit_sine(
+        &direct,
+        SAMPLE_RATE,
+        SATURATION_ALIAS_STRESS_FREQUENCY_HZ,
+        skip,
+        take,
+    )?;
+    let upgraded_fundamental = fit_sine(
+        &upgraded,
+        SAMPLE_RATE,
+        SATURATION_ALIAS_STRESS_FREQUENCY_HZ,
+        skip,
+        take,
+    )?;
+
+    let mut points = Vec::new();
+    let mut direct_alias_power = 0.0;
+    let mut upgraded_alias_power = 0.0;
+    for harmonic in [3_u32, 5, 7, 9] {
+        let harmonic_frequency = SATURATION_ALIAS_STRESS_FREQUENCY_HZ * harmonic as f64;
+        if harmonic_frequency <= SAMPLE_RATE as f64 / 2.0 {
+            continue;
+        }
+        let folded_frequency = fold_frequency(harmonic_frequency, SAMPLE_RATE);
+        if folded_frequency < 20.0 {
+            continue;
+        }
+
+        let direct_fit = fit_sine(&direct, SAMPLE_RATE, folded_frequency, skip, take)?;
+        let upgraded_fit = fit_sine(&upgraded, SAMPLE_RATE, folded_frequency, skip, take)?;
+        direct_alias_power += direct_fit.amplitude * direct_fit.amplitude;
+        upgraded_alias_power += upgraded_fit.amplitude * upgraded_fit.amplitude;
+
+        points.push(SaturationAliasPoint {
+            harmonic,
+            folded_frequency_hz: folded_frequency,
+            direct_alias_dbfs: dbfs(direct_fit.amplitude),
+            upgraded_alias_dbfs: dbfs(upgraded_fit.amplitude),
+            reduction_db: positive_db_ratio(direct_fit.amplitude, upgraded_fit.amplitude),
+        });
+    }
+
+    if points.is_empty() {
+        return Err("saturation aliasing probe produced no folded harmonics".to_string());
+    }
+
+    let direct_alias_energy = direct_alias_power.sqrt();
+    let upgraded_alias_energy = upgraded_alias_power.sqrt();
+
+    Ok(SaturationAliasingSection {
+        sample_rate_hz: SAMPLE_RATE,
+        saturation_type: "Tube",
+        upgraded_quality: "Oversampled4x",
+        stress_frequency_hz: SATURATION_ALIAS_STRESS_FREQUENCY_HZ,
+        input_amplitude_dbfs: SATURATION_ALIAS_AMPLITUDE_DBFS,
+        drive: SATURATION_ALIAS_DRIVE,
+        mix: SATURATION_ALIAS_MIX,
+        direct_fundamental_dbfs: dbfs(direct_fundamental.amplitude),
+        upgraded_fundamental_dbfs: dbfs(upgraded_fundamental.amplitude),
+        direct_alias_energy_dbfs: dbfs(direct_alias_energy),
+        upgraded_alias_energy_dbfs: dbfs(upgraded_alias_energy),
+        alias_reduction_db: positive_db_ratio(direct_alias_energy, upgraded_alias_energy),
+        points,
+    })
+}
+
+fn process_saturation_stress(input: &[f64], quality: SaturationQuality) -> Vec<f64> {
+    let mut saturation = Saturation::with_type(SaturationType::Tube);
+    saturation.set_channel_count(1);
+    saturation.set_sample_rate(SAMPLE_RATE as f64);
+    saturation.set_quality(quality);
+    saturation.set_threshold(0.0);
+    saturation.set_drive(SATURATION_ALIAS_DRIVE);
+    saturation.set_mix(SATURATION_ALIAS_MIX);
+    saturation.set_input_gain(0.0);
+    saturation.set_output_gain(0.0);
+
+    let mut output = input.to_vec();
+    saturation.process_with_channels(&mut output, 1);
+    output
 }
 
 fn measure_noise_shaping(frames: usize) -> Result<NoiseShapingSection, String> {
@@ -2310,6 +2451,18 @@ fn db_ratio(numerator: f64, denominator: f64) -> f64 {
     }
 }
 
+fn positive_db_ratio(numerator: f64, denominator: f64) -> f64 {
+    if numerator <= 0.0 && denominator <= 0.0 {
+        0.0
+    } else if denominator <= 0.0 {
+        400.0
+    } else if numerator <= 0.0 {
+        -400.0
+    } else {
+        20.0 * (numerator / denominator).log10()
+    }
+}
+
 fn dbfs(amplitude: f64) -> f64 {
     if amplitude <= 0.0 {
         -400.0
@@ -2440,6 +2593,27 @@ fn print_report(report: &QualityReport) {
             point.alias_attenuation_db,
             point.residual_rms_attenuation_db,
             point.output_alias_amplitude_dbfs
+        );
+    }
+    println!(
+        "quality_saturation_aliasing type={} quality={} stress_frequency_hz={:.1} direct_alias_energy_dbfs={:.2} upgraded_alias_energy_dbfs={:.2} alias_reduction_db={:.2} direct_fundamental_dbfs={:.2} upgraded_fundamental_dbfs={:.2}",
+        report.saturation_aliasing.saturation_type,
+        report.saturation_aliasing.upgraded_quality,
+        report.saturation_aliasing.stress_frequency_hz,
+        report.saturation_aliasing.direct_alias_energy_dbfs,
+        report.saturation_aliasing.upgraded_alias_energy_dbfs,
+        report.saturation_aliasing.alias_reduction_db,
+        report.saturation_aliasing.direct_fundamental_dbfs,
+        report.saturation_aliasing.upgraded_fundamental_dbfs
+    );
+    for point in &report.saturation_aliasing.points {
+        println!(
+            "quality_saturation_alias_point harmonic={} folded_frequency_hz={:.1} direct_alias_dbfs={:.2} upgraded_alias_dbfs={:.2} reduction_db={:.2}",
+            point.harmonic,
+            point.folded_frequency_hz,
+            point.direct_alias_dbfs,
+            point.upgraded_alias_dbfs,
+            point.reduction_db
         );
     }
     println!(

@@ -76,8 +76,8 @@ const OUTPUT_STAGE_DESCRIPTORS: [OutputStageDescriptor; 11] = [
         callback_stage: true,
         offline_stage: true,
         carries_state: true,
-        introduces_latency: false,
-        latency_note: "optional high-pass state, no explicit output delay",
+        introduces_latency: true,
+        latency_note: "optional high-pass and oversampling filter state; direct mode has no explicit output delay",
     },
     OutputStageDescriptor {
         id: OutputStageId::Crossfeed,
@@ -426,7 +426,9 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::*;
-    use crate::processor::{NoiseShaperCurve, SaturationTypeValue, EQ_BANDS};
+    use crate::processor::{
+        NoiseShaperCurve, SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
+    };
 
     const CHANNELS: usize = 2;
     const SAMPLE_RATE: u32 = 48_000;
@@ -565,6 +567,9 @@ mod tests {
         params
             .saturation_params
             .set_sat_type(SaturationTypeValue::Tube);
+        params
+            .saturation_params
+            .set_quality(SaturationQualityValue::Oversampled4x);
         params.saturation_params.set_highpass_mode(true);
         params.crossfeed_params.set_enabled(true);
         params.crossfeed_params.set_mix(0.25);

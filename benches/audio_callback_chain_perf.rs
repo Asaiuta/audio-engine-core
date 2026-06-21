@@ -9,7 +9,8 @@ use audio_engine_core::processor::{
     callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, DspChain, FFTConvolver,
-    NoiseShaperCurve, OutputChainBuilder, OutputChainParams, SaturationTypeValue, EQ_BANDS,
+    NoiseShaperCurve, OutputChainBuilder, OutputChainParams, SaturationQualityValue,
+    SaturationTypeValue, EQ_BANDS,
 };
 
 const CHANNELS: usize = 2;
@@ -221,6 +222,7 @@ fn configure_params(
             saturation_params.set_threshold(0.82);
             saturation_params.set_mix(0.35);
             saturation_params.set_sat_type(SaturationTypeValue::Tube);
+            saturation_params.set_quality(SaturationQualityValue::Oversampled4x);
             saturation_params.set_highpass_mode(true);
             saturation_params.set_highpass_cutoff(4_000.0);
             crossfeed_params.set_enabled(true);

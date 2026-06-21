@@ -144,6 +144,7 @@ impl SaturationProcessor {
         saturation.set_highpass_cutoff(cached.highpass_cutoff);
         saturation.set_enabled(cached.enabled);
         saturation.set_type(super::saturation::SaturationType::from(cached.sat_type));
+        saturation.set_quality(super::saturation::SaturationQuality::from(cached.quality));
         Self {
             saturation,
             params,
@@ -177,6 +178,10 @@ impl SaturationProcessor {
             self.saturation
                 .set_type(super::saturation::SaturationType::from(
                     self.cached.sat_type,
+                ));
+            self.saturation
+                .set_quality(super::saturation::SaturationQuality::from(
+                    self.cached.quality,
                 ));
         }
     }

@@ -216,6 +216,7 @@ fn current_cache_sum(cache: &CurrentCache) -> f64 {
         + cache.saturation.drive
         + cache.saturation.threshold
         + cache.saturation.mix
+        + cache.saturation.quality as u8 as f64
         + cache.saturation.input_gain_db
         + cache.saturation.output_gain_db
         + cache.saturation.highpass_cutoff
@@ -245,6 +246,7 @@ struct LegacyParams {
     saturation_threshold: AtomicU64,
     saturation_mix: AtomicU64,
     saturation_type: AtomicU64,
+    saturation_quality: AtomicU64,
     saturation_input_gain: AtomicU64,
     saturation_output_gain: AtomicU64,
     saturation_highpass_mode: AtomicBool,
@@ -294,6 +296,7 @@ impl LegacyParams {
             saturation_threshold: AtomicU64::new(0.88_f64.to_bits()),
             saturation_mix: AtomicU64::new(0.2_f64.to_bits()),
             saturation_type: AtomicU64::new(0),
+            saturation_quality: AtomicU64::new(0),
             saturation_input_gain: AtomicU64::new(0.0_f64.to_bits()),
             saturation_output_gain: AtomicU64::new(0.0_f64.to_bits()),
             saturation_highpass_mode: AtomicBool::new(false),
@@ -350,6 +353,7 @@ impl LegacyParams {
             + Self::opaque_f64(&self.saturation_threshold)
             + Self::opaque_f64(&self.saturation_mix)
             + Self::opaque_u64(&self.saturation_type) as f64
+            + Self::opaque_u64(&self.saturation_quality) as f64
             + Self::opaque_f64(&self.saturation_input_gain)
             + Self::opaque_f64(&self.saturation_output_gain)
             + Self::opaque_f64(&self.saturation_highpass_cutoff)
