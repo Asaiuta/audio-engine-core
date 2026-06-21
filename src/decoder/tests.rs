@@ -152,7 +152,9 @@ fn cancelled_range_fetch_returns_before_network_request() {
 #[test]
 fn garbage_input_yields_unsupported_format() {
     // Random bytes with no recognizable container header.
-    let garbage: Vec<u8> = (0u32..2048).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let garbage: Vec<u8> = (0u32..2048)
+        .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+        .collect();
     let fixture = TempAudio::new("bin", &garbage);
 
     let result = StreamingDecoder::open(fixture.path_str());
@@ -225,7 +227,8 @@ fn truncated_wav_has_defined_policy_no_panic() {
     truncated.truncate(44 + 256);
     let fixture = TempAudio::new("wav", &truncated);
 
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open truncated wav header");
+    let mut decoder =
+        StreamingDecoder::open(fixture.path_str()).expect("open truncated wav header");
     // Drain; must not panic and must terminate.
     let mut total = 0usize;
     loop {
@@ -268,7 +271,10 @@ fn wav_format_capability_matrix() {
         // Metadata assertions.
         assert_eq!(decoder.info.sample_rate, sample_rate);
         assert_eq!(decoder.info.channels, channels);
-        let total_frames = decoder.info.total_frames.expect("total_frames known for wav");
+        let total_frames = decoder
+            .info
+            .total_frames
+            .expect("total_frames known for wav");
         assert_eq!(total_frames, frames);
         let dur = decoder.info.duration_secs.expect("duration known for wav");
         assert!(

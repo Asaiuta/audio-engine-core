@@ -354,7 +354,10 @@ mod tests {
 
     #[test]
     fn default_coefficients_is_itu() {
-        assert_eq!(DownmixCoefficients::default(), DownmixCoefficients::ItuRbs775);
+        assert_eq!(
+            DownmixCoefficients::default(),
+            DownmixCoefficients::ItuRbs775
+        );
     }
 
     #[test]
@@ -391,7 +394,10 @@ mod tests {
         let err = dm.process_into(&[0.0; 5], &mut out).unwrap_err();
         assert_eq!(
             err,
-            DownmixError::InputNotFrameAligned { len: 5, channels: 6 }
+            DownmixError::InputNotFrameAligned {
+                len: 5,
+                channels: 6
+            }
         );
     }
 
@@ -441,7 +447,10 @@ mod tests {
         )
         .unwrap();
         let itu_out = frame(&input, &itu);
-        assert!(itu_out[0].abs() < EPS && itu_out[1].abs() < EPS, "ITU keeps LFE out");
+        assert!(
+            itu_out[0].abs() < EPS && itu_out[1].abs() < EPS,
+            "ITU keeps LFE out"
+        );
 
         let atsc = Downmixer::new(
             ChannelLayout::surround_5_1(),
@@ -479,8 +488,16 @@ mod tests {
         .unwrap();
         let atsc_out = frame(&input, &atsc);
         // ATSC: headroom-managed, never exceeds 0 dBFS for in-range input.
-        assert!(atsc_out[0] <= 1.0 + EPS, "ATSC stays <= unity: {}", atsc_out[0]);
-        assert!(atsc_out[1] <= 1.0 + EPS, "ATSC stays <= unity: {}", atsc_out[1]);
+        assert!(
+            atsc_out[0] <= 1.0 + EPS,
+            "ATSC stays <= unity: {}",
+            atsc_out[0]
+        );
+        assert!(
+            atsc_out[1] <= 1.0 + EPS,
+            "ATSC stays <= unity: {}",
+            atsc_out[1]
+        );
         // Predictable difference: ATSC is quieter than ITU for the same input.
         assert!(atsc_out[0] < itu_out[0]);
     }
@@ -506,7 +523,10 @@ mod tests {
 
         // Center (index 2) -> both equally.
         let out = frame(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0], &dm);
-        assert!((out[0] - out[1]).abs() < EPS && out[0] > EPS, "C -> both: {out:?}");
+        assert!(
+            (out[0] - out[1]).abs() < EPS && out[0] > EPS,
+            "C -> both: {out:?}"
+        );
     }
 
     #[test]
@@ -542,7 +562,11 @@ mod tests {
         // Center-only at unity should pass at ~unity in mono.
         let out = frame(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0], &dm);
         assert_eq!(out.len(), 1);
-        assert!((out[0] - 1.0).abs() < EPS, "centered mono fold = {}", out[0]);
+        assert!(
+            (out[0] - 1.0).abs() < EPS,
+            "centered mono fold = {}",
+            out[0]
+        );
     }
 
     #[test]
