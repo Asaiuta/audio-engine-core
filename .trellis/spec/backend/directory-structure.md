@@ -36,7 +36,7 @@ src/
     ├── eq.rs         # 10-band IIR (BiquadSection, Equalizer)
     ├── fir_eq.rs     # FIR EQ design (FirEq, FirPhaseMode, STANDARD_BANDS)
     ├── crossfeed.rs  # Bauer binaural crossfeed
-    ├── saturation.rs # tape/tube/transistor waveshaping + highpass exciter
+    ├── saturation.rs # tape/tube/transistor waveshaping + highpass exciter + optional oversampled antialiasing
     ├── convolver.rs  # overlap-save FFT convolution (FFTConvolver)
     ├── dynamic_loudness.rs # ISO 226 Fletcher-Munson compensation
     ├── spectrum.rs   # FFT spectrum analyzer

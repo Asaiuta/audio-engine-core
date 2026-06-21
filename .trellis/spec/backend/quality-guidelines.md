@@ -54,6 +54,38 @@ Concretely:
 - Public names must not conflate distinct guarantees (e.g. "sample peak" vs
   "true peak").
 
+## Saturation Quality Modes
+
+`SaturationQuality::Direct` is the legacy source-rate waveshaper. Higher-quality
+antialiasing modes are explicit public modes, currently
+`SaturationQuality::Oversampled2x` and `SaturationQuality::Oversampled4x`.
+
+Contracts to preserve when changing or extending this path:
+
+- Public control must flow through both `Saturation::set_quality(...)` and
+  `AtomicSaturationParams::set_quality(SaturationQualityValue::...)` so direct
+  processor use and callback-chain use expose the same modes.
+- Per-channel oversampling/FIR history must be sized by
+  `Saturation::set_channel_count(...)` during setup. Do not resize, allocate,
+  log, or lock inside `process_with_channels`, `process_fullband_oversampled`,
+  or high-pass processing.
+- Quality-mode claims need objective evidence in
+  `audio_quality_measurements.rs`. The current gate is
+  `saturation_oversampled4x_alias_reduction`, which compares folded harmonic
+  alias energy from the Direct and Oversampled4x Tube paths at equivalent
+  drive/mix settings.
+- Callback-budget changes need `audio_callback_chain_perf`; the active DSP
+  scenario intentionally enables `SaturationQualityValue::Oversampled4x` so the
+  measured 512-frame callback cost includes the upgraded path.
+
+Tests required for this contract:
+
+- Unit tests cover all saturation types across Direct/Oversampled2x/Oversampled4x.
+- High-pass mode, multichannel setup, reset, and sample-rate changes remain
+  finite and bounded.
+- A no-steady-state-allocation assertion covers the oversampled processing path
+  after setup.
+
 ## Testing Requirements
 
 - `cargo test --lib` must pass. The crate already carries ~150 unit tests; new

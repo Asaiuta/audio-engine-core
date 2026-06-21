@@ -27,6 +27,158 @@ pub enum SaturationType {
     Transistor, // Edgy, odd harmonics
 }
 
+/// Saturation processing quality.
+///
+/// `Direct` preserves the legacy source-rate waveshaper. The oversampled modes
+/// spend bounded CPU on interpolated nonlinear processing plus fixed FIR
+/// decimation to reduce high-frequency aliasing products.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SaturationQuality {
+    #[default]
+    Direct,
+    Oversampled2x,
+    Oversampled4x,
+}
+
+const OVERSAMPLING_MAX_FILTER_TAPS: usize = 33;
+const OVERSAMPLING_2X_FILTER: [f64; 17] = [
+    5.251027135038586e-19,
+    -3.0197042000540625e-4,
+    2.851588800210736e-3,
+    7.746002998672272e-3,
+    -1.590176357619914e-2,
+    -5.244242465496063e-2,
+    3.804086149277052e-2,
+    2.950296948494157e-1,
+    4.499560210201921e-1,
+    2.950296948494157e-1,
+    3.804086149277053e-2,
+    -5.244242465496067e-2,
+    -1.5901763576199147e-2,
+    7.746002998672269e-3,
+    2.8515888002107396e-3,
+    -3.019704200054068e-4,
+    5.251027135038586e-19,
+];
+const OVERSAMPLING_4X_FILTER: [f64; OVERSAMPLING_MAX_FILTER_TAPS] = [
+    2.625498272061368e-19,
+    -6.89589757263199e-5,
+    -1.5098433040796195e-4,
+    1.9935259364948403e-4,
+    1.4257860938530118e-3,
+    3.2191159563376977e-3,
+    3.872978936386087e-3,
+    6.89620329927397e-4,
+    -7.950835468636832e-3,
+    -1.961391240495165e-2,
+    -2.622105957052836e-2,
+    -1.6252179284702004e-2,
+    1.9020319939036252e-2,
+    7.836872883124728e-2,
+    1.4751398804726262e-1,
+    2.034596893795545e-1,
+    2.2497669985539734e-1,
+    2.034596893795545e-1,
+    1.4751398804726262e-1,
+    7.836872883124729e-2,
+    1.9020319939036256e-2,
+    -1.6252179284702004e-2,
+    -2.622105957052838e-2,
+    -1.961391240495166e-2,
+    -7.950835468636836e-3,
+    6.89620329927397e-4,
+    3.872978936386086e-3,
+    3.219115956337702e-3,
+    1.4257860938530135e-3,
+    1.9935259364948398e-4,
+    -1.5098433040796222e-4,
+    -6.895897572632045e-5,
+    2.625498272061368e-19,
+];
+
+impl SaturationQuality {
+    #[inline]
+    fn ratio(self) -> usize {
+        match self {
+            Self::Direct => 1,
+            Self::Oversampled2x => 2,
+            Self::Oversampled4x => 4,
+        }
+    }
+
+    #[inline]
+    fn decimation_filter(self) -> &'static [f64] {
+        match self {
+            Self::Direct => &[],
+            Self::Oversampled2x => &OVERSAMPLING_2X_FILTER,
+            Self::Oversampled4x => &OVERSAMPLING_4X_FILTER,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct OversamplingChannelState {
+    previous_input: f64,
+    initialized: bool,
+    filter_history: [f64; OVERSAMPLING_MAX_FILTER_TAPS],
+    filter_index: usize,
+}
+
+impl Default for OversamplingChannelState {
+    fn default() -> Self {
+        Self {
+            previous_input: 0.0,
+            initialized: false,
+            filter_history: [0.0; OVERSAMPLING_MAX_FILTER_TAPS],
+            filter_index: 0,
+        }
+    }
+}
+
+impl OversamplingChannelState {
+    fn reset(&mut self) {
+        self.previous_input = 0.0;
+        self.initialized = false;
+        self.filter_history.fill(0.0);
+        self.filter_index = 0;
+    }
+
+    fn initialize(&mut self, input: f64, filtered_value: f64) {
+        self.previous_input = input;
+        self.initialized = true;
+        self.filter_history.fill(filtered_value);
+        self.filter_index = 0;
+    }
+
+    #[inline]
+    fn lowpass(&mut self, sample: f64, coefficients: &[f64]) -> f64 {
+        if coefficients.is_empty() {
+            return sample;
+        }
+
+        let len = coefficients.len();
+        self.filter_history[self.filter_index] = sample;
+
+        let mut acc = 0.0;
+        let mut history_index = self.filter_index;
+        for &coefficient in coefficients {
+            acc += coefficient * self.filter_history[history_index];
+            history_index = if history_index == 0 {
+                len - 1
+            } else {
+                history_index - 1
+            };
+        }
+
+        self.filter_index += 1;
+        if self.filter_index == len {
+            self.filter_index = 0;
+        }
+
+        acc
+    }
+}
+
 /// Tube Saturation processor with configurable drive and mix
 ///
 /// When highpass_mode is enabled, only high frequencies (>4kHz) are saturated,
@@ -38,6 +190,8 @@ pub enum SaturationType {
 pub struct Saturation {
     /// Saturation type
     sat_type: SaturationType,
+    /// Processing quality / antialiasing mode.
+    quality: SaturationQuality,
     /// Drive amount (0.0 - 2.0, default 0.25)
     drive: f64,
     /// Threshold where saturation begins (linear, default 0.88)
@@ -71,6 +225,8 @@ pub struct Saturation {
     hpf_states: Vec<f64>,
     /// Previous input per channel (x[n-1])
     prev_inputs: Vec<f64>,
+    /// Per-channel oversampling state, pre-sized during setup.
+    oversampling_states: Vec<OversamplingChannelState>,
 }
 
 impl Saturation {
@@ -78,6 +234,7 @@ impl Saturation {
     pub fn new() -> Self {
         let mut instance = Self {
             sat_type: SaturationType::Tube,
+            quality: SaturationQuality::Direct,
             drive: 0.25,
             threshold: 0.88,
             mix: 0.2,
@@ -93,6 +250,7 @@ impl Saturation {
             // P1-5 fix: Initialize for 2 channels by default, grows on demand
             hpf_states: vec![0.0; 2],
             prev_inputs: vec![0.0; 2],
+            oversampling_states: vec![OversamplingChannelState::default(); 2],
         };
         // Initialize HPF coefficient immediately (fixes MINOR-03)
         instance.update_hpf_coef();
@@ -144,8 +302,19 @@ impl Saturation {
         self.sat_type = sat_type;
     }
 
+    /// Set processing quality / antialiasing mode.
+    pub fn set_quality(&mut self, quality: SaturationQuality) {
+        if self.quality != quality {
+            self.quality = quality;
+            self.reset_oversampling_states();
+        }
+    }
+
     /// Enable/disable high-pass mode (exciter mode)
     pub fn set_highpass_mode(&mut self, enabled: bool) {
+        if self.highpass_mode != enabled {
+            self.reset_oversampling_states();
+        }
         self.highpass_mode = enabled;
     }
 
@@ -171,6 +340,14 @@ impl Saturation {
         if self.hpf_states.len() != channels {
             self.hpf_states.resize(channels, 0.0);
             self.prev_inputs.resize(channels, 0.0);
+            self.oversampling_states
+                .resize(channels, OversamplingChannelState::default());
+        }
+    }
+
+    fn reset_oversampling_states(&mut self) {
+        for state in &mut self.oversampling_states {
+            state.reset();
         }
     }
 
@@ -197,7 +374,7 @@ impl Saturation {
         if self.highpass_mode {
             self.process_highpass(samples, channels);
         } else {
-            self.process_fullband(samples);
+            self.process_fullband(samples, channels);
         }
     }
 
@@ -210,7 +387,12 @@ impl Saturation {
     }
 
     /// Full-band saturation (original behavior)
-    fn process_fullband(&mut self, samples: &mut [f64]) {
+    fn process_fullband(&mut self, samples: &mut [f64], channels: usize) {
+        if self.quality != SaturationQuality::Direct {
+            self.process_fullband_oversampled(samples, channels.max(1));
+            return;
+        }
+
         let input_gain = self.input_gain_linear;
         let output_gain = self.output_gain_linear;
         let threshold = self.threshold;
@@ -226,6 +408,48 @@ impl Saturation {
                 let driven = dry * drive_plus1;
                 let saturated = Self::apply_saturation_type(sat_type, driven);
                 *sample = (dry * one_minus_mix + saturated * mix) * output_gain;
+            } else {
+                *sample = dry;
+            }
+        }
+    }
+
+    fn process_fullband_oversampled(&mut self, samples: &mut [f64], channels: usize) {
+        debug_assert!(
+            self.oversampling_states.len() >= channels,
+            "Saturation oversampling state undersized for {} channels (have {}); call set_channel_count during setup",
+            channels,
+            self.oversampling_states.len()
+        );
+        if self.oversampling_states.len() < channels {
+            return;
+        }
+
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let one_minus_mix = 1.0 - mix;
+        let sat_type = self.sat_type;
+        let ratio = self.quality.ratio();
+        let filter = self.quality.decimation_filter();
+
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let dry = *sample * input_gain;
+            let state = &mut self.oversampling_states[index % channels];
+            let wet = Self::process_oversampled_value(
+                state,
+                dry,
+                ratio,
+                filter,
+                sat_type,
+                threshold,
+                drive_plus1,
+            );
+
+            if dry.abs() > threshold {
+                *sample = (dry * one_minus_mix + wet * mix) * output_gain;
             } else {
                 *sample = dry;
             }
@@ -253,6 +477,18 @@ impl Saturation {
             channels,
             self.hpf_states.len()
         );
+        debug_assert!(
+            self.oversampling_states.len() >= channels,
+            "Saturation oversampling state undersized for {} channels (have {}); call set_channel_count during setup",
+            channels,
+            self.oversampling_states.len()
+        );
+        if self.hpf_states.len() < channels
+            || self.prev_inputs.len() < channels
+            || self.oversampling_states.len() < channels
+        {
+            return;
+        }
 
         let frames = samples.len() / channels;
         for frame in 0..frames {
@@ -280,12 +516,19 @@ impl Saturation {
                         crate::runtime::flush_subnormal_sample(self.prev_inputs[ch]);
                 }
 
-                // Apply saturation to high frequencies only
-                let saturated_high = if high.abs() > threshold {
-                    let driven = high * drive_plus1;
-                    Self::apply_saturation_type(sat_type, driven)
+                // Apply saturation to high frequencies only.
+                let saturated_high = if self.quality == SaturationQuality::Direct {
+                    Self::apply_thresholded_saturation(sat_type, high, threshold, drive_plus1)
                 } else {
-                    high
+                    Self::process_oversampled_value(
+                        &mut self.oversampling_states[ch],
+                        high,
+                        self.quality.ratio(),
+                        self.quality.decimation_filter(),
+                        sat_type,
+                        threshold,
+                        drive_plus1,
+                    )
                 };
 
                 // Mix: input + (saturated_high - high) * mix
@@ -311,16 +554,62 @@ impl Saturation {
         }
     }
 
+    #[inline(always)]
+    fn apply_thresholded_saturation(
+        sat_type: SaturationType,
+        input: f64,
+        threshold: f64,
+        drive_plus1: f64,
+    ) -> f64 {
+        if input.abs() > threshold {
+            Self::apply_saturation_type(sat_type, input * drive_plus1)
+        } else {
+            input
+        }
+    }
+
+    #[inline]
+    fn process_oversampled_value(
+        state: &mut OversamplingChannelState,
+        input: f64,
+        ratio: usize,
+        filter: &[f64],
+        sat_type: SaturationType,
+        threshold: f64,
+        drive_plus1: f64,
+    ) -> f64 {
+        let first_wet = Self::apply_thresholded_saturation(sat_type, input, threshold, drive_plus1);
+        if !state.initialized {
+            state.initialize(input, first_wet);
+            return first_wet;
+        }
+
+        let previous = state.previous_input;
+        let delta = input - previous;
+        let mut output = first_wet;
+        for phase in 1..=ratio {
+            let t = phase as f64 / ratio as f64;
+            let interpolated = previous + delta * t;
+            let wet =
+                Self::apply_thresholded_saturation(sat_type, interpolated, threshold, drive_plus1);
+            output = state.lowpass(wet, filter);
+        }
+        state.previous_input = input;
+        output
+    }
+
     /// Reset filter state
     pub fn reset(&mut self) {
         self.hpf_states.fill(0.0);
         self.prev_inputs.fill(0.0);
+        self.reset_oversampling_states();
     }
 
     /// Get current settings as a struct
     pub fn get_settings(&self) -> SaturationSettings {
         SaturationSettings {
             sat_type: self.sat_type,
+            quality: self.quality,
             drive: self.drive,
             threshold: self.threshold,
             mix: self.mix,
@@ -343,6 +632,7 @@ impl Default for Saturation {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SaturationSettings {
     pub sat_type: SaturationType,
+    pub quality: SaturationQuality,
     pub drive: f64,
     pub threshold: f64,
     pub mix: f64,
@@ -536,8 +826,149 @@ mod tests {
         sat.set_channel_count(8);
         assert_eq!(sat.hpf_states.len(), 8);
         assert_eq!(sat.prev_inputs.len(), 8);
+        assert_eq!(sat.oversampling_states.len(), 8);
         // Zero channels falls back to a mono-safe size rather than emptying state.
         sat.set_channel_count(0);
         assert_eq!(sat.hpf_states.len(), 1);
+        assert_eq!(sat.oversampling_states.len(), 1);
+    }
+
+    #[test]
+    fn test_quality_modes_cover_all_saturation_types() {
+        let qualities = [
+            SaturationQuality::Direct,
+            SaturationQuality::Oversampled2x,
+            SaturationQuality::Oversampled4x,
+        ];
+        let types = [
+            SaturationType::Tape,
+            SaturationType::Tube,
+            SaturationType::Transistor,
+        ];
+
+        for quality in qualities {
+            for sat_type in types {
+                let mut sat = Saturation::with_type(sat_type);
+                sat.set_quality(quality);
+                sat.set_channel_count(2);
+                sat.set_threshold(0.0);
+                sat.set_drive(1.0);
+                sat.set_mix(1.0);
+
+                let mut samples = vec![0.8, -0.8, 0.2, -0.2, 0.9, -0.9];
+                let original = samples.clone();
+                sat.process_with_channels(&mut samples, 2);
+
+                assert!(
+                    samples.iter().all(|sample| sample.is_finite()),
+                    "{quality:?}/{sat_type:?} produced non-finite output: {samples:?}"
+                );
+                assert!(
+                    samples
+                        .iter()
+                        .zip(original.iter())
+                        .any(|(processed, input)| (processed - input).abs() > 1.0e-6),
+                    "{quality:?}/{sat_type:?} should process the waveform"
+                );
+                assert!(
+                    samples.iter().all(|sample| sample.abs() <= 1.2),
+                    "{quality:?}/{sat_type:?} should remain bounded: {samples:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_oversampled_highpass_multichannel_after_setup() {
+        let mut sat = Saturation::new();
+        sat.set_quality(SaturationQuality::Oversampled4x);
+        sat.set_highpass_mode(true);
+        sat.set_channel_count(6);
+        sat.set_threshold(0.0);
+        sat.set_drive(1.2);
+        sat.set_mix(0.75);
+
+        let mut samples = vec![0.4; 6 * 16];
+        sat.process_with_channels(&mut samples, 6);
+
+        assert_eq!(sat.hpf_states.len(), 6);
+        assert_eq!(sat.prev_inputs.len(), 6);
+        assert_eq!(sat.oversampling_states.len(), 6);
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn test_oversampled_reset_clears_state() {
+        let mut sat = Saturation::new();
+        sat.set_quality(SaturationQuality::Oversampled2x);
+        sat.set_channel_count(2);
+        sat.set_threshold(0.0);
+        let mut samples = vec![0.8, -0.8, 0.7, -0.7];
+
+        sat.process_with_channels(&mut samples, 2);
+        assert!(sat
+            .oversampling_states
+            .iter()
+            .all(|state| state.initialized));
+
+        sat.reset();
+
+        assert!(sat
+            .oversampling_states
+            .iter()
+            .all(|state| !state.initialized));
+        assert!(sat
+            .oversampling_states
+            .iter()
+            .all(|state| state.filter_history.iter().all(|sample| *sample == 0.0)));
+    }
+
+    #[test]
+    fn test_oversampled_sample_rate_change_remains_bounded() {
+        let mut sat = Saturation::new();
+        sat.set_quality(SaturationQuality::Oversampled4x);
+        sat.set_highpass_mode(true);
+        sat.set_channel_count(2);
+        sat.set_sample_rate(96_000.0);
+        sat.set_highpass_cutoff(8_000.0);
+        sat.set_threshold(0.0);
+        sat.set_drive(1.0);
+
+        let mut samples = vec![0.0; 512 * 2];
+        for frame in 0..512 {
+            let sample = (std::f64::consts::TAU * frame as f64 / 8.0).sin() * 0.8;
+            samples[frame * 2] = sample;
+            samples[frame * 2 + 1] = -sample;
+        }
+
+        sat.process_with_sr(&mut samples, 2, 96_000.0);
+
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+        assert!(samples.iter().all(|sample| sample.abs() <= 2.0));
+    }
+
+    #[test]
+    fn test_oversampled_processing_is_allocation_free_after_setup() {
+        let mut sat = Saturation::new();
+        sat.set_quality(SaturationQuality::Oversampled4x);
+        sat.set_channel_count(2);
+        sat.set_threshold(0.0);
+        sat.set_drive(1.2);
+        sat.set_mix(0.8);
+
+        let mut samples = vec![0.0; 512 * 2];
+        for frame in 0..512 {
+            let sample = (std::f64::consts::TAU * frame as f64 / 11.0).sin() * 0.9;
+            samples[frame * 2] = sample;
+            samples[frame * 2 + 1] = -sample;
+        }
+
+        sat.process_with_channels(&mut samples, 2);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..32 {
+                sat.process_with_channels(&mut samples, 2);
+            }
+        });
     }
 }

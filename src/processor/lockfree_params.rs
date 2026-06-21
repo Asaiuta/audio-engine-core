@@ -283,6 +283,47 @@ impl From<SaturationTypeValue> for crate::processor::SaturationType {
     }
 }
 
+/// Saturation processing quality for lock-free parameter passing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum SaturationQualityValue {
+    #[default]
+    Direct = 0,
+    Oversampled2x = 1,
+    Oversampled4x = 2,
+}
+
+impl From<u8> for SaturationQualityValue {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::Direct,
+            1 => Self::Oversampled2x,
+            2 => Self::Oversampled4x,
+            _ => Self::default(),
+        }
+    }
+}
+
+impl From<crate::processor::SaturationQuality> for SaturationQualityValue {
+    fn from(quality: crate::processor::SaturationQuality) -> Self {
+        match quality {
+            crate::processor::SaturationQuality::Direct => Self::Direct,
+            crate::processor::SaturationQuality::Oversampled2x => Self::Oversampled2x,
+            crate::processor::SaturationQuality::Oversampled4x => Self::Oversampled4x,
+        }
+    }
+}
+
+impl From<SaturationQualityValue> for crate::processor::SaturationQuality {
+    fn from(v: SaturationQualityValue) -> Self {
+        match v {
+            SaturationQualityValue::Direct => Self::Direct,
+            SaturationQualityValue::Oversampled2x => Self::Oversampled2x,
+            SaturationQualityValue::Oversampled4x => Self::Oversampled4x,
+        }
+    }
+}
+
 impl From<super::dsp::NoiseShaperCurve> for u8 {
     fn from(curve: super::dsp::NoiseShaperCurve) -> Self {
         match curve {
@@ -315,6 +356,7 @@ pub struct SaturationParamsSnapshot {
     pub threshold: f64,
     pub mix: f64,
     pub sat_type: SaturationTypeValue,
+    pub quality: SaturationQualityValue,
     pub input_gain_db: f64,
     pub output_gain_db: f64,
     pub highpass_mode: bool,
@@ -329,6 +371,7 @@ impl Default for SaturationParamsSnapshot {
             threshold: 0.88,
             mix: 0.2,
             sat_type: SaturationTypeValue::Tube,
+            quality: SaturationQualityValue::Direct,
             input_gain_db: 0.0,
             output_gain_db: 0.0,
             highpass_mode: false,
@@ -379,6 +422,14 @@ impl AtomicSaturationParams {
     pub fn set_sat_type(&self, sat_type: SaturationTypeValue) {
         self.shared.update(|snapshot| {
             snapshot.sat_type = sat_type;
+        });
+    }
+
+    /// Set processing quality / antialiasing mode.
+    #[inline]
+    pub fn set_quality(&self, quality: SaturationQualityValue) {
+        self.shared.update(|snapshot| {
+            snapshot.quality = quality;
         });
     }
 
@@ -858,11 +909,13 @@ mod tests {
 
         params.set_drive(1.5);
         params.set_mix(0.7);
+        params.set_quality(SaturationQualityValue::Oversampled4x);
         params.set_enabled(true);
 
         let snapshot = params.read();
         assert!((snapshot.drive - 1.5).abs() < 1e-10);
         assert!((snapshot.mix - 0.7).abs() < 1e-10);
+        assert_eq!(snapshot.quality, SaturationQualityValue::Oversampled4x);
         assert!(snapshot.enabled);
     }
 

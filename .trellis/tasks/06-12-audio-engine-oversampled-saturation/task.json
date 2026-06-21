@@ -3,7 +3,7 @@
   "name": "audio-engine-oversampled-saturation",
   "title": "Oversampled anti aliasing saturation",
   "description": "Add anti-aliasing or oversampled processing for the nonlinear saturation modes while preserving realtime safety.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature",
   "scope": "saturation DSP quality modes and aliasing measurements",
   "package": "backend",

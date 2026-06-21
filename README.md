@@ -159,7 +159,9 @@ cargo bench --bench audio_fir_eq_perf -- --quick
 cargo bench --bench audio_quality_measurements -- --quick
 ```
 
-Drop `--quick` for the longer multi-trial runs the numbers below were taken from.
+Drop `--quick` for longer multi-trial runs before citing numbers externally. The
+table below records representative local runs; rows should be regenerated after
+changing the relevant processing path.
 
 ### Realtime processing budget
 
@@ -169,8 +171,8 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| DSP chain, no convolver (EQ, saturation, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 18.4 ns | 18.8 us | `audio_callback_chain_perf` |
-| DSP chain with convolver | 27.8 ns | 28.5 us | `audio_callback_chain_perf` |
+| DSP chain, no convolver (EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 149.5 ns | 153.1 us | `audio_callback_chain_perf --quick` |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 161.1 ns | 165.0 us | `audio_callback_chain_perf --quick` |
 | Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
 | `FFTConvolver` alone, 256-tap IR, stereo | ~10 ns | n/a | `audio_convolver_perf` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 9.6 ns | 9.8 us | `audio_fir_eq_perf` |
@@ -209,16 +211,22 @@ replace listening tests.
 | Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB |
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB |
 | 20 kHz resampler gain | -0.0062 dB |
-| Worst fitted alias attenuation, 96 kHz to 48 kHz | -294.7 dB |
+| Worst fitted alias attenuation, 96 kHz to 48 kHz | -297.0 dB |
+| Saturation alias-energy reduction, Direct vs `Oversampled4x` Tube stress | +16.6 dB |
 | Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
-| Limiter below-threshold THD+N | -238.3 dB |
+| Limiter below-threshold THD+N | -253.9 dB |
 | True-peak mode, intersample-stress output (input +0.10 dBTP / -3.01 dBFS) | -1.00 dBTP |
 | Sample-peak mode, same input (never engages) | +0.10 dBTP |
 | `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
 
+The saturation alias probe drives an 11 kHz Tube waveshaper and fits folded
+above-Nyquist harmonics. In the current quick run, `Oversampled4x` reduced the
+aggregate fitted alias energy from -15.10 dBFS to -31.66 dBFS at equivalent
+drive/mix settings.
+
 The noise shapers (`NoiseShaper`) redistribute quantization error spectrally
 rather than lowering broadband noise: the shaped curves strongly reduce the
-2-6 kHz band while pushing energy into 14-18 kHz, for up to a +34.9 dB
+2-6 kHz band while pushing energy into 14-18 kHz, for up to a +34.8 dB
 ear-band advantage over flat TPDF dither.
 
 The benchmark also includes an optional EBU Tech 3341/3342 expected-value corpus
