@@ -152,7 +152,14 @@ impl ChannelLayout {
             3 => vec![FrontLeft, FrontRight, FrontCenter],
             4 => vec![FrontLeft, FrontRight, RearLeft, RearRight],
             5 => vec![FrontLeft, FrontRight, FrontCenter, RearLeft, RearRight],
-            6 => vec![FrontLeft, FrontRight, FrontCenter, LowFrequency, RearLeft, RearRight],
+            6 => vec![
+                FrontLeft,
+                FrontRight,
+                FrontCenter,
+                LowFrequency,
+                RearLeft,
+                RearRight,
+            ],
             7 => vec![
                 FrontLeft,
                 FrontRight,

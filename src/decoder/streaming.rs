@@ -5,13 +5,13 @@ use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::meta::MetadataOptions;
 
-use crate::channel_layout::{ChannelLayout, ChannelPosition};
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
 use super::source::{
     bytes_to_mib, configured_decode_memory_limit, open_media_source, HttpCredentials,
     F64_SAMPLE_BYTES,
 };
+use crate::channel_layout::{ChannelLayout, ChannelPosition};
 
 /// Streaming audio decoder using Symphonia.
 ///
@@ -352,7 +352,9 @@ impl StreamingDecoder {
         // stays correct relative to the stream. Crucially, `at_stream_start`
         // is NOT reset to true here, so the post-seek stream is not re-trimmed
         // for encoder delay.
-        self.samples_output = seeked_to.actual_ts.saturating_mul(self.info.channels as u64);
+        self.samples_output = seeked_to
+            .actual_ts
+            .saturating_mul(self.info.channels as u64);
         self.at_stream_start = false;
 
         Ok(())
@@ -408,8 +410,14 @@ fn layout_from_codec(channels: Option<Channels>, count: usize) -> ChannelLayout 
         (Channels::LFE1, ChannelPosition::LowFrequency),
         (Channels::REAR_LEFT, ChannelPosition::RearLeft),
         (Channels::REAR_RIGHT, ChannelPosition::RearRight),
-        (Channels::FRONT_LEFT_CENTRE, ChannelPosition::FrontLeftCenter),
-        (Channels::FRONT_RIGHT_CENTRE, ChannelPosition::FrontRightCenter),
+        (
+            Channels::FRONT_LEFT_CENTRE,
+            ChannelPosition::FrontLeftCenter,
+        ),
+        (
+            Channels::FRONT_RIGHT_CENTRE,
+            ChannelPosition::FrontRightCenter,
+        ),
         (Channels::REAR_CENTRE, ChannelPosition::RearCenter),
         (Channels::SIDE_LEFT, ChannelPosition::SideLeft),
         (Channels::SIDE_RIGHT, ChannelPosition::SideRight),
