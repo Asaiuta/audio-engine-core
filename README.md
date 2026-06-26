@@ -174,8 +174,8 @@ in-crate processing.
 | DSP chain, no convolver (EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 149.5 ns | 153.1 us | `audio_callback_chain_perf --quick` |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 161.1 ns | 165.0 us | `audio_callback_chain_perf --quick` |
 | Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
-| `FFTConvolver` alone, 256-tap IR, stereo | ~10 ns | n/a | `audio_convolver_perf` |
-| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 9.6 ns | 9.8 us | `audio_fir_eq_perf` |
+| `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
+| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |
 
 For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
 chain measured here uses well under one callback period.
@@ -197,6 +197,16 @@ Generation is an offline/control-thread cost, not a per-sample one. On this
 machine a 511-tap linear-phase design regenerates in ~31 us; minimum-phase
 designs cost roughly 3x more because of the extra cepstral phase shaping, and
 cost scales with tap count (`audio_fir_eq_perf`).
+
+### FFT convolution routing
+
+`FFTConvolver` keeps the existing overlap-save path for impulse responses up to
+4096 taps per channel, which covers the current FIR EQ tap counts. Longer IRs
+route to a uniform 1024-frame partitioned tail with an overlap-save head so
+room/reverb-length responses avoid one very large callback FFT. The routing and
+partition size are exposed as `PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
+`PARTITIONED_CONVOLUTION_PARTITION_SIZE`; use `audio_convolver_perf` and
+`audio_fir_eq_perf` before changing either value.
 
 ### Objective audio-quality measurements
 

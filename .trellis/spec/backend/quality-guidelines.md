@@ -86,6 +86,30 @@ Tests required for this contract:
 - A no-steady-state-allocation assertion covers the oversampled processing path
   after setup.
 
+## FFT Convolution Routing
+
+`FFTConvolver::new(...)` owns both convolution strategies: the overlap-save
+engine for short/medium FIRs and the uniform partitioned engine for long impulse
+responses. Keep the public constructor as the routing point so callers,
+adapters, FIR EQ, and benches do not need to duplicate IR-length logic.
+
+Contracts to preserve when changing this path:
+
+- `PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
+  `PARTITIONED_CONVOLUTION_PARTITION_SIZE` are public evidence-backed routing
+  constants. Changing either requires fresh `audio_convolver_perf --quick` and
+  `audio_fir_eq_perf --quick` output plus README/doc updates for any cited
+  values.
+- FIR EQ tap counts must stay on `ConvolutionStrategy::OverlapSave` unless a
+  benchmark proves the partitioned path does not regress the FIR apply budget.
+- Partitioned processing must precompute IR spectra, history buffers, FFT plans,
+  and in-place scratch buffers during construction. `process_into` and
+  `process_inplace` must not allocate, lock, log, perform I/O, or do unbounded
+  work after setup.
+- Correctness tests must compare the partitioned output against the overlap-save
+  reference within a fixed tolerance for stereo and at least one mono/surround
+  channel count, and cover cross-buffer continuity, reset, and in-place paths.
+
 ## Testing Requirements
 
 - `cargo test --lib` must pass. The crate already carries ~150 unit tests; new

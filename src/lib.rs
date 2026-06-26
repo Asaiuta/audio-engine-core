@@ -41,11 +41,11 @@ pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,
     canonical_output_stage_descriptors, offline_stage_names, offline_stage_order_csv,
     AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
-    DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver, GainRamp, LimiterMode,
-    LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, OutputChainBuilder,
-    OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter,
-    RenderedOutput, Resampler, SpectrumAnalyzer, StreamingResampler, TruePeakDetector,
-    VolumeController,
+    ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
+    GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper,
+    OutputChainBuilder, OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId,
+    PeakLimiter, RenderedOutput, Resampler, SpectrumAnalyzer, StreamingResampler, TruePeakDetector,
+    VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

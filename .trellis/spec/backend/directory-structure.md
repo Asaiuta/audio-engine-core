@@ -37,7 +37,7 @@ src/
     ├── fir_eq.rs     # FIR EQ design (FirEq, FirPhaseMode, STANDARD_BANDS)
     ├── crossfeed.rs  # Bauer binaural crossfeed
     ├── saturation.rs # tape/tube/transistor waveshaping + highpass exciter + optional oversampled antialiasing
-    ├── convolver.rs  # overlap-save FFT convolution (FFTConvolver)
+    ├── convolver.rs  # FFTConvolver: overlap-save short IRs + partitioned long IRs
     ├── dynamic_loudness.rs # ISO 226 Fletcher-Munson compensation
     ├── spectrum.rs   # FFT spectrum analyzer
     ├── resampler.rs  # SoX VHQ Resampler / StreamingResampler

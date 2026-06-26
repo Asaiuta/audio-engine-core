@@ -3,7 +3,7 @@
   "name": "audio-engine-partitioned-convolution",
   "title": "Partitioned convolution for long impulse responses",
   "description": "Introduce a partitioned FFT convolution path for long impulse responses while retaining the current short-IR path.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature",
   "scope": "FFT convolution performance and long impulse response scalability",
   "package": "backend",
