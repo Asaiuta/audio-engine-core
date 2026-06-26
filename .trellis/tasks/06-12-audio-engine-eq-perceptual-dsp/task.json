@@ -3,7 +3,7 @@
   "name": "audio-engine-eq-perceptual-dsp",
   "title": "EQ and perceptual DSP upgrades",
   "description": "Upgrade EQ, dynamic loudness, and headphone/spatial listening DSP beyond the current classic baseline.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature",
   "scope": "IIR/FIR EQ, dynamic loudness, crossfeed, perceptual DSP quality evidence",
   "package": "backend",

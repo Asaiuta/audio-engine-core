@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "backend spec index for verification"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "verify hot-path realtime safety and no allocation assertions"}
+{"file": ".trellis/tasks/06-12-audio-engine-eq-perceptual-dsp/research/listening-dsp-audit.md", "reason": "verify implementation against source-backed scoped gaps and benchmark evidence plan"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify tests and benchmark evidence policy"}

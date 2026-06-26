@@ -48,6 +48,11 @@ Concretely:
 
 - New tunable parameters go through the lock-free atomic snapshots in
   `lockfree_params.rs`.
+- Stateful DSP adapters must distinguish scalar/control updates from
+  coefficient-geometry updates. Mix/strength/enabled changes should preserve
+  filter history unless the processor contract explicitly requires a reset;
+  sample-rate, cutoff, latency-window, or topology changes may reset state when
+  documented and tested.
 - New DSP processors ship with: unit tests (mono + stereo at minimum), a
   no-steady-state-allocation test (`assert_no_alloc`) for the processing path,
   and a benchmark entry if they touch the callback budget.
@@ -116,6 +121,10 @@ Contracts to preserve when changing this path:
   behavior must add tests, not rely on existing ones.
 - Cover continuity across buffers, reset behavior, silence, and edge inputs
   (non-finite samples, sample-rate changes) where the processor is stateful.
+- When fixing adapter-level parameter continuity, compare the adapter against a
+  direct processor reference that preserves history, and include a reset
+  reference when possible so the test proves it would catch the old click/glitch
+  behavior.
 - Run `cargo clippy --all-targets -- -D warnings` clean.
 
 ## Benchmark Gate Convention

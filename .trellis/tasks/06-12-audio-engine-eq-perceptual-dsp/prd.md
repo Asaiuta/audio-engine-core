@@ -48,3 +48,4 @@ Upgrade the listening-feature DSP (IIR/FIR EQ, dynamic loudness, crossfeed) beyo
 - This task covers the listening-feature upgrades intentionally left out of the first DSP-hardening pass.
 - Source anchors: `src/processor/eq.rs`, `src/processor/fir_eq.rs`, `src/processor/dynamic_loudness.rs`, `src/processor/crossfeed.rs`, `src/processor/lockfree_params.rs`, `examples/equalizer_curve.rs`.
 - Shared audit: `../06-12-audio-engine-feature-upgrade/research/current-algorithm-audit.md`.
+- Task audit: `research/listening-dsp-audit.md`.
