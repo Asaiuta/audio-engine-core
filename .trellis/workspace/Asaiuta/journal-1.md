@@ -158,3 +158,52 @@ captured the contract in backend specs.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Oversampled saturation validation
+
+**Date**: 2026-06-26
+**Task**: Oversampled anti aliasing saturation
+**Branch**: `feat/channel-layout-mixing`
+
+### Summary
+
+Verified and closed the oversampled saturation task that was implemented in
+`bb715bf`. The implementation exposes explicit Direct/Oversampled2x/Oversampled4x
+quality modes through both direct `Saturation` control and lock-free callback
+params, preserves pre-sized per-channel state, and backs the aliasing claim with
+the `audio_quality_measurements` saturation alias gate.
+
+### Main Changes
+
+- Confirmed `SaturationQuality::Oversampled4x` reduces fitted folded alias
+  energy versus the Direct Tube path by 16.56 dB in the quick quality bench.
+- Confirmed callback-chain quick bench remains far below a 512-frame/48 kHz
+  callback period with Oversampled4x enabled in the active DSP scenarios.
+- Re-ran focused saturation/adapters tests, full lib tests, bench compilation,
+  clippy, and quick performance/quality benches before archiving the task.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb715bf` | (see git log) |
+
+### Testing
+
+- [OK] `cargo fmt --check`
+- [OK] `cargo test saturation --lib`
+- [OK] `cargo test processor::adapters --lib`
+- [OK] `cargo test --lib`
+- [OK] `cargo check --benches`
+- [OK] `cargo clippy --all-targets -- -D warnings`
+- [OK] `cargo bench --bench audio_callback_chain_perf -- --quick`
+- [OK] `cargo bench --bench audio_quality_measurements -- --quick`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
