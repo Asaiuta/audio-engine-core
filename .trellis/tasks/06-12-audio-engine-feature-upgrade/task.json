@@ -65,17 +65,15 @@
         "06-12-audio-engine-quality-gates",
         "06-12-audio-engine-decoder-format-capability",
         "06-12-audio-engine-channel-layout-mixing",
-        "06-12-audio-engine-true-peak-limiter"
-      ],
-      "in_progress": [
-        "06-18-audio-engine-output-render-chain"
-      ],
-      "remaining": [
+        "06-12-audio-engine-true-peak-limiter",
+        "06-18-audio-engine-output-render-chain",
         "06-12-audio-engine-oversampled-saturation",
         "06-12-audio-engine-partitioned-convolution",
         "06-12-audio-engine-eq-perceptual-dsp",
         "06-12-audio-engine-api-release-hardening"
-      ]
+      ],
+      "in_progress": [],
+      "remaining": []
     }
   }
 }

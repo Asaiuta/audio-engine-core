@@ -32,24 +32,23 @@ requirement before starting, **Release gate** = runs last.
 2. `06-12-audio-engine-quality-gates` **[P1]** - establish and enforce repeatable audio-quality/performance gates. Mostly formalizes existing benches; low cost, builds the before/after baseline.
 3. `06-12-audio-engine-decoder-format-capability` **[P1]** - make Symphonia decode/seek/error behavior explicit and tested. Contains the only confirmed correctness bug (post-seek `encoder_delay` double-trim) that corrupts audio in the consuming app.
 4. `06-12-audio-engine-true-peak-limiter` **[P1, completed]** - add an oversampled true-peak limiting path and prove source-rate limiter ceilings.
-5. `06-18-audio-engine-output-render-chain` **[P2, in progress]** - converge offline quality measurement, perf bench construction, and exported chain order before promoting full output-chain true peak from report-only.
-6. `06-12-audio-engine-oversampled-saturation` **[P2]** - reduce nonlinear saturation aliasing with an RT-safe quality mode. Enhancement; gated on quality-gates baseline existing.
-7. `06-12-audio-engine-partitioned-convolution` **[P2]** - support long impulse responses with bounded callback cost. Enhancement; only valuable once a consumer needs long room IRs.
-8. `06-12-audio-engine-eq-perceptual-dsp` **[Backlog]** - upgrade IIR/FIR EQ, dynamic loudness, and crossfeed with measured evidence. Speculative until a source-backed quality gap or app request justifies it.
+5. `06-18-audio-engine-output-render-chain` **[P2, completed]** - converge offline quality measurement, perf bench construction, and exported chain order before promoting full output-chain true peak from report-only.
+6. `06-12-audio-engine-oversampled-saturation` **[P2, completed]** - reduce nonlinear saturation aliasing with an RT-safe quality mode. Enhancement; gated on quality-gates baseline existing.
+7. `06-12-audio-engine-partitioned-convolution` **[P2, completed]** - support long impulse responses with bounded callback cost. Enhancement; only valuable once a consumer needs long room IRs.
+8. `06-12-audio-engine-eq-perceptual-dsp` **[Backlog, completed]** - upgrade IIR/FIR EQ, dynamic loudness, and crossfeed with measured evidence. Speculative until a source-backed quality gap or app request justifies it.
 9. `06-12-audio-engine-channel-layout-mixing` **[Backlog, completed]** - add channel-layout metadata and downmix/upmix policy.
-10. `06-12-audio-engine-api-release-hardening` **[Release gate]** - stabilize the public API, feature flags, docs, and release readiness. Runs last so it reflects actual delivered capabilities; premature while the API still churns from DSP work.
+10. `06-12-audio-engine-api-release-hardening` **[Release gate, completed]** - stabilize the public API, feature flags, docs, and release readiness. Runs last so it reflects actual delivered capabilities; premature while the API still churns from DSP work.
 
 ## Progress Snapshot
 
 Completed: `trellis-spec-bootstrap`, `quality-gates`,
-`decoder-format-capability`, `channel-layout-mixing`, and
-`true-peak-limiter`.
+`decoder-format-capability`, `channel-layout-mixing`, `true-peak-limiter`,
+`output-render-chain`, `oversampled-saturation`, `partitioned-convolution`,
+`eq-perceptual-dsp`, and `api-release-hardening`.
 
-In progress: `06-18-audio-engine-output-render-chain`.
+In progress: none.
 
-Remaining planned/backlog work: `oversampled-saturation`,
-`partitioned-convolution`, `eq-perceptual-dsp`, and
-`api-release-hardening`.
+Remaining planned/backlog work: none in this roadmap.
 
 ## Priority Tiers
 
@@ -88,7 +87,7 @@ library whose only consumer is the Lyne app:
 - [x] All child tasks exist and are linked from this parent.
 - [x] Parent and child PRDs define scope, out-of-scope, acceptance criteria, and validation commands.
 - [x] Each task has `implement.jsonl` and `check.jsonl` entries that reference only spec/research files.
-- [ ] `task.py validate` passes for the parent and each child task.
+- [x] `task.py validate` passes for the parent and each child task.
 - [x] No child task is marked `in_progress` until the user chooses the first implementation target.
 
 ## Definition of Done
@@ -96,8 +95,11 @@ library whose only consumer is the Lyne app:
 - Task files are valid Trellis artifacts.
 - The roadmap can be executed one child task at a time.
 - The source-rate limiter true-peak claim is backed by current limiter tests and benchmark evidence.
-- Full output-chain true peak remains report-only until output-chain convergence produces a faithful measured path.
-- The README is not upgraded to stronger full-chain claims without current measurement evidence.
+- Full output-chain true peak remains report-only because the current faithful
+  output-chain probe still measures stressed material above the -1 dBTP limiter
+  target after downstream resampling/quantization.
+- The README was not upgraded to stronger full-chain claims without current
+  measurement evidence.
 
 ## Out of Scope
 
