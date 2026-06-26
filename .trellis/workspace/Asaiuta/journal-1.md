@@ -207,3 +207,35 @@ the `audio_quality_measurements` saturation alias gate.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: EQ perceptual DSP evidence
+
+**Date**: 2026-06-26
+**Task**: EQ perceptual DSP evidence
+
+### Summary
+
+Fixed crossfeed adapter mix-change continuity, added listening DSP quality metrics for EQ/crossfeed/dynamic loudness, updated backend quality spec, and archived the EQ perceptual DSP task.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aebda99` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
