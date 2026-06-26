@@ -8,12 +8,19 @@ its own.
 ## Development setup
 
 The crate links the native [libsoxr](https://sourceforge.net/projects/soxr/)
-resampling library. Install it before building:
+resampling library. SoXR is required for every build today, including
+`default-features = false`; those Cargo features only remove HTTP and SQLite
+dependencies. Install SoXR before building:
 
 - **Debian/Ubuntu:** `sudo apt-get install libsoxr-dev`
 - **macOS (Homebrew):** `brew install libsoxr`
-- **Windows (vcpkg):** `vcpkg install soxr:x64-windows` (the crate declares the
-  vcpkg dependency in `Cargo.toml`; set `VCPKG_ROOT` so the build script can find it)
+- **Windows (MSYS2/MinGW64, CI path):**
+  `pacman -S mingw-w64-x86_64-libsoxr mingw-w64-x86_64-pkgconf mingw-w64-x86_64-tools`;
+  add `mingw64/bin` to `PATH` and set `PKG_CONFIG_PATH` to
+  `mingw64/lib/pkgconfig`.
+- **Windows (vcpkg alternative):** `vcpkg install soxr:x64-windows` or the
+  static triplet used by your toolchain; set `VCPKG_ROOT` so the build script
+  can find it.
 
 Then the usual workflow:
 
@@ -33,6 +40,8 @@ verify all three configurations still build and lint cleanly:
 ```bash
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --all-targets --no-default-features -- -D warnings
+cargo build --no-default-features --features http
+cargo build --no-default-features --features loudness-db
 cargo test --all-features
 cargo test --no-default-features
 ```

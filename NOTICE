@@ -22,5 +22,7 @@ For LGPL-2.1 compliance options (dynamic linking, providing object files, or
 otherwise enabling relinking), see the libsoxr project:
   https://sourceforge.net/projects/soxr/
 
-If you build without the resampling functionality, libsoxr is not linked. See
-the crate feature documentation in README.md.
+SoXR-backed resampling is part of the core crate today. No Cargo feature
+currently disables the `soxr` dependency, so building the crate links libsoxr
+even when default features are disabled. See README.md for current feature and
+native dependency details.

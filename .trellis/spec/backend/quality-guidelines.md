@@ -158,3 +158,83 @@ extended benches must keep it:
       toggled individually.
 - [ ] New tunables use the lock-free snapshot mechanism.
 - [ ] Tests cover continuity/reset/edge cases, plus a no-alloc assertion.
+
+## Release Documentation Checklist
+
+Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
+`NOTICE`, Cargo features, or public crate metadata.
+
+### 1. Scope / Trigger
+
+- Trigger: release-facing documentation, public API wording, package metadata,
+  feature flags, examples, or native dependency claims.
+- Target files: `Cargo.toml`, `src/lib.rs`, `README.md`, `CHANGELOG.md`,
+  `CONTRIBUTING.md`, `NOTICE`, and `examples/`.
+
+### 2. Signatures
+
+- Feature checks:
+  - `cargo build`
+  - `cargo build --no-default-features`
+  - `cargo build --no-default-features --features http`
+  - `cargo build --no-default-features --features loudness-db`
+- Docs/package checks:
+  - `cargo doc --no-deps`
+  - `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`
+  - `cargo package --allow-dirty`
+
+### 3. Contracts
+
+- `http` controls the optional `reqwest` dependency and network error surface.
+- `loudness-db` controls the optional `rusqlite` dependency and SQLite cache
+  types.
+- SoXR is a required native dependency today because `src/processor/resampler.rs`
+  is part of the core crate and `soxr` is not optional in `Cargo.toml`.
+  Therefore `default-features = false` removes HTTP and SQLite, but it does not
+  remove libsoxr or the resampler API.
+- README quality/performance numbers must name the benchmark or test family that
+  produced them and must preserve explicit limitation notes for report-only
+  probes.
+
+### 4. Validation & Error Matrix
+
+- A feature combination fails to compile -> fix the `#[cfg(feature = "...")]`
+  boundary or update the feature contract before release.
+- `cargo doc` emits a public warning -> treat it as a release blocker, even if
+  the command exits successfully.
+- `cargo package` fails while verifying the package -> fix package contents or
+  metadata.
+- `cargo package` fails only while updating the registry/index in a sandboxed
+  environment -> rerun in a normal network/credential environment before
+  classifying it as a package-content failure.
+
+### 5. Good/Base/Bad Cases
+
+- Good: "`default-features = false` removes HTTP and SQLite dependencies; SoXR
+  remains required because resampling is core."
+- Base: "Both Cargo features are default-on and can be disabled independently."
+- Bad: "`default-features = false` creates a dependency-free DSP-only build" or
+  "building without resampling avoids libsoxr" while `soxr` is still required.
+
+### 6. Tests Required
+
+- Build default, no-default, and each optional feature independently.
+- Run all-features tests and no-default-features tests before publishing.
+- Run examples listed in the README.
+- Run `cargo package --allow-dirty` or `cargo publish --dry-run`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+If you build without the resampling functionality, libsoxr is not linked.
+```
+
+#### Correct
+
+```text
+SoXR-backed resampling is part of the core crate today. No Cargo feature
+currently disables the `soxr` dependency, so building the crate links libsoxr
+even when default features are disabled.
+```

@@ -1,1 +1,7 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend crate role, public API curation, and relevant guideline index."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Release docs and examples must preserve callback hot-path constraints."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "README and changelog claims require current tests, benchmarks, or limitation notes."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Public module layout and curated re-export conventions."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Decoder error and feature-gated public API documentation."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Optional loudness-db feature and SQLite cache documentation."}
+{"file": ".trellis/tasks/06-12-audio-engine-api-release-hardening/research/release-readiness-audit.md", "reason": "Release-hardening audit findings and validation evidence."}
