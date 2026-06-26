@@ -257,14 +257,16 @@ impl CrossfeedProcessor {
         if let Some((current, generation)) =
             self.params.load_if_changed_since(self.cached_generation)
         {
+            let previous_cutoff_hz = self.cached.cutoff_hz;
             self.cached = *current;
             self.cached_params = current;
             self.cached_generation = generation;
             self.crossfeed.set_mix(self.cached.mix);
             self.crossfeed.set_enabled(self.cached.enabled);
-            // Cutoff change requires sample rate update
-            self.crossfeed
-                .set_sample_rate(self.sample_rate, self.cached.cutoff_hz);
+            if (self.cached.cutoff_hz - previous_cutoff_hz).abs() > f64::EPSILON {
+                self.crossfeed
+                    .set_sample_rate(self.sample_rate, self.cached.cutoff_hz);
+            }
         }
     }
 }
@@ -970,6 +972,61 @@ mod tests {
         assert!(buffer[0].abs() < 0.9 * 2.0);
     }
 
+    #[test]
+    fn crossfeed_processor_mix_change_preserves_filter_history() {
+        let params = Arc::new(AtomicCrossfeedParams::new());
+        let mut proc = CrossfeedProcessor::new(48_000.0, Arc::clone(&params));
+        let mut reference = Crossfeed::with_params(48_000.0, 700.0, 0.35);
+        let mut reset_reference = Crossfeed::with_params(48_000.0, 700.0, 0.35);
+
+        let warm = hard_panned_sine(2048, 0, 48_000.0, 997.0);
+        let mut proc_warm = warm.clone();
+        let mut ref_warm = warm.clone();
+        let mut reset_warm = warm;
+        proc.process(&mut proc_warm, 2);
+        reference.process(&mut ref_warm, 2);
+        reset_reference.process(&mut reset_warm, 2);
+
+        params.set_mix(0.7);
+        reference.set_mix(0.7);
+        reset_reference.set_mix(0.7);
+        reset_reference.set_sample_rate(48_000.0, 700.0);
+
+        let next = hard_panned_sine(256, 2048, 48_000.0, 997.0);
+        let mut proc_next = next.clone();
+        let mut ref_next = next.clone();
+        let mut reset_next = next;
+        assert_eq!(proc.process(&mut proc_next, 2), ProcessResult::Ok);
+        reference.process(&mut ref_next, 2);
+        reset_reference.process(&mut reset_next, 2);
+
+        let max_reference_delta = max_abs_delta(&proc_next, &ref_next);
+        let max_reset_delta = max_abs_delta(&proc_next, &reset_next);
+        assert!(
+            max_reference_delta <= 1.0e-12,
+            "mix change should preserve HPF state, max_reference_delta={max_reference_delta:.3e}"
+        );
+        assert!(
+            max_reset_delta > 1.0e-4,
+            "test signal should distinguish reset history, max_reset_delta={max_reset_delta:.3e}"
+        );
+    }
+
+    #[test]
+    fn crossfeed_processor_steady_state_process_is_allocation_free() {
+        let params = Arc::new(AtomicCrossfeedParams::new());
+        let mut proc = CrossfeedProcessor::new(48_000.0, Arc::clone(&params));
+        let mut buffer = hard_panned_sine(512, 0, 48_000.0, 997.0);
+
+        proc.process(&mut buffer, 2);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..200 {
+                proc.process(&mut buffer, 2);
+            }
+        });
+    }
+
     fn assert_lazy_settle_residual_bounds(name: &str, input: &[f64], channels: usize) {
         const RESIDUAL_DELTA_LIMIT: f64 = 2.0e-6;
         const RESIDUAL_RMS_LIMIT: f64 = 2.0e-7;
@@ -1114,6 +1171,28 @@ mod tests {
         }
 
         out
+    }
+
+    fn hard_panned_sine(
+        frames: usize,
+        start_frame: usize,
+        sample_rate: f64,
+        frequency: f64,
+    ) -> Vec<f64> {
+        let mut out = Vec::with_capacity(frames * 2);
+        let omega = std::f64::consts::TAU * frequency / sample_rate;
+        for frame in start_frame..start_frame + frames {
+            out.push((omega * frame as f64).sin() * 0.8);
+            out.push(0.0);
+        }
+        out
+    }
+
+    fn max_abs_delta(left: &[f64], right: &[f64]) -> f64 {
+        left.iter()
+            .zip(right)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max)
     }
 
     #[test]
