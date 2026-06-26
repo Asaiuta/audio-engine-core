@@ -199,9 +199,8 @@ impl LoudnessMeter {
 /// validating against reference corpus data.
 ///
 /// This drives loudness/true-peak *measurement*. The same per-sample FIR also
-/// backs the limiter's default true-peak detection mode (via
-/// [`Self::intersample_peak`]), so measurement and limiting share one
-/// interpolator shape.
+/// backs the limiter's default true-peak detection mode, so measurement and
+/// limiting share one interpolator shape.
 pub struct TruePeakDetector {
     /// Causal FIR history duplicated once so dot products read contiguous slices.
     history: [f64; TRUE_PEAK_HISTORY_LEN],

@@ -74,7 +74,7 @@ Both features below are enabled by default. Disable them with
   `LoudnessNormalizer`, `TruePeakDetector`) still work; only the on-disk cache
   is removed.
 
-DSP-only consumers can take a much smaller dependency tree:
+DSP-only consumers can drop the network and SQLite dependency trees:
 
 ```toml
 [dependencies]
@@ -84,9 +84,10 @@ audio-engine-core = { version = "0.1", default-features = false }
 ## Native Dependency: SoXR
 
 The resampler depends on `soxr`, which requires the SoXR native library during
-build/link.
+build/link. SoXR is part of the core crate today, so
+`default-features = false` does **not** remove this native dependency.
 
-On Windows, vcpkg is the recommended path:
+On Windows, either install SoXR through vcpkg:
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg.git
@@ -95,10 +96,10 @@ cd vcpkg
 .\vcpkg install soxr:x64-windows-static-md
 ```
 
-On MSYS2:
+or through MSYS2/MinGW64, which is also the CI path:
 
 ```bash
-pacman -S mingw-w64-x86_64-soxr
+pacman -S mingw-w64-x86_64-libsoxr mingw-w64-x86_64-pkgconf mingw-w64-x86_64-tools
 ```
 
 On Unix-like systems, install SoXR through your system package manager and make
@@ -228,11 +229,20 @@ replace listening tests.
 | True-peak mode, intersample-stress output (input +0.10 dBTP / -3.01 dBFS) | -1.00 dBTP |
 | Sample-peak mode, same input (never engages) | +0.10 dBTP |
 | `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
+| 10-band EQ +6 dB target response error (62 Hz, 1 kHz, 8 kHz) | 0.0000 dB max |
+| Crossfeed high-band level at 2 kHz | -9.18 dB |
+| Crossfeed low-vs-high attenuation (80 Hz vs 2 kHz) | -37.63 dB |
+| Crossfeed mix-change continuity delta | 0.000e0 (vs 7.992e-3 for a reset simulation) |
+| Dynamic loudness low-volume compensation | +8.23 dB at 40 Hz, +2.83 dB at 3 kHz |
 
 The saturation alias probe drives an 11 kHz Tube waveshaper and fits folded
 above-Nyquist harmonics. In the current quick run, `Oversampled4x` reduced the
 aggregate fitted alias energy from -15.10 dBFS to -31.66 dBFS at equivalent
 drive/mix settings.
+
+The listening-DSP rows are single-tone synthetic probes after filter settling.
+They validate target response/effect size and parameter-change continuity; they
+are not external listening-test or analog-output evidence.
 
 The noise shapers (`NoiseShaper`) redistribute quantization error spectrally
 rather than lowering broadband noise: the shaped curves strongly reduce the
@@ -250,9 +260,10 @@ true peak is +0.10 dBTP, true-peak mode pulls the output to -1.00 dBTP while the
 legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. The limiter
 runs at source rate, so one known limitation is kept visible: the full
 output-chain true-peak probe is report-only, and resampling plus final
-quantization downstream of the limiter can re-introduce intersample peaks, so on
-stressed material the worst end-to-end true peak can still land close to the
-ceiling rather than strictly below the -1 dBTP target.
+quantization downstream of the limiter can re-introduce intersample peaks. In
+the current quick run the worst full-chain output true peak is -0.610 dBTP,
+0.390 dB above the -1 dBTP limiter target, so this is still evidence to watch,
+not a conformance gate.
 
 ## License
 
@@ -272,6 +283,7 @@ dual licensed as above, without any additional terms or conditions.
 ### Native dependency licensing
 
 This crate links the SoXR native library (libsoxr), which is distributed under
-the LGPL-2.1. The Rust source in this crate is MIT OR Apache-2.0, but binaries
-that statically link libsoxr carry LGPL-2.1 relinking obligations. See
-[NOTICE](NOTICE) for details.
+the LGPL-2.1. SoXR is currently required even with default features disabled.
+The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically
+link libsoxr carry LGPL-2.1 relinking obligations. See [NOTICE](NOTICE) for
+details.

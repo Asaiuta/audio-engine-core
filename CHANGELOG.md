@@ -21,9 +21,33 @@ SemVer for pre-1.0 releases.
 - `rustdoc` coverage for previously undocumented public configuration and
   pipeline types.
 - Typed `PipelineError` returned by `AudioPipeline::new`.
+- Explicit channel-layout primitives, 5.1/7.1 downmixing, selectable
+  `DownmixCoefficients`, and layout-aware EBU R128 channel weighting.
+- `LimiterMode::TruePeak` as the default `PeakLimiter` detection mode, with
+  `LimiterMode::SamplePeak` preserved for legacy sample-peak behavior.
+- `SaturationQuality::Oversampled2x` and `SaturationQuality::Oversampled4x`
+  quality modes plus matching lock-free saturation parameters.
+- Partitioned long-IR routing for `FFTConvolver`, with public routing constants
+  documenting the threshold and partition size.
+- Canonical output-chain descriptors and builders for callback-safe DSP order
+  and offline render-chain order.
+- Objective listening-DSP benchmark rows for EQ target accuracy, crossfeed
+  attenuation/continuity, and dynamic-loudness compensation.
 
 ### Changed
 - Translated remaining non-English source comments to English.
+- Decoder probe/seek failures now map unsupported or unseekable inputs to typed
+  `DecoderError::UnsupportedFormat` where Symphonia exposes that boundary.
+- The README performance and quality sections now distinguish enforced gates,
+  report-only probes, missing optional EBU corpus data, and known true-peak
+  limitations.
+
+### Fixed
+- `StreamingDecoder::seek` no longer double-applies encoder-delay trimming
+  after non-zero seeks.
+- Crossfeed mix updates preserve filter history instead of resetting state.
+- The callback performance benchmark now uses the shared output-chain builder
+  and includes the noise-shaper stage it configures.
 
 ## [0.1.0] - 2026-06-11
 
