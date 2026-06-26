@@ -19,7 +19,7 @@
   "pr_url": null,
   "subtasks": [],
   "children": [],
-  "parent": "06-12-audio-engine-feature-upgrade",
+  "parent": null,
   "relatedFiles": [
     "src/processor/loudness/limiter.rs",
     "src/processor/loudness/meter.rs",
