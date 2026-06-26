@@ -1,7 +1,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use audio_engine_core::processor::{FFTConvolver, FirEq, FirPhaseMode};
+use audio_engine_core::processor::{ConvolutionStrategy, FFTConvolver, FirEq, FirPhaseMode};
 
 const SAMPLE_RATE: f64 = 48_000.0;
 const CHANNELS: usize = 2;
@@ -45,6 +45,8 @@ struct ProcessReport {
     ns_per_sample: f64,
     ns_per_buffer: f64,
     fft_size: usize,
+    strategy: ConvolutionStrategy,
+    partition_size: Option<usize>,
 }
 
 fn main() {
@@ -98,9 +100,11 @@ fn main() {
     for &taps in &TAP_COUNTS {
         let report = benchmark_apply(taps, process_frames, process_iterations, trials);
         println!(
-            "fir_eq_apply taps={} fft_size={} frames={} samples={} ns_per_sample={:.3} ns_per_buffer={:.3}",
+            "fir_eq_apply taps={} strategy={} fft_size={} partition_size={} frames={} samples={} ns_per_sample={:.3} ns_per_buffer={:.3}",
             taps,
+            strategy_name(report.strategy),
             report.fft_size,
+            report.partition_size.unwrap_or(0),
             process_frames,
             process_frames * CHANNELS,
             report.ns_per_sample,
@@ -168,6 +172,8 @@ fn benchmark_apply(taps: usize, frames: usize, iterations: usize, trials: usize)
         let ir = fir.get_ir(CHANNELS);
         let mut convolver = FFTConvolver::new(&ir, CHANNELS);
         let fft_size = convolver.fft_size();
+        let strategy = convolver.strategy();
+        let partition_size = convolver.partition_size();
 
         let input = synthetic_input(frames, CHANNELS);
         let mut output = vec![0.0; input.len()];
@@ -189,6 +195,8 @@ fn benchmark_apply(taps: usize, frames: usize, iterations: usize, trials: usize)
             ns_per_sample: ns_per_buffer / (frames * CHANNELS) as f64,
             ns_per_buffer,
             fft_size,
+            strategy,
+            partition_size,
         };
 
         if best
@@ -200,6 +208,13 @@ fn benchmark_apply(taps: usize, frames: usize, iterations: usize, trials: usize)
     }
 
     best.expect("at least one trial")
+}
+
+fn strategy_name(strategy: ConvolutionStrategy) -> &'static str {
+    match strategy {
+        ConvolutionStrategy::OverlapSave => "overlap_save",
+        ConvolutionStrategy::Partitioned => "partitioned",
+    }
 }
 
 /// A non-flat curve with boosts and cuts across the 10 ISO bands.

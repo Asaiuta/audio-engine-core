@@ -10,7 +10,7 @@
 //! - [`Equalizer`] and [`BiquadSection`] - 10-band parametric IIR equalizer
 //! - [`VolumeController`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`SpectrumAnalyzer`] - FFT spectrum analyzer
-//! - [`FFTConvolver`] - FFT convolution for FIR filters
+//! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
 //! - [`LoudnessNormalizer`], [`LoudnessMeter`], and [`TruePeakDetector`] - EBU R128 loudness normalization
 //! - [`DynamicLoudness`] - ISO 226 dynamic loudness compensation (Fletcher-Munson)
 //! - [`Saturation`] - Tube/tape saturation for analog warmth
@@ -50,7 +50,10 @@ pub use automix_analysis::{
     analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
     AutomixAnalysisOptions,
 };
-pub use convolver::FFTConvolver;
+pub use convolver::{
+    ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+    PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+};
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
 pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve, VolumeController};
 pub use dynamic_loudness::{AtomicDynamicLoudnessState, DynamicLoudness, LOUDNESS_BANDS};

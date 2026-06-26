@@ -2,53 +2,102 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use audio_engine_core::processor::FFTConvolver;
+use audio_engine_core::processor::{
+    ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+    PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+};
 use rustfft::{num_complex::Complex, FftPlanner};
 
 const SAMPLE_RATE: f64 = 48_000.0;
+const IR_SCENARIOS: [IrScenario; 3] = [
+    IrScenario {
+        name: "short",
+        frames: 256,
+    },
+    IrScenario {
+        name: "medium",
+        frames: 2_048,
+    },
+    IrScenario {
+        name: "long",
+        frames: 8_192,
+    },
+];
+
+#[derive(Clone, Copy)]
+struct IrScenario {
+    name: &'static str,
+    frames: usize,
+}
+
+impl IrScenario {
+    fn iterations(self, base_iterations: usize) -> usize {
+        match self.name {
+            "short" => base_iterations,
+            "medium" => (base_iterations / 2).max(8),
+            "long" => (base_iterations / 4).max(6),
+            _ => base_iterations,
+        }
+    }
+}
 
 fn main() {
     let args = std::env::args().collect::<Vec<_>>();
     let quick = args.iter().any(|arg| arg == "--quick");
     let enforce = args.iter().any(|arg| arg == "--enforce");
 
-    let iterations = if quick { 60 } else { 240 };
+    let base_iterations = if quick { 60 } else { 240 };
     let frames = if quick { 2_048 } else { 8_192 };
-    let ir_frames = 256;
     let trials = parse_trials(&args).unwrap_or(if quick { 3 } else { 5 });
 
     println!(
-        "audio_convolver_perf frames={frames} ir_frames={ir_frames} iterations={iterations} trials={trials}"
+        "audio_convolver_perf frames={frames} partition_threshold={} partition_size={} base_iterations={base_iterations} trials={trials}",
+        PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+        PARTITIONED_CONVOLUTION_PARTITION_SIZE,
     );
 
-    for channels in [2, 6] {
-        let report = benchmark_convolver(channels, ir_frames, frames, iterations, trials);
-        println!(
-            "convolver channels={} process_into_median={:.3} ns/sample legacy_process_into_median={:.3} ns/sample into_speedup_median={:.2}% process_inplace_median={:.3} ns/sample legacy_process_inplace_median={:.3} ns/sample inplace_speedup_median={:.2}% allocating_process_median={:.3} ns/sample wrapper_overhead_median={:.2}%",
-            channels,
-            report.process_into_ns_per_sample,
-            report.legacy_process_into_ns_per_sample,
-            report.process_into_speedup_percent,
-            report.process_inplace_ns_per_sample,
-            report.legacy_process_inplace_ns_per_sample,
-            report.process_inplace_speedup_percent,
-            report.allocating_process_ns_per_sample,
-            report.wrapper_overhead_percent,
-        );
-
-        if enforce {
-            assert!(
-                report.process_inplace_ns_per_sample <= report.process_into_ns_per_sample * 1.25,
-                "process_inplace regressed beyond 25% for {} channels: process_inplace={:.3}, process_into={:.3}",
+    for scenario in IR_SCENARIOS {
+        let iterations = scenario.iterations(base_iterations);
+        for channels in [2, 6] {
+            let report = benchmark_convolver(channels, scenario.frames, frames, iterations, trials);
+            println!(
+                "convolver scenario={} channels={} ir_frames={} strategy={} fft_size={} partition_size={} iterations={} process_into_median={:.3} ns/sample legacy_process_into_median={:.3} ns/sample into_speedup_median={:.2}% process_inplace_median={:.3} ns/sample legacy_process_inplace_median={:.3} ns/sample inplace_speedup_median={:.2}% allocating_process_median={:.3} ns/sample wrapper_overhead_median={:.2}%",
+                scenario.name,
                 channels,
-                report.process_inplace_ns_per_sample,
+                scenario.frames,
+                strategy_name(report.strategy),
+                report.fft_size,
+                report.partition_size.unwrap_or(0),
+                iterations,
                 report.process_into_ns_per_sample,
+                report.legacy_process_into_ns_per_sample,
+                report.process_into_speedup_percent,
+                report.process_inplace_ns_per_sample,
+                report.legacy_process_inplace_ns_per_sample,
+                report.process_inplace_speedup_percent,
+                report.allocating_process_ns_per_sample,
+                report.wrapper_overhead_percent,
             );
+
+            if enforce {
+                assert!(
+                    report.process_inplace_ns_per_sample
+                        <= report.process_into_ns_per_sample * 1.25,
+                    "process_inplace regressed beyond 25% for {} {} channels: process_inplace={:.3}, process_into={:.3}",
+                    scenario.name,
+                    channels,
+                    report.process_inplace_ns_per_sample,
+                    report.process_into_ns_per_sample,
+                );
+            }
         }
     }
 }
 
 struct ConvolverReport {
+    strategy: ConvolutionStrategy,
+    fft_size: usize,
+    partition_size: Option<usize>,
     process_into_ns_per_sample: f64,
     process_inplace_ns_per_sample: f64,
     legacy_process_into_ns_per_sample: f64,
@@ -72,9 +121,15 @@ fn benchmark_convolver(
     let mut legacy_process_into = Vec::with_capacity(trials);
     let mut legacy_process_inplace = Vec::with_capacity(trials);
     let mut allocating_process = Vec::with_capacity(trials);
+    let mut strategy = ConvolutionStrategy::OverlapSave;
+    let mut fft_size = 0;
+    let mut partition_size = None;
 
     for _ in 0..trials {
         let report = benchmark_convolver_once(channels, ir_frames, frames, iterations);
+        strategy = report.strategy;
+        fft_size = report.fft_size;
+        partition_size = report.partition_size;
         process_into.push(report.process_into_ns_per_sample);
         process_inplace.push(report.process_inplace_ns_per_sample);
         legacy_process_into.push(report.legacy_process_into_ns_per_sample);
@@ -89,6 +144,9 @@ fn benchmark_convolver(
     let allocating_process_ns_per_sample = median(&mut allocating_process);
 
     ConvolverReport {
+        strategy,
+        fft_size,
+        partition_size,
         process_into_ns_per_sample,
         process_inplace_ns_per_sample,
         legacy_process_into_ns_per_sample,
@@ -126,6 +184,9 @@ fn benchmark_convolver_once(
     let mut allocating_conv = FFTConvolver::new(&ir, channels);
     let mut legacy_into_conv = LegacyConvolver::new(&ir, channels);
     let mut legacy_inplace_conv = LegacyConvolver::new(&ir, channels);
+    let strategy = into_conv.strategy();
+    let fft_size = into_conv.fft_size();
+    let partition_size = into_conv.partition_size();
 
     let into_duration = measure(
         || {
@@ -177,6 +238,9 @@ fn benchmark_convolver_once(
     let allocating_process_ns_per_sample = nanos_per_unit(allocating_duration, samples);
 
     ConvolverReport {
+        strategy,
+        fft_size,
+        partition_size,
         process_into_ns_per_sample,
         process_inplace_ns_per_sample,
         legacy_process_into_ns_per_sample,
@@ -210,6 +274,13 @@ fn nanos_per_unit(duration: Duration, units: usize) -> f64 {
 
 fn speedup_percent(legacy: f64, current: f64) -> f64 {
     (legacy - current) / legacy * 100.0
+}
+
+fn strategy_name(strategy: ConvolutionStrategy) -> &'static str {
+    match strategy {
+        ConvolutionStrategy::OverlapSave => "overlap_save",
+        ConvolutionStrategy::Partitioned => "partitioned",
+    }
 }
 
 fn parse_trials(args: &[String]) -> Option<usize> {
