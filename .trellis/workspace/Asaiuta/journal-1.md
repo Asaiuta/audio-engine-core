@@ -103,3 +103,58 @@ Unified the canonical output chain builder across offline quality rendering and 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Partitioned convolution long-IR routing
+
+**Date**: 2026-06-26
+**Task**: Partitioned convolution for long impulse responses
+**Branch**: `feat/channel-layout-mixing`
+
+### Summary
+
+Implemented the partitioned convolution task: `FFTConvolver` now keeps the
+existing overlap-save engine for short/FIR EQ impulse responses and routes long
+IRs to a uniform 1024-frame partitioned tail with an overlap-save head. Added
+public strategy/threshold metadata, expanded convolver and FIR EQ benches to
+report routing evidence, refreshed README performance/routing notes, and
+captured the contract in backend specs.
+
+### Main Changes
+
+- Added `ConvolutionStrategy`, `PARTITIONED_CONVOLUTION_IR_THRESHOLD`, and
+  `PARTITIONED_CONVOLUTION_PARTITION_SIZE` to the public convolver surface.
+- Added long-IR partitioned processing with precomputed FFT plans/spectra,
+  per-channel history, reset handling, and allocation-free steady-state
+  `process_into`/`process_inplace` paths.
+- Added correctness coverage against the overlap-save reference for stereo,
+  mono, and 6-channel IRs, plus cross-buffer continuity, reset, in-place, and
+  no-allocation tests.
+- Extended `audio_convolver_perf` and `audio_fir_eq_perf` to report selected
+  strategy, FFT size, and partition size across short/medium/long IR scenarios.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0cc5626` | (see git log) |
+
+### Testing
+
+- [OK] `cargo fmt --check`
+- [OK] `cargo test convolver --lib`
+- [OK] `cargo test fir_eq --lib`
+- [OK] `cargo test processor::adapters --lib`
+- [OK] `cargo test --lib`
+- [OK] `cargo check --benches`
+- [OK] `cargo clippy --all-targets -- -D warnings`
+- [OK] `cargo bench --bench audio_convolver_perf -- --quick`
+- [OK] `cargo bench --bench audio_fir_eq_perf -- --quick`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

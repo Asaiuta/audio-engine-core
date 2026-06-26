@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-06-20
+- **Total Sessions**: 4
+- **Last Active**: 2026-06-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~105 | Active |
+| `journal-1.md` | ~137 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-06-26 | Partitioned convolution long-IR routing | `0cc5626` | `feat/channel-layout-mixing` |
 | 3 | 2026-06-20 | Unified output render chain | `3ec675c` | `-` |
 | 2 | 2026-06-14 | Implement quality-gates: enforceable benchmark gates + JSON evidence | `0842efd` | `main` |
 | 1 | 2026-06-14 | Trellis bootstrap: PRD review + source-backed backend spec | `e629b07` | `main` |
