@@ -239,3 +239,56 @@ Fixed crossfeed adapter mix-change continuity, added listening DSP quality metri
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Audio engine release hardening
+
+**Date**: 2026-06-26
+**Task**: Audio engine release hardening
+
+### Summary
+
+Closed the release-hardening gate, updated public docs and release evidence, captured SoXR/package checklist guidance, validated the crate release surface, and archived the completed audio-engine feature roadmap.
+
+### Main Changes
+
+- Completed the release-hardening gate for `audio-engine-core` and archived `06-12-audio-engine-api-release-hardening`.
+- Fixed a rustdoc private intra-doc-link warning in `TruePeakDetector` documentation.
+- Updated README/CHANGELOG/CONTRIBUTING/NOTICE so public release claims match current benchmark evidence and SoXR/native dependency reality.
+- Added a release-readiness audit with current validation results and benchmark evidence, including listening-DSP metrics and the remaining report-only full output-chain true-peak limitation.
+- Captured the release documentation checklist in `.trellis/spec/backend/quality-guidelines.md`.
+- Synchronized and archived the parent `06-12-audio-engine-feature-upgrade` roadmap after all 10 child tasks were done.
+
+### Testing
+
+- [OK] `cargo build`
+- [OK] `cargo build --no-default-features`
+- [OK] `cargo build --no-default-features --features http`
+- [OK] `cargo build --no-default-features --features loudness-db`
+- [OK] `cargo test --all-features` (218 unit tests; doctests 1 passed, 1 ignored)
+- [OK] `cargo test --no-default-features` (210 unit tests; doctests 1 passed, 1 ignored)
+- [OK] `cargo fmt --check`
+- [OK] `cargo clippy --all-targets --all-features -- -D warnings`
+- [OK] `cargo doc --no-deps`
+- [OK] `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`
+- [OK] `cargo run --example resample_sine`
+- [OK] `cargo run --example equalizer_curve`
+- [OK] `cargo bench --bench audio_quality_measurements -- --quick --enforce`
+- [OK] `cargo package --allow-dirty` (passed with non-sandbox permissions after sandbox registry credential failures)
+- [OK] `task.py validate` for release-hardening and parent roadmap
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d1448e` | (see git log) |
+| `28f8f1f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
