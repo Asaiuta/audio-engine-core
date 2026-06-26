@@ -2,5 +2,5 @@
 {"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing, benchmark, and realtime-safety expectations."}
 {"file": ".trellis/spec/backend/error-handling.md", "reason": "Consistent invalid input and failure handling."}
 {"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Avoid hot-path logging and keep benchmark output useful."}
-{"file": ".trellis/tasks/06-12-audio-engine-feature-upgrade/research/current-algorithm-audit.md", "reason": "Shared source-backed audit and evidence policy."}
+{"file": ".trellis/tasks/archive/2026-06/06-12-audio-engine-feature-upgrade/research/current-algorithm-audit.md", "reason": "Shared source-backed audit and evidence policy."}
 {"file": ".trellis/tasks/06-12-audio-engine-true-peak-limiter/research/true-peak-limiter-scope.md", "reason": "Limiter-specific scope, risks, and design constraints."}
