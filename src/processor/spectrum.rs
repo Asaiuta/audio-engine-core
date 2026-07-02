@@ -10,6 +10,8 @@ pub struct SpectrumAnalyzer {
     window: Vec<f64>,
     num_bins: usize,
     fft_buffer: Vec<Complex<f64>>,
+    // Workspace for `Fft::process_with_scratch` (plain `process` allocates per call).
+    fft_scratch: Vec<Complex<f64>>,
     magnitudes: Vec<f64>,
     result: Vec<f32>,
     bin_ranges: Vec<(usize, usize)>,
@@ -26,10 +28,11 @@ impl SpectrumAnalyzer {
 
         Self {
             fft_size,
-            fft,
             window,
             num_bins,
             fft_buffer: vec![Complex::new(0.0, 0.0); fft_size],
+            fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()],
+            fft,
             magnitudes: vec![0.0; fft_size.saturating_div(2).saturating_sub(1)],
             result: vec![0.0; num_bins],
             bin_ranges: Vec::with_capacity(num_bins),
@@ -52,7 +55,8 @@ impl SpectrumAnalyzer {
             *slot = Complex::new(sample * window, 0.0);
         }
 
-        self.fft.process(&mut self.fft_buffer);
+        self.fft
+            .process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
 
         for (dst, c) in self
             .magnitudes

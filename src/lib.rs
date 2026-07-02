@@ -25,6 +25,13 @@
 //!
 //! See the `examples/` directory for runnable resampling and EQ programs.
 
+// Arm assert_no_alloc for unit tests: without a registered AllocDisabler the
+// `assert_no_alloc(...)` RT-safety tests run their closures without any
+// detection. Test builds only; release builds are unaffected.
+#[cfg(test)]
+#[global_allocator]
+static TEST_ALLOC_GUARD: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
+
 pub mod channel_layout;
 pub mod config;
 pub mod decoder;
