@@ -251,7 +251,15 @@ impl Resampler {
                 // Chunked processing to avoid massive single-pass overhead
                 // 8192 frames is a good balance for cache usage
                 let inner_chunk_size = 8192;
-                let mut output_scratch = vec![0.0; (inner_chunk_size as f64 * 1.5) as usize]; // Spare room for resampling ratio
+                // Size scratch by the actual conversion ratio, not a fixed 1.5x.
+                // Upsampling ratios above 1.5 (e.g. 44.1->96k = 2.18, 44.1->192k
+                // = 4.35) produce more output than input per chunk; the old 1.5x
+                // buffer silently truncated the surplus on every chunk. A margin
+                // above the nominal ratio absorbs soxr's per-call batching, and
+                // the flush below drains any residual backlog in a loop.
+                let ratio = self.to_rate as f64 / self.from_rate as f64;
+                let scratch_frames = (inner_chunk_size as f64 * ratio).ceil() as usize + 64;
+                let mut output_scratch = vec![0.0; scratch_frames];
 
                 let total_chunks = channel_data.len() / inner_chunk_size + 1;
 
@@ -283,11 +291,17 @@ impl Resampler {
                     }
                 }
 
-                // Flush the resampler (pass empty slice)
-                let mut flush_scratch = vec![0.0; 4096];
-                if let Ok(processed) = soxr.process(&[], &mut flush_scratch) {
-                    if processed.output_frames > 0 {
-                        channel_output.extend_from_slice(&flush_scratch[..processed.output_frames]);
+                // Flush the resampler (pass empty slice). Soxr can hold more
+                // than one scratch-buffer's worth of buffered output, so drain
+                // in a loop until it reports no more frames — a single call
+                // would drop the tail of the track on high upsampling ratios.
+                loop {
+                    match soxr.process(&[], &mut output_scratch) {
+                        Ok(processed) if processed.output_frames > 0 => {
+                            channel_output
+                                .extend_from_slice(&output_scratch[..processed.output_frames]);
+                        }
+                        _ => break,
                     }
                 }
 
@@ -784,6 +798,58 @@ mod tests {
 
         assert_eq!(frames, 2);
         assert_eq!(output, vec![-1.0, -2.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn resample_parallel_preserves_length_for_high_upsampling_ratios() {
+        // Regression: the per-chunk scratch was sized at a fixed 1.5x input and
+        // the flush was a single call, so ratios above 1.5 (44.1->96k = 2.18,
+        // 44.1->192k = 4.35) silently truncated most of the output (only ~34%
+        // survived). Use the proven streaming path as the length oracle: both
+        // paths drive the same soxr backend and must produce the same number of
+        // frames for identical input, within soxr's chunk-boundary tolerance.
+        let channels = 2;
+        // Enough frames to span multiple 8192-frame inner chunks.
+        let input_frames = 8192 * 3 + 1234;
+        let input: Vec<f64> = (0..input_frames * channels)
+            .map(|sample| ((sample as f64) / 512.0).sin() * 0.25)
+            .collect();
+
+        for (from_rate, to_rate) in [(44_100u32, 96_000u32), (44_100, 192_000)] {
+            let parallel = Resampler::new(channels, from_rate, to_rate)
+                .resample_parallel(&input, PhaseResponse::default(), ResampleQuality::High)
+                .expect("resample succeeds");
+            let parallel_frames = parallel.len() / channels;
+
+            // Oracle: streaming instance fed in bounded chunks then flushed.
+            // Feed the same 8192-frame chunk size the parallel path uses — the
+            // streaming scratch is sized for chunks up to 16384 frames, so a
+            // single oversized call would itself truncate (its documented
+            // feed-in-chunks contract).
+            let mut streaming = StreamingResampler::with_quality(
+                channels,
+                from_rate,
+                to_rate,
+                PhaseResponse::default(),
+                ResampleQuality::High,
+            )
+            .expect("streaming resampler constructs");
+            let mut oracle = Vec::new();
+            for chunk in input.chunks(8192 * channels) {
+                let _ = streaming.process_chunk_append(chunk, &mut oracle);
+            }
+            let _ = streaming.flush_into(&mut oracle);
+            let oracle_frames = oracle.len() / channels;
+
+            let low = oracle_frames * 98 / 100;
+            let high = oracle_frames * 102 / 100;
+            assert!(
+                parallel_frames >= low && parallel_frames <= high,
+                "{from_rate}->{to_rate}: parallel produced {parallel_frames} frames, \
+                 streaming oracle {oracle_frames} ({}%)",
+                parallel_frames * 100 / oracle_frames.max(1),
+            );
+        }
     }
 
     #[test]
