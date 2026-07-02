@@ -20,7 +20,6 @@ SemVer for pre-1.0 releases.
   build.
 - `rustdoc` coverage for previously undocumented public configuration and
   pipeline types.
-- Typed `PipelineError` returned by `AudioPipeline::new`.
 - Explicit channel-layout primitives, 5.1/7.1 downmixing, selectable
   `DownmixCoefficients`, and layout-aware EBU R128 channel weighting.
 - `LimiterMode::TruePeak` as the default `PeakLimiter` detection mode, with
@@ -43,11 +42,37 @@ SemVer for pre-1.0 releases.
   limitations.
 
 ### Fixed
+- `Resampler::resample_parallel` no longer silently truncates output for
+  upsampling ratios above 1.5x (e.g. 44.1->96/192 kHz): per-chunk scratch is
+  now sized by the actual conversion ratio and the flush drains SoXR in a loop
+  until dry, matching the streaming path.
+- Realtime allocation regressions eliminated on the audio callback path: the
+  FFT convolver and spectrum analyzer now reuse pre-sized SoXR/FFT scratch via
+  `process_with_scratch` instead of allocating per call, and the convolver
+  adapter no longer deep-clones or drops kernels on the audio thread (kernel
+  adoption defers until the shared `Arc` is uniquely owned, retirement goes
+  through a disposal slot). The crate's `assert_no_alloc` tests now register an
+  `AllocDisabler` global allocator so these paths are actually verified.
+- `VolumeProcessor` mute fade now decays once per frame instead of once per
+  sample, so channels within a frame receive equal gain and the fade time
+  constant no longer shortens with channel count.
 - `StreamingDecoder::seek` no longer double-applies encoder-delay trimming
   after non-zero seeks.
 - Crossfeed mix updates preserve filter history instead of resetting state.
 - The callback performance benchmark now uses the shared output-chain builder
   and includes the noise-shaper stage it configures.
+- `channels == 0` is rejected at construction for `StreamingResampler` and in
+  `Resampler::resample_parallel`, and guarded in `Equalizer::process`, instead
+  of panicking with a divide-by-zero at first use. `FFTConvolver::new` now
+  documents its `channels > 0` panic contract.
+
+### Removed
+- `AudioPipeline` and `PipelineError`: the background decode/resample worker
+  had no backpressure (the ring filled and then dropped the oldest frames on
+  every write) and its `read()` never released ring space, so any consumer
+  slower than decode speed was pushed through the track at decode speed. No
+  consumer ever constructed it. The `RingBuffer` primitive it wrapped remains
+  public.
 
 ## [0.1.0] - 2026-06-11
 

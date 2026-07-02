@@ -215,6 +215,13 @@ impl Resampler {
             )));
         }
 
+        // Guard channels==0: a zero channel count would divide by zero below.
+        if self.channels == 0 {
+            return Err(ResamplerError::InitializationFailed(
+                "channel count must be >= 1".to_string(),
+            ));
+        }
+
         // 1. De-interleave
         let frames = input.len() / self.channels;
         let mut plan_channels: Vec<Vec<f64>> = vec![Vec::with_capacity(frames); self.channels];
@@ -429,6 +436,13 @@ impl StreamingResampler {
                 "Invalid sample rate: from_rate={}, to_rate={}",
                 from_rate, to_rate
             )));
+        }
+
+        // Guard channels==0: process_chunk_* would divide by zero at first use.
+        if channels == 0 {
+            return Err(ResamplerError::InitializationFailed(
+                "channel count must be >= 1".to_string(),
+            ));
         }
 
         let mut soxr_instances = Vec::with_capacity(channels);
@@ -850,6 +864,32 @@ mod tests {
                 parallel_frames * 100 / oracle_frames.max(1),
             );
         }
+    }
+
+    #[test]
+    fn resample_parallel_rejects_zero_channels() {
+        let resampler = Resampler::new(0, 44_100, 48_000);
+        let result =
+            resampler.resample_parallel(&[0.0; 8], PhaseResponse::default(), ResampleQuality::High);
+        assert!(matches!(
+            result,
+            Err(ResamplerError::InitializationFailed(_))
+        ));
+    }
+
+    #[test]
+    fn streaming_resampler_rejects_zero_channels() {
+        let result = StreamingResampler::with_quality(
+            0,
+            44_100,
+            48_000,
+            PhaseResponse::default(),
+            ResampleQuality::High,
+        );
+        assert!(matches!(
+            result,
+            Err(ResamplerError::InitializationFailed(_))
+        ));
     }
 
     #[test]

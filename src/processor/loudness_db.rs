@@ -110,11 +110,23 @@ impl TrackLoudness {
             .unwrap_or((None, None))
     }
 
-    /// Compute a unique track ID from file path
+    /// Compute a unique track ID from file path.
+    ///
+    /// Path separators are normalized to `/` on every platform. Case is only
+    /// folded on Windows, whose filesystem is case-insensitive: on Linux/macOS
+    /// `Track.flac` and `track.flac` are distinct files and must not collide on
+    /// one loudness record. Windows keys are unchanged from the previous
+    /// always-lowercase behavior, so existing databases stay valid.
     fn compute_track_id(path: &str) -> String {
-        // Use normalized path as ID
-        // For better collision resistance, could use hash in future
-        path.replace('\\', "/").to_lowercase()
+        let normalized = path.replace('\\', "/");
+        #[cfg(windows)]
+        {
+            normalized.to_lowercase()
+        }
+        #[cfg(not(windows))]
+        {
+            normalized
+        }
     }
 
     /// Get gain in dB for a specific target loudness
