@@ -137,7 +137,7 @@ impl Equalizer {
     }
 
     pub fn process(&mut self, buffer: &mut [f64]) {
-        if !self.enabled {
+        if !self.enabled || self.channels == 0 {
             return;
         }
         debug_assert!(self.bands.len() >= self.channels);
@@ -245,6 +245,16 @@ mod tests {
             assert!(eq.bands.iter().all(|bank| bank.len() == EQ_BANDS));
             assert!(eq.target_bands.iter().all(|bank| bank.len() == EQ_BANDS));
         }
+    }
+
+    #[test]
+    fn process_with_zero_channels_is_a_noop_not_a_panic() {
+        // A zero-channel EQ can be constructed; process must not divide by zero.
+        let mut eq = Equalizer::new(0, 48_000.0);
+        eq.set_enabled(true);
+        let mut buffer = vec![0.25; 8];
+        eq.process(&mut buffer);
+        assert_eq!(buffer, vec![0.25; 8]);
     }
 
     #[test]

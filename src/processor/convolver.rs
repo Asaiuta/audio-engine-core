@@ -49,6 +49,10 @@ impl FFTConvolver {
     /// # Arguments
     /// * `ir_data` - Impulse response samples in interleaved format [L0, R0, L1, R1, ...]
     /// * `channels` - Number of channels
+    ///
+    /// # Panics
+    /// Panics if `channels` is zero, or if `ir_data` holds fewer than one frame
+    /// per channel (`ir_data.len() < channels`).
     pub fn new(ir_data: &[f64], channels: usize) -> Self {
         assert!(channels > 0, "channels must be greater than zero");
         let ir_len_per_ch = ir_data.len() / channels;

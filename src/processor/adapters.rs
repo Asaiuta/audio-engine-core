@@ -469,12 +469,16 @@ impl AudioProcessor for VolumeProcessor {
         // Volume is always "enabled" - just applies gain
         // Check for mute
         if self.cached.muted {
-            // Smooth fade to zero to avoid click
+            // Smooth fade to zero to avoid click. Decay once per frame (not per
+            // sample) so every channel in a frame gets the same gain and the
+            // time constant does not shrink by the channel count.
             let coeff = self.smoothing_coeff;
             let mut current_volume = self.current_volume;
-            for sample in buffer.iter_mut() {
+            for frame in buffer.chunks_exact_mut(channels) {
                 current_volume *= coeff;
-                *sample *= current_volume;
+                for sample in frame.iter_mut() {
+                    *sample *= current_volume;
+                }
             }
             self.current_volume = current_volume;
             return ProcessResult::Ok;
@@ -1014,6 +1018,29 @@ mod tests {
         // Muting uses a click-free exponential fade rather than an instant hard cut.
         assert!(buffer[0] < 1.0);
         assert!(buffer[buffer.len() - 1] < 0.001);
+    }
+
+    #[test]
+    fn test_volume_processor_muted_fade_is_frame_coherent() {
+        // The muted fade must decay per frame, not per sample: both channels of
+        // a stereo frame must receive the identical gain. A per-sample decay
+        // would give L and R different gains (inter-channel skew) and halve the
+        // fade time constant.
+        let params = Arc::new(AtomicVolumeParams::new());
+        let mut proc = VolumeProcessor::new(Arc::clone(&params));
+
+        params.set_muted(true);
+
+        let channels = 2;
+        let mut buffer = vec![1.0; channels * 512];
+        proc.process(&mut buffer, channels);
+
+        for frame in buffer.chunks_exact(channels) {
+            assert_eq!(
+                frame[0], frame[1],
+                "L and R of the same frame must share one gain"
+            );
+        }
     }
 
     #[test]
