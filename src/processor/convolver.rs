@@ -157,6 +157,10 @@ struct OverlapSaveConvolver {
     fft_inverse: Arc<dyn rustfft::Fft<f64>>,
     // Pre-allocated scratch buffers for zero-allocation processing
     scratch_complex: Vec<Complex<f64>>,
+    // Workspace for `Fft::process_with_scratch`; the plain `Fft::process`
+    // convenience method allocates its scratch on every call, which is not
+    // realtime-safe.
+    fft_scratch: Vec<Complex<f64>>,
 }
 
 impl OverlapSaveConvolver {
@@ -193,6 +197,12 @@ impl OverlapSaveConvolver {
 
         // Pre-allocate scratch buffer for FFT workspace
         let scratch_complex = vec![Complex::new(0.0, 0.0); fft_size];
+        let fft_scratch = vec![
+            Complex::new(0.0, 0.0);
+            fft_forward
+                .get_inplace_scratch_len()
+                .max(fft_inverse.get_inplace_scratch_len())
+        ];
 
         Self {
             fft_size,
@@ -203,6 +213,7 @@ impl OverlapSaveConvolver {
             fft_forward,
             fft_inverse,
             scratch_complex,
+            fft_scratch,
         }
     }
 
@@ -288,12 +299,14 @@ impl OverlapSaveConvolver {
 
     #[inline]
     fn process_channel_chunk_fft(&mut self, channel: usize) {
-        self.fft_forward.process(&mut self.scratch_complex);
+        self.fft_forward
+            .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
 
         let ir_fft = &self.impulse_response_fft[channel];
         multiply_spectrum_in_place(&mut self.scratch_complex, ir_fft);
 
-        self.fft_inverse.process(&mut self.scratch_complex);
+        self.fft_inverse
+            .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
     }
 
     #[inline]
@@ -432,6 +445,8 @@ struct PartitionedConvolver {
     fft_forward: Arc<dyn rustfft::Fft<f64>>,
     fft_inverse: Arc<dyn rustfft::Fft<f64>>,
     scratch_complex: Vec<Complex<f64>>,
+    // Workspace for `Fft::process_with_scratch` (plain `process` allocates per call).
+    fft_scratch: Vec<Complex<f64>>,
     block_pos: usize,
     history_cursor: usize,
     inv_fft_size: f64,
@@ -498,9 +513,15 @@ impl PartitionedConvolver {
             tail_partitions,
             head,
             channel_states,
+            scratch_complex: vec![Complex::new(0.0, 0.0); fft_size],
+            fft_scratch: vec![
+                Complex::new(0.0, 0.0);
+                fft_forward
+                    .get_inplace_scratch_len()
+                    .max(fft_inverse.get_inplace_scratch_len())
+            ],
             fft_forward,
             fft_inverse,
-            scratch_complex: vec![Complex::new(0.0, 0.0); fft_size],
             block_pos: 0,
             history_cursor: 0,
             inv_fft_size: 1.0 / fft_size as f64,
@@ -637,7 +658,8 @@ impl PartitionedConvolver {
                 }
             }
 
-            self.fft_inverse.process(&mut self.scratch_complex);
+            self.fft_inverse
+                .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
 
             let state = &mut self.channel_states[channel];
             for frame in 0..partition_size {
@@ -660,7 +682,8 @@ impl PartitionedConvolver {
                 .for_each(|(dst, &sample)| *dst = Complex::new(sample, 0.0));
             self.scratch_complex[partition_size..].fill(Complex::new(0.0, 0.0));
 
-            self.fft_forward.process(&mut self.scratch_complex);
+            self.fft_forward
+                .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
 
             let state = &mut self.channel_states[channel];
             state.input_history_ffts[history_slot].copy_from_slice(&self.scratch_complex);

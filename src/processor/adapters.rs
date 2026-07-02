@@ -34,7 +34,6 @@ pub struct EqProcessor {
     channels: usize,
     /// Lock-free parameters reference
     params: Arc<AtomicEqParams>,
-    cached_params: Arc<EqParamsSnapshot>,
     cached_generation: u64,
     /// Local parameter cache
     cached: EqParamsSnapshot,
@@ -54,7 +53,6 @@ impl EqProcessor {
             eq,
             channels,
             params,
-            cached_params,
             cached_generation,
             cached,
             sample_rate,
@@ -67,7 +65,6 @@ impl EqProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
 
             // Apply to internal EQ
@@ -121,7 +118,6 @@ impl AudioProcessor for EqProcessor {
 pub struct SaturationProcessor {
     saturation: Saturation,
     params: Arc<AtomicSaturationParams>,
-    cached_params: Arc<SaturationParamsSnapshot>,
     cached_generation: u64,
     cached: SaturationParamsSnapshot,
     sample_rate: f64,
@@ -148,7 +144,6 @@ impl SaturationProcessor {
         Self {
             saturation,
             params,
-            cached_params,
             cached_generation,
             cached,
             sample_rate: 44100.0,
@@ -160,7 +155,6 @@ impl SaturationProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
 
             // Apply to saturation processor
@@ -229,7 +223,6 @@ impl AudioProcessor for SaturationProcessor {
 pub struct CrossfeedProcessor {
     crossfeed: Crossfeed,
     params: Arc<AtomicCrossfeedParams>,
-    cached_params: Arc<CrossfeedParamsSnapshot>,
     cached_generation: u64,
     cached: CrossfeedParamsSnapshot,
     sample_rate: f64,
@@ -246,7 +239,6 @@ impl CrossfeedProcessor {
         Self {
             crossfeed,
             params,
-            cached_params,
             cached_generation,
             cached,
             sample_rate,
@@ -259,7 +251,6 @@ impl CrossfeedProcessor {
         {
             let previous_cutoff_hz = self.cached.cutoff_hz;
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
             self.crossfeed.set_mix(self.cached.mix);
             self.crossfeed.set_enabled(self.cached.enabled);
@@ -314,7 +305,6 @@ impl AudioProcessor for CrossfeedProcessor {
 pub struct PeakLimiterProcessor {
     limiter: PeakLimiter,
     params: Arc<AtomicPeakLimiterParams>,
-    cached_params: Arc<PeakLimiterParamsSnapshot>,
     cached_generation: u64,
     cached: PeakLimiterParamsSnapshot,
     sample_rate: u32,
@@ -335,7 +325,6 @@ impl PeakLimiterProcessor {
                 cached.mode,
             ),
             params,
-            cached_params,
             cached_generation,
             cached,
             sample_rate,
@@ -348,7 +337,6 @@ impl PeakLimiterProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
 
             // In-place updates only — NO PeakLimiter::new(), NO heap allocation.
@@ -422,7 +410,6 @@ impl AudioProcessor for PeakLimiterProcessor {
 /// causing audible clicks/zips on rapid volume changes.
 pub struct VolumeProcessor {
     params: Arc<AtomicVolumeParams>,
-    cached_params: Arc<VolumeParamsSnapshot>,
     cached_generation: u64,
     cached: VolumeParamsSnapshot,
     /// Current smoothed volume (exponentially approaches target)
@@ -445,7 +432,6 @@ impl VolumeProcessor {
         let cached = *cached_params;
         Self {
             params,
-            cached_params,
             cached_generation,
             cached,
             current_volume: 1.0,
@@ -467,7 +453,6 @@ impl VolumeProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
         }
     }
@@ -564,7 +549,6 @@ impl AudioProcessor for VolumeProcessor {
 pub struct NoiseShaperProcessor {
     noise_shaper: NoiseShaper,
     params: Arc<AtomicNoiseShaperParams>,
-    cached_params: Arc<NoiseShaperParamsSnapshot>,
     cached_generation: u64,
     cached: NoiseShaperParamsSnapshot,
     sample_rate: u32,
@@ -582,7 +566,6 @@ impl NoiseShaperProcessor {
         Self {
             noise_shaper,
             params,
-            cached_params,
             cached_generation,
             cached,
             sample_rate,
@@ -609,7 +592,6 @@ impl NoiseShaperProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
             self.noise_shaper.set_enabled(self.cached.enabled);
             self.noise_shaper.set_bits(self.cached.bits);
@@ -663,7 +645,6 @@ pub struct DynamicLoudnessProcessor {
     dynamic_loudness: DynamicLoudness,
     params: Arc<AtomicDynamicLoudnessParams>,
     telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
-    cached_params: Arc<DynamicLoudnessParamsSnapshot>,
     cached_generation: u64,
     cached: DynamicLoudnessParamsSnapshot,
     sample_rate: u32,
@@ -686,7 +667,6 @@ impl DynamicLoudnessProcessor {
             dynamic_loudness,
             params,
             telemetry,
-            cached_params,
             cached_generation,
             cached,
             sample_rate,
@@ -699,7 +679,6 @@ impl DynamicLoudnessProcessor {
             self.params.load_if_changed_since(self.cached_generation)
         {
             self.cached = *current;
-            self.cached_params = current;
             self.cached_generation = generation;
             self.dynamic_loudness.set_volume(self.cached.volume);
             self.dynamic_loudness.set_strength(self.cached.strength);
@@ -751,33 +730,105 @@ impl AudioProcessor for DynamicLoudnessProcessor {
 // ============================================================================
 
 /// FFT convolver processor with wait-free kernel swap-in.
+///
+/// Producer contract: publish a **uniquely-owned** `Arc<FFTConvolver>` into the
+/// swap slot and drop your own handle; the audio thread adopts it only once it
+/// is the sole owner (skip-and-retry otherwise — it never deep-clones).
+/// Retired kernels are handed back through [`ConvolverProcessor::disposal_slot`];
+/// drain that slot from a control thread (e.g. right before publishing a new
+/// kernel) so large deallocations never happen on the audio thread. Without
+/// draining, at most two retired kernels are parked and further kernel
+/// adoptions are deferred until the slot is drained.
 pub struct ConvolverProcessor {
-    owned: Option<FFTConvolver>,
+    /// Active kernel. Held as a uniquely-owned `Arc` so retirement is a
+    /// pointer hand-off instead of a reallocation.
+    owned: Option<Arc<FFTConvolver>>,
+    /// Kernel taken from `swap` but not yet adoptable (producer still holds a
+    /// handle, or retirement stages are full).
+    incoming: Option<Arc<FFTConvolver>>,
+    /// Retired kernel waiting for the disposal slot to free up.
+    pending_retire: Option<Arc<FFTConvolver>>,
     swap: Arc<ArcSwapOption<FFTConvolver>>,
     enabled: Arc<AtomicBool>,
+    /// Single-slot hand-off of retired kernels to the control side.
+    retired: Arc<ArcSwapOption<FFTConvolver>>,
 }
 
 impl ConvolverProcessor {
     pub fn new(swap: Arc<ArcSwapOption<FFTConvolver>>, enabled: Arc<AtomicBool>) -> Self {
         Self {
             owned: None,
+            incoming: None,
+            pending_retire: None,
             swap,
             enabled,
+            retired: Arc::new(ArcSwapOption::empty()),
+        }
+    }
+
+    /// Slot receiving kernels retired by the audio thread. Drain it (e.g.
+    /// `slot.swap(None)`) from a control thread; dropping the drained `Arc`
+    /// there performs the large deallocation off the audio path.
+    pub fn disposal_slot(&self) -> Arc<ArcSwapOption<FFTConvolver>> {
+        Arc::clone(&self.retired)
+    }
+
+    /// Move `pending_retire` into the disposal slot when it is free.
+    /// Audio thread is the only writer of `retired`; the control side only
+    /// takes, so an observed-empty slot cannot be concurrently filled.
+    fn try_flush_retired(&mut self) {
+        if let Some(arc) = self.pending_retire.take() {
+            if self.retired.load().is_none() {
+                self.retired.store(Some(arc));
+            } else {
+                self.pending_retire = Some(arc);
+            }
         }
     }
 
     fn sync_convolver(&mut self) {
+        self.try_flush_retired();
+
+        // Withdraw any newly published kernel exactly once; keep it parked in
+        // `incoming` until it is adoptable.
+        if self.incoming.is_none() {
+            self.incoming = self.swap.swap(None);
+        }
+
         if !self.enabled.load(Ordering::Acquire) {
-            self.owned = None;
-            let _ = self.swap.swap(None);
+            // Retire everything we hold, one stage per block if needed, without
+            // deallocating on the audio thread.
+            if self.pending_retire.is_none() {
+                if let Some(arc) = self.owned.take().or_else(|| self.incoming.take()) {
+                    self.pending_retire = Some(arc);
+                    self.try_flush_retired();
+                }
+            }
             return;
         }
 
-        let new_conv = self.swap.swap(None);
-        if let Some(arc_conv) = new_conv {
-            match Arc::try_unwrap(arc_conv) {
-                Ok(conv) => self.owned = Some(conv),
-                Err(arc) => self.owned = Some((*arc).clone()),
+        let Some(mut arc) = self.incoming.take() else {
+            return;
+        };
+        if Arc::get_mut(&mut arc).is_none() {
+            // Producer still holds a handle; retry next block instead of
+            // deep-cloning multi-MB kernel state on the audio thread.
+            self.incoming = Some(arc);
+            return;
+        }
+        match self.owned.take() {
+            None => self.owned = Some(arc),
+            Some(old) => {
+                if self.pending_retire.is_none() {
+                    self.owned = Some(arc);
+                    self.pending_retire = Some(old);
+                    self.try_flush_retired();
+                } else {
+                    // Both retirement stages occupied: keep the old kernel and
+                    // defer adoption until the control side drains.
+                    self.owned = Some(old);
+                    self.incoming = Some(arc);
+                }
             }
         }
     }
@@ -791,16 +842,22 @@ impl AudioProcessor for ConvolverProcessor {
     fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
         self.sync_convolver();
 
-        if let Some(ref mut convolver) = self.owned {
-            convolver.process_inplace(buffer);
-            ProcessResult::Ok
-        } else {
-            ProcessResult::Bypassed
+        if !self.enabled.load(Ordering::Acquire) {
+            return ProcessResult::Bypassed;
         }
+        let Some(arc) = self.owned.as_mut() else {
+            return ProcessResult::Bypassed;
+        };
+        let Some(convolver) = Arc::get_mut(arc) else {
+            debug_assert!(false, "owned convolver must be uniquely held");
+            return ProcessResult::Bypassed;
+        };
+        convolver.process_inplace(buffer);
+        ProcessResult::Ok
     }
 
     fn reset(&mut self) {
-        if let Some(ref mut convolver) = self.owned {
+        if let Some(convolver) = self.owned.as_mut().and_then(Arc::get_mut) {
             convolver.reset();
         }
     }
@@ -810,9 +867,8 @@ impl AudioProcessor for ConvolverProcessor {
     }
 
     fn set_enabled(&mut self, enabled: bool) {
-        if !enabled {
-            self.owned = None;
-        }
+        // Kernel teardown is handled by `sync_convolver`'s disabled path so the
+        // audio thread never deallocates it here.
         self.enabled.store(enabled, Ordering::Release);
     }
 }
@@ -851,6 +907,79 @@ mod tests {
         let mut bypassed = vec![1.0, 2.0, 3.0, 4.0];
         assert_eq!(proc.process(&mut bypassed, 1), ProcessResult::Bypassed);
         assert_eq!(bypassed, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn convolver_processor_skips_shared_kernel_and_adopts_once_unique() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
+
+        // Producer still holds a handle: the kernel must NOT be adopted (and
+        // must never be deep-cloned on the audio side).
+        let kernel = Arc::new(FFTConvolver::new(&[0.5], 1));
+        swap.store(Some(Arc::clone(&kernel)));
+        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Bypassed);
+        assert_eq!(buffer, vec![1.0, 2.0, 3.0, 4.0]);
+
+        // Producer drops its handle: the parked kernel is adopted next block.
+        drop(kernel);
+        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+        assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
+    }
+
+    #[test]
+    fn convolver_processor_defers_adoption_until_disposal_slot_drained() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let slot = proc.disposal_slot();
+
+        let process_gain = |proc: &mut ConvolverProcessor| {
+            let mut buffer = vec![1.0, 1.0, 1.0, 1.0];
+            proc.process(&mut buffer, 1);
+            buffer[0]
+        };
+
+        // A adopted; B retires A into the slot; C parks B in pending_retire.
+        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0], 1))));
+        assert_eq!(process_gain(&mut proc), 1.0);
+        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
+        assert_eq!(process_gain(&mut proc), 0.5);
+        assert!(slot.load().is_some());
+        swap.store(Some(Arc::new(FFTConvolver::new(&[0.25], 1))));
+        assert_eq!(process_gain(&mut proc), 0.25);
+
+        // Both retirement stages occupied: D's adoption is deferred and the
+        // current kernel keeps processing.
+        swap.store(Some(Arc::new(FFTConvolver::new(&[0.125], 1))));
+        assert_eq!(process_gain(&mut proc), 0.25);
+
+        // Control side drains the slot: the deferred kernel lands.
+        assert!(slot.swap(None).is_some());
+        assert_eq!(process_gain(&mut proc), 0.125);
+    }
+
+    #[test]
+    fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let slot = proc.disposal_slot();
+        let mut buffer = vec![0.3; 512];
+
+        for _ in 0..8 {
+            // Control side: publishing allocates (allowed).
+            swap.store(Some(Arc::new(FFTConvolver::new(&[0.5, 0.25], 1))));
+            // Audio side: swap-in, retirement hand-off, and processing must not
+            // allocate or deallocate.
+            assert_no_alloc::assert_no_alloc(|| {
+                proc.process(&mut buffer, 1);
+            });
+            // Control side: draining performs the large deallocation.
+            drop(slot.swap(None));
+        }
     }
 
     #[test]
@@ -1228,19 +1357,21 @@ mod tests {
         // Warm up the cached generation so the first asserted block is steady.
         proc.process(&mut buffer, 2);
 
-        // Flipping the atomic mode and processing must not allocate on the
-        // audio thread: the limiter switches in place.
-        assert_no_alloc::assert_no_alloc(|| {
-            for i in 0..200 {
-                let mode = if i % 2 == 0 {
-                    LimiterMode::SamplePeak
-                } else {
-                    LimiterMode::TruePeak
-                };
-                params.set_mode(mode);
+        // Flipping the atomic mode is a control-plane call (its rcu publish
+        // allocates a fresh snapshot), so it stays outside the no-alloc guard.
+        // Consuming the flip and processing on the audio side must not
+        // allocate: the limiter switches in place.
+        for i in 0..200 {
+            let mode = if i % 2 == 0 {
+                LimiterMode::SamplePeak
+            } else {
+                LimiterMode::TruePeak
+            };
+            params.set_mode(mode);
+            assert_no_alloc::assert_no_alloc(|| {
                 proc.process(&mut buffer, 2);
-            }
-        });
+            });
+        }
     }
 
     #[test]
