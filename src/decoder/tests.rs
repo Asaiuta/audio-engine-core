@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "http")]
 use super::{source::fetch_range_once, NetworkError};
-use super::{DecodeCancelToken, DecoderError, StreamingDecoder};
+use super::{DecodeCancelToken, DecoderError, OpenedMediaSource, StreamingDecoder};
 
 /// Monotonic counter for unique temp filenames within this test process.
 static TMP_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -122,6 +122,35 @@ fn cancelled_open_returns_before_touching_source() {
         None,
         Some(token),
     );
+
+    assert!(matches!(result, Err(DecoderError::Canceled)));
+}
+
+#[test]
+fn decoder_can_be_built_from_an_already_opened_local_source() {
+    let wav = synth_wav(48_000, 2, 32, |frame, channel| {
+        (frame as f64 + channel as f64) / 64.0
+    });
+    let fixture = TempAudio::new("wav", &wav);
+    let source = OpenedMediaSource::open_local(fixture.path_str(), None).expect("open source");
+
+    let mut decoder =
+        StreamingDecoder::from_opened_source(source, None).expect("construct decoder");
+
+    assert_eq!(decoder.info.sample_rate, 48_000);
+    assert_eq!(decoder.info.channels, 2);
+    assert_eq!(decode_all_samples(&mut decoder).len(), 64);
+}
+
+#[test]
+fn cancelled_opened_source_construction_returns_before_probe() {
+    let wav = synth_wav(44_100, 1, 8, |frame, _| frame as f64 / 8.0);
+    let fixture = TempAudio::new("wav", &wav);
+    let source = OpenedMediaSource::open_local(fixture.path_str(), None).expect("open source");
+    let cancelled = Arc::new(AtomicBool::new(true));
+
+    let result =
+        StreamingDecoder::from_opened_source(source, Some(DecodeCancelToken::new(cancelled)));
 
     assert!(matches!(result, Err(DecoderError::Canceled)));
 }

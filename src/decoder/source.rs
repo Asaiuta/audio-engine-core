@@ -35,6 +35,43 @@ pub struct HttpCredentials {
     pub password: String,
 }
 
+/// An opened decode source that has not yet been probed or bound to a codec.
+///
+/// Keeping the Symphonia transport fields private lets callers separate source
+/// opening from decoder construction without depending on Symphonia's API.
+pub struct OpenedMediaSource {
+    pub(super) stream: MediaSourceStream,
+    pub(super) hint: Hint,
+}
+
+impl OpenedMediaSource {
+    /// Open a local file once and retain its extension hint for later probing.
+    pub fn open_local<P: AsRef<Path>>(
+        path: P,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
+        if cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(DecoderError::Canceled);
+        }
+
+        let path = path.as_ref();
+        let file = File::open(path)?;
+        let stream = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut hint = Hint::new();
+        if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+            hint.with_extension(extension);
+        }
+        Ok(Self { stream, hint })
+    }
+
+    pub(super) fn from_parts(stream: MediaSourceStream, hint: Hint) -> Self {
+        Self { stream, hint }
+    }
+}
+
 pub(super) fn configured_decode_memory_limit() -> (usize, usize) {
     let budget = crate::diagnostics::decode_memory_budget();
     (budget.limit_mb, budget.limit_bytes)

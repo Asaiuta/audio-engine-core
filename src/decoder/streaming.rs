@@ -9,7 +9,7 @@ use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
 use super::source::{
     bytes_to_mib, configured_decode_memory_limit, open_media_source, HttpCredentials,
-    F64_SAMPLE_BYTES,
+    OpenedMediaSource, F64_SAMPLE_BYTES,
 };
 use crate::channel_layout::{ChannelLayout, ChannelPosition};
 
@@ -57,12 +57,31 @@ impl StreamingDecoder {
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let (mss, hint) = open_media_source(path.as_ref(), credentials, cancel_token.clone())?;
+        let (stream, hint) = open_media_source(path.as_ref(), credentials, cancel_token.clone())?;
+        Self::from_opened_source(OpenedMediaSource::from_parts(stream, hint), cancel_token)
+    }
+
+    /// Probe and construct a decoder from an already-opened source.
+    ///
+    /// This preserves transport/source identity across player-owned lifecycle
+    /// transitions and avoids reopening by path after a source factory succeeds.
+    pub fn from_opened_source(
+        source: OpenedMediaSource,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
+        if cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(DecoderError::Canceled);
+        }
+
+        let OpenedMediaSource { stream, hint } = source;
 
         let format_opts = FormatOptions::default();
         let metadata_opts = MetadataOptions::default();
         let mut probed = symphonia::default::get_probe()
-            .format(&hint, mss, &format_opts, &metadata_opts)
+            .format(&hint, stream, &format_opts, &metadata_opts)
             .map_err(map_probe_error)?;
 
         let mut metadata = extract_metadata(&mut probed);
