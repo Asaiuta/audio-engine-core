@@ -143,6 +143,23 @@ fn decoder_can_be_built_from_an_already_opened_local_source() {
 }
 
 #[test]
+fn borrowed_decode_exposes_decoder_storage_without_caller_staging() {
+    let wav = synth_wav(48_000, 2, 64, |frame, channel| {
+        (frame as f64 + channel as f64) / 128.0
+    });
+    let fixture = TempAudio::new("wav", &wav);
+    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open decoder");
+
+    let samples = decoder
+        .decode_next_borrowed()
+        .expect("decode packet")
+        .expect("borrowed output");
+
+    assert_eq!(samples.len(), 128);
+    assert!(samples.iter().any(|sample| *sample != 0.0));
+}
+
+#[test]
 fn cancelled_opened_source_construction_returns_before_probe() {
     let wav = synth_wav(44_100, 1, 8, |frame, _| frame as f64 / 8.0);
     let fixture = TempAudio::new("wav", &wav);
