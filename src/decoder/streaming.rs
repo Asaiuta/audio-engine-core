@@ -8,8 +8,8 @@ use symphonia::core::meta::MetadataOptions;
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
 use super::source::{
-    bytes_to_mib, configured_decode_memory_limit, open_media_source, HttpCredentials,
-    OpenedMediaSource, F64_SAMPLE_BYTES,
+    bytes_to_mib, configured_decode_memory_limit, HttpCredentials, OpenedMediaSource,
+    F64_SAMPLE_BYTES,
 };
 use crate::channel_layout::{ChannelLayout, ChannelPosition};
 
@@ -112,8 +112,12 @@ impl StreamingDecoder {
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let (stream, hint) = open_media_source(path.as_ref(), credentials, cancel_token.clone())?;
-        Self::from_opened_source(OpenedMediaSource::from_parts(stream, hint), cancel_token)
+        let source = OpenedMediaSource::open_path_with_credentials_and_cancel(
+            path,
+            credentials,
+            cancel_token.clone(),
+        )?;
+        Self::from_opened_source(source, cancel_token)
     }
 
     /// Probe and construct a decoder from an already-opened source.

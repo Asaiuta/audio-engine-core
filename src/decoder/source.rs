@@ -45,6 +45,20 @@ pub struct OpenedMediaSource {
 }
 
 impl OpenedMediaSource {
+    /// Open a local or HTTP media source without probing or constructing a decoder.
+    ///
+    /// This lets a player reserve decoder memory after source opening but before
+    /// decoder construction while preserving Range transport, credentials, and
+    /// cancellation state in the returned source.
+    pub fn open_path_with_credentials_and_cancel<P: AsRef<Path>>(
+        path: P,
+        credentials: Option<&HttpCredentials>,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
+        let (stream, hint) = open_media_source(path.as_ref(), credentials, cancel_token)?;
+        Ok(Self { stream, hint })
+    }
+
     /// Open a local file once and retain its extension hint for later probing.
     pub fn open_local<P: AsRef<Path>>(
         path: P,
@@ -65,10 +79,6 @@ impl OpenedMediaSource {
             hint.with_extension(extension);
         }
         Ok(Self { stream, hint })
-    }
-
-    pub(super) fn from_parts(stream: MediaSourceStream, hint: Hint) -> Self {
-        Self { stream, hint }
     }
 }
 
