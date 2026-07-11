@@ -164,7 +164,7 @@ impl StreamingDecoder {
     /// common packet sizes (e.g. AAC 1024, MP3 1152) plus codec priming.
     pub const SEEK_COARSE_TOLERANCE_FRAMES: u64 = 4_096;
 
-    pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
+    fn decode_next_span(&mut self) -> Result<Option<(usize, usize)>, DecoderError> {
         if self.finished {
             return Ok(None);
         }
@@ -271,10 +271,33 @@ impl StreamingDecoder {
             }
 
             let appended = end - start;
-            out.extend_from_slice(&samples[start..end]);
             self.samples_output += appended as u64;
-            return Ok(Some(appended));
+            return Ok(Some((start, end)));
         }
+    }
+
+    /// Decode the next packet and borrow the decoder-owned interleaved output.
+    ///
+    /// The returned slice remains valid until the next mutable decoder call.
+    /// Callers that immediately copy into final storage avoid an intermediate
+    /// caller-owned staging allocation.
+    pub fn decode_next_borrowed(&mut self) -> Result<Option<&[f64]>, DecoderError> {
+        let Some((start, end)) = self.decode_next_span()? else {
+            return Ok(None);
+        };
+        let sample_buf = self.sample_buf.as_ref().ok_or_else(|| {
+            DecoderError::Decoder("Decoded packet did not retain sample storage".to_string())
+        })?;
+        Ok(Some(&sample_buf.samples()[start..end]))
+    }
+
+    pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
+        let Some(samples) = self.decode_next_borrowed()? else {
+            return Ok(None);
+        };
+        let appended = samples.len();
+        out.extend_from_slice(samples);
+        Ok(Some(appended))
     }
 
     pub fn decode_next(&mut self) -> Result<Option<Vec<f64>>, DecoderError> {
