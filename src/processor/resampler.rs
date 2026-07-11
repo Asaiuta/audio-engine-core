@@ -354,7 +354,58 @@ pub struct ResampleOutput<'a> {
     pub frames: usize,
 }
 
+const STREAMING_MAX_INPUT_FRAMES: usize = 16_384;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StreamingBufferLayout {
+    max_output_per_channel: usize,
+    pcm_bytes: usize,
+}
+
+fn streaming_buffer_layout(
+    channels: usize,
+    from_rate: u32,
+    to_rate: u32,
+) -> Result<StreamingBufferLayout, ResamplerError> {
+    if channels == 0 || from_rate == 0 || to_rate == 0 {
+        return Err(ResamplerError::InitializationFailed(format!(
+            "Invalid streaming resampler geometry: channels={}, from_rate={}, to_rate={}",
+            channels, from_rate, to_rate
+        )));
+    }
+    let ratio = to_rate as f64 / from_rate as f64;
+    let max_output_per_channel = (STREAMING_MAX_INPUT_FRAMES as f64 * ratio).ceil() as usize + 64;
+    let input_samples = channels
+        .checked_mul(STREAMING_MAX_INPUT_FRAMES)
+        .ok_or_else(|| ResamplerError::InitializationFailed("input capacity overflow".into()))?;
+    let channel_output_samples = channels
+        .checked_mul(max_output_per_channel)
+        .ok_or_else(|| ResamplerError::InitializationFailed("output capacity overflow".into()))?;
+    let total_samples = max_output_per_channel
+        .checked_add(input_samples)
+        .and_then(|samples| samples.checked_add(channel_output_samples))
+        .and_then(|samples| samples.checked_add(channel_output_samples))
+        .ok_or_else(|| ResamplerError::InitializationFailed("working-set overflow".into()))?;
+    let pcm_bytes = total_samples
+        .checked_mul(std::mem::size_of::<f64>())
+        .ok_or_else(|| ResamplerError::InitializationFailed("working-set byte overflow".into()))?;
+    Ok(StreamingBufferLayout {
+        max_output_per_channel,
+        pcm_bytes,
+    })
+}
+
 impl StreamingResampler {
+    /// Exact `f64` capacity bytes allocated by the reusable streaming buffers.
+    /// Callers can reserve this amount before constructing the resampler.
+    pub fn working_buffer_bytes(
+        channels: usize,
+        from_rate: u32,
+        to_rate: u32,
+    ) -> Result<usize, ResamplerError> {
+        Ok(streaming_buffer_layout(channels, from_rate, to_rate)?.pcm_bytes)
+    }
+
     pub fn from_rate(&self) -> u32 {
         self.from_rate
     }
@@ -468,18 +519,14 @@ impl StreamingResampler {
             }
         }
 
-        // Pre-allocate all buffers (Defect 33 fix)
-        let max_input_frames = 16384; // Typical chunk size
-                                      // True conversion ratio. Per-call Soxr output is now capped (via slicing)
-                                      // to the naive ratio bound, so this sizes the scratch/output buffers to the
-                                      // real worst case for this direction (downsample ratios < 1 no longer
-                                      // over-reserve the old conservative 2.0).
-        let max_ratio = to_rate as f64 / from_rate as f64;
-        let max_output_per_channel = (max_input_frames as f64 * max_ratio).ceil() as usize + 64;
+        // Pre-allocate all buffers from the same checked layout exposed to
+        // callers for reservation-before-allocation accounting.
+        let layout = streaming_buffer_layout(channels, from_rate, to_rate)?;
+        let max_output_per_channel = layout.max_output_per_channel;
 
         // Pre-allocate channel buffers
         let channel_inputs: Vec<Vec<f64>> = (0..channels)
-            .map(|_| Vec::with_capacity(max_input_frames))
+            .map(|_| Vec::with_capacity(STREAMING_MAX_INPUT_FRAMES))
             .collect();
         let channel_outputs: Vec<Vec<f64>> = (0..channels)
             .map(|_| Vec::with_capacity(max_output_per_channel))
@@ -789,6 +836,28 @@ mod tests {
 
         assert_eq!(result.frames, 2);
         assert_eq!(result.samples, input.as_slice());
+    }
+
+    #[test]
+    fn working_buffer_bytes_matches_constructed_vec_capacities() {
+        let resampler = StreamingResampler::new(6, 44_100, 192_000).expect("resampler");
+        let actual_samples = resampler.output_scratch.capacity()
+            + resampler
+                .channel_inputs
+                .iter()
+                .map(Vec::capacity)
+                .sum::<usize>()
+            + resampler
+                .channel_outputs
+                .iter()
+                .map(Vec::capacity)
+                .sum::<usize>()
+            + resampler.interleaved_output.capacity();
+
+        assert_eq!(
+            StreamingResampler::working_buffer_bytes(6, 44_100, 192_000).expect("working set"),
+            actual_samples * std::mem::size_of::<f64>()
+        );
     }
 
     #[test]
