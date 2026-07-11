@@ -160,6 +160,23 @@ fn borrowed_decode_exposes_decoder_storage_without_caller_staging() {
 }
 
 #[test]
+fn probed_builder_reports_exact_fixed_decoder_staging_bytes() {
+    let wav = synth_wav(48_000, 2, 64, |frame, channel| {
+        (frame as f64 + channel as f64) / 128.0
+    });
+    let fixture = TempAudio::new("wav", &wav);
+    let source = OpenedMediaSource::open_local(fixture.path_str(), None).expect("open source");
+    let builder = StreamingDecoder::probe_opened_source(source, None).expect("probe opened source");
+    let reserved_bytes = builder.staging_buffer_bytes().expect("staging bytes");
+
+    let mut decoder = builder.build().expect("build decoder");
+
+    assert_eq!(decoder.staging_buffer_bytes(), reserved_bytes);
+    assert!(decoder.decode_next_borrowed().expect("decode").is_some());
+    assert_eq!(decoder.staging_buffer_bytes(), reserved_bytes);
+}
+
+#[test]
 fn cancelled_opened_source_construction_returns_before_probe() {
     let wav = synth_wav(44_100, 1, 8, |frame, _| frame as f64 / 8.0);
     let fixture = TempAudio::new("wav", &wav);

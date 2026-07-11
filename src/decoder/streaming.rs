@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use symphonia::core::audio::{Channels, SampleBuffer};
+use symphonia::core::audio::{Channels, SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::meta::MetadataOptions;
@@ -40,6 +40,61 @@ pub struct StreamingDecoder {
     cancel_token: Option<DecodeCancelToken>,
 }
 
+const DEFAULT_MAX_DECODED_PACKET_FRAMES: u64 = 65_536;
+
+/// Probed streaming source awaiting fixed decoder-staging allocation.
+pub struct StreamingDecoderBuilder {
+    format_reader: Box<dyn symphonia::core::formats::FormatReader>,
+    track_id: u32,
+    pub info: AudioInfo,
+    staging_frames: u64,
+    signal_spec: SignalSpec,
+    cancel_token: Option<DecodeCancelToken>,
+}
+
+impl StreamingDecoderBuilder {
+    /// Exact fixed `SampleBuffer<f64>` payload allocated by [`Self::build`].
+    pub fn staging_buffer_bytes(&self) -> Result<usize, DecoderError> {
+        usize::try_from(self.staging_frames)
+            .ok()
+            .and_then(|frames| frames.checked_mul(self.info.channels))
+            .and_then(|samples| samples.checked_mul(std::mem::size_of::<f64>()))
+            .ok_or_else(|| DecoderError::Decoder("decoder staging size overflow".to_string()))
+    }
+
+    pub fn build(self) -> Result<StreamingDecoder, DecoderError> {
+        if self
+            .cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(DecoderError::Canceled);
+        }
+        let track = self
+            .format_reader
+            .tracks()
+            .iter()
+            .find(|track| track.id == self.track_id)
+            .ok_or(DecoderError::NoAudioTrack)?;
+        let decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .map_err(|error| DecoderError::Decoder(error.to_string()))?;
+        let sample_buf = SampleBuffer::new(self.staging_frames, self.signal_spec);
+
+        Ok(StreamingDecoder {
+            format_reader: self.format_reader,
+            decoder,
+            track_id: self.track_id,
+            info: self.info,
+            sample_buf: Some(sample_buf),
+            samples_output: 0,
+            finished: false,
+            at_stream_start: true,
+            cancel_token: self.cancel_token,
+        })
+    }
+}
+
 impl StreamingDecoder {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DecoderError> {
         Self::open_with_credentials(path, None)
@@ -69,6 +124,13 @@ impl StreamingDecoder {
         source: OpenedMediaSource,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
+        Self::probe_opened_source(source, cancel_token)?.build()
+    }
+
+    pub fn probe_opened_source(
+        source: OpenedMediaSource,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<StreamingDecoderBuilder, DecoderError> {
         if cancel_token
             .as_ref()
             .is_some_and(DecodeCancelToken::is_cancelled)
@@ -101,6 +163,9 @@ impl StreamingDecoder {
         let codec_params = &track.codec_params;
         let sample_rate = codec_params.sample_rate.unwrap_or(44100);
         let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
+        let signal_channels = codec_params
+            .channels
+            .unwrap_or(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
         let channel_layout = layout_from_codec(codec_params.channels, channels);
         let bits_per_sample = codec_params.bits_per_sample;
         let total_frames = codec_params.n_frames;
@@ -128,10 +193,11 @@ impl StreamingDecoder {
             metadata,
         };
 
-        let decoder_opts = DecoderOptions::default();
-        let decoder = symphonia::default::get_codecs()
-            .make(codec_params, &decoder_opts)
-            .map_err(|e| DecoderError::Decoder(e.to_string()))?;
+        let staging_frames = codec_params
+            .max_frames_per_packet
+            .filter(|frames| *frames > 0)
+            .or(codec_params.frames_per_block.filter(|frames| *frames > 0))
+            .unwrap_or(DEFAULT_MAX_DECODED_PACKET_FRAMES);
 
         log::info!(
             "Opened audio source: {} Hz, {} ch, {:?}s",
@@ -140,15 +206,12 @@ impl StreamingDecoder {
             duration_secs
         );
 
-        Ok(Self {
+        Ok(StreamingDecoderBuilder {
             format_reader,
-            decoder,
             track_id,
             info,
-            sample_buf: None,
-            samples_output: 0,
-            finished: false,
-            at_stream_start: true,
+            staging_frames,
+            signal_spec: SignalSpec::new(sample_rate, signal_channels),
             cancel_token,
         })
     }
@@ -163,6 +226,12 @@ impl StreamingDecoder {
     /// sample-exact seeking. The value is generous enough to cover the largest
     /// common packet sizes (e.g. AAC 1024, MP3 1152) plus codec priming.
     pub const SEEK_COARSE_TOLERANCE_FRAMES: u64 = 4_096;
+
+    pub fn staging_buffer_bytes(&self) -> usize {
+        self.sample_buf
+            .as_ref()
+            .map_or(0, |buffer| buffer.capacity() * std::mem::size_of::<f64>())
+    }
 
     fn decode_next_span(&mut self) -> Result<Option<(usize, usize)>, DecoderError> {
         if self.finished {
@@ -210,22 +279,20 @@ impl StreamingDecoder {
                 Err(e) => return Err(DecoderError::Decoder(e.to_string())),
             };
 
-            let spec = *decoded.spec();
             let duration = decoded.capacity();
-
-            if self
-                .sample_buf
-                .as_ref()
-                .is_none_or(|buffer| buffer.capacity() < duration)
-            {
-                self.sample_buf = Some(SampleBuffer::new(duration as u64, spec));
-            }
-
             let Some(sample_buf) = self.sample_buf.as_mut() else {
                 return Err(DecoderError::Decoder(
                     "Failed to allocate decoder sample buffer".to_string(),
                 ));
             };
+            let required_samples = duration.saturating_mul(decoded.spec().channels.count());
+            if required_samples > sample_buf.capacity() {
+                return Err(DecoderError::Decoder(format!(
+                    "decoded packet exceeds fixed staging capacity: required {} samples, reserved {}",
+                    required_samples,
+                    sample_buf.capacity()
+                )));
+            }
             sample_buf.copy_interleaved_ref(decoded);
 
             let samples = sample_buf.samples();
