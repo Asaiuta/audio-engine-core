@@ -14,10 +14,10 @@ This spec applies when code:
 * adds processor latency, tail, finish/drain, reset, or sample-rate conversion;
 * composes realtime or offline processor chains.
 
-The target public contract directly replaces `AudioProcessor` / `ProcessResult`.
-Those legacy names may coexist only while the repository-internal migration is
-in progress; do not add new legacy implementations or publish that transient
-dual surface as a compatibility promise.
+The target public contract directly replaced the former fixed in-place API.
+Legacy names may appear only in explicit migration/history documentation; do
+not reintroduce compatibility implementations, deprecated wrappers, or feature
+gates for the removed surface.
 
 ## 2. Signatures
 
@@ -37,6 +37,15 @@ process_checked(processor: &mut impl StreamingProcessor, buffers: ProcessBuffers
     -> Result<ProcessProgress, ProcessError>
 finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_>)
     -> Result<ProcessProgress, ProcessError>
+
+DspChain::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<ProcessProgress, ProcessError>
+DspChain::reset(&mut self) -> Result<(), ProcessError>
+DspChain::set_sample_rate(&mut self, sample_rate_hz: u32)
+    -> Result<(), ProcessError>
+
+OutputChainBuilder::build_callback_chain(&self)
+    -> Result<DspChain, ProcessError>
 ```
 
 `StreamingProcessor` supplies `process`, `finish`, `reset`, `latency`, `tail`,
@@ -60,6 +69,16 @@ finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_
 * Drivers use `process_checked` / `finish_checked`. These snapshot capacity,
   reject overruns, reject invalid direction, and reject zero progress when both
   input and output capacity are available.
+* Fixed 1:1 adapters share one behavior: in-place calls process the complete
+  block without copying; out-of-place calls copy/process
+  `min(input_frames, output_frames)` into caller-owned output, then return
+  `NeedOutput` only when unconsumed input remains.
+* An adapter whose internal state was configured for a fixed channel count
+  rejects a different block channel count before entering its DSP kernel.
+  Channel-generic stages (currently volume and crossfeed) use the block count.
+* `DspChain` holds `Box<dyn StreamingProcessor>`, drives every stage through
+  `process_checked`, and returns full-block progress. The chain is marked
+  bypassed only when it is empty or every stage reported transparent bypass.
 
 ### End of stream
 
@@ -72,6 +91,9 @@ finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_
   `ProcessError::AlreadyFinished`.
 * `reset` clears all Rust and native backend history and re-arms the processor
   for a logically new stream.
+* `DspChain::reset` attempts every stage even after an error, then returns the
+  first error. Its sample-rate update follows the same first-error policy and
+  rejects zero before mutating any stage.
 
 ### Timing
 
@@ -102,6 +124,7 @@ finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_
 | `channels == 0` | `AudioBlockError::ZeroChannels` |
 | `samples.len() % channels != 0` | `AudioBlockError::IncompleteFrame` |
 | out-of-place channel counts differ | `AudioBlockError::ChannelMismatch` |
+| block channel count differs from configured processor count | `ProcessError::ChannelCountMismatch` |
 | consumed/produced exceeds capacity | `ProcessError::InvalidProgress` |
 | non-empty input/output with zero progress | `ProcessError::Stalled` |
 | partial or `NeedOutput` in-place | `ProcessError::InvalidProgress` |
@@ -117,10 +140,15 @@ finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_
   counts, then resumes at the unconsumed input frame.
 * Base: a fixed EQ processes the complete block in place and returns equal
   consumed/produced counts with `NeedInput`.
+* Good: a fixed out-of-place stage fills a short output, returns equal
+  consumed/produced prefix counts with `NeedOutput`, and resumes from the
+  caller-advanced input without replaying overwritten data.
 * Bad: an in-place processor returns partial consumption after it may already
   have overwritten the corresponding unconsumed samples.
 * Bad: an offline renderer calls `process(&[])` as an undocumented flush instead
   of repeatedly driving the processor's finish contract.
+* Bad: callback code ignores the `Result` from `DspChain::process`, logs the
+  error on the audio thread, or unwraps it across the callback boundary.
 
 ## 6. Tests Required
 
@@ -156,3 +184,9 @@ match progress.state() {
 }
 ```
 
+For a fixed callback chain, propagate the typed result to a callback boundary
+that can apply a preselected non-panicking fault policy:
+
+```rust
+let _progress = chain.process(samples, channels)?;
+```

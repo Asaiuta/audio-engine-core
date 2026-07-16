@@ -144,6 +144,36 @@ network I/O out of an audio callback. Allocate and configure processors before
 entering the realtime path, then update parameters through the provided atomic
 snapshot types.
 
+### Streaming processor migration
+
+The former `AudioProcessor` / `ProcessResult` API has been removed. Adapters now
+implement the object-safe `StreamingProcessor` lifecycle directly. Wrap
+caller-owned interleaved `f64` storage in an `AudioBlockMut`, then drive the
+processor through `process_checked` so consumed/produced counts and in-place
+1:1 progress are validated centrally:
+
+```rust
+use audio_engine_core::processor::traits::{
+    process_checked, AudioBlockMut, ProcessBuffers, ProcessError, ProcessProgress,
+    StreamingProcessor,
+};
+
+fn process_callback_block(
+    processor: &mut dyn StreamingProcessor,
+    samples: &mut [f64],
+    channels: usize,
+) -> Result<ProcessProgress, ProcessError> {
+    let block = AudioBlockMut::new(samples, channels)?;
+    process_checked(processor, ProcessBuffers::in_place(block))
+}
+```
+
+`DspChain::process`, `DspChain::reset`, and `DspChain::set_sample_rate` now
+return typed results; callback integrations must handle failures without
+logging or panicking on the audio thread. Fixed processors retain the zero-copy
+in-place fast path. Out-of-place calls use caller-provided output and report
+`NeedInput` / `NeedOutput` backpressure explicitly.
+
 ## Performance And Audio Quality
 
 These numbers come from the benchmarks in `benches/`, which run entirely against
@@ -172,8 +202,8 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| DSP chain, no convolver (EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, volume, dynamic loudness, peak limiter) | 149.5 ns | 153.1 us | `audio_callback_chain_perf --quick` |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 161.1 ns | 165.0 us | `audio_callback_chain_perf --quick` |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 114.8 ns | 117.6 us | five-run median, `audio_callback_chain_perf --quick` |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 123.4 ns | 126.3 us | five-run median, `audio_callback_chain_perf --quick` |
 | Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |

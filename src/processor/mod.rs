@@ -20,9 +20,8 @@
 //! ## Unified Abstraction (Lock-Free Design)
 //! - [`StreamingProcessor`] and streaming block/progress types - full consumed/produced,
 //!   finish, latency/tail, and reset lifecycle
-//! - [`AudioProcessor`] and [`ProcessResult`] - legacy in-place abstraction pending direct migration
 //! - [`lockfree_params`] - lock-free parameter structures for thread-safe parameter passing
-//! - [`adapters`] - processor adapters implementing [`AudioProcessor`]
+//! - [`adapters`] - processor adapters implementing [`StreamingProcessor`]
 //! - [`DspChain`] - composable DSP processing chain
 
 mod automix_analysis;
@@ -94,8 +93,7 @@ pub use lockfree_params::{
     SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
 };
 pub use traits::{
-    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, AudioProcessor,
-    FrameDuration, FrameRounding, ProcessBufferMode, ProcessBufferParts, ProcessBuffers,
-    ProcessCapacity, ProcessError, ProcessProgress, ProcessResult, ProcessState,
-    StreamingProcessor, TailSpec, TimingError,
+    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration,
+    FrameRounding, ProcessBufferMode, ProcessBufferParts, ProcessBuffers, ProcessCapacity,
+    ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec, TimingError,
 };

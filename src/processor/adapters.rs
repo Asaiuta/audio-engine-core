@@ -1,6 +1,6 @@
 //! Processor Adapters
 //!
-//! Wraps existing processors with the AudioProcessor trait, enabling
+//! Wraps existing processors with the [`StreamingProcessor`] trait, enabling
 //! lock-free parameter passing and unified DSP chain management.
 //!
 //! Each adapter:
@@ -21,7 +21,113 @@ use super::eq::Equalizer;
 use super::lockfree_params::*;
 use super::loudness::PeakLimiter;
 use super::saturation::Saturation;
-use super::traits::{AudioProcessor, ProcessResult};
+use super::traits::{
+    AudioBlockMut, ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
+    StreamingProcessor,
+};
+
+#[derive(Default)]
+struct FixedLifecycle {
+    finished: bool,
+}
+
+impl FixedLifecycle {
+    fn ensure_processing(&self, processor: &'static str) -> Result<(), ProcessError> {
+        if self.finished {
+            Err(ProcessError::AlreadyFinished { processor })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn finish(&mut self) -> ProcessProgress {
+        self.finished = true;
+        ProcessProgress::finished(0)
+    }
+
+    fn reset(&mut self) {
+        self.finished = false;
+    }
+}
+
+fn validate_channels(
+    processor: &'static str,
+    expected_channels: Option<usize>,
+    actual_channels: usize,
+) -> Result<(), ProcessError> {
+    if let Some(expected_channels) = expected_channels {
+        if expected_channels != actual_channels {
+            return Err(ProcessError::ChannelCountMismatch {
+                processor,
+                expected_channels,
+                actual_channels,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_sample_rate(processor: &'static str, sample_rate_hz: u32) -> Result<f64, ProcessError> {
+    if sample_rate_hz == 0 {
+        Err(ProcessError::InvalidSampleRate {
+            processor,
+            sample_rate_hz,
+        })
+    } else {
+        Ok(sample_rate_hz as f64)
+    }
+}
+
+fn process_fixed_1_to_1<F>(
+    processor: &'static str,
+    enabled: bool,
+    expected_channels: Option<usize>,
+    buffers: ProcessBuffers<'_>,
+    process: F,
+) -> Result<ProcessProgress, ProcessError>
+where
+    F: FnOnce(&mut [f64], usize) -> Result<(), ProcessError>,
+{
+    let channels = buffers.channels();
+    validate_channels(processor, expected_channels, channels)?;
+
+    match buffers.into_parts() {
+        ProcessBufferParts::InPlace(mut block) => {
+            let frames = block.frames();
+            if enabled && frames > 0 {
+                process(block.samples_mut(), channels)?;
+            }
+            Ok(
+                ProcessProgress::new(frames, frames, ProcessState::NeedInput)
+                    .with_bypassed(!enabled),
+            )
+        }
+        ProcessBufferParts::OutOfPlace { input, mut output } => {
+            let frames = input.frames().min(output.frames());
+            let samples = frames * channels;
+            output.samples_mut()[..samples].copy_from_slice(&input.samples()[..samples]);
+            if enabled && frames > 0 {
+                process(&mut output.samples_mut()[..samples], channels)?;
+            }
+            let state = if frames < input.frames() {
+                ProcessState::NeedOutput
+            } else {
+                ProcessState::NeedInput
+            };
+            Ok(ProcessProgress::new(frames, frames, state).with_bypassed(!enabled))
+        }
+    }
+}
+
+fn finish_fixed(
+    processor: &'static str,
+    expected_channels: Option<usize>,
+    lifecycle: &mut FixedLifecycle,
+    output: AudioBlockMut<'_>,
+) -> Result<ProcessProgress, ProcessError> {
+    validate_channels(processor, expected_channels, output.channels())?;
+    Ok(lifecycle.finish())
+}
 // ============================================================================
 // EQ Adapter
 // ============================================================================
@@ -39,6 +145,7 @@ pub struct EqProcessor {
     cached: EqParamsSnapshot,
     /// Sample rate for coefficient recalculation
     sample_rate: f64,
+    lifecycle: FixedLifecycle,
 }
 
 impl EqProcessor {
@@ -56,6 +163,7 @@ impl EqProcessor {
             cached_generation,
             cached,
             sample_rate,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -74,24 +182,40 @@ impl EqProcessor {
     }
 }
 
-impl AudioProcessor for EqProcessor {
+impl StreamingProcessor for EqProcessor {
     fn name(&self) -> &'static str {
         "Equalizer"
     }
 
-    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("Equalizer")?;
         self.sync_params();
 
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.eq.process(buffer);
-        ProcessResult::Ok
+        process_fixed_1_to_1(
+            "Equalizer",
+            self.cached.enabled,
+            Some(self.channels),
+            buffers,
+            |buffer, _channels| {
+                self.eq.process(buffer);
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed(
+            "Equalizer",
+            Some(self.channels),
+            &mut self.lifecycle,
+            output,
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.eq.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -102,11 +226,13 @@ impl AudioProcessor for EqProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        let sample_rate = validate_sample_rate("Equalizer", sample_rate_hz)?;
         self.sample_rate = sample_rate;
         self.eq = Equalizer::new(self.channels, sample_rate);
         self.eq.set_all_bands(&self.cached.gains, sample_rate);
         self.eq.set_enabled(self.cached.enabled);
+        Ok(())
     }
 }
 
@@ -117,10 +243,12 @@ impl AudioProcessor for EqProcessor {
 /// Saturation processor adapter
 pub struct SaturationProcessor {
     saturation: Saturation,
+    channels: usize,
     params: Arc<AtomicSaturationParams>,
     cached_generation: u64,
     cached: SaturationParamsSnapshot,
     sample_rate: f64,
+    lifecycle: FixedLifecycle,
 }
 
 impl SaturationProcessor {
@@ -143,10 +271,12 @@ impl SaturationProcessor {
         saturation.set_quality(super::saturation::SaturationQuality::from(cached.quality));
         Self {
             saturation,
+            channels,
             params,
             cached_generation,
             cached,
             sample_rate: 44100.0,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -181,24 +311,40 @@ impl SaturationProcessor {
     }
 }
 
-impl AudioProcessor for SaturationProcessor {
+impl StreamingProcessor for SaturationProcessor {
     fn name(&self) -> &'static str {
         "Saturation"
     }
 
-    fn process(&mut self, buffer: &mut [f64], channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("Saturation")?;
         self.sync_params();
 
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.saturation.process_with_channels(buffer, channels);
-        ProcessResult::Ok
+        process_fixed_1_to_1(
+            "Saturation",
+            self.cached.enabled,
+            Some(self.channels),
+            buffers,
+            |buffer, channels| {
+                self.saturation.process_with_channels(buffer, channels);
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed(
+            "Saturation",
+            Some(self.channels),
+            &mut self.lifecycle,
+            output,
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.saturation.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -209,9 +355,11 @@ impl AudioProcessor for SaturationProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        let sample_rate = validate_sample_rate("Saturation", sample_rate_hz)?;
         self.sample_rate = sample_rate;
         self.saturation.set_sample_rate(sample_rate);
+        Ok(())
     }
 }
 
@@ -226,6 +374,7 @@ pub struct CrossfeedProcessor {
     cached_generation: u64,
     cached: CrossfeedParamsSnapshot,
     sample_rate: f64,
+    lifecycle: FixedLifecycle,
 }
 
 impl CrossfeedProcessor {
@@ -242,6 +391,7 @@ impl CrossfeedProcessor {
             cached_generation,
             cached,
             sample_rate,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -262,24 +412,30 @@ impl CrossfeedProcessor {
     }
 }
 
-impl AudioProcessor for CrossfeedProcessor {
+impl StreamingProcessor for CrossfeedProcessor {
     fn name(&self) -> &'static str {
         "Crossfeed"
     }
 
-    fn process(&mut self, buffer: &mut [f64], channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("Crossfeed")?;
         self.sync_params();
+        let enabled = self.cached.enabled && buffers.channels() == 2;
 
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.crossfeed.process(buffer, channels);
-        ProcessResult::Ok
+        process_fixed_1_to_1("Crossfeed", enabled, None, buffers, |buffer, channels| {
+            self.crossfeed.process(buffer, channels);
+            Ok(())
+        })
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed("Crossfeed", None, &mut self.lifecycle, output)
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.crossfeed.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -290,10 +446,12 @@ impl AudioProcessor for CrossfeedProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        let sample_rate = validate_sample_rate("Crossfeed", sample_rate_hz)?;
         self.sample_rate = sample_rate;
         self.crossfeed
             .set_sample_rate(sample_rate, self.cached.cutoff_hz);
+        Ok(())
     }
 }
 
@@ -309,6 +467,7 @@ pub struct PeakLimiterProcessor {
     cached: PeakLimiterParamsSnapshot,
     sample_rate: u32,
     channels: usize,
+    lifecycle: FixedLifecycle,
 }
 
 impl PeakLimiterProcessor {
@@ -329,6 +488,7 @@ impl PeakLimiterProcessor {
             cached,
             sample_rate,
             channels,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -358,24 +518,40 @@ impl PeakLimiterProcessor {
     }
 }
 
-impl AudioProcessor for PeakLimiterProcessor {
+impl StreamingProcessor for PeakLimiterProcessor {
     fn name(&self) -> &'static str {
         "PeakLimiter"
     }
 
-    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("PeakLimiter")?;
         self.sync_params();
 
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.limiter.process(buffer);
-        ProcessResult::Ok
+        process_fixed_1_to_1(
+            "PeakLimiter",
+            self.cached.enabled,
+            Some(self.channels),
+            buffers,
+            |buffer, _channels| {
+                self.limiter.process(buffer);
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed(
+            "PeakLimiter",
+            Some(self.channels),
+            &mut self.lifecycle,
+            output,
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.limiter.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -386,8 +562,9 @@ impl AudioProcessor for PeakLimiterProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
-        self.sample_rate = sample_rate as u32;
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        validate_sample_rate("PeakLimiter", sample_rate_hz)?;
+        self.sample_rate = sample_rate_hz;
         self.limiter = PeakLimiter::with_mode(
             self.channels,
             self.sample_rate,
@@ -396,6 +573,7 @@ impl AudioProcessor for PeakLimiterProcessor {
             self.cached.release_ms,
             self.cached.mode,
         );
+        Ok(())
     }
 }
 
@@ -420,6 +598,7 @@ pub struct VolumeProcessor {
     one_minus_smoothing_coeff: f64,
     /// Sample rate for smoothing calculation
     sample_rate: f64,
+    lifecycle: FixedLifecycle,
 }
 
 impl VolumeProcessor {
@@ -438,6 +617,7 @@ impl VolumeProcessor {
             smoothing_coeff,
             one_minus_smoothing_coeff,
             sample_rate: 44100.0,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -458,74 +638,79 @@ impl VolumeProcessor {
     }
 }
 
-impl AudioProcessor for VolumeProcessor {
+impl StreamingProcessor for VolumeProcessor {
     fn name(&self) -> &'static str {
         "Volume"
     }
 
-    fn process(&mut self, buffer: &mut [f64], channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("Volume")?;
         self.sync_params();
 
-        // Volume is always "enabled" - just applies gain
-        // Check for mute
-        if self.cached.muted {
-            // Smooth fade to zero to avoid click. Decay once per frame (not per
-            // sample) so every channel in a frame gets the same gain and the
-            // time constant does not shrink by the channel count.
-            let coeff = self.smoothing_coeff;
-            let mut current_volume = self.current_volume;
-            for frame in buffer.chunks_exact_mut(channels) {
-                current_volume *= coeff;
-                for sample in frame.iter_mut() {
-                    *sample *= current_volume;
+        process_fixed_1_to_1("Volume", true, None, buffers, |buffer, channels| {
+            // Volume is always active. Muting is a smoothed gain transition,
+            // not a transparent bypass.
+            if self.cached.muted {
+                // Decay once per frame so every channel receives the same gain.
+                let coeff = self.smoothing_coeff;
+                let mut current_volume = self.current_volume;
+                for frame in buffer.chunks_exact_mut(channels) {
+                    current_volume *= coeff;
+                    for sample in frame.iter_mut() {
+                        *sample *= current_volume;
+                    }
                 }
+                self.current_volume = current_volume;
+                return Ok(());
             }
-            self.current_volume = current_volume;
-            return ProcessResult::Ok;
-        }
 
-        // Apply volume with anti-zipper smoothing
-        let target = self.cached.volume;
-        if self.current_volume == target {
-            if target != 1.0 {
-                for sample in buffer.iter_mut() {
+            let target = self.cached.volume;
+            if self.current_volume == target {
+                if target != 1.0 {
+                    for sample in buffer.iter_mut() {
+                        *sample *= target;
+                    }
+                }
+                return Ok(());
+            }
+
+            let one_minus_coeff = self.one_minus_smoothing_coeff;
+            let mut current_volume = self.current_volume;
+            let frames = buffer.len() / channels;
+            let mut frame = 0;
+
+            while frame < frames {
+                if (target - current_volume).abs() <= Self::SETTLE_EPSILON {
+                    current_volume = target;
+                    break;
+                }
+
+                current_volume += (target - current_volume) * one_minus_coeff;
+                for ch in 0..channels {
+                    buffer[frame * channels + ch] *= current_volume;
+                }
+                frame += 1;
+            }
+
+            if frame < frames && target != 1.0 {
+                for sample in &mut buffer[(frame * channels)..] {
                     *sample *= target;
                 }
             }
-            return ProcessResult::Ok;
-        }
+            self.current_volume = current_volume;
 
-        let one_minus_coeff = self.one_minus_smoothing_coeff;
-        let mut current_volume = self.current_volume;
-        let frames = buffer.len() / channels;
-        let mut frame = 0;
-
-        while frame < frames {
-            if (target - current_volume).abs() <= Self::SETTLE_EPSILON {
-                current_volume = target;
-                break;
-            }
-
-            // Exponential smoothing: current = current + (target - current) * (1 - coeff)
-            current_volume += (target - current_volume) * one_minus_coeff;
-            for ch in 0..channels {
-                buffer[frame * channels + ch] *= current_volume;
-            }
-            frame += 1;
-        }
-
-        if frame < frames && target != 1.0 {
-            for sample in &mut buffer[(frame * channels)..] {
-                *sample *= target;
-            }
-        }
-        self.current_volume = current_volume;
-
-        ProcessResult::Ok
+            Ok(())
+        })
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed("Volume", None, &mut self.lifecycle, output)
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.current_volume = self.cached.volume;
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -536,12 +721,14 @@ impl AudioProcessor for VolumeProcessor {
         // Use set_muted instead
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        let sample_rate = validate_sample_rate("Volume", sample_rate_hz)?;
         if (self.sample_rate - sample_rate).abs() > 1.0 {
             self.sample_rate = sample_rate;
             self.smoothing_coeff = Self::calc_smoothing_coeff(sample_rate);
             self.one_minus_smoothing_coeff = 1.0 - self.smoothing_coeff;
         }
+        Ok(())
     }
 }
 
@@ -557,6 +744,7 @@ pub struct NoiseShaperProcessor {
     cached: NoiseShaperParamsSnapshot,
     sample_rate: u32,
     channels: usize,
+    lifecycle: FixedLifecycle,
 }
 
 impl NoiseShaperProcessor {
@@ -574,21 +762,8 @@ impl NoiseShaperProcessor {
             cached,
             sample_rate,
             channels,
+            lifecycle: FixedLifecycle::default(),
         }
-    }
-
-    pub fn refresh_is_enabled(&mut self) -> bool {
-        self.sync_params();
-        self.cached.enabled
-    }
-
-    pub fn process_cached(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.noise_shaper.process(buffer, self.channels);
-        ProcessResult::Ok
     }
 
     fn sync_params(&mut self) {
@@ -604,24 +779,40 @@ impl NoiseShaperProcessor {
     }
 }
 
-impl AudioProcessor for NoiseShaperProcessor {
+impl StreamingProcessor for NoiseShaperProcessor {
     fn name(&self) -> &'static str {
         "NoiseShaper"
     }
 
-    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("NoiseShaper")?;
         self.sync_params();
 
-        if !self.cached.enabled {
-            return ProcessResult::Bypassed;
-        }
-
-        self.noise_shaper.process(buffer, self.channels);
-        ProcessResult::Ok
+        process_fixed_1_to_1(
+            "NoiseShaper",
+            self.cached.enabled,
+            Some(self.channels),
+            buffers,
+            |buffer, _channels| {
+                self.noise_shaper.process(buffer, self.channels);
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed(
+            "NoiseShaper",
+            Some(self.channels),
+            &mut self.lifecycle,
+            output,
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.noise_shaper.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -632,11 +823,13 @@ impl AudioProcessor for NoiseShaperProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
-        self.sample_rate = sample_rate as u32;
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        validate_sample_rate("NoiseShaper", sample_rate_hz)?;
+        self.sample_rate = sample_rate_hz;
         self.noise_shaper = NoiseShaper::new(self.channels, self.sample_rate, self.cached.bits);
         self.noise_shaper.set_enabled(self.cached.enabled);
         self.noise_shaper.set_curve(self.cached.curve);
+        Ok(())
     }
 }
 
@@ -653,6 +846,7 @@ pub struct DynamicLoudnessProcessor {
     cached: DynamicLoudnessParamsSnapshot,
     sample_rate: u32,
     channels: usize,
+    lifecycle: FixedLifecycle,
 }
 
 impl DynamicLoudnessProcessor {
@@ -675,6 +869,7 @@ impl DynamicLoudnessProcessor {
             cached,
             sample_rate,
             channels,
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -690,29 +885,48 @@ impl DynamicLoudnessProcessor {
     }
 }
 
-impl AudioProcessor for DynamicLoudnessProcessor {
+impl StreamingProcessor for DynamicLoudnessProcessor {
     fn name(&self) -> &'static str {
         "DynamicLoudness"
     }
 
-    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("DynamicLoudness")?;
         self.sync_params();
 
         if !self.cached.enabled {
             self.telemetry.update(0.0, [0.0; 7]);
-            return ProcessResult::Bypassed;
         }
 
-        self.dynamic_loudness.process(buffer);
-        self.telemetry.update(
-            self.dynamic_loudness.loudness_factor(),
-            self.dynamic_loudness.get_band_gains(),
-        );
-        ProcessResult::Ok
+        process_fixed_1_to_1(
+            "DynamicLoudness",
+            self.cached.enabled,
+            Some(self.channels),
+            buffers,
+            |buffer, _channels| {
+                self.dynamic_loudness.process(buffer);
+                self.telemetry.update(
+                    self.dynamic_loudness.loudness_factor(),
+                    self.dynamic_loudness.get_band_gains(),
+                );
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        finish_fixed(
+            "DynamicLoudness",
+            Some(self.channels),
+            &mut self.lifecycle,
+            output,
+        )
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
         self.dynamic_loudness.reset();
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -723,9 +937,11 @@ impl AudioProcessor for DynamicLoudnessProcessor {
         self.params.set_enabled(enabled);
     }
 
-    fn set_sample_rate(&mut self, sample_rate: f64) {
-        self.sample_rate = sample_rate as u32;
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        validate_sample_rate("DynamicLoudness", sample_rate_hz)?;
+        self.sample_rate = sample_rate_hz;
         self.dynamic_loudness = DynamicLoudness::new(self.channels, self.sample_rate as f64);
+        Ok(())
     }
 }
 
@@ -756,6 +972,7 @@ pub struct ConvolverProcessor {
     enabled: Arc<AtomicBool>,
     /// Single-slot hand-off of retired kernels to the control side.
     retired: Arc<ArcSwapOption<FFTConvolver>>,
+    lifecycle: FixedLifecycle,
 }
 
 impl ConvolverProcessor {
@@ -767,6 +984,7 @@ impl ConvolverProcessor {
             swap,
             enabled,
             retired: Arc::new(ArcSwapOption::empty()),
+            lifecycle: FixedLifecycle::default(),
         }
     }
 
@@ -838,32 +1056,59 @@ impl ConvolverProcessor {
     }
 }
 
-impl AudioProcessor for ConvolverProcessor {
+impl StreamingProcessor for ConvolverProcessor {
     fn name(&self) -> &'static str {
         "Convolver"
     }
 
-    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.lifecycle.ensure_processing("Convolver")?;
         self.sync_convolver();
 
         if !self.enabled.load(Ordering::Acquire) {
-            return ProcessResult::Bypassed;
+            return process_fixed_1_to_1("Convolver", false, None, buffers, |_, _| Ok(()));
         }
         let Some(arc) = self.owned.as_mut() else {
-            return ProcessResult::Bypassed;
+            return process_fixed_1_to_1("Convolver", false, None, buffers, |_, _| Ok(()));
         };
         let Some(convolver) = Arc::get_mut(arc) else {
-            debug_assert!(false, "owned convolver must be uniquely held");
-            return ProcessResult::Bypassed;
+            return Err(ProcessError::Backend {
+                processor: "Convolver",
+                operation: "process",
+                message: "owned kernel is not uniquely held",
+            });
         };
-        convolver.process_inplace(buffer);
-        ProcessResult::Ok
+        let channels = convolver.channels();
+        process_fixed_1_to_1(
+            "Convolver",
+            true,
+            Some(channels),
+            buffers,
+            |buffer, _channels| {
+                convolver.process_inplace(buffer);
+                Ok(())
+            },
+        )
     }
 
-    fn reset(&mut self) {
-        if let Some(convolver) = self.owned.as_mut().and_then(Arc::get_mut) {
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        let channels = self.owned.as_ref().map(|convolver| convolver.channels());
+        finish_fixed("Convolver", channels, &mut self.lifecycle, output)
+    }
+
+    fn reset(&mut self) -> Result<(), ProcessError> {
+        if let Some(arc) = self.owned.as_mut() {
+            let Some(convolver) = Arc::get_mut(arc) else {
+                return Err(ProcessError::Backend {
+                    processor: "Convolver",
+                    operation: "reset",
+                    message: "owned kernel is not uniquely held",
+                });
+            };
             convolver.reset();
         }
+        self.lifecycle.reset();
+        Ok(())
     }
 
     fn is_enabled(&self) -> bool {
@@ -875,12 +1120,58 @@ impl AudioProcessor for ConvolverProcessor {
         // audio thread never deallocates it here.
         self.enabled.store(enabled, Ordering::Release);
     }
+
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        validate_sample_rate("Convolver", sample_rate_hz)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::processor::loudness::LimiterMode;
+    use crate::processor::traits::AudioBlockRef;
+
+    struct TestProgress(ProcessProgress);
+
+    impl TestProgress {
+        fn is_bypassed(&self) -> bool {
+            self.0.is_bypassed()
+        }
+    }
+
+    macro_rules! impl_test_process_block {
+        ($($processor:ty),+ $(,)?) => {
+            $(
+                impl $processor {
+                    fn process(
+                        &mut self,
+                        buffer: &mut [f64],
+                        channels: usize,
+                    ) -> TestProgress {
+                        let block = AudioBlockMut::new(buffer, channels).unwrap();
+                        TestProgress(
+                            super::super::traits::process_checked(
+                                self,
+                                ProcessBuffers::in_place(block),
+                            )
+                            .unwrap(),
+                        )
+                    }
+                }
+            )+
+        };
+    }
+
+    impl_test_process_block!(
+        EqProcessor,
+        SaturationProcessor,
+        CrossfeedProcessor,
+        PeakLimiterProcessor,
+        VolumeProcessor,
+        ConvolverProcessor,
+    );
 
     #[test]
     fn test_convolver_processor_swaps_in_and_processes() {
@@ -889,11 +1180,11 @@ mod tests {
         let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Bypassed);
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
 
         swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
         enabled.store(true, Ordering::Release);
-        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
         assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
     }
 
@@ -905,11 +1196,11 @@ mod tests {
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
         swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
-        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
 
         enabled.store(false, Ordering::Release);
         let mut bypassed = vec![1.0, 2.0, 3.0, 4.0];
-        assert_eq!(proc.process(&mut bypassed, 1), ProcessResult::Bypassed);
+        assert!(proc.process(&mut bypassed, 1).is_bypassed());
         assert_eq!(bypassed, vec![1.0, 2.0, 3.0, 4.0]);
     }
 
@@ -924,12 +1215,12 @@ mod tests {
         // must never be deep-cloned on the audio side).
         let kernel = Arc::new(FFTConvolver::new(&[0.5], 1));
         swap.store(Some(Arc::clone(&kernel)));
-        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Bypassed);
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
         assert_eq!(buffer, vec![1.0, 2.0, 3.0, 4.0]);
 
         // Producer drops its handle: the parked kernel is adopted next block.
         drop(kernel);
-        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
         assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
     }
 
@@ -999,7 +1290,7 @@ mod tests {
         let mut buffer = vec![0.5; 4096];
         let result = proc.process(&mut buffer, 2);
 
-        assert_eq!(result, ProcessResult::Ok);
+        assert!(!result.is_bypassed());
         // EQ gain smoothing may not boost the very first sample, but the block should change.
         assert!(buffer.iter().any(|&sample| (sample - 0.5).abs() > 1e-6));
     }
@@ -1066,12 +1357,12 @@ mod tests {
     fn test_volume_processor_steady_state_fast_path_preserves_unity() {
         let params = Arc::new(AtomicVolumeParams::new());
         let mut proc = VolumeProcessor::new(Arc::clone(&params));
-        proc.reset();
+        proc.reset().unwrap();
 
         let mut buffer = vec![0.25, -0.5, 0.75, -1.0];
         let original = buffer.clone();
 
-        assert_eq!(proc.process(&mut buffer, 2), ProcessResult::Ok);
+        assert!(!proc.process(&mut buffer, 2).is_bypassed());
         assert_eq!(buffer, original);
         assert_eq!(proc.current_volume, 1.0);
     }
@@ -1082,11 +1373,11 @@ mod tests {
         params.set_volume(0.5);
         let mut proc = VolumeProcessor::new(Arc::clone(&params));
         proc.sync_params();
-        proc.reset();
+        proc.reset().unwrap();
 
         let mut buffer = vec![0.25, -0.5, 0.75, -1.0];
 
-        assert_eq!(proc.process(&mut buffer, 2), ProcessResult::Ok);
+        assert!(!proc.process(&mut buffer, 2).is_bypassed());
         assert_eq!(buffer, vec![0.125, -0.25, 0.375, -0.5]);
         assert_eq!(proc.current_volume, 0.5);
     }
@@ -1152,7 +1443,7 @@ mod tests {
         let mut proc_next = next.clone();
         let mut ref_next = next.clone();
         let mut reset_next = next;
-        assert_eq!(proc.process(&mut proc_next, 2), ProcessResult::Ok);
+        assert!(!proc.process(&mut proc_next, 2).is_bypassed());
         reference.process(&mut ref_next, 2);
         reset_reference.process(&mut reset_next, 2);
 
@@ -1352,6 +1643,116 @@ mod tests {
     }
 
     #[test]
+    fn fixed_bypass_copies_out_of_place_and_reports_backpressure() {
+        let params = Arc::new(AtomicEqParams::new());
+        params.write(&[0.0; EQ_BANDS], false);
+        let mut proc = EqProcessor::new(2, 48_000.0, params);
+        let input = [0.1, -0.2, 0.3, -0.4];
+        let mut output = [9.0, 9.0];
+
+        let buffers = ProcessBuffers::out_of_place(
+            AudioBlockRef::new(&input, 2).unwrap(),
+            AudioBlockMut::new(&mut output, 2).unwrap(),
+        )
+        .unwrap();
+        let progress = super::super::traits::process_checked(&mut proc, buffers).unwrap();
+
+        assert_eq!(progress.consumed_frames(), 1);
+        assert_eq!(progress.produced_frames(), 1);
+        assert_eq!(progress.state(), ProcessState::NeedOutput);
+        assert!(progress.is_bypassed());
+        assert_eq!(output, input[..2]);
+    }
+
+    #[test]
+    fn fixed_out_of_place_matches_in_place_processing() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        params.set_volume(0.5);
+        let mut in_place = VolumeProcessor::new(Arc::clone(&params));
+        let mut out_of_place = VolumeProcessor::new(params);
+        in_place.reset().unwrap();
+        out_of_place.reset().unwrap();
+
+        let input = [0.25, -0.5, 0.75, -1.0];
+        let mut expected = input;
+        let _ = in_place.process(&mut expected, 2);
+        let mut actual = [0.0; 4];
+        let buffers = ProcessBuffers::out_of_place(
+            AudioBlockRef::new(&input, 2).unwrap(),
+            AudioBlockMut::new(&mut actual, 2).unwrap(),
+        )
+        .unwrap();
+        let progress = super::super::traits::process_checked(&mut out_of_place, buffers).unwrap();
+
+        assert_eq!(progress.consumed_frames(), 2);
+        assert_eq!(progress.produced_frames(), 2);
+        assert_eq!(progress.state(), ProcessState::NeedInput);
+        assert!(!progress.is_bypassed());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn fixed_finish_requires_reset_before_more_input() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        let mut proc = VolumeProcessor::new(params);
+        let mut finish_output = [0.0; 2];
+        let finished = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut finish_output, 2).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(finished.state(), ProcessState::Finished);
+
+        let mut input = [0.25, -0.25];
+        let block = AudioBlockMut::new(&mut input, 2).unwrap();
+        assert_eq!(
+            super::super::traits::process_checked(&mut proc, ProcessBuffers::in_place(block),),
+            Err(ProcessError::AlreadyFinished {
+                processor: "Volume",
+            })
+        );
+
+        proc.reset().unwrap();
+        let _ = proc.process(&mut input, 2);
+    }
+
+    #[test]
+    fn configured_channel_count_is_validated_before_processing() {
+        let params = Arc::new(AtomicNoiseShaperParams::new());
+        let mut proc = NoiseShaperProcessor::new(2, 48_000, params);
+        let mut mono = [0.25; 4];
+        let block = AudioBlockMut::new(&mut mono, 1).unwrap();
+
+        assert_eq!(
+            super::super::traits::process_checked(&mut proc, ProcessBuffers::in_place(block),),
+            Err(ProcessError::ChannelCountMismatch {
+                processor: "NoiseShaper",
+                expected_channels: 2,
+                actual_channels: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn fixed_out_of_place_processing_is_allocation_free_after_setup() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        params.set_volume(0.5);
+        let mut proc = VolumeProcessor::new(params);
+        proc.reset().unwrap();
+        let input = [0.25; 512 * 2];
+        let mut output = [0.0; 512 * 2];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            let buffers = ProcessBuffers::out_of_place(
+                AudioBlockRef::new(&input, 2).unwrap(),
+                AudioBlockMut::new(&mut output, 2).unwrap(),
+            )
+            .unwrap();
+            let _ = super::super::traits::process_checked(&mut proc, buffers).unwrap();
+        });
+    }
+
+    #[test]
     fn peak_limiter_processor_defaults_to_true_peak_mode() {
         let params = Arc::new(AtomicPeakLimiterParams::new());
         let proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
@@ -1411,7 +1812,7 @@ mod tests {
         let original = buffer.clone();
         let result = proc.process(&mut buffer, 2);
 
-        assert_eq!(result, ProcessResult::Bypassed);
+        assert!(result.is_bypassed());
         assert_eq!(buffer, original);
     }
 }

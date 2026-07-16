@@ -78,6 +78,14 @@ impl FFTConvolver {
         }
     }
 
+    /// Number of interleaved channels this kernel was configured to process.
+    pub fn channels(&self) -> usize {
+        match &self.engine {
+            ConvolverEngine::OverlapSave(engine) => engine.channels,
+            ConvolverEngine::Partitioned(engine) => engine.channels,
+        }
+    }
+
     /// Get the FFT size used by the active engine.
     pub fn fft_size(&self) -> usize {
         match &self.engine {

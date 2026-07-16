@@ -18,13 +18,12 @@
 
 ## Acceptance Criteria
 
-* [ ] 除迁移说明外，仓库不再引用旧 trait/result。
-* [ ] 全部固定 adapters 正确报告 consumed=produced，bypass 在 in-place/out-of-place 下等价。
-* [ ] Callback 预热后无分配/锁/log/I/O/panic。
-* [ ] 当前功能测试迁移并通过；all-features/no-default-features 均编译。
-* [ ] 512-frame callback median 回退不超过父 PRD 约定，或有明确批准。
+* [x] 除迁移说明外，仓库不再引用旧 trait/result。
+* [x] 全部固定 adapters 正确报告 consumed=produced，bypass 在 in-place/out-of-place 下等价。
+* [x] Callback 预热后无分配/锁/log/I/O/panic。
+* [x] 当前功能测试迁移并通过；all-features/no-default-features 均编译。
+* [x] 512-frame callback median 回退不超过父 PRD 约定，或有明确批准。
 
 ## Dependencies
 
 * `07-17-streaming-trait-contract`
-

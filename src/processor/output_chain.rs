@@ -21,7 +21,19 @@ use super::lockfree_params::{
     AtomicVolumeParams,
 };
 use super::resampler::StreamingResampler;
-use super::traits::AudioProcessor;
+use super::traits::{
+    process_checked, AudioBlockMut, ProcessBuffers, ProcessError, ProcessProgress,
+    StreamingProcessor,
+};
+
+fn process_fixed_stage<P: StreamingProcessor + ?Sized>(
+    processor: &mut P,
+    buffer: &mut [f64],
+    channels: usize,
+) -> Result<ProcessProgress, ProcessError> {
+    let block = AudioBlockMut::new(buffer, channels)?;
+    process_checked(processor, ProcessBuffers::in_place(block))
+}
 
 /// Canonical stage identifiers for the output chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -216,9 +228,10 @@ impl OutputChainBuilder {
     }
 
     /// Build the callback-safe DSP chain from the canonical callback order.
-    pub fn build_callback_chain(&self) -> DspChain {
-        let sample_rate = self.params.source_sample_rate as f64;
-        let mut chain = DspChain::with_capacity(callback_stage_names().len(), sample_rate);
+    pub fn build_callback_chain(&self) -> Result<DspChain, ProcessError> {
+        let sample_rate_hz = self.params.source_sample_rate;
+        let sample_rate = sample_rate_hz as f64;
+        let mut chain = DspChain::with_capacity(callback_stage_names().len(), sample_rate_hz);
 
         chain
             .add(VolumeProcessor::new(Arc::clone(&self.params.volume_params)))
@@ -256,8 +269,8 @@ impl OutputChainBuilder {
                 Arc::clone(&self.params.noise_shaper_params),
             ));
 
-        chain.set_sample_rate(sample_rate);
-        chain
+        chain.set_sample_rate(sample_rate_hz)?;
+        Ok(chain)
     }
 
     /// Build the offline render chain from the canonical offline order.
@@ -293,7 +306,6 @@ pub struct OutputRenderChain {
 impl OutputRenderChain {
     fn new(params: &OutputChainParams) -> Result<Self, String> {
         let source_sample_rate = params.source_sample_rate as f64;
-        let output_sample_rate = params.output_sample_rate as f64;
         let resampler = if params.source_sample_rate == params.output_sample_rate {
             None
         } else {
@@ -355,22 +367,27 @@ impl OutputRenderChain {
             ),
         };
 
-        chain.set_source_sample_rate(source_sample_rate);
-        chain.noise_shaper.set_sample_rate(output_sample_rate);
+        chain
+            .set_source_sample_rate(params.source_sample_rate)
+            .map_err(|err| format!("failed to configure source-rate DSP stages: {err}"))?;
+        chain
+            .noise_shaper
+            .set_sample_rate(params.output_sample_rate)
+            .map_err(|err| format!("failed to configure output noise shaper: {err}"))?;
         Ok(chain)
     }
 
     /// Process through the offline output chain up to final sample-format
     /// quantization. This is useful for parity tests against the callback chain
     /// when `source_sample_rate == output_sample_rate`.
-    pub fn process_pre_quantize(&mut self, buffer: &mut Vec<f64>) {
-        self.volume.process(buffer, self.channels);
-        self.eq.process(buffer, self.channels);
-        self.saturation.process(buffer, self.channels);
-        self.crossfeed.process(buffer, self.channels);
-        self.convolver.process(buffer, self.channels);
-        self.dynamic_loudness.process(buffer, self.channels);
-        self.limiter.process(buffer, self.channels);
+    pub fn process_pre_quantize(&mut self, buffer: &mut Vec<f64>) -> Result<(), ProcessError> {
+        let _ = process_fixed_stage(&mut self.volume, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.eq, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.saturation, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.crossfeed, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.convolver, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.dynamic_loudness, buffer, self.channels)?;
+        let _ = process_fixed_stage(&mut self.limiter, buffer, self.channels)?;
 
         if let Some(resampler) = self.resampler.as_mut() {
             let input_frames = buffer.len() / self.channels;
@@ -388,36 +405,38 @@ impl OutputRenderChain {
             *buffer = resampled;
         }
 
-        self.noise_shaper.process(buffer, self.channels);
+        let _ = process_fixed_stage(&mut self.noise_shaper, buffer, self.channels)?;
+        Ok(())
     }
 
     /// Render samples through DSP, optional resampling, final noise shaping, and
     /// f32 output quantization.
-    pub fn render(&mut self, samples: &[f64]) -> RenderedOutput {
+    pub fn render(&mut self, samples: &[f64]) -> Result<RenderedOutput, ProcessError> {
         let mut output = samples.to_vec();
-        self.process_pre_quantize(&mut output);
+        self.process_pre_quantize(&mut output)?;
 
         for sample in &mut output {
             *sample = *sample as f32 as f64;
         }
 
-        RenderedOutput {
+        Ok(RenderedOutput {
             samples: output,
             final_limiter_gain_reduction_db: self.limiter.gain_reduction_db(),
-        }
+        })
     }
 
     pub fn limiter_gain_reduction_db(&self) -> f64 {
         self.limiter.gain_reduction_db()
     }
 
-    fn set_source_sample_rate(&mut self, sample_rate: f64) {
-        self.volume.set_sample_rate(sample_rate);
-        self.eq.set_sample_rate(sample_rate);
-        self.saturation.set_sample_rate(sample_rate);
-        self.crossfeed.set_sample_rate(sample_rate);
-        self.dynamic_loudness.set_sample_rate(sample_rate);
-        self.limiter.set_sample_rate(sample_rate);
+    fn set_source_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        self.volume.set_sample_rate(sample_rate_hz)?;
+        self.eq.set_sample_rate(sample_rate_hz)?;
+        self.saturation.set_sample_rate(sample_rate_hz)?;
+        self.crossfeed.set_sample_rate(sample_rate_hz)?;
+        self.dynamic_loudness.set_sample_rate(sample_rate_hz)?;
+        self.limiter.set_sample_rate(sample_rate_hz)?;
+        Ok(())
     }
 }
 
@@ -436,7 +455,7 @@ mod tests {
     #[test]
     fn callback_builder_order_matches_canonical_stage_list() {
         let builder = test_builder();
-        let chain = builder.build_callback_chain();
+        let chain = builder.build_callback_chain().unwrap();
 
         assert_callback_stage_order_matches(&chain.processor_names());
     }
@@ -444,7 +463,7 @@ mod tests {
     #[test]
     fn callback_runtime_order_matches_offline_shared_stage_intersection() {
         let builder = test_builder();
-        let chain = builder.build_callback_chain();
+        let chain = builder.build_callback_chain().unwrap();
         let shared_offline_stage_names = canonical_output_stage_descriptors()
             .iter()
             .filter(|stage| stage.offline_stage && stage.callback_stage)
@@ -503,15 +522,15 @@ mod tests {
     #[test]
     fn render_chain_matches_callback_chain_pre_quantize_when_no_resampler() {
         let builder = active_test_builder();
-        let mut callback_chain = builder.build_callback_chain();
+        let mut callback_chain = builder.build_callback_chain().unwrap();
         let mut render_chain = builder.build_render_chain().unwrap();
 
         let input = fixture_signal(512);
         let mut callback = input.clone();
         let mut rendered = input;
 
-        callback_chain.process(&mut callback, CHANNELS);
-        render_chain.process_pre_quantize(&mut rendered);
+        let _ = callback_chain.process(&mut callback, CHANNELS).unwrap();
+        render_chain.process_pre_quantize(&mut rendered).unwrap();
 
         assert_eq!(callback.len(), rendered.len());
         for (idx, (left, right)) in callback.iter().zip(&rendered).enumerate() {
@@ -526,16 +545,80 @@ mod tests {
     #[test]
     fn callback_chain_processing_is_allocation_free_after_setup() {
         let builder = active_test_builder();
-        let mut chain = builder.build_callback_chain();
+        let mut chain = builder.build_callback_chain().unwrap();
         let mut buffer = fixture_signal(256);
 
-        chain.process(&mut buffer, CHANNELS);
+        let _ = chain.process(&mut buffer, CHANNELS).unwrap();
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..32 {
-                chain.process(&mut buffer, CHANNELS);
+                let _ = chain.process(&mut buffer, CHANNELS).unwrap();
             }
         });
+    }
+
+    #[test]
+    fn callback_chain_is_equivalent_across_irregular_frame_chunks() {
+        let builder = active_test_builder();
+        let mut whole_chain = builder.build_callback_chain().unwrap();
+        let mut chunked_chain = builder.build_callback_chain().unwrap();
+        let input = fixture_signal(4_096);
+        let mut whole = input.clone();
+        let mut chunked = input;
+
+        let _ = whole_chain.process(&mut whole, CHANNELS).unwrap();
+
+        let chunk_pattern = [1, 17, 3, 127, 64, 5, 251, 32];
+        let total_frames = chunked.len() / CHANNELS;
+        let mut start_frame = 0;
+        let mut pattern_index = 0;
+        while start_frame < total_frames {
+            let end_frame = (start_frame + chunk_pattern[pattern_index % chunk_pattern.len()])
+                .min(total_frames);
+            let _ = chunked_chain
+                .process(
+                    &mut chunked[start_frame * CHANNELS..end_frame * CHANNELS],
+                    CHANNELS,
+                )
+                .unwrap();
+            start_frame = end_frame;
+            pattern_index += 1;
+        }
+
+        for (index, (left, right)) in whole.iter().zip(&chunked).enumerate() {
+            assert_eq!(
+                left.to_bits(),
+                right.to_bits(),
+                "sample {index} changed with callback chunking: whole={left:?} chunked={right:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn callback_chain_reset_isolates_prior_stream_state() {
+        let builder = active_test_builder();
+        let mut reused = builder.build_callback_chain().unwrap();
+        let mut reference = builder.build_callback_chain().unwrap();
+        reused.reset().unwrap();
+        reference.reset().unwrap();
+
+        let mut warmup = fixture_signal(2_048);
+        let _ = reused.process(&mut warmup, CHANNELS).unwrap();
+        reused.reset().unwrap();
+
+        let input = fixture_signal(512);
+        let mut actual = input.clone();
+        let mut expected = input;
+        let _ = reused.process(&mut actual, CHANNELS).unwrap();
+        let _ = reference.process(&mut expected, CHANNELS).unwrap();
+
+        for (index, (left, right)) in actual.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                left.to_bits(),
+                right.to_bits(),
+                "sample {index} leaked pre-reset state: reused={left:?} reference={right:?}"
+            );
+        }
     }
 
     fn descriptor(id: OutputStageId) -> OutputStageDescriptor {

@@ -3,7 +3,7 @@
   "name": "fixed-dsp-streaming-migration",
   "title": "迁移固定 DSP 与实时回调链",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,

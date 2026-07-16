@@ -10,18 +10,17 @@
 The "hot path" (a.k.a. realtime / RT path) is any code that executes once per
 audio callback while audio is playing. In this crate that means:
 
-- `DspChain::process` / `process_into` (`src/processor/dsp_chain.rs`)
-- Every `AudioProcessor::process*` adapter (`src/processor/adapters.rs`)
+- `DspChain::process` (`src/processor/dsp_chain.rs`)
+- Every `StreamingProcessor::process` / `finish` adapter
+  (`src/processor/adapters.rs`)
 - The per-sample / per-buffer inner loops of the individual processors
   (`eq`, `crossfeed`, `saturation`, `convolver`, `dynamic_loudness`,
   `loudness/limiter`, `dsp` volume/noise-shaping, `resampler` streaming feed).
 - Atomic parameter reads via `lockfree_params` snapshots.
 
-During the direct streaming-API migration, `StreamingProcessor::process` /
-`finish` and the `process_checked` / `finish_checked` drivers are also hot-path
-code. See `streaming-lifecycle.md` for their progress and terminal-state
-contracts. The old `AudioProcessor` wording above remains only until all
-adapters and `DspChain` complete the planned cutover.
+The `process_checked` / `finish_checked` drivers are hot-path code too. See
+`streaming-lifecycle.md` for their progress, backpressure, and terminal-state
+contracts.
 
 A real audio callback has a hard deadline (e.g. ~10.7 ms for a 512-frame buffer
 at 48 kHz). Missing it produces an audible glitch, so the hot path must have
@@ -76,4 +75,6 @@ than introducing a lock or an allocation.
 
 `assert_no_alloc` (a dev-dependency) is the tool for asserting no steady-state
 allocation on a processing path. New hot-path code should be covered by a
-no-allocation test after setup, per the feature-upgrade acceptance criteria.
+no-allocation test after setup. Fixed-stage migrations additionally require
+irregular frame-chunk equivalence and reset-isolation coverage so callback block
+size cannot silently change signal content or leak a prior stream's history.

@@ -22,7 +22,7 @@ src/
 ├── config.rs         # LoudnessConfig, NormalizationMode
 ├── decoder.rs        # decoder module root (StreamingDecoder)
 ├── diagnostics.rs    # diagnostic helpers
-├── pipeline.rs       # AudioPipeline / ring-buffer streaming primitive
+├── pipeline.rs       # RingBuffer streaming primitive
 ├── runtime.rs        # runtime helpers
 ├── decoder/
 │   ├── error.rs      # DecoderError, NetworkError, DecodeCancelToken
@@ -43,7 +43,7 @@ src/
     ├── resampler.rs  # SoX VHQ Resampler / StreamingResampler
     ├── automix_analysis.rs # offline automix analysis
     ├── lockfree_params.rs  # atomic parameter snapshots (RT boundary)
-    ├── adapters.rs   # AudioProcessor adapters over each processor
+    ├── adapters.rs   # StreamingProcessor adapters over each processor
     ├── downmix.rs    # Downmixer + DownmixCoefficients (pre-chain layout mapping)
     ├── dsp_chain.rs  # DspChain: composable processing chain
     ├── traits.rs     # StreamingProcessor lifecycle, block/progress/timing/error types
