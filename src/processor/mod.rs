@@ -18,7 +18,9 @@
 //! - [`FirEq`] - FIR EQ with linear/minimum phase options
 //!
 //! ## Unified Abstraction (Lock-Free Design)
-//! - [`AudioProcessor`] and [`ProcessResult`] - shared processor trait/result types
+//! - [`StreamingProcessor`] and streaming block/progress types - full consumed/produced,
+//!   finish, latency/tail, and reset lifecycle
+//! - [`AudioProcessor`] and [`ProcessResult`] - legacy in-place abstraction pending direct migration
 //! - [`lockfree_params`] - lock-free parameter structures for thread-safe parameter passing
 //! - [`adapters`] - processor adapters implementing [`AudioProcessor`]
 //! - [`DspChain`] - composable DSP processing chain
@@ -91,4 +93,9 @@ pub use lockfree_params::{
     NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, SaturationParamsSnapshot,
     SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
 };
-pub use traits::{AudioProcessor, ProcessResult};
+pub use traits::{
+    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, AudioProcessor,
+    FrameDuration, FrameRounding, ProcessBufferMode, ProcessBufferParts, ProcessBuffers,
+    ProcessCapacity, ProcessError, ProcessProgress, ProcessResult, ProcessState,
+    StreamingProcessor, TailSpec, TimingError,
+};
