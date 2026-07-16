@@ -23,6 +23,31 @@
 //! eq.process(&mut buffer);
 //! ```
 //!
+//! Realtime adapters use the unified streaming contract. Blocks borrow the
+//! caller's interleaved `f64` storage, and [`process_checked`] validates exact
+//! consumed/produced progress without allocating:
+//!
+//! ```
+//! use std::sync::Arc;
+//! use audio_engine_core::processor::{AtomicVolumeParams, VolumeProcessor};
+//! use audio_engine_core::processor::traits::{
+//!     process_checked, AudioBlockMut, ProcessBuffers, ProcessError,
+//! };
+//!
+//! # fn main() -> Result<(), ProcessError> {
+//! let params = Arc::new(AtomicVolumeParams::new());
+//! params.set_volume(0.5);
+//! let mut volume = VolumeProcessor::new(params);
+//! let mut samples = [0.25_f64, -0.25, 0.5, -0.5];
+//! let block = AudioBlockMut::new(&mut samples, 2)?;
+//! let progress = process_checked(&mut volume, ProcessBuffers::in_place(block))?;
+//!
+//! assert_eq!(progress.consumed_frames(), 2);
+//! assert_eq!(progress.produced_frames(), 2);
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! See the `examples/` directory for runnable resampling and EQ programs.
 
 // Arm assert_no_alloc for unit tests: without a registered AllocDisabler the

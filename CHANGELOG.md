@@ -34,6 +34,11 @@ SemVer for pre-1.0 releases.
   attenuation/continuity, and dynamic-loudness compensation.
 
 ### Changed
+- Realtime DSP adapters and `DspChain` now use the object-safe
+  `StreamingProcessor` lifecycle with validated zero-copy interleaved blocks,
+  explicit consumed/produced progress, backpressure, finish/reset, and typed
+  errors. `DspChain::process`, `reset`, and `set_sample_rate` now return
+  `Result` values, and fixed stages retain their in-place callback fast path.
 - Translated remaining non-English source comments to English.
 - Decoder probe/seek failures now map unsupported or unseekable inputs to typed
   `DecoderError::UnsupportedFormat` where Symphonia exposes that boundary.
@@ -67,6 +72,9 @@ SemVer for pre-1.0 releases.
   documents its `channels > 0` panic contract.
 
 ### Removed
+- The legacy `AudioProcessor` trait and `ProcessResult` enum. This is a direct
+  breaking cutover; use `StreamingProcessor`, `ProcessBuffers`, and
+  `process_checked` instead.
 - `AudioPipeline` and `PipelineError`: the background decode/resample worker
   had no backpressure (the ring filled and then dropped the oldest frames on
   every write) and its `read()` never released ring space, so any consumer

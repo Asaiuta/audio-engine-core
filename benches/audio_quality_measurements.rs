@@ -8,12 +8,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use arc_swap::ArcSwapOption;
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
-    offline_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
+    offline_stage_order_csv, process_checked, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
-    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, AudioProcessor, Crossfeed,
+    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, AudioBlockMut, Crossfeed,
     CrossfeedProcessor, DynamicLoudness, Equalizer, FFTConvolver, LimiterMode, LoudnessMeter,
     NoiseShaper, NoiseShaperCurve, OutputChainBuilder, OutputChainParams, PeakLimiter,
-    RenderedOutput, Saturation, SaturationQuality, SaturationType, StreamingResampler, EQ_BANDS,
+    ProcessBuffers, RenderedOutput, Saturation, SaturationQuality, SaturationType,
+    StreamingProcessor, StreamingResampler, EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -1493,6 +1494,17 @@ struct CrossfeedContinuityResult {
     legacy_reset_max_delta: f64,
 }
 
+fn process_adapter_block<P: StreamingProcessor + ?Sized>(
+    processor: &mut P,
+    samples: &mut [f64],
+    channels: usize,
+) -> Result<(), String> {
+    let block = AudioBlockMut::new(samples, channels).map_err(|err| err.to_string())?;
+    let _ = process_checked(processor, ProcessBuffers::in_place(block))
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 fn measure_crossfeed_mix_change_continuity() -> Result<CrossfeedContinuityResult, String> {
     let params = Arc::new(AtomicCrossfeedParams::new());
     let mut proc = CrossfeedProcessor::new(SAMPLE_RATE as f64, Arc::clone(&params));
@@ -1511,7 +1523,7 @@ fn measure_crossfeed_mix_change_continuity() -> Result<CrossfeedContinuityResult
     let mut proc_warm = warm.clone();
     let mut reference_warm = warm.clone();
     let mut legacy_warm = warm;
-    proc.process(&mut proc_warm, CHANNELS);
+    process_adapter_block(&mut proc, &mut proc_warm, CHANNELS)?;
     reference.process(&mut reference_warm, CHANNELS);
     legacy_reset.process(&mut legacy_warm, CHANNELS);
 
@@ -1525,7 +1537,7 @@ fn measure_crossfeed_mix_change_continuity() -> Result<CrossfeedContinuityResult
     let mut proc_next = next.clone();
     let mut reference_next = next.clone();
     let mut legacy_next = next;
-    proc.process(&mut proc_next, CHANNELS);
+    process_adapter_block(&mut proc, &mut proc_next, CHANNELS)?;
     reference.process(&mut reference_next, CHANNELS);
     legacy_reset.process(&mut legacy_next, CHANNELS);
 
@@ -2266,7 +2278,7 @@ fn render_full_output_chain(
     })
     .build_render_chain()?;
 
-    Ok(chain.render(samples))
+    chain.render(samples).map_err(|err| err.to_string())
 }
 
 fn resample_mono(input: &[f64], from_rate: u32, to_rate: u32) -> Result<Vec<f64>, String> {

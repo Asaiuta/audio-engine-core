@@ -185,7 +185,8 @@ fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
         limiter_params,
         noise_shaper_params,
     })
-    .build_callback_chain();
+    .build_callback_chain()
+    .expect("benchmark output-chain configuration must be valid");
 
     ChainBundle { chain }
 }
@@ -260,7 +261,10 @@ fn warm_chain(bundle: &mut ChainBundle, _scenario: Scenario, corpus: &[f64]) {
 
     for _ in 0..WARMUP_BUFFERS {
         scratch.copy_from_slice(corpus);
-        bundle.chain.process(black_box(&mut scratch), CHANNELS);
+        let _ = bundle
+            .chain
+            .process(black_box(&mut scratch), CHANNELS)
+            .expect("benchmark callback processing must succeed");
     }
 }
 
@@ -270,7 +274,9 @@ fn measure_chain(chain: &mut DspChain, corpus: &[f64], frames: usize, iterations
 
     for _ in 0..iterations {
         scratch.copy_from_slice(black_box(corpus));
-        chain.process(black_box(&mut scratch), CHANNELS);
+        let _ = chain
+            .process(black_box(&mut scratch), CHANNELS)
+            .expect("benchmark callback processing must succeed");
         black_box(&scratch);
     }
 
