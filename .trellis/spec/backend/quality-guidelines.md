@@ -53,6 +53,11 @@ Concretely:
   filter history unless the processor contract explicitly requires a reset;
   sample-rate, cutoff, latency-window, or topology changes may reset state when
   documented and tested.
+- Streaming processor implementations and drivers must follow
+  `streaming-lifecycle.md`: validated zero-copy blocks, complete 1:1 in-place
+  progress, explicit backpressure, idempotent finish, native-state reset, and
+  rate-tagged latency/tail timing. Use `process_checked` / `finish_checked` at
+  chain/direct-driver boundaries.
 - New DSP processors ship with: unit tests (mono + stereo at minimum), a
   no-steady-state-allocation test (`assert_no_alloc`) for the processing path,
   and a benchmark entry if they touch the callback budget.

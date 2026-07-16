@@ -46,7 +46,7 @@ src/
     ├── adapters.rs   # AudioProcessor adapters over each processor
     ├── downmix.rs    # Downmixer + DownmixCoefficients (pre-chain layout mapping)
     ├── dsp_chain.rs  # DspChain: composable processing chain
-    ├── traits.rs     # AudioProcessor, ProcessResult
+    ├── traits.rs     # StreamingProcessor lifecycle, block/progress/timing/error types
     ├── loudness_db.rs        # optional `loudness-db` feature (SQLite)
     ├── loudness.rs   # loudness module root + public re-exports
     └── loudness/

@@ -46,13 +46,17 @@ pub use decoder::StreamingDecoder;
 pub use pipeline::RingBuffer;
 pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,
-    canonical_output_stage_descriptors, offline_stage_names, offline_stage_order_csv,
-    AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
+    canonical_output_stage_descriptors, finish_checked, offline_stage_names,
+    offline_stage_order_csv, process_checked, AtomicLoudnessState, AudioBlockError, AudioBlockMut,
+    AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
     ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
-    GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper,
-    OutputChainBuilder, OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId,
-    PeakLimiter, RenderedOutput, Resampler, SpectrumAnalyzer, StreamingResampler, TruePeakDetector,
-    VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+    FrameDuration, FrameRounding, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter,
+    LoudnessNormalizer, NoiseShaper, OutputChainBuilder, OutputChainParams, OutputRenderChain,
+    OutputStageDescriptor, OutputStageId, PeakLimiter, ProcessBufferMode, ProcessBufferParts,
+    ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState, RenderedOutput,
+    Resampler, SpectrumAnalyzer, StreamingProcessor, StreamingResampler, TailSpec, TimingError,
+    TruePeakDetector, VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+    PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

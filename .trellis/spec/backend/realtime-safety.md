@@ -17,6 +17,12 @@ audio callback while audio is playing. In this crate that means:
   `loudness/limiter`, `dsp` volume/noise-shaping, `resampler` streaming feed).
 - Atomic parameter reads via `lockfree_params` snapshots.
 
+During the direct streaming-API migration, `StreamingProcessor::process` /
+`finish` and the `process_checked` / `finish_checked` drivers are also hot-path
+code. See `streaming-lifecycle.md` for their progress and terminal-state
+contracts. The old `AudioProcessor` wording above remains only until all
+adapters and `DspChain` complete the planned cutover.
+
 A real audio callback has a hard deadline (e.g. ~10.7 ms for a 512-frame buffer
 at 48 kHz). Missing it produces an audible glitch, so the hot path must have
 bounded, predictable cost.
