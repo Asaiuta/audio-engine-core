@@ -469,3 +469,39 @@ Corrected AutoMix spectral cadence and explicit unsupported key status; fixed FI
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Listening and nonlinear DSP correctness
+
+**Date**: 2026-07-17
+**Task**: Listening and nonlinear DSP correctness
+
+### Summary
+
+Corrected saturation continuity and gain order, continuous signed noise shaping, and Bauer crossfeed; expanded objective quality/performance gates; permanently deployed the Windows MSYS2 SoXR runtime closure for direct Cargo test/example/bench execution; documented and verified all contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e2cdf15` | (see git log) |
+| `177a940` | (see git log) |
+| `07b784a` | (see git log) |
+| `c28444a` | (see git log) |
+| `3864fc7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

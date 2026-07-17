@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-07-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~471 | Active |
+| `journal-1.md` | ~507 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-07-17 | Listening and nonlinear DSP correctness | `e2cdf15`, `177a940`, `07b784a`, `c28444a`, `3864fc7` | `-` |
 | 12 | 2026-07-17 | Fix AutoMix and FIR algorithms | `456e54b`, `0345b59`, `4503f37`, `87a8acc` | `-` |
 | 11 | 2026-07-17 | Standardize audio quality and performance gates | `5a10309`, `3c2f3a9`, `9eb1f5e` | `-` |
 | 10 | 2026-07-17 | P0 DSP state and math correctness | `a476e9a` | `-` |
