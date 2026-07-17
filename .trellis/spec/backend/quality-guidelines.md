@@ -379,3 +379,103 @@ SoXR-backed resampling is part of the core crate today. No Cargo feature
 currently disables the `soxr` dependency, so building the crate links libsoxr
 even when default features are disabled.
 ```
+
+## Scenario: Windows MSVC Runtime Deployment for MSYS2 SoXR
+
+### 1. Scope / Trigger
+
+- Trigger: changing `build.rs`, `build/windows_runtime.rs`, Windows native
+  dependency setup, `PKG_CONFIG_PATH` handling, or any test/example/benchmark
+  that must start with the MSYS2 SoXR DLL under the MSVC Rust target.
+- This scenario does not apply when `vcpkg::find_package("soxr")` selects a
+  static vcpkg build or on non-Windows targets.
+
+### 2. Signatures
+
+```text
+PKG_CONFIG_PATH=<msys2-prefix>/mingw64/lib/pkgconfig
+VCPKG_ROOT=<vcpkg-root>  # alternative provider
+
+soxr_dll_candidates_from_pkg_config_dir(pkg_config_dir: &Path) -> Vec<PathBuf>
+deploy_runtime_dlls(soxr_dll: &Path, out_dir: &Path) -> Result<(), String>
+
+cargo test
+cargo run --example <name>
+cargo bench --bench <name> -- <bench arguments>
+```
+
+### 3. Contracts
+
+- A pkg-config directory at `<prefix>/lib/pkgconfig` maps to
+  `<prefix>/bin/libsoxr.dll` (or `soxr.dll`). `<prefix>/lib/bin` is wrong.
+- Explicit pkg-config and the known Scoop/MSYS2 installation are searched
+  before generic `PATH`, so a stale DLL already copied under `target/` cannot
+  become the source for the next deployment.
+- The MSYS2 source directory supplies one ABI-matched set: `libsoxr.dll`,
+  `libgomp-1.dll`, `libgcc_s_seh-1.dll`, and `libwinpthread-1.dll`. Never mix a
+  `libgomp` or GCC runtime from another MinGW installation merely because it is
+  earlier on `PATH`.
+- Runtime DLLs are content-checked and deployed beside every ordinary Cargo
+  executable location for the active profile: profile root, `deps`, and
+  `examples`. This covers binaries, tests/doctests, custom-harness benches, and
+  examples without command-specific PATH wrappers.
+- Unrelated DLLs from the MSYS2 `bin` directory are not copied. Runtime sources
+  and `build/windows_runtime.rs` are Cargo rerun inputs, so an updated installed
+  runtime or deployment rule refreshes stale destinations.
+- Deployment is build-time filesystem work only; it never enters an audio or
+  DSP path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| `PKG_CONFIG_PATH=<prefix>/lib/pkgconfig` | Probe `<prefix>/bin`, not `<prefix>/lib/bin` |
+| Cargo target root already has an isolated `libsoxr.dll` | Prefer the configured MSYS2 source; do not self-copy the isolated target DLL |
+| Destination DLL bytes equal source | Leave the file unchanged |
+| Destination DLL is absent or stale | Copy/refresh it in root, `deps`, and `examples` |
+| Unrelated sibling DLL exists | Do not deploy it |
+| Destination directory is absent | Create it during the build script |
+| Source/destination read, directory creation, or copy fails | Return a diagnostic containing both relevant paths |
+| Supported MSYS2 deployment is complete | Direct Cargo test/example/bench commands start without `STATUS_DLL_NOT_FOUND` or runtime PATH injection |
+
+### 5. Good / Base / Bad Cases
+
+- Good: derive one source `bin` directory from pkg-config, copy its SoXR and
+  matching MinGW runtime set into all three Cargo executable directories, then
+  run the quality bench directly.
+- Base: a vcpkg static triplet links without runtime DLL deployment.
+- Bad: copy only `libsoxr.dll` to `target/release`; benchmark executables live
+  in `target/release/deps` and the DLL itself imports `libgomp-1.dll`.
+- Bad: make every developer prepend an arbitrary MinGW directory to runtime
+  `PATH`; another ABI-compatible-looking `libgomp-1.dll` can fail or hang during
+  DLL initialization.
+
+### 6. Tests Required
+
+- Path resolution asserts `<prefix>/lib/pkgconfig -> <prefix>/bin` for both
+  accepted SoXR DLL names.
+- A filesystem fixture asserts exact deployment of the four supported runtime
+  DLLs to profile root, `deps`, and `examples`, while an unrelated DLL remains
+  absent.
+- A stale-destination fixture asserts every executable directory is refreshed
+  from the configured source.
+- On Windows MSVC with MSYS2 SoXR, run at least one SoXR-using custom bench
+  directly with no temporary PATH injection; `--quick --enforce` must reach the
+  benchmark report and exit zero.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let dll = pkg_config_dir.join("..").join("bin").join("libsoxr.dll");
+fs::copy(dll, profile_dir.join("libsoxr.dll"))?;
+```
+
+#### Correct
+
+```rust
+let prefix = pkg_config_dir.ancestors().nth(2).ok_or("missing prefix")?;
+let dll = prefix.join("bin").join("libsoxr.dll");
+deploy_runtime_dlls(&dll, out_dir)?; // root + deps + examples, same-source closure
+```

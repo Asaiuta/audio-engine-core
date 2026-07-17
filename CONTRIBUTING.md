@@ -17,7 +17,9 @@ dependencies. Install SoXR before building:
 - **Windows (MSYS2/MinGW64, CI path):**
   `pacman -S mingw-w64-x86_64-libsoxr mingw-w64-x86_64-pkgconf mingw-w64-x86_64-tools`;
   add `mingw64/bin` to `PATH` and set `PKG_CONFIG_PATH` to
-  `mingw64/lib/pkgconfig`.
+  `mingw64/lib/pkgconfig`. The build script copies `libsoxr.dll` and the
+  matching MinGW runtime closure into Cargo's binary, test, example, and
+  benchmark output directories, so no extra runtime `PATH` setup is needed.
 - **Windows (vcpkg alternative):** `vcpkg install soxr:x64-windows` or the
   static triplet used by your toolchain; set `VCPKG_ROOT` so the build script
   can find it.

@@ -20,6 +20,7 @@ obey its hot-path prohibitions (no alloc/lock/log/IO/panic/unbounded work).
 | [Realtime Safety](./realtime-safety.md) | The hot-path invariant: what is forbidden in an audio callback and how parameters cross the thread boundary. **Start here.** |
 | [Streaming DSP Lifecycle](./streaming-lifecycle.md) | Object-safe block/progress, backpressure, finish/reset, latency/tail, timing, and error contracts for processors and chains. |
 | [DSP State Correctness](./dsp-state-correctness.md) | Stateful branch ownership, config publication, RBJ coefficient oracles, and sample-rate update boundaries. |
+| [Listening & Nonlinear DSP Correctness](./listening-nonlinear-correctness.md) | Saturation continuity/gain semantics, noise-shaper signed boundaries, and Bauer crossfeed topology/transitions. |
 | [AutoMix & FIR Correctness](./analysis-fir-correctness.md) | Spectral cadence/tempo, explicit key capability, FIR absolute gain/phase windows, and FIR benchmark evidence. |
 | [Directory Structure](./directory-structure.md) | Live `src/` layout: `decoder/`, `processor/`, `processor/loudness/`, benches, examples, and where new code goes. |
 | [Error Handling](./error-handling.md) | `DecoderError` / `NetworkError` model via `thiserror`, `?` propagation, and the no-panic-on-callback rule. |
