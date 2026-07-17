@@ -368,3 +368,35 @@ Unified StreamingResampler with exact SoXR progress, native drain/reset, stage-c
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: P0 DSP state and math correctness
+
+**Date**: 2026-07-17
+**Task**: P0 DSP state and math correctness
+
+### Summary
+
+Corrected EQ branch state adoption, loudness config publication, RBJ shelf math, and dynamic-loudness sample-rate state preservation; all test, Clippy, audio-quality, callback-performance, documentation, and package gates passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a476e9a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

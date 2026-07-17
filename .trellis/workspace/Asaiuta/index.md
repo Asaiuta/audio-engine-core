@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-07-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~358 | Active |
+| `journal-1.md` | ~402 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-07-17 | P0 DSP state and math correctness | `a476e9a` | `-` |
 | 9 | 2026-07-17 | Finalize variable-I/O streaming and offline rendering | `987c450` | `-` |
 | 8 | 2026-07-17 | Migrate fixed DSP chain to streaming contract | `c4bbf2e` | `-` |
 | 7 | 2026-06-26 | Audio engine release hardening | `5d1448e`, `28f8f1f` | `-` |
