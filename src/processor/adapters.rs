@@ -22,30 +22,41 @@ use super::lockfree_params::*;
 use super::loudness::PeakLimiter;
 use super::saturation::Saturation;
 use super::traits::{
-    AudioBlockMut, ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
-    StreamingProcessor,
+    AudioBlockMut, FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError,
+    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 #[derive(Default)]
 struct FixedLifecycle {
+    finishing: bool,
     finished: bool,
 }
 
 impl FixedLifecycle {
     fn ensure_processing(&self, processor: &'static str) -> Result<(), ProcessError> {
-        if self.finished {
+        if self.finishing || self.finished {
             Err(ProcessError::AlreadyFinished { processor })
         } else {
             Ok(())
         }
     }
 
+    fn begin_finish(&mut self) {
+        self.finishing = true;
+    }
+
+    fn is_finished(&self) -> bool {
+        self.finished
+    }
+
     fn finish(&mut self) -> ProcessProgress {
+        self.finishing = true;
         self.finished = true;
         ProcessProgress::finished(0)
     }
 
     fn reset(&mut self) {
+        self.finishing = false;
         self.finished = false;
     }
 }
@@ -468,6 +479,7 @@ pub struct PeakLimiterProcessor {
     sample_rate: u32,
     channels: usize,
     lifecycle: FixedLifecycle,
+    finish_remaining_frames: Option<usize>,
 }
 
 impl PeakLimiterProcessor {
@@ -489,6 +501,7 @@ impl PeakLimiterProcessor {
             sample_rate,
             channels,
             lifecycle: FixedLifecycle::default(),
+            finish_remaining_frames: None,
         }
     }
 
@@ -540,18 +553,54 @@ impl StreamingProcessor for PeakLimiterProcessor {
     }
 
     fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
-        finish_fixed(
-            "PeakLimiter",
-            Some(self.channels),
-            &mut self.lifecycle,
-            output,
-        )
+        validate_channels("PeakLimiter", Some(self.channels), output.channels())?;
+        if self.lifecycle.is_finished() {
+            return Ok(ProcessProgress::finished(0));
+        }
+
+        self.lifecycle.begin_finish();
+        let initial_remaining = if self.cached.enabled {
+            self.limiter.delay_frames()
+        } else {
+            0
+        };
+        let remaining = self
+            .finish_remaining_frames
+            .get_or_insert(initial_remaining);
+        if *remaining == 0 {
+            return Ok(self.lifecycle.finish());
+        }
+
+        let mut output = output;
+        let frames = output.frames().min(*remaining);
+        let samples = frames * self.channels;
+        output.samples_mut()[..samples].fill(0.0);
+        if frames > 0 {
+            self.limiter.process(&mut output.samples_mut()[..samples]);
+        }
+        *remaining -= frames;
+
+        if *remaining == 0 {
+            let _ = self.lifecycle.finish();
+            Ok(ProcessProgress::finished(frames))
+        } else {
+            Ok(ProcessProgress::new(0, frames, ProcessState::NeedOutput))
+        }
     }
 
     fn reset(&mut self) -> Result<(), ProcessError> {
         self.limiter.reset();
         self.lifecycle.reset();
+        self.finish_remaining_frames = None;
         Ok(())
+    }
+
+    fn latency(&self) -> FrameDuration {
+        if !self.cached.enabled {
+            return FrameDuration::ZERO;
+        }
+        FrameDuration::new(self.limiter.delay_frames(), self.sample_rate)
+            .unwrap_or(FrameDuration::ZERO)
     }
 
     fn is_enabled(&self) -> bool {
@@ -573,6 +622,8 @@ impl StreamingProcessor for PeakLimiterProcessor {
             self.cached.release_ms,
             self.cached.mode,
         );
+        self.lifecycle.reset();
+        self.finish_remaining_frames = None;
         Ok(())
     }
 }
@@ -973,6 +1024,8 @@ pub struct ConvolverProcessor {
     /// Single-slot hand-off of retired kernels to the control side.
     retired: Arc<ArcSwapOption<FFTConvolver>>,
     lifecycle: FixedLifecycle,
+    sample_rate_hz: u32,
+    finish_remaining_frames: Option<usize>,
 }
 
 impl ConvolverProcessor {
@@ -985,6 +1038,8 @@ impl ConvolverProcessor {
             enabled,
             retired: Arc::new(ArcSwapOption::empty()),
             lifecycle: FixedLifecycle::default(),
+            sample_rate_hz: 44_100,
+            finish_remaining_frames: None,
         }
     }
 
@@ -1093,7 +1148,56 @@ impl StreamingProcessor for ConvolverProcessor {
 
     fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
         let channels = self.owned.as_ref().map(|convolver| convolver.channels());
-        finish_fixed("Convolver", channels, &mut self.lifecycle, output)
+        validate_channels("Convolver", channels, output.channels())?;
+        if self.lifecycle.is_finished() {
+            return Ok(ProcessProgress::finished(0));
+        }
+
+        self.lifecycle.begin_finish();
+        let initial_remaining = if self.enabled.load(Ordering::Acquire) {
+            self.owned
+                .as_ref()
+                .map(|convolver| convolver.ir_length().saturating_sub(1))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let remaining = self
+            .finish_remaining_frames
+            .get_or_insert(initial_remaining);
+        if *remaining == 0 {
+            return Ok(self.lifecycle.finish());
+        }
+
+        let mut output = output;
+        let frames = output.frames().min(*remaining);
+        let samples = frames * output.channels();
+        output.samples_mut()[..samples].fill(0.0);
+        if frames > 0 {
+            let Some(arc) = self.owned.as_mut() else {
+                return Err(ProcessError::Backend {
+                    processor: "Convolver",
+                    operation: "finish",
+                    message: "active kernel disappeared during finish",
+                });
+            };
+            let Some(convolver) = Arc::get_mut(arc) else {
+                return Err(ProcessError::Backend {
+                    processor: "Convolver",
+                    operation: "finish",
+                    message: "owned kernel is not uniquely held",
+                });
+            };
+            convolver.process_inplace(&mut output.samples_mut()[..samples]);
+        }
+        *remaining -= frames;
+
+        if *remaining == 0 {
+            let _ = self.lifecycle.finish();
+            Ok(ProcessProgress::finished(frames))
+        } else {
+            Ok(ProcessProgress::new(0, frames, ProcessState::NeedOutput))
+        }
     }
 
     fn reset(&mut self) -> Result<(), ProcessError> {
@@ -1108,7 +1212,20 @@ impl StreamingProcessor for ConvolverProcessor {
             convolver.reset();
         }
         self.lifecycle.reset();
+        self.finish_remaining_frames = None;
         Ok(())
+    }
+
+    fn tail(&self) -> TailSpec {
+        if !self.enabled.load(Ordering::Acquire) {
+            return TailSpec::None;
+        }
+        let frames = self
+            .owned
+            .as_ref()
+            .map(|convolver| convolver.ir_length().saturating_sub(1))
+            .unwrap_or(0);
+        TailSpec::finite(frames, self.sample_rate_hz).unwrap_or(TailSpec::Unknown)
     }
 
     fn is_enabled(&self) -> bool {
@@ -1123,6 +1240,9 @@ impl StreamingProcessor for ConvolverProcessor {
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("Convolver", sample_rate_hz)?;
+        self.sample_rate_hz = sample_rate_hz;
+        self.lifecycle.reset();
+        self.finish_remaining_frames = None;
         Ok(())
     }
 }
@@ -1814,5 +1934,107 @@ mod tests {
 
         assert!(result.is_bypassed());
         assert_eq!(buffer, original);
+    }
+
+    #[test]
+    fn peak_limiter_finish_releases_exact_algorithmic_delay() {
+        let params = Arc::new(AtomicPeakLimiterParams::new());
+        let mut proc = PeakLimiterProcessor::new(1, 48_000, params);
+        let latency_frames = proc.limiter.delay_frames();
+        let mut input = vec![0.0; 64];
+        input[63] = 0.5;
+        let _ = proc.process(&mut input, 1);
+        assert!(input.iter().all(|sample| *sample == 0.0));
+        assert_eq!(proc.latency().frames(), latency_frames);
+        assert_eq!(proc.tail(), TailSpec::None);
+
+        let mut drained = Vec::new();
+        let mut scratch = vec![0.0; 37];
+        loop {
+            let progress = super::super::traits::finish_checked(
+                &mut proc,
+                AudioBlockMut::new(&mut scratch, 1).unwrap(),
+            )
+            .unwrap();
+            drained.extend_from_slice(&scratch[..progress.produced_frames()]);
+            if progress.state() == ProcessState::Finished {
+                break;
+            }
+        }
+
+        assert_eq!(drained.len(), latency_frames);
+        assert!((drained[latency_frames - 1] - 0.5).abs() <= 1.0e-12);
+        assert_eq!(
+            super::super::traits::finish_checked(
+                &mut proc,
+                AudioBlockMut::new(&mut scratch, 1).unwrap(),
+            )
+            .unwrap(),
+            ProcessProgress::finished(0)
+        );
+    }
+
+    #[test]
+    fn convolver_finish_preserves_last_frame_impulse_tail() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0, 0.5, 0.25], 1))));
+        let mut proc = ConvolverProcessor::new(swap, enabled);
+        proc.set_sample_rate(48_000).unwrap();
+
+        let mut input = vec![0.0, 0.0, 0.0, 1.0];
+        let _ = proc.process(&mut input, 1);
+        assert!((input[3] - 1.0).abs() <= 1.0e-12);
+        assert_eq!(proc.tail(), TailSpec::finite(2, 48_000).unwrap());
+
+        let mut scratch = [0.0; 1];
+        let first = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut scratch, 1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first.state(), ProcessState::NeedOutput);
+        assert!((scratch[0] - 0.5).abs() <= 1.0e-12);
+
+        let second = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut scratch, 1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second.state(), ProcessState::Finished);
+        assert!((scratch[0] - 0.25).abs() <= 1.0e-12);
+    }
+
+    #[test]
+    fn finite_finish_paths_are_allocation_free_after_processing() {
+        let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+        let mut limiter = PeakLimiterProcessor::new(1, 48_000, limiter_params);
+        let mut limiter_input = vec![0.25; 64];
+        let _ = limiter.process(&mut limiter_input, 1);
+        let mut limiter_output = vec![0.0; limiter.limiter.delay_frames()];
+
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0, 0.5, 0.25], 1))));
+        let mut convolver = ConvolverProcessor::new(swap, enabled);
+        let mut convolver_input = [1.0, 0.0];
+        let _ = convolver.process(&mut convolver_input, 1);
+        let mut convolver_output = [0.0; 2];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            let limiter_progress = super::super::traits::finish_checked(
+                &mut limiter,
+                AudioBlockMut::new(&mut limiter_output, 1).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(limiter_progress.state(), ProcessState::Finished);
+
+            let convolver_progress = super::super::traits::finish_checked(
+                &mut convolver,
+                AudioBlockMut::new(&mut convolver_output, 1).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(convolver_progress.state(), ProcessState::Finished);
+        });
     }
 }

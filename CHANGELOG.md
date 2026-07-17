@@ -32,6 +32,9 @@ SemVer for pre-1.0 releases.
   and offline render-chain order.
 - Objective listening-DSP benchmark rows for EQ target accuracy, crossfeed
   attenuation/continuity, and dynamic-loudness compensation.
+- Compensated and raw-causal offline render policies, configurable unknown-tail
+  energy/hold/maximum termination, and explicit render metadata for latency,
+  finite tail length, rendered frames, and tail truncation.
 
 ### Changed
 - Realtime DSP adapters and `DspChain` now use the object-safe
@@ -39,6 +42,12 @@ SemVer for pre-1.0 releases.
   explicit consumed/produced progress, backpressure, finish/reset, and typed
   errors. `DspChain::process`, `reset`, and `set_sample_rate` now return
   `Result` values, and fixed stages retain their in-place callback fast path.
+- `StreamingResampler` now implements `StreamingProcessor` directly. Its
+  out-of-place path reports exact SoXR input consumption/output production,
+  `finish` uses native drain-to-zero semantics, and `reset` clears native state.
+- Offline output rendering now finalizes each stage before passing its complete
+  output to the next stage, so limiter delay and convolution/resampler output
+  are propagated through every downstream transform.
 - Translated remaining non-English source comments to English.
 - Decoder probe/seek failures now map unsupported or unseekable inputs to typed
   `DecoderError::UnsupportedFormat` where Symphonia exposes that boundary.
@@ -51,6 +60,16 @@ SemVer for pre-1.0 releases.
   upsampling ratios above 1.5x (e.g. 44.1->96/192 kHz): per-chunk scratch is
   now sized by the actual conversion ratio and the flush drains SoXR in a loop
   until dry, matching the streaming path.
+- Short and long 48->96 kHz streaming resamples now consume every input frame,
+  produce the exact 2x duration after finish, and remain equivalent under
+  irregular input chunking. Native reset no longer leaks the prior stream.
+- Offline rendering preserves a last-frame impulse, drains limiter look-ahead,
+  and carries finite convolution tails through downstream resampling before
+  applying final timeline compensation.
+- Unknown and infinite offline tails now stop generating as soon as the
+  configured pre-dither RMS silence hold is satisfied instead of always
+  computing to the hard maximum; reaching that maximum still reports explicit
+  truncation.
 - Realtime allocation regressions eliminated on the audio callback path: the
   FFT convolver and spectrum analyzer now reuse pre-sized SoXR/FFT scratch via
   `process_with_scratch` instead of allocating per call, and the convolver
@@ -75,6 +94,9 @@ SemVer for pre-1.0 releases.
 - The legacy `AudioProcessor` trait and `ProcessResult` enum. This is a direct
   breaking cutover; use `StreamingProcessor`, `ProcessBuffers`, and
   `process_checked` instead.
+- `StreamingResampler`'s `process_chunk_borrowed`, `process_chunk_into`,
+  `process_chunk_append`, `flush_borrowed`, `flush_into`, and `flush` methods;
+  use the unified `process_checked` / `finish_checked` lifecycle instead.
 - `AudioPipeline` and `PipelineError`: the background decode/resample worker
   had no backpressure (the ring filled and then dropped the oldest frames on
   every write) and its `read()` never released ring space, so any consumer

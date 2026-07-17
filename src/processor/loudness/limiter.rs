@@ -244,6 +244,11 @@ impl PeakLimiter {
         self.mode
     }
 
+    /// Active algorithmic output delay in frames.
+    pub fn delay_frames(&self) -> usize {
+        self.delay_frames
+    }
+
     /// Switch the detection [`LimiterMode`] in place.
     ///
     /// Real-time safe: no allocation (buffers/detectors are pre-sized for the

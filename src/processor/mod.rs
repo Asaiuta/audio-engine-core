@@ -71,10 +71,11 @@ pub use loudness_db::{
 };
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
-    offline_stage_names, offline_stage_order_csv, OutputChainBuilder, OutputChainParams,
-    OutputRenderChain, OutputStageDescriptor, OutputStageId, RenderedOutput,
+    offline_stage_names, offline_stage_order_csv, OfflineRenderPolicy, OutputChainBuilder,
+    OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId, RenderTimeline,
+    RenderedOutput, UnknownTailPolicy,
 };
-pub use resampler::{ResampleOutput, Resampler, ResamplerError, StreamingResampler};
+pub use resampler::{Resampler, ResamplerError, StreamingResampler};
 pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};
 pub use spectrum::SpectrumAnalyzer;
 

@@ -8,6 +8,11 @@ use soxr::{
     Soxr,
 };
 
+use super::traits::{
+    AudioBlockMut, AudioBlockRef, FrameDuration, ProcessBufferMode, ProcessBufferParts,
+    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+};
+
 /// Error type for resampler operations
 #[derive(Debug, Clone)]
 pub enum ResamplerError {
@@ -104,32 +109,6 @@ fn interleave_channel_outputs_to_vec(
             for channel in channel_outputs.iter().take(channels) {
                 output.push(channel.get(frame).copied().unwrap_or(0.0));
             }
-        }
-    }
-
-    out_frames
-}
-
-fn interleave_channel_outputs_to_vec_with_max_frames(
-    channel_outputs: &[Vec<f64>],
-    channels: usize,
-    output: &mut Vec<f64>,
-) -> usize {
-    let out_frames = channel_outputs
-        .iter()
-        .take(channels)
-        .map(Vec::len)
-        .max()
-        .unwrap_or(0);
-    output.clear();
-    if out_frames == 0 {
-        return 0;
-    }
-
-    output.reserve(out_frames * channels);
-    for frame in 0..out_frames {
-        for channel in channel_outputs.iter().take(channels) {
-            output.push(channel.get(frame).copied().unwrap_or(0.0));
         }
     }
 
@@ -280,14 +259,33 @@ impl Resampler {
                 }
 
                 for (i, chunk) in channel_data.chunks(inner_chunk_size).enumerate() {
-                    let processed = soxr.process(chunk, &mut output_scratch).map_err(|e| {
-                        ResamplerError::ProcessFailed(format!(
-                            "Channel {} chunk {}: {:?}",
-                            ch_idx, i, e
-                        ))
-                    })?;
+                    let mut input_offset = 0;
+                    while input_offset < chunk.len() {
+                        let processed = soxr
+                            .process(&chunk[input_offset..], &mut output_scratch)
+                            .map_err(|e| {
+                            ResamplerError::ProcessFailed(format!(
+                                "Channel {} chunk {}: {:?}",
+                                ch_idx, i, e
+                            ))
+                        })?;
 
-                    if processed.output_frames > 0 {
+                        if processed.input_frames > chunk.len() - input_offset
+                            || processed.output_frames > output_scratch.len()
+                        {
+                            return Err(ResamplerError::ProcessFailed(format!(
+                                "Channel {} chunk {} returned out-of-bounds progress",
+                                ch_idx, i
+                            )));
+                        }
+
+                        if processed.input_frames == 0 && processed.output_frames == 0 {
+                            return Err(ResamplerError::ProcessFailed(format!(
+                                "Channel {} chunk {} made no progress",
+                                ch_idx, i
+                            )));
+                        }
+                        input_offset += processed.input_frames;
                         channel_output
                             .extend_from_slice(&output_scratch[..processed.output_frames]);
                     }
@@ -298,17 +296,26 @@ impl Resampler {
                     }
                 }
 
-                // Flush the resampler (pass empty slice). Soxr can hold more
-                // than one scratch-buffer's worth of buffered output, so drain
-                // in a loop until it reports no more frames — a single call
-                // would drop the tail of the track on high upsampling ratios.
+                // Native drain is the only end-of-stream operation guaranteed
+                // by Soxr. Keep calling it until it reports terminal zero.
                 loop {
-                    match soxr.process(&[], &mut output_scratch) {
-                        Ok(processed) if processed.output_frames > 0 => {
-                            channel_output
-                                .extend_from_slice(&output_scratch[..processed.output_frames]);
+                    match soxr.drain(&mut output_scratch) {
+                        Ok(output_frames) if output_frames > 0 => {
+                            if output_frames > output_scratch.len() {
+                                return Err(ResamplerError::ProcessFailed(format!(
+                                    "Channel {} drain returned out-of-bounds progress",
+                                    ch_idx
+                                )));
+                            }
+                            channel_output.extend_from_slice(&output_scratch[..output_frames]);
                         }
-                        _ => break,
+                        Ok(_) => break,
+                        Err(e) => {
+                            return Err(ResamplerError::ProcessFailed(format!(
+                                "Channel {} drain: {:?}",
+                                ch_idx, e
+                            )));
+                        }
                     }
                 }
 
@@ -333,7 +340,7 @@ impl Resampler {
 /// Stateful streaming resampler that maintains SoX instances across chunks.
 /// This is used by AudioPipeline for memory-efficient streaming resampling.
 ///
-/// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process_chunk
+/// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {
     soxr_instances: Vec<Soxr<Mono<f64>>>,
     channels: usize,
@@ -345,13 +352,10 @@ pub struct StreamingResampler {
     channel_inputs: Vec<Vec<f64>>,
     /// Pre-allocated channel output buffers (Defect 33 fix)
     channel_outputs: Vec<Vec<f64>>,
-    /// Pre-allocated interleaved output buffer (Defect 33 fix)
-    interleaved_output: Vec<f64>,
-}
-
-pub struct ResampleOutput<'a> {
-    pub samples: &'a [f64],
-    pub frames: usize,
+    /// End-of-stream has been signalled, but native drain may still have data.
+    finishing: bool,
+    /// Native drain reached terminal zero. Stable until reset.
+    finished: bool,
 }
 
 const STREAMING_MAX_INPUT_FRAMES: usize = 16_384;
@@ -384,7 +388,6 @@ fn streaming_buffer_layout(
     let total_samples = max_output_per_channel
         .checked_add(input_samples)
         .and_then(|samples| samples.checked_add(channel_output_samples))
-        .and_then(|samples| samples.checked_add(channel_output_samples))
         .ok_or_else(|| ResamplerError::InitializationFailed("working-set overflow".into()))?;
     let pcm_bytes = total_samples
         .checked_mul(std::mem::size_of::<f64>())
@@ -414,14 +417,9 @@ impl StreamingResampler {
         self.to_rate
     }
 
-    /// Naive ratio upper bound, in interleaved samples, on the output a single
-    /// `process_chunk_*` call can return.
-    ///
-    /// Per-call Soxr output is now capped (via slicing the pre-allocated scratch
-    /// to this bound) inside `process_chunk_*`, so this is a *valid* single-call
-    /// ceiling: any excess input is buffered by Soxr and recovered on later
-    /// calls. Callers reserving an output/leftover buffer for one render-loop
-    /// input chunk should size it with this method.
+    /// Conservative interleaved output capacity for one caller input block.
+    /// Backpressure remains authoritative; callers must still advance using
+    /// [`ProcessProgress`] rather than assuming the estimate consumes all input.
     pub fn max_output_len_for_input(&self, input_samples: usize) -> usize {
         if self.channels == 0 {
             return 0;
@@ -431,15 +429,9 @@ impl StreamingResampler {
         (input_frames as f64 * ratio).ceil() as usize * self.channels + self.channels * 64
     }
 
-    /// Absolute hard upper bound, in interleaved samples, on the output a single
-    /// `process_chunk_*` call can return for this resampler.
-    ///
-    /// This equals the pre-allocated `interleaved_output` capacity. With per-call
-    /// output now capped to the naive ratio bound (see `max_output_len_for_input`),
-    /// `max_output_len_for_input` is the right size for per-call reserves; this
-    /// method remains the absolute ceiling tied to the internal buffer capacity.
+    /// Maximum interleaved output produced by one internal Soxr step.
     pub fn max_output_samples_per_chunk(&self) -> usize {
-        self.interleaved_output.capacity()
+        self.output_scratch.len() * self.channels
     }
 
     pub fn input_frames_for_output_frames(&self, output_frames: usize) -> usize {
@@ -471,7 +463,7 @@ impl StreamingResampler {
     /// Create a new streaming resampler with specified phase response and quality level
     ///
     /// FIX for Defect 30: Allow quality configuration
-    /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process_chunk
+    /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
     ///
     /// Returns Err if Soxr initialization fails (e.g., invalid sample rates like 0 Hz)
     pub fn with_quality(
@@ -489,7 +481,7 @@ impl StreamingResampler {
             )));
         }
 
-        // Guard channels==0: process_chunk_* would divide by zero at first use.
+        // Guard channels==0: interleaved frame handling requires a non-zero divisor.
         if channels == 0 {
             return Err(ResamplerError::InitializationFailed(
                 "channel count must be >= 1".to_string(),
@@ -531,8 +523,6 @@ impl StreamingResampler {
         let channel_outputs: Vec<Vec<f64>> = (0..channels)
             .map(|_| Vec::with_capacity(max_output_per_channel))
             .collect();
-        let interleaved_output = Vec::with_capacity(max_output_per_channel * channels);
-
         Ok(Self {
             soxr_instances,
             channels,
@@ -541,306 +531,446 @@ impl StreamingResampler {
             output_scratch: vec![0.0; max_output_per_channel],
             channel_inputs,
             channel_outputs,
-            interleaved_output,
+            finishing: false,
+            finished: false,
         })
     }
 
-    fn process_chunk_to_internal_output(&mut self, input: &[f64]) -> usize {
-        // Clear and reuse pre-allocated channel input buffers (Defect 33 fix)
+    fn clear_work_buffers(&mut self) {
         for ch_buf in &mut self.channel_inputs {
             ch_buf.clear();
         }
-
-        let input_frames = input.len() / self.channels;
-
-        // De-interleave input into pre-allocated buffers. Trailing incomplete
-        // frames are intentionally ignored, matching `input.len() / channels`.
-        deinterleave_frame_major(input, self.channels, input_frames, &mut self.channel_inputs);
-
-        // Clear and reuse pre-allocated channel output buffers (Defect 33 fix)
         for ch_buf in &mut self.channel_outputs {
             ch_buf.clear();
         }
-
-        // Process each channel
-        for (ch, channel_data) in self.channel_inputs.iter().enumerate() {
-            // Naive ratio bound for this call. We never resize on the audio thread;
-            // instead we cap Soxr's output by slicing the pre-allocated scratch.
-            // Capping to the naive bound keeps `max_output_len_for_input` a valid
-            // single-call ceiling. The `.min(len)` keeps it panic-safe for offline
-            // callers feeding chunks larger than `max_input_frames` — Soxr buffers
-            // the excess and recovers it on later process/flush calls.
-            let expected_output = (channel_data.len() as f64 * self.to_rate as f64
-                / self.from_rate as f64)
-                .ceil() as usize
-                + 64;
-            let cap = expected_output.min(self.output_scratch.len());
-
-            let processed = match self.soxr_instances[ch]
-                .process(channel_data, &mut self.output_scratch[..cap])
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!(
-                        "Resampler process_chunk failed (ch={}, in_frames={}): {:?}",
-                        ch,
-                        channel_data.len(),
-                        e
-                    );
-                    self.interleaved_output.clear();
-                    return 0;
-                }
-            };
-
-            self.channel_outputs[ch]
-                .extend_from_slice(&self.output_scratch[..processed.output_frames]);
-        }
-
-        interleave_channel_outputs_to_vec(
-            &self.channel_outputs,
-            self.channels,
-            &mut self.interleaved_output,
-        )
     }
 
-    /// Process a chunk of interleaved audio and borrow the resampler-owned output.
-    ///
-    /// Resampling processes only complete input frames; trailing samples where
-    /// `input.len() % channels != 0` are ignored to preserve existing behavior.
-    /// The equal-rate bypass returns the original input slice unchanged.
-    /// The borrowed slice remains valid until the next mutable resampler call.
-    pub fn process_chunk_borrowed<'a>(&'a mut self, input: &'a [f64]) -> ResampleOutput<'a> {
+    fn validate_channels(&self, actual_channels: usize) -> Result<(), ProcessError> {
+        if actual_channels == self.channels {
+            Ok(())
+        } else {
+            Err(ProcessError::ChannelCountMismatch {
+                processor: "StreamingResampler",
+                expected_channels: self.channels,
+                actual_channels,
+            })
+        }
+    }
+
+    fn ensure_processing(&self) -> Result<(), ProcessError> {
+        if self.finishing || self.finished {
+            Err(ProcessError::AlreadyFinished {
+                processor: "StreamingResampler",
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn process_out_of_place(
+        &mut self,
+        input: AudioBlockRef<'_>,
+        mut output: AudioBlockMut<'_>,
+    ) -> Result<ProcessProgress, ProcessError> {
+        let channels = self.channels;
+        let input_frames = input.frames();
+        let output_frames = output.frames();
+
         if self.from_rate == self.to_rate {
-            return ResampleOutput {
-                samples: input,
-                frames: input.len() / self.channels,
+            let frames = input_frames.min(output_frames);
+            let samples = frames * channels;
+            output.samples_mut()[..samples].copy_from_slice(&input.samples()[..samples]);
+            let state = if frames < input_frames {
+                ProcessState::NeedOutput
+            } else {
+                ProcessState::NeedInput
             };
+            return Ok(ProcessProgress::new(frames, frames, state).with_bypassed(true));
         }
 
-        let input_frames = input.len() / self.channels;
-        if input_frames == 0 {
-            self.interleaved_output.clear();
-            return ResampleOutput {
-                samples: &self.interleaved_output,
-                frames: 0,
-            };
-        }
+        let input_samples = input.samples();
+        let output_samples = output.samples_mut();
+        let mut consumed_frames = 0;
+        let mut produced_frames = 0;
 
-        let frames = self.process_chunk_to_internal_output(input);
-        ResampleOutput {
-            samples: &self.interleaved_output,
-            frames,
-        }
-    }
+        while consumed_frames < input_frames && produced_frames < output_frames {
+            let input_step_frames =
+                (input_frames - consumed_frames).min(STREAMING_MAX_INPUT_FRAMES);
+            let output_step_capacity =
+                (output_frames - produced_frames).min(self.output_scratch.len());
 
-    /// Process a chunk and append the result directly to a caller-owned buffer.
-    pub fn process_chunk_append(&mut self, input: &[f64], output: &mut Vec<f64>) -> usize {
-        let result = self.process_chunk_borrowed(input);
-        output.extend_from_slice(result.samples);
-        result.frames
-    }
+            self.clear_work_buffers();
+            let input_start = consumed_frames * channels;
+            let input_end = input_start + input_step_frames * channels;
+            deinterleave_frame_major(
+                &input_samples[input_start..input_end],
+                channels,
+                input_step_frames,
+                &mut self.channel_inputs,
+            );
 
-    /// Process a chunk into a pre-allocated output buffer (zero-allocation version)
-    ///
-    /// Returns the number of frames written to output.
-    /// Output buffer must be large enough: output.len() >= input.len() * to_rate / from_rate + 64
-    pub fn process_chunk_into(&mut self, input: &[f64], output: &mut [f64]) -> usize {
-        if self.from_rate == self.to_rate {
-            let copy_len = input.len().min(output.len());
-            output[..copy_len].copy_from_slice(&input[..copy_len]);
-            return copy_len / self.channels;
-        }
+            let mut shared_progress = None;
+            for channel in 0..channels {
+                let processed = self.soxr_instances[channel]
+                    .process(
+                        &self.channel_inputs[channel],
+                        &mut self.output_scratch[..output_step_capacity],
+                    )
+                    .map_err(|_| ProcessError::Backend {
+                        processor: "StreamingResampler",
+                        operation: "process",
+                        message: "soxr process failed",
+                    })?;
 
-        let input_frames = input.len() / self.channels;
-        if input_frames == 0 {
-            return 0;
-        }
-
-        // Clear and reuse pre-allocated buffers
-        for ch_buf in &mut self.channel_inputs {
-            ch_buf.clear();
-        }
-
-        // De-interleave complete frames only, preserving truncation semantics
-        // for `input.len() % channels != 0`.
-        deinterleave_frame_major(input, self.channels, input_frames, &mut self.channel_inputs);
-
-        // Clear output buffers
-        for ch_buf in &mut self.channel_outputs {
-            ch_buf.clear();
-        }
-
-        // Process each channel
-        for (ch, channel_data) in self.channel_inputs.iter().enumerate() {
-            // See process_chunk_to_internal_output: cap Soxr output via slicing
-            // instead of resizing on the audio thread.
-            let expected_output = (channel_data.len() as f64 * self.to_rate as f64
-                / self.from_rate as f64)
-                .ceil() as usize
-                + 64;
-            let cap = expected_output.min(self.output_scratch.len());
-
-            let processed = match self.soxr_instances[ch]
-                .process(channel_data, &mut self.output_scratch[..cap])
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!(
-                        "Resampler process_chunk_into failed (ch={}, in_frames={}): {:?}",
-                        ch,
-                        channel_data.len(),
-                        e
-                    );
-                    return 0;
+                if processed.input_frames > input_step_frames
+                    || processed.output_frames > output_step_capacity
+                {
+                    return Err(ProcessError::Backend {
+                        processor: "StreamingResampler",
+                        operation: "process",
+                        message: "soxr returned out-of-bounds progress",
+                    });
                 }
-            };
 
-            self.channel_outputs[ch]
-                .extend_from_slice(&self.output_scratch[..processed.output_frames]);
-        }
-
-        interleave_channel_outputs_to_slice(&self.channel_outputs, self.channels, output)
-    }
-
-    pub fn reset(&mut self) {
-        for ch_buf in &mut self.channel_inputs {
-            ch_buf.clear();
-        }
-        for ch_buf in &mut self.channel_outputs {
-            ch_buf.clear();
-        }
-        self.interleaved_output.clear();
-    }
-
-    /// Flush remaining samples and borrow the resampler-owned interleaved output.
-    pub fn flush_borrowed(&mut self) -> ResampleOutput<'_> {
-        for channel_output in &mut self.channel_outputs {
-            channel_output.clear();
-        }
-
-        for ch in 0..self.channels {
-            // Keep flushing until no more output
-            loop {
-                match self.soxr_instances[ch].process(&[], &mut self.output_scratch) {
-                    Ok(processed) if processed.output_frames > 0 => {
-                        self.channel_outputs[ch]
-                            .extend_from_slice(&self.output_scratch[..processed.output_frames]);
+                match shared_progress {
+                    None => {
+                        shared_progress = Some((processed.input_frames, processed.output_frames));
                     }
-                    _ => break,
+                    Some(expected)
+                        if expected != (processed.input_frames, processed.output_frames) =>
+                    {
+                        return Err(ProcessError::Backend {
+                            processor: "StreamingResampler",
+                            operation: "process",
+                            message: "soxr channel progress diverged",
+                        });
+                    }
+                    Some(_) => {}
                 }
+
+                self.channel_outputs[channel]
+                    .extend_from_slice(&self.output_scratch[..processed.output_frames]);
+            }
+
+            let Some((step_consumed, step_produced)) = shared_progress else {
+                return Err(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "process",
+                    message: "soxr channel set was empty",
+                });
+            };
+            if step_consumed == 0 && step_produced == 0 {
+                return Err(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "process",
+                    message: "soxr made no progress",
+                });
+            }
+
+            let output_start = produced_frames * channels;
+            let output_end = output_start + step_produced * channels;
+            let written = interleave_channel_outputs_to_slice(
+                &self.channel_outputs,
+                channels,
+                &mut output_samples[output_start..output_end],
+            );
+            if written != step_produced {
+                return Err(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "process",
+                    message: "failed to interleave complete soxr output",
+                });
+            }
+
+            consumed_frames += step_consumed;
+            produced_frames += step_produced;
+        }
+
+        let state = if consumed_frames == input_frames {
+            ProcessState::NeedInput
+        } else if produced_frames == output_frames {
+            ProcessState::NeedOutput
+        } else {
+            return Err(ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "process",
+                message: "soxr stopped before reaching an input/output boundary",
+            });
+        };
+        Ok(ProcessProgress::new(
+            consumed_frames,
+            produced_frames,
+            state,
+        ))
+    }
+
+    fn drain_into(
+        &mut self,
+        mut output: AudioBlockMut<'_>,
+    ) -> Result<ProcessProgress, ProcessError> {
+        if self.finished {
+            return Ok(ProcessProgress::finished(0));
+        }
+        self.finishing = true;
+
+        let channels = self.channels;
+        let output_frames = output.frames();
+        if output_frames == 0 {
+            return Ok(ProcessProgress::new(0, 0, ProcessState::NeedOutput));
+        }
+
+        let output_samples = output.samples_mut();
+        let mut produced_frames = 0;
+        while produced_frames < output_frames {
+            let output_step_capacity =
+                (output_frames - produced_frames).min(self.output_scratch.len());
+            for channel_output in &mut self.channel_outputs {
+                channel_output.clear();
+            }
+
+            let mut shared_output_frames = None;
+            for channel in 0..channels {
+                let channel_frames = self.soxr_instances[channel]
+                    .drain(&mut self.output_scratch[..output_step_capacity])
+                    .map_err(|_| ProcessError::Backend {
+                        processor: "StreamingResampler",
+                        operation: "finish",
+                        message: "soxr drain failed",
+                    })?;
+                if channel_frames > output_step_capacity {
+                    return Err(ProcessError::Backend {
+                        processor: "StreamingResampler",
+                        operation: "finish",
+                        message: "soxr drain returned out-of-bounds progress",
+                    });
+                }
+                match shared_output_frames {
+                    None => shared_output_frames = Some(channel_frames),
+                    Some(expected) if expected != channel_frames => {
+                        return Err(ProcessError::Backend {
+                            processor: "StreamingResampler",
+                            operation: "finish",
+                            message: "soxr channel drain diverged",
+                        });
+                    }
+                    Some(_) => {}
+                }
+                self.channel_outputs[channel]
+                    .extend_from_slice(&self.output_scratch[..channel_frames]);
+            }
+
+            let Some(step_produced) = shared_output_frames else {
+                return Err(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "finish",
+                    message: "soxr channel set was empty",
+                });
+            };
+            if step_produced == 0 {
+                self.finished = true;
+                return Ok(ProcessProgress::finished(produced_frames));
+            }
+
+            let output_start = produced_frames * channels;
+            let output_end = output_start + step_produced * channels;
+            let written = interleave_channel_outputs_to_slice(
+                &self.channel_outputs,
+                channels,
+                &mut output_samples[output_start..output_end],
+            );
+            if written != step_produced {
+                return Err(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "finish",
+                    message: "failed to interleave complete soxr drain output",
+                });
+            }
+            produced_frames += step_produced;
+        }
+
+        Ok(ProcessProgress::new(
+            0,
+            produced_frames,
+            ProcessState::NeedOutput,
+        ))
+    }
+}
+
+impl StreamingProcessor for StreamingResampler {
+    fn name(&self) -> &'static str {
+        "StreamingResampler"
+    }
+
+    fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.ensure_processing()?;
+        self.validate_channels(buffers.channels())?;
+
+        match buffers.into_parts() {
+            ProcessBufferParts::InPlace(block) if self.from_rate == self.to_rate => Ok(
+                ProcessProgress::new(block.frames(), block.frames(), ProcessState::NeedInput)
+                    .with_bypassed(true),
+            ),
+            ProcessBufferParts::InPlace(_) => Err(ProcessError::UnsupportedBufferMode {
+                processor: "StreamingResampler",
+                mode: ProcessBufferMode::InPlace,
+            }),
+            ProcessBufferParts::OutOfPlace { input, output } => {
+                self.process_out_of_place(input, output)
             }
         }
+    }
 
-        let frames = interleave_channel_outputs_to_vec_with_max_frames(
-            &self.channel_outputs,
-            self.channels,
-            &mut self.interleaved_output,
-        );
-        ResampleOutput {
-            samples: &self.interleaved_output,
-            frames,
+    fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        self.validate_channels(output.channels())?;
+        if self.from_rate == self.to_rate {
+            self.finishing = true;
+            self.finished = true;
+            return Ok(ProcessProgress::finished(0));
         }
+        self.drain_into(output)
     }
 
-    /// Flush any remaining samples directly into a caller-owned output buffer.
-    pub fn flush_into(&mut self, output: &mut Vec<f64>) -> usize {
-        let result = self.flush_borrowed();
-        output.extend_from_slice(result.samples);
-        result.frames
+    fn reset(&mut self) -> Result<(), ProcessError> {
+        let mut first_error = None;
+        for soxr in &mut self.soxr_instances {
+            if soxr.clear().is_err() && first_error.is_none() {
+                first_error = Some(ProcessError::Backend {
+                    processor: "StreamingResampler",
+                    operation: "reset",
+                    message: "soxr clear failed",
+                });
+            }
+        }
+        self.clear_work_buffers();
+        self.finishing = false;
+        self.finished = false;
+        first_error.map_or(Ok(()), Err)
     }
 
-    /// Flush any remaining samples in the resampler's internal buffers
-    pub fn flush(&mut self) -> Vec<f64> {
-        self.flush_borrowed().samples.to_vec()
+    fn latency(&self) -> FrameDuration {
+        // Soxr with native drain returns a duration-aligned sample sequence;
+        // its internal scheduling delay does not add leading frames to that
+        // sequence and therefore requires no offline timeline crop.
+        FrameDuration::ZERO
+    }
+
+    fn tail(&self) -> TailSpec {
+        TailSpec::None
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.from_rate != self.to_rate
+    }
+
+    fn set_enabled(&mut self, _enabled: bool) {
+        // Rate conversion is graph geometry rather than a bypassable effect.
+    }
+
+    fn output_sample_rate_hz(&self, input_sample_rate_hz: u32) -> Result<u32, ProcessError> {
+        if input_sample_rate_hz == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "StreamingResampler",
+                sample_rate_hz: input_sample_rate_hz,
+            });
+        }
+        if input_sample_rate_hz != self.from_rate {
+            return Err(ProcessError::SampleRateMismatch {
+                processor: "StreamingResampler",
+                expected_sample_rate_hz: self.from_rate,
+                actual_sample_rate_hz: input_sample_rate_hz,
+            });
+        }
+        Ok(self.to_rate)
+    }
+
+    fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
+        if sample_rate_hz != self.from_rate {
+            return Err(ProcessError::SampleRateMismatch {
+                processor: "StreamingResampler",
+                expected_sample_rate_hz: self.from_rate,
+                actual_sample_rate_hz: sample_rate_hz,
+            });
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::traits::{finish_checked, process_checked, AudioBlockError};
 
-    #[test]
-    fn deinterleave_frame_major_preserves_order_and_truncates_partial_frame() {
-        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 99.0];
-        let mut channels = vec![Vec::new(), Vec::new()];
-
-        deinterleave_frame_major(&input, 2, input.len() / 2, &mut channels);
-
-        assert_eq!(channels[0], vec![1.0, 3.0, 5.0]);
-        assert_eq!(channels[1], vec![2.0, 4.0, 99.0]);
-
-        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let mut channels = vec![Vec::new(), Vec::new()];
-
-        deinterleave_frame_major(&input, 2, input.len() / 2, &mut channels);
-
-        assert_eq!(channels[0], vec![1.0, 3.0]);
-        assert_eq!(channels[1], vec![2.0, 4.0]);
+    fn fixture(frames: usize, channels: usize) -> Vec<f64> {
+        (0..frames * channels)
+            .map(|sample| {
+                let frame = sample / channels;
+                let channel = sample % channels;
+                ((frame as f64 * 0.017 + channel as f64 * 0.31).sin() * 0.5)
+                    + ((frame as f64 * 0.003).cos() * 0.1)
+            })
+            .collect()
     }
 
-    #[test]
-    fn interleave_channel_outputs_fast_path_preserves_multichannel_order() {
-        let channel_outputs = vec![
-            vec![1.0, 4.0, 7.0],
-            vec![2.0, 5.0, 8.0],
-            vec![3.0, 6.0, 9.0],
-        ];
+    fn render_with_chunks(
+        resampler: &mut StreamingResampler,
+        input: &[f64],
+        input_chunks: &[usize],
+        output_block_frames: usize,
+    ) -> Result<Vec<f64>, ProcessError> {
+        let channels = resampler.channels;
+        let total_frames = AudioBlockRef::new(input, channels)?.frames();
+        let mut scratch = vec![0.0; output_block_frames * channels];
         let mut output = Vec::new();
+        let mut frame = 0;
+        let mut chunk_index = 0;
 
-        let frames = interleave_channel_outputs_to_vec(&channel_outputs, 3, &mut output);
+        while frame < total_frames {
+            let chunk_frames = input_chunks[chunk_index % input_chunks.len()].max(1);
+            let chunk_end = (frame + chunk_frames).min(total_frames);
+            let mut chunk_offset = frame;
+            while chunk_offset < chunk_end {
+                let input_block = AudioBlockRef::new(
+                    &input[chunk_offset * channels..chunk_end * channels],
+                    channels,
+                )?;
+                let output_block = AudioBlockMut::new(&mut scratch, channels)?;
+                let buffers = ProcessBuffers::out_of_place(input_block, output_block)?;
+                let progress = process_checked(resampler, buffers)?;
+                output.extend_from_slice(
+                    &scratch[..progress.produced_frames().saturating_mul(channels)],
+                );
+                chunk_offset += progress.consumed_frames();
+            }
+            frame = chunk_end;
+            chunk_index += 1;
+        }
 
-        assert_eq!(frames, 3);
-        assert_eq!(output, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        loop {
+            let output_block = AudioBlockMut::new(&mut scratch, channels)?;
+            let progress = finish_checked(resampler, output_block)?;
+            output
+                .extend_from_slice(&scratch[..progress.produced_frames().saturating_mul(channels)]);
+            if progress.state() == ProcessState::Finished {
+                break;
+            }
+        }
+        Ok(output)
     }
 
     #[test]
-    fn interleave_channel_outputs_pads_short_channels() {
-        let channel_outputs = vec![vec![1.0, 3.0, 5.0], vec![2.0]];
-        let mut output = Vec::new();
-
-        let frames = interleave_channel_outputs_to_vec(&channel_outputs, 2, &mut output);
-
-        assert_eq!(frames, 3);
-        assert_eq!(output, vec![1.0, 2.0, 3.0, 0.0, 5.0, 0.0]);
+    fn streaming_resampler_rejects_invalid_geometry() {
+        for (channels, from_rate, to_rate) in [(0, 48_000, 96_000), (2, 0, 96_000), (2, 48_000, 0)]
+        {
+            assert!(matches!(
+                StreamingResampler::new(channels, from_rate, to_rate),
+                Err(ResamplerError::InitializationFailed(_))
+            ));
+        }
     }
 
     #[test]
-    fn interleave_channel_outputs_with_max_frames_pads_short_channels() {
-        let channel_outputs = vec![vec![1.0], vec![2.0, 4.0, 6.0]];
-        let mut output = Vec::new();
-
-        let frames =
-            interleave_channel_outputs_to_vec_with_max_frames(&channel_outputs, 2, &mut output);
-
-        assert_eq!(frames, 3);
-        assert_eq!(output, vec![1.0, 2.0, 0.0, 4.0, 0.0, 6.0]);
-    }
-
-    #[test]
-    fn interleave_channel_outputs_to_slice_preserves_tail_when_output_is_longer() {
-        let channel_outputs = vec![vec![1.0, 3.0], vec![2.0, 4.0]];
-        let mut output = vec![42.0; 6];
-
-        let frames = interleave_channel_outputs_to_slice(&channel_outputs, 2, &mut output);
-
-        assert_eq!(frames, 2);
-        assert_eq!(output, vec![1.0, 2.0, 3.0, 4.0, 42.0, 42.0]);
-    }
-
-    #[test]
-    fn process_chunk_borrowed_equal_rate_reports_complete_frames_and_full_input() {
-        let mut resampler = StreamingResampler::new(2, 48_000, 48_000).unwrap();
-        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-
-        let result = resampler.process_chunk_borrowed(&input);
-
-        assert_eq!(result.frames, 2);
-        assert_eq!(result.samples, input.as_slice());
-    }
-
-    #[test]
-    fn working_buffer_bytes_matches_constructed_vec_capacities() {
-        let resampler = StreamingResampler::new(6, 44_100, 192_000).expect("resampler");
+    fn working_buffer_bytes_matches_internal_capacities() {
+        let resampler = StreamingResampler::new(6, 44_100, 192_000).unwrap();
         let actual_samples = resampler.output_scratch.capacity()
             + resampler
                 .channel_inputs
@@ -851,259 +981,208 @@ mod tests {
                 .channel_outputs
                 .iter()
                 .map(Vec::capacity)
-                .sum::<usize>()
-            + resampler.interleaved_output.capacity();
-
+                .sum::<usize>();
         assert_eq!(
-            StreamingResampler::working_buffer_bytes(6, 44_100, 192_000).expect("working set"),
+            StreamingResampler::working_buffer_bytes(6, 44_100, 192_000).unwrap(),
             actual_samples * std::mem::size_of::<f64>()
         );
     }
 
     #[test]
-    fn input_frames_for_output_frames_tracks_rate_ratio_with_margin() {
-        let upsampler = StreamingResampler::new(2, 44_100, 384_000).unwrap();
-        let expected_up = ((512.0_f64 * 44_100.0 / 384_000.0).ceil() as usize) + 64;
-        assert_eq!(upsampler.input_frames_for_output_frames(512), expected_up);
-
-        let downsampler = StreamingResampler::new(2, 96_000, 48_000).unwrap();
-        assert_eq!(downsampler.input_frames_for_output_frames(2112), 4288);
-        assert_eq!(downsampler.input_frames_for_output_frames(0), 0);
-    }
-
-    #[test]
-    fn process_chunk_append_equal_rate_preserves_prefix_and_full_input() {
+    fn equal_rate_supports_in_place_bypass_and_lifecycle() {
         let mut resampler = StreamingResampler::new(2, 48_000, 48_000).unwrap();
-        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let mut output = vec![-1.0, -2.0];
+        let mut samples = fixture(32, 2);
+        let expected = samples.clone();
+        let progress = process_checked(
+            &mut resampler,
+            ProcessBuffers::in_place(AudioBlockMut::new(&mut samples, 2).unwrap()),
+        )
+        .unwrap();
+        assert!(progress.is_bypassed());
+        assert_eq!(samples, expected);
 
-        let frames = resampler.process_chunk_append(&input, &mut output);
-
-        assert_eq!(frames, 2);
-        assert_eq!(output, vec![-1.0, -2.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+        let mut output = [0.0; 8];
+        assert_eq!(
+            finish_checked(&mut resampler, AudioBlockMut::new(&mut output, 2).unwrap()).unwrap(),
+            ProcessProgress::finished(0)
+        );
+        assert!(matches!(
+            process_checked(
+                &mut resampler,
+                ProcessBuffers::in_place(AudioBlockMut::new(&mut samples, 2).unwrap())
+            ),
+            Err(ProcessError::AlreadyFinished { .. })
+        ));
+        resampler.reset().unwrap();
+        let _ = process_checked(
+            &mut resampler,
+            ProcessBuffers::in_place(AudioBlockMut::new(&mut samples, 2).unwrap()),
+        )
+        .unwrap();
     }
 
     #[test]
-    fn resample_parallel_preserves_length_for_high_upsampling_ratios() {
-        // Regression: the per-chunk scratch was sized at a fixed 1.5x input and
-        // the flush was a single call, so ratios above 1.5 (44.1->96k = 2.18,
-        // 44.1->192k = 4.35) silently truncated most of the output (only ~34%
-        // survived). Use the proven streaming path as the length oracle: both
-        // paths drive the same soxr backend and must produce the same number of
-        // frames for identical input, within soxr's chunk-boundary tolerance.
-        let channels = 2;
-        // Enough frames to span multiple 8192-frame inner chunks.
-        let input_frames = 8192 * 3 + 1234;
-        let input: Vec<f64> = (0..input_frames * channels)
-            .map(|sample| ((sample as f64) / 512.0).sin() * 0.25)
-            .collect();
+    fn variable_rate_rejects_in_place_and_channel_mismatch() {
+        let mut resampler = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+        let mut samples = fixture(16, 2);
+        assert!(matches!(
+            process_checked(
+                &mut resampler,
+                ProcessBuffers::in_place(AudioBlockMut::new(&mut samples, 2).unwrap())
+            ),
+            Err(ProcessError::UnsupportedBufferMode { .. })
+        ));
 
-        for (from_rate, to_rate) in [(44_100u32, 96_000u32), (44_100, 192_000)] {
-            let parallel = Resampler::new(channels, from_rate, to_rate)
-                .resample_parallel(&input, PhaseResponse::default(), ResampleQuality::High)
-                .expect("resample succeeds");
-            let parallel_frames = parallel.len() / channels;
-
-            // Oracle: streaming instance fed in bounded chunks then flushed.
-            // Feed the same 8192-frame chunk size the parallel path uses — the
-            // streaming scratch is sized for chunks up to 16384 frames, so a
-            // single oversized call would itself truncate (its documented
-            // feed-in-chunks contract).
-            let mut streaming = StreamingResampler::with_quality(
-                channels,
-                from_rate,
-                to_rate,
-                PhaseResponse::default(),
-                ResampleQuality::High,
-            )
-            .expect("streaming resampler constructs");
-            let mut oracle = Vec::new();
-            for chunk in input.chunks(8192 * channels) {
-                let _ = streaming.process_chunk_append(chunk, &mut oracle);
+        let input = AudioBlockRef::new(&samples, 2).unwrap();
+        let mut output = [0.0; 16];
+        assert_eq!(
+            ProcessBuffers::out_of_place(input, AudioBlockMut::new(&mut output, 1).unwrap())
+                .unwrap_err(),
+            AudioBlockError::ChannelMismatch {
+                input_channels: 2,
+                output_channels: 1,
             }
-            let _ = streaming.flush_into(&mut oracle);
-            let oracle_frames = oracle.len() / channels;
+        );
+    }
 
-            let low = oracle_frames * 98 / 100;
-            let high = oracle_frames * 102 / 100;
-            assert!(
-                parallel_frames >= low && parallel_frames <= high,
-                "{from_rate}->{to_rate}: parallel produced {parallel_frames} frames, \
-                 streaming oracle {oracle_frames} ({}%)",
-                parallel_frames * 100 / oracle_frames.max(1),
-            );
+    #[test]
+    fn short_and_long_integer_upsampling_consume_every_frame() {
+        for frames in [512, 100_000] {
+            let input = fixture(frames, 2);
+            let mut resampler = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+            let output = render_with_chunks(&mut resampler, &input, &[frames], 257).unwrap();
+            assert_eq!(output.len() / 2, frames * 2);
         }
     }
 
     #[test]
-    fn resample_parallel_rejects_zero_channels() {
-        let resampler = Resampler::new(0, 44_100, 48_000);
-        let result =
-            resampler.resample_parallel(&[0.0; 8], PhaseResponse::default(), ResampleQuality::High);
-        assert!(matches!(
-            result,
-            Err(ResamplerError::InitializationFailed(_))
-        ));
+    fn random_input_chunking_matches_single_feed() {
+        let input = fixture(32_777, 2);
+        let mut whole = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+        let mut chunked = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+        let expected = render_with_chunks(&mut whole, &input, &[input.len() / 2], 509).unwrap();
+        let actual =
+            render_with_chunks(&mut chunked, &input, &[1, 17, 3, 251, 64, 5, 1024, 7], 509)
+                .unwrap();
+        assert_eq!(actual.len(), expected.len());
+        let max_error = actual
+            .iter()
+            .zip(&expected)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_error <= 1.0e-12, "chunking error {max_error:e}");
     }
 
     #[test]
-    fn streaming_resampler_rejects_zero_channels() {
-        let result = StreamingResampler::with_quality(
-            0,
+    fn native_drain_returns_a_duration_aligned_impulse_sequence() {
+        let input_frames = 4_096;
+        let impulse_frame = 1_024;
+        let mut input = vec![0.0; input_frames];
+        input[impulse_frame] = 1.0;
+        let mut resampler = StreamingResampler::new(1, 48_000, 96_000).unwrap();
+        let output = render_with_chunks(&mut resampler, &input, &[127, 509], 257).unwrap();
+        let peak_frame = output
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.abs()
+                    .partial_cmp(&right.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(frame, _)| frame)
+            .unwrap();
+
+        assert_eq!(output.len(), input_frames * 2);
+        assert!(
+            peak_frame.abs_diff(impulse_frame * 2) <= 1,
+            "resampled impulse peak landed at {peak_frame}, expected {}",
+            impulse_frame * 2
+        );
+        assert_eq!(resampler.latency(), FrameDuration::ZERO);
+    }
+
+    #[test]
+    fn finish_is_terminal_idempotent_and_reset_clears_native_history() {
+        let impulse = {
+            let mut samples = vec![0.0; 2_048 * 2];
+            samples[0] = 0.8;
+            samples[1] = -0.8;
+            samples
+        };
+        let silence = vec![0.0; 2_048 * 2];
+        let mut reused = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+        let _ = render_with_chunks(&mut reused, &impulse, &[127], 257).unwrap();
+
+        let mut terminal_buffer = vec![0.0; 64 * 2];
+        let terminal = finish_checked(
+            &mut reused,
+            AudioBlockMut::new(&mut terminal_buffer, 2).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(terminal, ProcessProgress::finished(0));
+
+        reused.reset().unwrap();
+        let actual = render_with_chunks(&mut reused, &silence, &[31, 257], 257).unwrap();
+        let mut fresh = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+        let expected = render_with_chunks(&mut fresh, &silence, &[31, 257], 257).unwrap();
+        assert_eq!(actual.len(), expected.len());
+        assert!(actual
+            .iter()
+            .zip(expected)
+            .all(|(left, right)| left.to_bits() == right.to_bits()));
+    }
+
+    #[test]
+    fn streaming_process_and_finish_do_not_allocate_after_setup() {
+        let input = fixture(512, 2);
+        let mut output = vec![0.0; 2_048 * 2];
+        let mut resampler = StreamingResampler::new(2, 48_000, 96_000).unwrap();
+
+        assert_no_alloc::assert_no_alloc(|| {
+            let input_block = AudioBlockRef::new(&input, 2).unwrap();
+            let output_block = AudioBlockMut::new(&mut output, 2).unwrap();
+            let progress = process_checked(
+                &mut resampler,
+                ProcessBuffers::out_of_place(input_block, output_block).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(progress.consumed_frames(), 512);
+
+            loop {
+                let output_block = AudioBlockMut::new(&mut output, 2).unwrap();
+                let progress = finish_checked(&mut resampler, output_block).unwrap();
+                if progress.state() == ProcessState::Finished {
+                    break;
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn one_shot_parallel_matches_unified_streaming_length() {
+        let input = fixture(24_000, 2);
+        let parallel = Resampler::new(2, 44_100, 192_000)
+            .resample_parallel(&input, PhaseResponse::Linear, ResampleQuality::High)
+            .unwrap();
+        let mut streaming = StreamingResampler::with_quality(
+            2,
             44_100,
-            48_000,
-            PhaseResponse::default(),
+            192_000,
+            PhaseResponse::Linear,
             ResampleQuality::High,
-        );
+        )
+        .unwrap();
+        let streamed = render_with_chunks(&mut streaming, &input, &[8_192], 1_023).unwrap();
+        assert_eq!(parallel.len(), streamed.len());
+    }
+
+    #[test]
+    fn output_rate_mapping_is_explicit() {
+        let resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        assert_eq!(resampler.output_sample_rate_hz(44_100), Ok(48_000));
         assert!(matches!(
-            result,
-            Err(ResamplerError::InitializationFailed(_))
+            resampler.output_sample_rate_hz(48_000),
+            Err(ProcessError::SampleRateMismatch { .. })
         ));
-    }
-
-    #[test]
-    fn process_chunk_append_matches_borrowed_for_resampling() {
-        let input = (0..2048)
-            .map(|sample| sample as f64 / 2048.0)
-            .collect::<Vec<_>>();
-        let mut borrowed_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let expected = borrowed_resampler
-            .process_chunk_borrowed(&input)
-            .samples
-            .to_vec();
-        let mut actual = vec![99.0];
-
-        let frames = append_resampler.process_chunk_append(&input, &mut actual);
-
-        assert_eq!(frames * 2, expected.len());
-        assert_eq!(&actual[..1], &[99.0]);
-        assert_eq!(&actual[1..], expected.as_slice());
-    }
-
-    #[test]
-    fn process_chunk_into_reuses_internal_capacity_after_warmup() {
-        let input = (0..4096)
-            .map(|sample| sample as f64 / 4096.0)
-            .collect::<Vec<_>>();
-        let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut output = vec![0.0; resampler.max_output_len_for_input(input.len())];
-
-        let _ = resampler.process_chunk_into(&input, &mut output);
-        let warmed_input_caps = resampler
-            .channel_inputs
-            .iter()
-            .map(Vec::capacity)
-            .collect::<Vec<_>>();
-        let warmed_output_caps = resampler
-            .channel_outputs
-            .iter()
-            .map(Vec::capacity)
-            .collect::<Vec<_>>();
-        let warmed_interleaved_cap = resampler.interleaved_output.capacity();
-        let warmed_scratch_len = resampler.output_scratch.len();
-
-        let _ = resampler.process_chunk_into(&input, &mut output);
-
-        assert_eq!(
-            resampler
-                .channel_inputs
-                .iter()
-                .map(Vec::capacity)
-                .collect::<Vec<_>>(),
-            warmed_input_caps
-        );
-        assert_eq!(
-            resampler
-                .channel_outputs
-                .iter()
-                .map(Vec::capacity)
-                .collect::<Vec<_>>(),
-            warmed_output_caps
-        );
-        assert_eq!(
-            resampler.interleaved_output.capacity(),
-            warmed_interleaved_cap
-        );
-        assert_eq!(resampler.output_scratch.len(), warmed_scratch_len);
-    }
-
-    #[test]
-    fn flush_into_matches_flush_and_preserves_prefix() {
-        let input = (0..2048)
-            .map(|sample| sample as f64 / 2048.0)
-            .collect::<Vec<_>>();
-        let mut wrapper_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut scratch = Vec::new();
-        let _ = wrapper_resampler.process_chunk_append(&input, &mut scratch);
-        scratch.clear();
-        let _ = append_resampler.process_chunk_append(&input, &mut scratch);
-        let expected = wrapper_resampler.flush();
-        let mut actual = vec![99.0];
-
-        let frames = append_resampler.flush_into(&mut actual);
-
-        assert_eq!(frames * 2, expected.len());
-        assert_eq!(&actual[..1], &[99.0]);
-        assert_eq!(&actual[1..], expected.as_slice());
-    }
-
-    #[test]
-    fn flush_into_reuses_warmed_output_capacity() {
-        let input = (0..4096)
-            .map(|sample| sample as f64 / 4096.0)
-            .collect::<Vec<_>>();
-        let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut scratch = Vec::new();
-        let _ = resampler.process_chunk_append(&input, &mut scratch);
-        let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
-
-        let _ = resampler.flush_into(&mut output);
-        let warmed_capacity = output.capacity();
-        output.clear();
-        scratch.clear();
-        let _ = resampler.process_chunk_append(&input, &mut scratch);
-        let _ = resampler.flush_into(&mut output);
-
-        assert_eq!(output.capacity(), warmed_capacity);
-    }
-
-    #[test]
-    fn flush_into_reuses_internal_capacity_after_warmup() {
-        let input = (0..4096)
-            .map(|sample| sample as f64 / 4096.0)
-            .collect::<Vec<_>>();
-        let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
-        let mut scratch = Vec::new();
-        let _ = resampler.process_chunk_append(&input, &mut scratch);
-        let _ = resampler.flush_into(&mut output);
-        let warmed_channel_caps = resampler
-            .channel_outputs
-            .iter()
-            .map(Vec::capacity)
-            .collect::<Vec<_>>();
-        let warmed_interleaved_cap = resampler.interleaved_output.capacity();
-        let warmed_scratch_len = resampler.output_scratch.len();
-
-        output.clear();
-        scratch.clear();
-        let _ = resampler.process_chunk_append(&input, &mut scratch);
-        let _ = resampler.flush_into(&mut output);
-
-        assert_eq!(
-            resampler
-                .channel_outputs
-                .iter()
-                .map(Vec::capacity)
-                .collect::<Vec<_>>(),
-            warmed_channel_caps
-        );
-        assert_eq!(
-            resampler.interleaved_output.capacity(),
-            warmed_interleaved_cap
-        );
-        assert_eq!(resampler.output_scratch.len(), warmed_scratch_len);
     }
 }

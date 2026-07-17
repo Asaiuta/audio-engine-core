@@ -2,12 +2,12 @@
 //!
 //! This example needs no audio files and no optional features. It generates a
 //! mono 48 kHz sine, streams it through the SoX VHQ engine to 44.1 kHz in
-//! fixed-size chunks, then flushes the filter tail and prints the frame counts
+//! fixed-size chunks, then finishes the stream and prints the frame counts
 //! so you can verify the ratio.
 //!
-//! `StreamingResampler` buffers input internally and emits resampled audio in
-//! batches, so the idiomatic pattern is to feed successive chunks and append
-//! whatever each call returns, then `flush_into` once the input is exhausted.
+//! `StreamingResampler` can partially consume input or fill output. Advance
+//! both cursors from `ProcessProgress`, then call `finish_checked` until it
+//! reaches `Finished`.
 //!
 //! Run with:
 //!
@@ -15,7 +15,10 @@
 //! cargo run --example resample_sine
 //! ```
 
-use audio_engine_core::StreamingResampler;
+use audio_engine_core::{
+    finish_checked, process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, ProcessState,
+    StreamingResampler,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     const FROM_RATE: u32 = 48_000;
@@ -35,13 +38,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut resampler = StreamingResampler::new(CHANNELS, FROM_RATE, TO_RATE)?;
 
-    // Stream the signal through the resampler one chunk at a time, then flush
-    // the filter tail to recover the last buffered samples.
+    // Stream the signal through the resampler one chunk at a time, advancing
+    // exact input/output progress on every call.
     let mut output: Vec<f64> = Vec::new();
+    let mut scratch = vec![0.0; CHUNK_FRAMES * CHANNELS];
     for chunk in input.chunks(CHUNK_FRAMES * CHANNELS) {
-        resampler.process_chunk_append(chunk, &mut output);
+        let mut consumed_frames = 0;
+        let chunk_frames = chunk.len() / CHANNELS;
+        while consumed_frames < chunk_frames {
+            let input_block = AudioBlockRef::new(&chunk[consumed_frames * CHANNELS..], CHANNELS)?;
+            let output_block = AudioBlockMut::new(&mut scratch, CHANNELS)?;
+            let progress = process_checked(
+                &mut resampler,
+                ProcessBuffers::out_of_place(input_block, output_block)?,
+            )?;
+            consumed_frames += progress.consumed_frames();
+            output.extend_from_slice(&scratch[..progress.produced_frames() * CHANNELS]);
+        }
     }
-    resampler.flush_into(&mut output);
+    loop {
+        let output_block = AudioBlockMut::new(&mut scratch, CHANNELS)?;
+        let progress = finish_checked(&mut resampler, output_block)?;
+        output.extend_from_slice(&scratch[..progress.produced_frames() * CHANNELS]);
+        if progress.state() == ProcessState::Finished {
+            break;
+        }
+    }
 
     let expected = (input_frames as f64 * TO_RATE as f64 / FROM_RATE as f64).round() as usize;
     println!(
@@ -53,15 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         expected
     );
 
-    // The output is shorter than the ideal ratio by the resampler's group
-    // delay (the VHQ polyphase filter has ~1 ms of latency). Allow a margin
-    // that comfortably covers that filter tail over a one-second signal.
-    assert!(
-        output.len().abs_diff(expected) <= 1_024,
-        "output frame count {} should be within the filter-tail margin of {}",
-        output.len(),
-        expected
-    );
+    assert_eq!(output.len(), expected);
 
     Ok(())
 }
