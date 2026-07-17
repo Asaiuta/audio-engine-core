@@ -400,3 +400,37 @@ Corrected EQ branch state adoption, loudness config publication, RBJ shelf math,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Standardize audio quality and performance gates
+
+**Date**: 2026-07-17
+**Task**: Standardize audio quality and performance gates
+
+### Summary
+
+Standardized quality, callback, and streaming-resampler reports with versioned environment metadata, trial distributions, compatible 10% median baselines, CI quick artifacts, latency/tail evidence, documentation, and full release verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5a10309` | (see git log) |
+| `3c2f3a9` | (see git log) |
+| `9eb1f5e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
