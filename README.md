@@ -102,6 +102,12 @@ or through MSYS2/MinGW64, which is also the CI path:
 pacman -S mingw-w64-x86_64-libsoxr mingw-w64-x86_64-pkgconf mingw-w64-x86_64-tools
 ```
 
+For an MSVC Cargo build backed by the MSYS2 package, `build.rs` generates the
+import library and deploys `libsoxr.dll` together with its matching MinGW
+runtime DLLs beside Cargo binaries, tests, examples, and benchmarks. Direct
+`cargo test`, `cargo run --example ...`, and `cargo bench ...` commands therefore
+do not need a separate runtime `PATH` workaround after a successful build.
+
 On Unix-like systems, install SoXR through your system package manager and make
 sure `pkg-config` can locate it.
 
@@ -247,8 +253,8 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.8 ns | 119.6 us | seven-trial quick median; p95 callback utilization 1.41% |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 126.2 ns | 129.2 us | seven-trial quick median; p95 callback utilization 1.24% |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.9 ns | 119.7 us | seven-trial quick median; p95 callback utilization 1.16% |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 124.4 ns | 127.4 us | seven-trial quick median; p95 callback utilization 1.35% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
@@ -309,31 +315,39 @@ replace listening tests.
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB |
 | 20 kHz resampler gain | -0.0062 dB |
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | -297.0 dB |
-| Saturation alias-energy reduction, Direct vs `Oversampled4x` Tube stress | +16.6 dB |
+| Saturation threshold max jump / first-derivative mismatch | 1.416e-6 / 3.610e-4 |
+| Saturation alias-energy reduction, Direct vs `Oversampled4x` Tube stress | +16.3 dB |
 | Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
 | Limiter below-threshold THD+N | -253.9 dB |
 | True-peak mode, intersample-stress output (input +0.10 dBTP / -3.01 dBFS) | -1.00 dBTP |
 | Sample-peak mode, same input (never engages) | +0.10 dBTP |
 | `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
 | 10-band EQ +6 dB target response error (62 Hz, 1 kHz, 8 kHz) | 0.0000 dB max |
-| Crossfeed high-band level at 2 kHz | -9.18 dB |
-| Crossfeed low-vs-high attenuation (80 Hz vs 2 kHz) | -37.63 dB |
-| Crossfeed mix-change continuity delta | 0.000e0 (vs 7.992e-3 for a reset simulation) |
+| Bauer crossfeed low/high levels (80 Hz / 2 kHz) | -17.73 / -27.27 dB |
+| Bauer crossfeed low-minus-high separation | +9.54 dB |
+| Crossfeed mix-change continuity delta | 0.000e0 (vs 5.762e-3 for a reset simulation) |
+| Noise-shaper -140 dBFS changed fraction / non-finite stress outputs | 1.000 / 0 |
 | Dynamic loudness low-volume compensation | +8.41 dB at 40 Hz, +2.83 dB at 3 kHz |
 
-The saturation alias probe drives an 11 kHz Tube waveshaper and fits folded
-above-Nyquist harmonics. In the current quick run, `Oversampled4x` reduced the
-aggregate fitted alias energy from -15.10 dBFS to -31.66 dBFS at equivalent
-drive/mix settings.
+The saturation threshold uses a 0.05-full-scale C1 soft knee shared by the
+direct, oversampled, and high-pass-exciter paths. The alias probe drives an
+11 kHz Tube waveshaper and fits folded above-Nyquist harmonics. In the current
+quick run, `Oversampled4x` reduced the aggregate fitted alias energy from
+-15.10 dBFS to -31.42 dBFS at equivalent drive/mix settings.
 
-The listening-DSP rows are single-tone synthetic probes after filter settling.
-They validate target response/effect size and parameter-change continuity; they
-are not external listening-test or analog-output evidence.
+The crossfeed follows the libbs2b-style low-pass/high-boost Bauer topology with
+overload-prevention gain. `mix` is a dry-to-reference strength, and mix/cutoff
+updates ramp over about 10 ms without clearing filter history. The listening-DSP
+rows are synthetic probes after settling; they validate target response/effect
+size and parameter-change continuity, not external listening-test or analog
+output evidence.
 
-The noise shapers (`NoiseShaper`) redistribute quantization error spectrally
-rather than lowering broadband noise: the shaped curves strongly reduce the
-2-6 kHz band while pushing energy into 14-18 kHz, for up to a +34.8 dB
-ear-band advantage over flat TPDF dither.
+The noise shapers (`NoiseShaper`) continuously dither every finite input,
+including exact digital silence, and clamp to the signed target-bit range;
+NaN/Inf clears only the affected channel history and returns zero. Shaping
+redistributes quantization error rather than lowering broadband noise: the
+curves strongly reduce the 2-6 kHz band while pushing energy into 14-18 kHz,
+for up to a +34.8 dB ear-band advantage over flat TPDF dither.
 
 The benchmark also includes an optional EBU Tech 3341/3342 expected-value corpus
 check. It is skipped unless the `libebur128/test` reference vectors are present
