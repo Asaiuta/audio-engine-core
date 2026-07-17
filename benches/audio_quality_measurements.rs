@@ -3,7 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwapOption;
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
@@ -12,13 +11,20 @@ use audio_engine_core::processor::{
     AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqParams,
     AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams,
     AudioBlockMut, AudioBlockRef, Crossfeed, CrossfeedProcessor, DynamicLoudness, Equalizer,
-    FFTConvolver, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OutputChainBuilder,
-    OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState, RenderedOutput, Saturation,
-    SaturationQuality, SaturationType, StreamingProcessor, StreamingResampler, EQ_BANDS,
+    FFTConvolver, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
+    OutputChainBuilder, OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState,
+    RenderTimeline, RenderedOutput, Saturation, SaturationQuality, SaturationType,
+    StreamingProcessor, StreamingResampler, EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::Serialize;
+
+pub mod support;
+
+use support::{
+    environment_json, generated_unix_ms, write_json, BenchEnvironment, REPORT_SCHEMA_VERSION,
+};
 
 const SAMPLE_RATE: u32 = 48_000;
 const CHANNELS: usize = 2;
@@ -165,10 +171,10 @@ fn main() -> Result<(), String> {
     let args = Args::parse(std::env::args().skip(1).collect::<Vec<_>>())?;
     let report = run_measurements(args.quick, &args.ebu_dir)?;
 
-    print_report(&report);
+    print_report(&report)?;
 
     if let Some(out_path) = args.out {
-        write_report(&out_path, &report)?;
+        write_json(&out_path, &report, "quality measurement report")?;
     }
 
     if args.enforce {
@@ -269,9 +275,11 @@ impl EbuExpectedFile {
 
 #[derive(Serialize)]
 struct QualityReport {
+    schema_version: u32,
     probe: &'static str,
     generated_unix_ms: u128,
     mode: &'static str,
+    environment: BenchEnvironment,
     conditions: Conditions,
     thdn: ThdnSection,
     frequency_response: FrequencyResponseSection,
@@ -453,6 +461,10 @@ struct Conditions {
     noise_shaping_method: &'static str,
     loudness_reference_method: &'static str,
     full_output_true_peak_method: String,
+    render_timeline: &'static str,
+    unknown_tail_energy_threshold_dbfs: f64,
+    unknown_tail_silence_hold_ms: u32,
+    unknown_tail_max_tail_ms: u32,
 }
 
 #[derive(Serialize)]
@@ -699,6 +711,10 @@ struct FullOutputTruePeakPoint {
     output_margin_to_limiter_threshold_db: f64,
     final_limiter_gain_reduction_db: f64,
     output_frames: usize,
+    rendered_frames: usize,
+    algorithmic_latency_frames: usize,
+    semantic_tail_frames: usize,
+    tail_truncated: bool,
 }
 
 #[derive(Serialize)]
@@ -721,6 +737,11 @@ struct EbuTruePeakPoint {
     input_error_db: f64,
     full_output_true_peak_dbtp: f64,
     full_output_margin_to_limiter_threshold_db: f64,
+    output_frames: usize,
+    rendered_frames: usize,
+    algorithmic_latency_frames: usize,
+    semantic_tail_frames: usize,
+    tail_truncated: bool,
     passed_reference_tolerance: bool,
 }
 
@@ -758,6 +779,13 @@ struct WavFormat {
     block_align: usize,
 }
 
+fn render_timeline_name(timeline: RenderTimeline) -> &'static str {
+    match timeline {
+        RenderTimeline::Compensated => "compensated",
+        RenderTimeline::RawCausal => "raw_causal",
+    }
+}
+
 fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String> {
     let frames = if quick { 65_536 } else { 262_144 };
     let test_frequency = 997.0;
@@ -784,7 +812,8 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     let listening_dsp = measure_listening_dsp(frames)?;
     let noise_shaping = measure_noise_shaping(frames)?;
     let loudness_reference = measure_loudness_reference(ebu_dir)?;
-    let full_output_true_peak = measure_full_output_true_peak(frames, ebu_dir)?;
+    let render_policy = OfflineRenderPolicy::default();
+    let full_output_true_peak = measure_full_output_true_peak(frames, ebu_dir, render_policy)?;
 
     let metrics = build_metrics(
         &resampler_fit,
@@ -800,9 +829,11 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     );
 
     Ok(QualityReport {
+        schema_version: REPORT_SCHEMA_VERSION,
         probe: "audio_quality_measurements",
-        generated_unix_ms: unix_ms(),
+        generated_unix_ms: generated_unix_ms(),
         mode: if quick { "quick" } else { "full" },
+        environment: BenchEnvironment::capture(),
         conditions: Conditions {
             measurement_path: "offline f64 synthetic signal -> Rust processor modules -> numeric analysis",
             resampler_phase: "Linear",
@@ -819,6 +850,12 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
                 "offline canonical output chain: {} -> LoudnessMeter true-peak analysis",
                 offline_stage_order_csv()
             ),
+            render_timeline: render_timeline_name(render_policy.timeline),
+            unknown_tail_energy_threshold_dbfs: render_policy
+                .unknown_tail
+                .energy_threshold_dbfs,
+            unknown_tail_silence_hold_ms: render_policy.unknown_tail.silence_hold_ms,
+            unknown_tail_max_tail_ms: render_policy.unknown_tail.max_tail_ms,
         },
         thdn: ThdnSection {
             analyzer_floor_db: analyzer_fit.thdn_db,
@@ -2102,6 +2139,7 @@ fn measure_reference_loudness(samples: &[f64]) -> Result<LoudnessValues, String>
 fn measure_full_output_true_peak(
     frames: usize,
     ebu_dir: &Path,
+    render_policy: OfflineRenderPolicy,
 ) -> Result<FullOutputTruePeakSection, String> {
     let mut points = Vec::new();
     let synthetic = synthetic_intersample_stress(frames, RESAMPLE_FROM);
@@ -2111,9 +2149,10 @@ fn measure_full_output_true_peak(
         &synthetic,
         RESAMPLE_FROM,
         CHANNELS,
+        render_policy,
     )?);
 
-    let ebu_corpus = measure_ebu_true_peak_corpus(ebu_dir)?;
+    let ebu_corpus = measure_ebu_true_peak_corpus(ebu_dir, render_policy)?;
     for point in &ebu_corpus.points {
         points.push(FullOutputTruePeakPoint {
             name: format!("ebu_{}", point.file_name),
@@ -2127,7 +2166,11 @@ fn measure_full_output_true_peak(
             output_true_peak_dbtp: point.full_output_true_peak_dbtp,
             output_margin_to_limiter_threshold_db: point.full_output_margin_to_limiter_threshold_db,
             final_limiter_gain_reduction_db: f64::NAN,
-            output_frames: point.frames,
+            output_frames: point.output_frames,
+            rendered_frames: point.rendered_frames,
+            algorithmic_latency_frames: point.algorithmic_latency_frames,
+            semantic_tail_frames: point.semantic_tail_frames,
+            tail_truncated: point.tail_truncated,
         });
     }
 
@@ -2154,7 +2197,10 @@ fn measure_full_output_true_peak(
     })
 }
 
-fn measure_ebu_true_peak_corpus(ebu_dir: &Path) -> Result<EbuTruePeakCorpusSection, String> {
+fn measure_ebu_true_peak_corpus(
+    ebu_dir: &Path,
+    render_policy: OfflineRenderPolicy,
+) -> Result<EbuTruePeakCorpusSection, String> {
     let mut missing_files = Vec::new();
     collect_missing_expected_files(&EBU_TRUE_PEAK_FILES, ebu_dir, &mut missing_files);
     missing_files.sort_unstable();
@@ -2175,9 +2221,11 @@ fn measure_ebu_true_peak_corpus(ebu_dir: &Path) -> Result<EbuTruePeakCorpusSecti
         let wav = read_pcm_wav(&ebu_dir.join(expected_file.file_name))?;
         let measured_input_true_peak_dbtp =
             measure_true_peak_db(&wav.samples, wav.channels, wav.sample_rate)?;
-        let rendered = render_full_output_chain(&wav.samples, wav.sample_rate, wav.channels)?;
+        let rendered =
+            render_full_output_chain(&wav.samples, wav.sample_rate, wav.channels, render_policy)?;
         let full_output_true_peak_dbtp =
             measure_true_peak_db(&rendered.samples, wav.channels, RESAMPLE_TO)?;
+        let output_frames = rendered.samples.len() / wav.channels;
         let input_error_db = measured_input_true_peak_dbtp - expected_file.expected;
         points.push(EbuTruePeakPoint {
             file_name: expected_file.file_name,
@@ -2190,6 +2238,11 @@ fn measure_ebu_true_peak_corpus(ebu_dir: &Path) -> Result<EbuTruePeakCorpusSecti
             full_output_true_peak_dbtp,
             full_output_margin_to_limiter_threshold_db: full_output_true_peak_dbtp
                 - FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
+            output_frames,
+            rendered_frames: rendered.rendered_frames,
+            algorithmic_latency_frames: rendered.algorithmic_latency_frames,
+            semantic_tail_frames: rendered.semantic_tail_frames,
+            tail_truncated: rendered.tail_truncated,
             passed_reference_tolerance: (EBU_TRUE_PEAK_LOWER_TOLERANCE_DB
                 ..=EBU_TRUE_PEAK_UPPER_TOLERANCE_DB)
                 .contains(&input_error_db),
@@ -2214,9 +2267,11 @@ fn measure_full_output_true_peak_point(
     samples: &[f64],
     source_sample_rate: u32,
     channels: usize,
+    render_policy: OfflineRenderPolicy,
 ) -> Result<FullOutputTruePeakPoint, String> {
-    let rendered = render_full_output_chain(samples, source_sample_rate, channels)?;
+    let rendered = render_full_output_chain(samples, source_sample_rate, channels, render_policy)?;
     let output_true_peak_dbtp = measure_true_peak_db(&rendered.samples, channels, RESAMPLE_TO)?;
+    let output_frames = rendered.samples.len() / channels;
 
     Ok(FullOutputTruePeakPoint {
         name,
@@ -2231,7 +2286,11 @@ fn measure_full_output_true_peak_point(
         output_margin_to_limiter_threshold_db: output_true_peak_dbtp
             - FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
         final_limiter_gain_reduction_db: rendered.final_limiter_gain_reduction_db,
-        output_frames: rendered.samples.len() / channels,
+        output_frames,
+        rendered_frames: rendered.rendered_frames,
+        algorithmic_latency_frames: rendered.algorithmic_latency_frames,
+        semantic_tail_frames: rendered.semantic_tail_frames,
+        tail_truncated: rendered.tail_truncated,
     })
 }
 
@@ -2239,6 +2298,7 @@ fn render_full_output_chain(
     samples: &[f64],
     source_sample_rate: u32,
     channels: usize,
+    render_policy: OfflineRenderPolicy,
 ) -> Result<RenderedOutput, String> {
     let eq_params = Arc::new(AtomicEqParams::new());
     let saturation_params = Arc::new(AtomicSaturationParams::new());
@@ -2276,9 +2336,11 @@ fn render_full_output_chain(
         limiter_params,
         noise_shaper_params,
     })
-    .build_render_chain()?;
+    .build_render_chain_with_policy(render_policy)?;
 
-    chain.render(samples).map_err(|err| err.to_string())
+    chain
+        .render_with_policy(samples, render_policy)
+        .map_err(|err| err.to_string())
 }
 
 fn resample_mono(input: &[f64], from_rate: u32, to_rate: u32) -> Result<Vec<f64>, String> {
@@ -2853,26 +2915,6 @@ fn abs_delta(left: f64, right: f64) -> f64 {
     }
 }
 
-fn unix_ms() -> u128 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_millis(),
-        Err(_) => 0,
-    }
-}
-
-fn write_report(path: &Path, report: &QualityReport) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("failed to create '{}': {err}", parent.display()))?;
-        }
-    }
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|err| format!("failed to serialize quality report: {err}"))?;
-    fs::write(path, format!("{json}\n"))
-        .map_err(|err| format!("failed to write '{}': {err}", path.display()))
-}
-
 fn ebu_loudness_point_count(corpus: &EbuLoudnessCorpusSection) -> usize {
     corpus.global_loudness_points.len()
         + corpus.loudness_range_points.len()
@@ -2907,10 +2949,42 @@ fn full_output_true_peak_over_limit_count(section: &FullOutputTruePeakSection) -
         .count()
 }
 
-fn print_report(report: &QualityReport) {
+fn print_report(report: &QualityReport) -> Result<(), String> {
     println!(
-        "audio_quality_measurements mode={} path={}",
-        report.mode, report.conditions.measurement_path
+        "audio_quality_measurements schema_version={} mode={} path={}",
+        report.schema_version, report.mode, report.conditions.measurement_path
+    );
+    println!(
+        "benchmark_environment {}",
+        environment_json(&report.environment)?
+    );
+    let gate_count = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.classification == Classification::Gate)
+        .count();
+    let failed_gate_count = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.classification == Classification::Gate && !metric.passed)
+        .count();
+    let report_count = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.classification == Classification::Report)
+        .count();
+    let skipped_count = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.classification == Classification::Skipped)
+        .count();
+    println!(
+        "quality_metric_summary gates={} gate_passed={} gate_failed={} reports={} skipped={}",
+        gate_count,
+        gate_count - failed_gate_count,
+        failed_gate_count,
+        report_count,
+        skipped_count
     );
     println!(
         "quality_thdn analyzer_floor_db={:.2} resampler_44k1_to_48k_db={:.2} limiter_below_threshold_db={:.2} frequency_hz={:.1} amplitude_dbfs={:.1}",
@@ -3098,14 +3172,35 @@ fn print_report(report: &QualityReport) {
     }
     let full_output = &report.full_output_true_peak;
     println!(
-        "quality_full_output_true_peak output_rate={} limiter_threshold_dbfs={:.2} final_noise_shaper_bits={} worst_output_true_peak_dbtp={:.3} worst_margin_to_limiter_db={:.3} over_limit_points={}",
+        "quality_full_output_true_peak output_rate={} limiter_threshold_dbfs={:.2} final_noise_shaper_bits={} timeline={} unknown_tail_threshold_dbfs={:.1} unknown_tail_hold_ms={} unknown_tail_max_ms={} worst_output_true_peak_dbtp={:.3} worst_margin_to_limiter_db={:.3} over_limit_points={}",
         full_output.output_sample_rate_hz,
         full_output.limiter_threshold_dbfs,
         full_output.final_noise_shaper_bits,
+        report.conditions.render_timeline,
+        report.conditions.unknown_tail_energy_threshold_dbfs,
+        report.conditions.unknown_tail_silence_hold_ms,
+        report.conditions.unknown_tail_max_tail_ms,
         full_output.worst_output_true_peak_dbtp,
         full_output.worst_margin_to_limiter_threshold_db,
         full_output_true_peak_over_limit_count(full_output)
     );
+    for point in &full_output.points {
+        println!(
+            "quality_full_output_point name={} source_kind={} source_rate={} source_channels={} source_frames={} output_frames={} rendered_frames={} algorithmic_latency_frames={} semantic_tail_frames={} tail_truncated={} output_true_peak_dbtp={:.3} limiter_margin_db={:.3}",
+            point.name,
+            point.source_kind,
+            point.source_sample_rate_hz,
+            point.source_channels,
+            point.source_frames,
+            point.output_frames,
+            point.rendered_frames,
+            point.algorithmic_latency_frames,
+            point.semantic_tail_frames,
+            point.tail_truncated,
+            point.output_true_peak_dbtp,
+            point.output_margin_to_limiter_threshold_db
+        );
+    }
     let ebu_true_peak = &full_output.ebu_true_peak_corpus;
     if ebu_true_peak.available {
         println!(
@@ -3122,6 +3217,8 @@ fn print_report(report: &QualityReport) {
             ebu_true_peak.missing_files.len()
         );
     }
+
+    Ok(())
 }
 
 fn enforce_limits(report: &QualityReport) -> Result<(), String> {
