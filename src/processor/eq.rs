@@ -53,15 +53,17 @@ impl BiquadSection {
         self.z2 = 0.0;
     }
 
-    /// Copy coefficients from another section without copying state (z1, z2).
-    /// This is used for smooth parameter transitions to avoid state discontinuities.
+    /// Copy coefficients while deliberately retaining this section's delay state.
+    ///
+    /// Do not use this to adopt an independently processed crossfade branch: in
+    /// that case the source branch's complete state is authoritative.
     pub fn copy_coefficients_from(&mut self, other: &Self) {
         self.b0 = other.b0;
         self.b1 = other.b1;
         self.b2 = other.b2;
         self.a1 = other.a1;
         self.a2 = other.a2;
-        // z1, z2 are intentionally NOT copied - keep current state
+        // z1, z2 intentionally remain attached to this section.
     }
 }
 
@@ -164,7 +166,7 @@ impl Equalizer {
                     // Crossfade done: snap current to target
                     if self.smooth_counter[b] == 0 {
                         for c in 0..self.channels {
-                            self.bands[c][b].copy_coefficients_from(&self.target_bands[c][b]);
+                            self.bands[c][b].clone_from(&self.target_bands[c][b]);
                         }
                     }
                 }
@@ -235,6 +237,109 @@ impl Equalizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_section_bit_equal(actual: &BiquadSection, expected: &BiquadSection) {
+        assert_eq!(actual.b0.to_bits(), expected.b0.to_bits(), "b0");
+        assert_eq!(actual.b1.to_bits(), expected.b1.to_bits(), "b1");
+        assert_eq!(actual.b2.to_bits(), expected.b2.to_bits(), "b2");
+        assert_eq!(actual.a1.to_bits(), expected.a1.to_bits(), "a1");
+        assert_eq!(actual.a2.to_bits(), expected.a2.to_bits(), "a2");
+        assert_eq!(actual.z1.to_bits(), expected.z1.to_bits(), "z1");
+        assert_eq!(actual.z2.to_bits(), expected.z2.to_bits(), "z2");
+    }
+
+    fn configured_transition_input(kind: usize) -> Vec<f64> {
+        let mut input = vec![0.0; EQ_SMOOTH_SAMPLES as usize];
+        match kind {
+            0 => {
+                for (frame, sample) in input.iter_mut().enumerate() {
+                    *sample =
+                        (2.0 * std::f64::consts::PI * 997.0 * frame as f64 / 48_000.0).sin() * 0.4;
+                }
+            }
+            _ => input[17] = 0.8,
+        }
+        input
+    }
+
+    fn assert_transition_adopts_target_state(transition_input: &[f64]) {
+        const BAND: usize = 5;
+        let mut eq = Equalizer::new(1, 48_000.0);
+        eq.set_enabled(true);
+
+        let mut warmup = (0..257)
+            .map(|frame| ((frame as f64) * 0.071).sin() * 0.3)
+            .collect::<Vec<_>>();
+        eq.process(&mut warmup);
+        eq.set_band_gain(BAND, 12.0, 48_000.0);
+
+        let mut transition = transition_input.to_vec();
+        eq.process(&mut transition);
+
+        assert_eq!(eq.smooth_counter[BAND], 0);
+        assert_section_bit_equal(&eq.bands[0][BAND], &eq.target_bands[0][BAND]);
+
+        let mut actual = eq.bands[0][BAND].clone();
+        let mut reference = eq.target_bands[0][BAND].clone();
+        let continuation = (0..512)
+            .map(|frame| ((frame as f64) * 0.113).cos() * 0.25)
+            .collect::<Vec<_>>();
+        let max_error = continuation
+            .into_iter()
+            .map(|sample| (actual.process(sample) - reference.process(sample)).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_error <= 1.0e-9, "continuation error {max_error:e}");
+    }
+
+    #[test]
+    fn transition_adopts_complete_target_state_for_tone_and_impulse() {
+        assert_transition_adopts_target_state(&configured_transition_input(0));
+        assert_transition_adopts_target_state(&configured_transition_input(1));
+    }
+
+    #[test]
+    fn transition_is_equivalent_across_irregular_chunks() {
+        let mut whole = Equalizer::new(2, 48_000.0);
+        let mut chunked = Equalizer::new(2, 48_000.0);
+        whole.set_enabled(true);
+        chunked.set_enabled(true);
+        whole.set_band_gain(5, 9.0, 48_000.0);
+        chunked.set_band_gain(5, 9.0, 48_000.0);
+        let input = (0..(EQ_SMOOTH_SAMPLES as usize + 733) * 2)
+            .map(|sample| ((sample as f64) * 0.019).sin() * 0.3)
+            .collect::<Vec<_>>();
+        let mut expected = input.clone();
+        let mut actual = input;
+
+        whole.process(&mut expected);
+        let chunk_pattern = [1, 17, 3, 127, 64, 5, 251, 32];
+        let total_frames = actual.len() / 2;
+        let mut start = 0;
+        let mut pattern = 0;
+        while start < total_frames {
+            let end = (start + chunk_pattern[pattern % chunk_pattern.len()]).min(total_frames);
+            chunked.process(&mut actual[start * 2..end * 2]);
+            start = end;
+            pattern += 1;
+        }
+
+        let max_error = actual
+            .iter()
+            .zip(&expected)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_error <= 1.0e-9, "chunking error {max_error:e}");
+    }
+
+    #[test]
+    fn transition_completion_is_allocation_free() {
+        let mut eq = Equalizer::new(2, 48_000.0);
+        eq.set_enabled(true);
+        eq.set_band_gain(5, 12.0, 48_000.0);
+        let mut buffer = vec![0.25; EQ_SMOOTH_SAMPLES as usize * 2];
+
+        assert_no_alloc::assert_no_alloc(|| eq.process(&mut buffer));
+    }
 
     #[test]
     fn fixed_band_banks_are_allocated_per_channel() {

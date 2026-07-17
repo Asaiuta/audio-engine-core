@@ -32,6 +32,8 @@ impl LoudnessNormalizer {
             config.smoothing_time_ms,
             sample_rate,
         ));
+        atomic_state.set_enabled(config.enabled);
+        atomic_state.set_normalization_mode(config.mode);
 
         Self {
             meter: LoudnessMeter::new(channels, sample_rate),
@@ -56,14 +58,17 @@ impl LoudnessNormalizer {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
+        self.config.enabled = enabled;
         self.atomic_state.set_enabled(enabled);
     }
 
     pub fn set_config(&mut self, config: LoudnessConfig) {
-        self.config = config.clone();
         self.limiter.set_threshold_db(config.true_peak_limit_db);
         self.atomic_state
             .set_smoothing(config.smoothing_time_ms, self.sample_rate);
+        self.atomic_state.set_enabled(config.enabled);
+        self.atomic_state.set_normalization_mode(config.mode);
+        self.config = config;
 
         if let Some(loudness) = self.track_loudness {
             let track_gain = self.config.target_lufs - loudness;
@@ -89,15 +94,9 @@ impl LoudnessNormalizer {
         self.atomic_state.set_preamp_gain(gain_db);
     }
 
-    pub fn set_mode(&self, mode: NormalizationMode) {
-        let mode_val = match mode {
-            NormalizationMode::Track => 0,
-            NormalizationMode::Album => 1,
-            NormalizationMode::Streaming => 2,
-            NormalizationMode::ReplayGainTrack => 3,
-            NormalizationMode::ReplayGainAlbum => 4,
-        };
-        self.atomic_state.set_mode(mode_val);
+    pub fn set_mode(&mut self, mode: NormalizationMode) {
+        self.config.mode = mode;
+        self.atomic_state.set_normalization_mode(mode);
     }
 
     /// Pre-analyze track loudness (call before streaming playback)
@@ -285,5 +284,69 @@ impl LoudnessNormalizer {
     }
     pub fn is_analyzed(&self) -> bool {
         self.track_loudness.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MODES: [NormalizationMode; 5] = [
+        NormalizationMode::Track,
+        NormalizationMode::Album,
+        NormalizationMode::Streaming,
+        NormalizationMode::ReplayGainTrack,
+        NormalizationMode::ReplayGainAlbum,
+    ];
+
+    #[test]
+    fn constructor_publishes_disabled_album_config_and_bypasses() {
+        let config = LoudnessConfig {
+            enabled: false,
+            mode: NormalizationMode::Album,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config);
+        let state = normalizer.atomic_state();
+
+        assert!(!state.enabled.load(Ordering::Relaxed));
+        assert_eq!(state.get_mode(), NormalizationMode::Album);
+
+        let mut samples = vec![0.25; 128 * 2];
+        let expected = samples.clone();
+        normalizer.process(&mut samples);
+        assert_eq!(samples, expected);
+    }
+
+    #[test]
+    fn config_and_explicit_setters_round_trip_all_modes() {
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, LoudnessConfig::default());
+
+        for (index, mode) in MODES.into_iter().enumerate() {
+            let enabled = index % 2 == 0;
+            let config = LoudnessConfig {
+                enabled,
+                mode,
+                ..LoudnessConfig::default()
+            };
+            normalizer.set_config(config);
+            assert_eq!(
+                normalizer.atomic_state.enabled.load(Ordering::Relaxed),
+                enabled
+            );
+            assert_eq!(normalizer.atomic_state.get_mode(), mode);
+            assert_eq!(normalizer.config.enabled, enabled);
+            assert_eq!(normalizer.config.mode, mode);
+        }
+
+        normalizer.set_enabled(false);
+        normalizer.set_mode(NormalizationMode::ReplayGainAlbum);
+        assert!(!normalizer.config.enabled);
+        assert_eq!(normalizer.config.mode, NormalizationMode::ReplayGainAlbum);
+        assert!(!normalizer.atomic_state.enabled.load(Ordering::Relaxed));
+        assert_eq!(
+            normalizer.atomic_state.get_mode(),
+            NormalizationMode::ReplayGainAlbum
+        );
     }
 }

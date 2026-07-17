@@ -56,6 +56,17 @@ SemVer for pre-1.0 releases.
   limitations.
 
 ### Fixed
+- Equalizer crossfades now adopt the target branch's complete biquad state at
+  transition completion instead of combining target coefficients with stale
+  active-branch delay history.
+- `LoudnessNormalizer` now publishes configured enabled state and all five
+  normalization modes during construction and reconfiguration, while explicit
+  setters keep the stored config and lock-free runtime state synchronized.
+- Dynamic-loudness low/high shelves now follow the RBJ equations without an
+  extra `sin(w0)` factor in the shelf term.
+- Dynamic-loudness sample-rate changes now preserve strength, loudness factor,
+  and smoother progress while rebuilding rate-dependent coefficients and
+  explicitly resetting incompatible biquad delay history.
 - `Resampler::resample_parallel` no longer silently truncates output for
   upsampling ratios above 1.5x (e.g. 44.1->96/192 kHz): per-chunk scratch is
   now sized by the actual conversion ratio and the flush drains SoXR in a loop
