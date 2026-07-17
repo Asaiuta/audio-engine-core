@@ -146,6 +146,13 @@ jobs:
           --quick --enforce
           --out target/bench-reports/streaming-resampler-quick.json
 
+      - name: FIR-EQ quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_fir_eq_perf --
+          --quick --enforce
+          --out target/bench-reports/fir-eq-quick.json
+
       - name: Upload quality and performance reports
         if: always()
         uses: actions/upload-artifact@v4
