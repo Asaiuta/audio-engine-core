@@ -1,5 +1,16 @@
 use std::hint::black_box;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+use serde::{Deserialize, Serialize};
+
+pub mod support;
+
+use support::{
+    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
+    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
+    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    REPORT_SCHEMA_VERSION,
+};
 
 use audio_engine_core::processor::{
     process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, StreamingProcessor,
@@ -9,6 +20,7 @@ use audio_engine_core::processor::{
 const CHANNELS: usize = 2;
 const BUFFER_FRAMES: [usize; 3] = [128, 256, 512];
 const WARMUP_BUFFERS: usize = 64;
+const VALIDATION_BUFFERS: usize = 8;
 
 #[derive(Clone, Copy)]
 struct Scenario {
@@ -54,76 +66,304 @@ impl ApiPath {
     }
 }
 
-struct Report {
+struct TrialMeasurement {
     ns_per_input_sample: f64,
     ns_per_input_buffer: f64,
     output_frames_total: usize,
-    elapsed: Duration,
+    consumed_frames_total: usize,
 }
 
-fn main() {
-    let args = std::env::args().collect::<Vec<_>>();
-    let quick = args.iter().any(|arg| arg == "--quick");
-    let heavy = args.iter().any(|arg| arg == "--heavy");
-    let enforce = args.iter().any(|arg| arg == "--enforce");
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct ResamplerConditions {
+    channels: usize,
+    algorithm: String,
+    coverage: String,
+    excludes: Vec<String>,
+    warmup_buffers: usize,
+    iterations_per_trial: usize,
+    trials: usize,
+}
 
-    let (iterations, trials) = if quick {
-        (400, 1)
-    } else if heavy {
-        (4_000, 5)
-    } else {
-        (1_200, 3)
+#[derive(Debug, Deserialize, Serialize)]
+struct ResamplerWorkValidation {
+    valid: bool,
+    validation_buffers: usize,
+    consumed_frames: usize,
+    expected_consumed_frames: usize,
+    produced_frames: usize,
+    all_output_samples_finite: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ResamplerCase {
+    case_key: String,
+    scenario: String,
+    api: String,
+    algorithm: String,
+    frames: usize,
+    input_samples: usize,
+    from_rate_hz: u32,
+    to_rate_hz: u32,
+    ns_per_input_sample: TrialDistribution,
+    ns_per_input_buffer: TrialDistribution,
+    source_buffer_duration_ns: f64,
+    median_source_realtime_utilization_pct: f64,
+    p95_source_realtime_utilization_pct: f64,
+    expected_output_frames_total: usize,
+    minimum_output_frames_total: usize,
+    maximum_output_frames_total: usize,
+    output_frames_total_per_trial: Vec<usize>,
+    consumed_frames_total_per_trial: Vec<usize>,
+    work_validation: ResamplerWorkValidation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BaselineReference {
+    path: String,
+    revision: String,
+    dirty: Option<bool>,
+    generated_unix_ms: u128,
+    max_median_regression_pct: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ResamplerReport {
+    schema_version: u32,
+    probe: String,
+    generated_unix_ms: u128,
+    mode: BenchMode,
+    environment: BenchEnvironment,
+    conditions: ResamplerConditions,
+    cases: Vec<ResamplerCase>,
+    baseline: Option<BaselineReference>,
+    comparisons: Vec<RegressionComparison>,
+}
+
+#[derive(Clone, Copy)]
+struct ApiRun {
+    consumed_frames: usize,
+    produced_frames: usize,
+    all_output_samples_finite: bool,
+}
+
+fn main() -> Result<(), String> {
+    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    if args.help {
+        print_help();
+        return Ok(());
+    }
+
+    let (iterations, trials) = workload(args.mode);
+    let environment = BenchEnvironment::capture();
+    let conditions = ResamplerConditions {
+        channels: CHANNELS,
+        algorithm: "SoXR streaming default quality/phase".to_string(),
+        coverage: "streaming_resampler_only".to_string(),
+        excludes: [
+            "decoder",
+            "callback_dsp_chain",
+            "cpal_device_write",
+            "gapless_state_machine",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+        warmup_buffers: WARMUP_BUFFERS,
+        iterations_per_trial: iterations,
+        trials,
     };
-
-    println!(
-        "audio_resampler_streaming_perf mode={} channels={} coverage=streaming_resampler_only",
-        if quick {
-            "quick"
-        } else if heavy {
-            "heavy"
-        } else {
-            "full"
-        },
-        CHANNELS
-    );
-    println!(
-        "audio_resampler_streaming_note excludes=decoder,callback_dsp_chain,cpal_device_write,gapless_state_machine"
-    );
-
+    let mut cases = Vec::new();
     for scenario in SCENARIOS {
         for frames in BUFFER_FRAMES {
             let input = synthetic_buffer(frames, CHANNELS, scenario.from_rate);
             for &api in ApiPath::all() {
-                let report = benchmark_api(scenario, api, frames, &input, iterations, trials);
-                println!(
-                    "resampler_streaming scenario={} api={} frames={} input_samples={} from_rate={} to_rate={} output_frames_total={} iterations={} trials={} ns_per_input_sample={:.3} ns_per_input_buffer={:.3} elapsed_ms={:.3}",
-                    scenario.name,
-                    api.name(),
-                    frames,
-                    frames * CHANNELS,
-                    scenario.from_rate,
-                    scenario.to_rate,
-                    report.output_frames_total,
-                    iterations,
-                    trials,
-                    report.ns_per_input_sample,
-                    report.ns_per_input_buffer,
-                    report.elapsed.as_secs_f64() * 1_000.0
-                );
-
-                if enforce
-                    && scenario.name == "music_44k1_to_48k"
-                    && matches!(api, ApiPath::Checked)
-                    && frames == 512
-                {
-                    assert!(
-                        report.ns_per_input_sample.is_finite() && report.output_frames_total > 0,
-                        "resampler benchmark produced invalid timing or no output"
-                    );
-                }
+                cases.push(benchmark_api(
+                    scenario, api, frames, &input, iterations, trials,
+                )?);
             }
         }
     }
+
+    let mut report = ResamplerReport {
+        schema_version: REPORT_SCHEMA_VERSION,
+        probe: "audio_resampler_streaming_perf".to_string(),
+        generated_unix_ms: generated_unix_ms(),
+        mode: args.mode,
+        environment,
+        conditions,
+        cases,
+        baseline: None,
+        comparisons: Vec::new(),
+    };
+    if let Some(path) = &args.baseline {
+        let baseline: ResamplerReport = read_json(path, "resampler baseline report")?;
+        report.comparisons =
+            compare_with_baseline(&report, &baseline, args.max_median_regression_pct)?;
+        report.baseline = Some(BaselineReference {
+            path: path.display().to_string(),
+            revision: baseline.environment.revision,
+            dirty: baseline.environment.dirty,
+            generated_unix_ms: baseline.generated_unix_ms,
+            max_median_regression_pct: args.max_median_regression_pct,
+        });
+    }
+
+    print_report(&report)?;
+    if let Some(path) = &args.out {
+        write_json(path, &report, "resampler performance report")?;
+    }
+    if args.enforce {
+        enforce_report(&report)?;
+    }
+
+    Ok(())
+}
+
+fn workload(mode: BenchMode) -> (usize, usize) {
+    match mode {
+        BenchMode::Quick => (75, 7),
+        BenchMode::Full => (400, 9),
+        BenchMode::Heavy => (1_350, 15),
+    }
+}
+
+fn print_help() {
+    println!(
+        "Usage: cargo bench --bench audio_resampler_streaming_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+         \n\
+         Reports trial min/median/p95/max and source-buffer realtime-reference utilization.\n\
+         Timing is report-only unless a compatible same-machine baseline is supplied."
+    );
+}
+
+fn print_report(report: &ResamplerReport) -> Result<(), String> {
+    println!(
+        "audio_resampler_streaming_perf mode={} channels={} coverage=streaming_resampler_only iterations={} trials={}",
+        report.mode.as_str(),
+        report.conditions.channels,
+        report.conditions.iterations_per_trial,
+        report.conditions.trials
+    );
+    println!(
+        "audio_resampler_streaming_environment {}",
+        environment_json(&report.environment)?
+    );
+    println!(
+        "audio_resampler_streaming_note excludes={} utilization_reference=source_buffer_duration",
+        report.conditions.excludes.join(",")
+    );
+    for case in &report.cases {
+        println!(
+            "resampler_streaming case={} scenario={} api={} frames={} input_samples={} from_rate={} to_rate={} output_frames_total_median={} ns_per_input_sample_min={:.3} ns_per_input_sample_median={:.3} ns_per_input_sample_p95={:.3} ns_per_input_sample_max={:.3} ns_per_input_buffer_median={:.3} ns_per_input_buffer_p95={:.3} median_source_realtime_utilization_pct={:.4} p95_source_realtime_utilization_pct={:.4}",
+            case.case_key,
+            case.scenario,
+            case.api,
+            case.frames,
+            case.input_samples,
+            case.from_rate_hz,
+            case.to_rate_hz,
+            median_usize(&case.output_frames_total_per_trial),
+            case.ns_per_input_sample.min,
+            case.ns_per_input_sample.median,
+            case.ns_per_input_sample.p95,
+            case.ns_per_input_sample.max,
+            case.ns_per_input_buffer.median,
+            case.ns_per_input_buffer.p95,
+            case.median_source_realtime_utilization_pct,
+            case.p95_source_realtime_utilization_pct
+        );
+    }
+    for comparison in &report.comparisons {
+        println!(
+            "resampler_streaming_baseline case={} baseline_median={:.3} candidate_median={:.3} regression_pct={:.3} threshold_pct={:.3} passed={}",
+            comparison.case_key,
+            comparison.baseline_median,
+            comparison.candidate_median,
+            comparison.regression_pct,
+            comparison.threshold_pct,
+            comparison.passed
+        );
+    }
+    Ok(())
+}
+
+fn median_usize(values: &[usize]) -> usize {
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    sorted[sorted.len() / 2]
+}
+
+fn compare_with_baseline(
+    candidate: &ResamplerReport,
+    baseline: &ResamplerReport,
+    threshold_pct: f64,
+) -> Result<Vec<RegressionComparison>, String> {
+    validate_performance_baseline(
+        "resampler",
+        PerformanceReportIdentity {
+            schema_version: candidate.schema_version,
+            probe: &candidate.probe,
+            mode: candidate.mode,
+            environment: &candidate.environment,
+            conditions: &candidate.conditions,
+        },
+        PerformanceReportIdentity {
+            schema_version: baseline.schema_version,
+            probe: &baseline.probe,
+            mode: baseline.mode,
+            environment: &baseline.environment,
+            conditions: &baseline.conditions,
+        },
+    )?;
+
+    compare_case_medians(
+        candidate
+            .cases
+            .iter()
+            .map(|case| (case.case_key.clone(), case.ns_per_input_sample.median)),
+        baseline
+            .cases
+            .iter()
+            .map(|case| (case.case_key.clone(), case.ns_per_input_sample.median)),
+        threshold_pct,
+    )
+}
+
+fn enforce_report(report: &ResamplerReport) -> Result<(), String> {
+    let invalid_cases = report
+        .cases
+        .iter()
+        .filter(|case| {
+            !case.work_validation.valid
+                || case.ns_per_input_sample.samples.len() != report.conditions.trials
+                || case.ns_per_input_buffer.samples.len() != report.conditions.trials
+                || case.output_frames_total_per_trial.len() != report.conditions.trials
+                || case.consumed_frames_total_per_trial.len() != report.conditions.trials
+                || case.output_frames_total_per_trial.iter().any(|frames| {
+                    *frames < case.minimum_output_frames_total
+                        || *frames > case.maximum_output_frames_total
+                })
+                || case
+                    .consumed_frames_total_per_trial
+                    .iter()
+                    .any(|frames| *frames != case.frames * report.conditions.iterations_per_trial)
+        })
+        .map(|case| case.case_key.as_str())
+        .collect::<Vec<_>>();
+    if !invalid_cases.is_empty() {
+        return Err(format!(
+            "resampler report validity gate failed for cases: {}",
+            invalid_cases.join(", ")
+        ));
+    }
+    if let Some(error) = regression_gate_error(
+        &report.comparisons,
+        "resampler median regression gate failed",
+        "ns/input-sample",
+    ) {
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn benchmark_api(
@@ -133,31 +373,98 @@ fn benchmark_api(
     input: &[f64],
     iterations: usize,
     trials: usize,
-) -> Report {
-    let mut best: Option<Report> = None;
+) -> Result<ResamplerCase, String> {
+    let work_validation = validate_work(scenario, api, input);
+    let mut ns_per_input_sample = Vec::with_capacity(trials);
+    let mut ns_per_input_buffer = Vec::with_capacity(trials);
+    let mut output_frames_total_per_trial = Vec::with_capacity(trials);
+    let mut consumed_frames_total_per_trial = Vec::with_capacity(trials);
 
     for _ in 0..trials {
         let mut resampler = StreamingResampler::new(CHANNELS, scenario.from_rate, scenario.to_rate)
             .expect("valid resampler rates");
         warm_resampler(&mut resampler, api, input);
-        let report = measure_resampler(&mut resampler, api, frames, input, iterations);
-
-        if best
-            .as_ref()
-            .is_none_or(|b| report.ns_per_input_sample < b.ns_per_input_sample)
-        {
-            best = Some(report);
-        }
+        let measurement = measure_resampler(&mut resampler, api, frames, input, iterations)?;
+        ns_per_input_sample.push(measurement.ns_per_input_sample);
+        ns_per_input_buffer.push(measurement.ns_per_input_buffer);
+        output_frames_total_per_trial.push(measurement.output_frames_total);
+        consumed_frames_total_per_trial.push(measurement.consumed_frames_total);
     }
 
-    best.expect("at least one trial")
+    let ns_per_input_sample = summarize_trials(ns_per_input_sample)?;
+    let ns_per_input_buffer = summarize_trials(ns_per_input_buffer)?;
+    let expected_output_frames_total = (frames as f64 * iterations as f64 * scenario.to_rate as f64
+        / scenario.from_rate as f64)
+        .round() as usize;
+    let minimum_output_frames_total = expected_output_frames_total * 95 / 100;
+    let maximum_output_frames_total = expected_output_frames_total * 105 / 100;
+    let source_buffer_duration_ns = frames as f64 / scenario.from_rate as f64 * 1.0e9;
+
+    Ok(ResamplerCase {
+        case_key: format!(
+            "scenario={};api={};frames={};from={};to={};algorithm=soxr_streaming_default",
+            scenario.name,
+            api.name(),
+            frames,
+            scenario.from_rate,
+            scenario.to_rate
+        ),
+        scenario: scenario.name.to_string(),
+        api: api.name().to_string(),
+        algorithm: "SoXR streaming default quality/phase".to_string(),
+        frames,
+        input_samples: frames * CHANNELS,
+        from_rate_hz: scenario.from_rate,
+        to_rate_hz: scenario.to_rate,
+        median_source_realtime_utilization_pct: ns_per_input_buffer.median
+            / source_buffer_duration_ns
+            * 100.0,
+        p95_source_realtime_utilization_pct: ns_per_input_buffer.p95 / source_buffer_duration_ns
+            * 100.0,
+        ns_per_input_sample,
+        ns_per_input_buffer,
+        source_buffer_duration_ns,
+        expected_output_frames_total,
+        minimum_output_frames_total,
+        maximum_output_frames_total,
+        output_frames_total_per_trial,
+        consumed_frames_total_per_trial,
+        work_validation,
+    })
+}
+
+fn validate_work(scenario: Scenario, api: ApiPath, input: &[f64]) -> ResamplerWorkValidation {
+    let mut resampler = StreamingResampler::new(CHANNELS, scenario.from_rate, scenario.to_rate)
+        .expect("valid resampler rates");
+    warm_resampler(&mut resampler, api, input);
+    let mut output = vec![0.0; streaming_output_capacity(&resampler, input.len())];
+    let mut consumed_frames = 0usize;
+    let mut produced_frames = 0usize;
+    let mut all_output_samples_finite = true;
+    for _ in 0..VALIDATION_BUFFERS {
+        let run = run_api(&mut resampler, api, input, &mut output, true);
+        consumed_frames += run.consumed_frames;
+        produced_frames += run.produced_frames;
+        all_output_samples_finite &= run.all_output_samples_finite;
+    }
+    let expected_consumed_frames = input.len() / CHANNELS * VALIDATION_BUFFERS;
+    ResamplerWorkValidation {
+        valid: consumed_frames == expected_consumed_frames
+            && produced_frames > 0
+            && all_output_samples_finite,
+        validation_buffers: VALIDATION_BUFFERS,
+        consumed_frames,
+        expected_consumed_frames,
+        produced_frames,
+        all_output_samples_finite,
+    }
 }
 
 fn warm_resampler(resampler: &mut StreamingResampler, api: ApiPath, input: &[f64]) {
     let mut output = vec![0.0; streaming_output_capacity(resampler, input.len())];
 
     for _ in 0..WARMUP_BUFFERS {
-        run_api(resampler, api, input, &mut output);
+        let _ = run_api(resampler, api, input, &mut output, false);
     }
 }
 
@@ -167,13 +474,16 @@ fn measure_resampler(
     frames: usize,
     input: &[f64],
     iterations: usize,
-) -> Report {
+) -> Result<TrialMeasurement, String> {
     let mut output = vec![0.0; streaming_output_capacity(resampler, input.len())];
     let mut output_frames_total = 0usize;
+    let mut consumed_frames_total = 0usize;
     let start = Instant::now();
 
     for _ in 0..iterations {
-        output_frames_total += run_api(resampler, api, black_box(input), &mut output);
+        let run = run_api(resampler, api, black_box(input), &mut output, false);
+        consumed_frames_total += run.consumed_frames;
+        output_frames_total += run.produced_frames;
     }
 
     let elapsed = start.elapsed();
@@ -182,25 +492,38 @@ fn measure_resampler(
         .round() as usize;
     let minimum_output_frames = expected_output_frames * 95 / 100;
     let maximum_output_frames = expected_output_frames * 105 / 100;
-    assert!(
-        output_frames_total >= minimum_output_frames
-            && output_frames_total <= maximum_output_frames,
-        "{}->{} {} produced {} frames for {} expected streaming frames",
-        resampler.from_rate(),
-        resampler.to_rate(),
-        api.name(),
-        output_frames_total,
-        expected_output_frames
-    );
+    if output_frames_total < minimum_output_frames || output_frames_total > maximum_output_frames {
+        return Err(format!(
+            "{}->{} {} produced {} frames outside [{}, {}] for {} expected streaming frames",
+            resampler.from_rate(),
+            resampler.to_rate(),
+            api.name(),
+            output_frames_total,
+            minimum_output_frames,
+            maximum_output_frames,
+            expected_output_frames
+        ));
+    }
+    let expected_consumed_frames = frames * iterations;
+    if consumed_frames_total != expected_consumed_frames {
+        return Err(format!(
+            "{}->{} {} consumed {} frames for {} expected input frames",
+            resampler.from_rate(),
+            resampler.to_rate(),
+            api.name(),
+            consumed_frames_total,
+            expected_consumed_frames
+        ));
+    }
     let ns_per_input_buffer = elapsed.as_nanos() as f64 / iterations as f64;
     let ns_per_input_sample = ns_per_input_buffer / (frames * CHANNELS) as f64;
 
-    Report {
+    Ok(TrialMeasurement {
         ns_per_input_sample,
         ns_per_input_buffer,
         output_frames_total,
-        elapsed,
-    }
+        consumed_frames_total,
+    })
 }
 
 fn streaming_output_capacity(resampler: &StreamingResampler, input_samples: usize) -> usize {
@@ -218,10 +541,12 @@ fn run_api(
     api: ApiPath,
     input: &[f64],
     output: &mut [f64],
-) -> usize {
+    validate_output: bool,
+) -> ApiRun {
     let input_frames = input.len() / CHANNELS;
     let mut consumed_frames = 0;
     let mut output_frames = 0;
+    let mut all_output_samples_finite = true;
     while consumed_frames < input_frames {
         let input_block =
             AudioBlockRef::new(&input[consumed_frames * CHANNELS..], CHANNELS).unwrap();
@@ -233,9 +558,17 @@ fn run_api(
         };
         consumed_frames += progress.consumed_frames();
         output_frames += progress.produced_frames();
-        black_box(&output[..progress.produced_frames() * CHANNELS]);
+        let produced = &output[..progress.produced_frames() * CHANNELS];
+        if validate_output {
+            all_output_samples_finite &= produced.iter().all(|sample| sample.is_finite());
+        }
+        black_box(produced);
     }
-    output_frames
+    ApiRun {
+        consumed_frames,
+        produced_frames: output_frames,
+        all_output_samples_finite,
+    }
 }
 
 fn synthetic_buffer(frames: usize, channels: usize, sample_rate: u32) -> Vec<f64> {

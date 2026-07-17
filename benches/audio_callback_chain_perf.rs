@@ -1,9 +1,19 @@
 use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arc_swap::ArcSwapOption;
+use serde::{Deserialize, Serialize};
+
+pub mod support;
+
+use support::{
+    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
+    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
+    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    REPORT_SCHEMA_VERSION,
+};
 
 use audio_engine_core::processor::{
     callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
@@ -41,73 +51,302 @@ impl Scenario {
             Self::ActiveDspWithConvolver,
         ]
     }
+
+    fn config_key(self) -> &'static str {
+        match self {
+            Self::BypassDefault => "bypass_defaults",
+            Self::ActiveDspNoConvolver => "active_oversampled4x_no_convolver",
+            Self::ActiveDspWithConvolver => "active_oversampled4x_ir256",
+        }
+    }
+
+    fn config_description(self) -> &'static str {
+        match self {
+            Self::BypassDefault => {
+                "optional stages disabled; volume unity; convolver slot empty"
+            }
+            Self::ActiveDspNoConvolver => {
+                "EQ + Oversampled4x Tube saturation + crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty"
+            }
+            Self::ActiveDspWithConvolver => {
+                "active DSP configuration plus a stereo 256-tap synthetic convolver"
+            }
+        }
+    }
 }
 
 struct ChainBundle {
     chain: DspChain,
 }
 
-struct Report {
+struct TrialMeasurement {
     ns_per_sample: f64,
     ns_per_buffer: f64,
-    elapsed: Duration,
 }
 
-fn main() {
-    let args = std::env::args().collect::<Vec<_>>();
-    let quick = args.iter().any(|arg| arg == "--quick");
-    let heavy = args.iter().any(|arg| arg == "--heavy");
-    let enforce = args.iter().any(|arg| arg == "--enforce");
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct CallbackConditions {
+    sample_rate_hz: u32,
+    channels: usize,
+    nodes: String,
+    copy_input: bool,
+    coverage: String,
+    excludes: Vec<String>,
+    warmup_buffers: usize,
+    iterations_per_trial: usize,
+    trials: usize,
+}
 
-    let (iterations, trials) = if quick {
-        (500, 1)
-    } else if heavy {
-        (10_000, 5)
-    } else {
-        (2_000, 3)
-    };
+#[derive(Debug, Deserialize, Serialize)]
+struct WorkValidation {
+    valid: bool,
+    all_samples_finite: bool,
+    output_changed: bool,
+    expected_output_changed: bool,
+    bypassed: bool,
+    consumed_frames: usize,
+    produced_frames: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CallbackCase {
+    case_key: String,
+    scenario: String,
+    scenario_config: String,
+    frames: usize,
+    samples: usize,
+    ns_per_sample: TrialDistribution,
+    ns_per_buffer: TrialDistribution,
+    buffer_duration_ns: f64,
+    median_deadline_utilization_pct: f64,
+    p95_deadline_utilization_pct: f64,
+    work_validation: WorkValidation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct BaselineReference {
+    path: String,
+    revision: String,
+    dirty: Option<bool>,
+    generated_unix_ms: u128,
+    max_median_regression_pct: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CallbackReport {
+    schema_version: u32,
+    probe: String,
+    generated_unix_ms: u128,
+    mode: BenchMode,
+    environment: BenchEnvironment,
+    conditions: CallbackConditions,
+    cases: Vec<CallbackCase>,
+    baseline: Option<BaselineReference>,
+    comparisons: Vec<RegressionComparison>,
+}
+
+fn main() -> Result<(), String> {
+    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    if args.help {
+        print_help();
+        return Ok(());
+    }
+
+    let (iterations, trials) = workload(args.mode);
     let node_order = callback_stage_order_csv();
-
-    println!(
-        "audio_callback_chain_perf mode={} sample_rate={} channels={} nodes={} copy_input=true coverage=dsp_chain_only",
-        if quick {
-            "quick"
-        } else if heavy {
-            "heavy"
-        } else {
-            "full"
-        },
-        SAMPLE_RATE as u32,
-        CHANNELS,
-        node_order
-    );
-    println!(
-        "audio_callback_chain_note excludes=cpal_device_write,decoder,resampler,spectrum,loudness_normalization_pre_gain,gapless_state_machine"
-    );
-
+    let environment = BenchEnvironment::capture();
+    let conditions = CallbackConditions {
+        sample_rate_hz: SAMPLE_RATE as u32,
+        channels: CHANNELS,
+        nodes: node_order,
+        copy_input: true,
+        coverage: "dsp_chain_only".to_string(),
+        excludes: [
+            "cpal_device_write",
+            "decoder",
+            "resampler",
+            "spectrum",
+            "loudness_normalization_pre_gain",
+            "gapless_state_machine",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect(),
+        warmup_buffers: WARMUP_BUFFERS,
+        iterations_per_trial: iterations,
+        trials,
+    };
+    let mut cases = Vec::new();
     for &scenario in Scenario::all() {
         for &frames in &BUFFER_FRAMES {
-            let report = benchmark_scenario(scenario, frames, iterations, trials);
-            println!(
-                "callback_chain scenario={} frames={} samples={} iterations={} trials={} ns_per_sample={:.3} ns_per_buffer={:.3} elapsed_ms={:.3}",
-                scenario.name(),
-                frames,
-                frames * CHANNELS,
-                iterations,
-                trials,
-                report.ns_per_sample,
-                report.ns_per_buffer,
-                report.elapsed.as_secs_f64() * 1_000.0
-            );
-
-            if enforce && matches!(scenario, Scenario::ActiveDspNoConvolver) && frames == 512 {
-                assert!(
-                    report.ns_per_sample.is_finite() && report.ns_per_sample > 0.0,
-                    "callback chain benchmark produced invalid timing"
-                );
-            }
+            cases.push(benchmark_scenario(scenario, frames, iterations, trials)?);
         }
     }
+
+    let mut report = CallbackReport {
+        schema_version: REPORT_SCHEMA_VERSION,
+        probe: "audio_callback_chain_perf".to_string(),
+        generated_unix_ms: generated_unix_ms(),
+        mode: args.mode,
+        environment,
+        conditions,
+        cases,
+        baseline: None,
+        comparisons: Vec::new(),
+    };
+
+    if let Some(path) = &args.baseline {
+        let baseline: CallbackReport = read_json(path, "callback baseline report")?;
+        report.comparisons =
+            compare_with_baseline(&report, &baseline, args.max_median_regression_pct)?;
+        report.baseline = Some(BaselineReference {
+            path: path.display().to_string(),
+            revision: baseline.environment.revision,
+            dirty: baseline.environment.dirty,
+            generated_unix_ms: baseline.generated_unix_ms,
+            max_median_regression_pct: args.max_median_regression_pct,
+        });
+    }
+
+    print_report(&report)?;
+    if let Some(path) = &args.out {
+        write_json(path, &report, "callback performance report")?;
+    }
+    if args.enforce {
+        enforce_report(&report)?;
+    }
+
+    Ok(())
+}
+
+fn workload(mode: BenchMode) -> (usize, usize) {
+    match mode {
+        BenchMode::Quick => (100, 7),
+        BenchMode::Full => (750, 9),
+        BenchMode::Heavy => (3_000, 15),
+    }
+}
+
+fn print_help() {
+    println!(
+        "Usage: cargo bench --bench audio_callback_chain_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+         \n\
+         Reports trial min/median/p95/max and callback deadline utilization.\n\
+         Timing is report-only unless a compatible same-machine baseline is supplied."
+    );
+}
+
+fn print_report(report: &CallbackReport) -> Result<(), String> {
+    println!(
+        "audio_callback_chain_perf mode={} sample_rate={} channels={} nodes={} copy_input=true coverage=dsp_chain_only iterations={} trials={}",
+        report.mode.as_str(),
+        report.conditions.sample_rate_hz,
+        report.conditions.channels,
+        report.conditions.nodes,
+        report.conditions.iterations_per_trial,
+        report.conditions.trials
+    );
+    println!(
+        "audio_callback_chain_environment {}",
+        environment_json(&report.environment)?
+    );
+    println!(
+        "audio_callback_chain_note excludes={}",
+        report.conditions.excludes.join(",")
+    );
+
+    for case in &report.cases {
+        println!(
+            "callback_chain case={} scenario={} frames={} samples={} ns_per_sample_min={:.3} ns_per_sample_median={:.3} ns_per_sample_p95={:.3} ns_per_sample_max={:.3} ns_per_buffer_median={:.3} ns_per_buffer_p95={:.3} median_deadline_utilization_pct={:.4} p95_deadline_utilization_pct={:.4}",
+            case.case_key,
+            case.scenario,
+            case.frames,
+            case.samples,
+            case.ns_per_sample.min,
+            case.ns_per_sample.median,
+            case.ns_per_sample.p95,
+            case.ns_per_sample.max,
+            case.ns_per_buffer.median,
+            case.ns_per_buffer.p95,
+            case.median_deadline_utilization_pct,
+            case.p95_deadline_utilization_pct
+        );
+    }
+    for comparison in &report.comparisons {
+        println!(
+            "callback_chain_baseline case={} baseline_median={:.3} candidate_median={:.3} regression_pct={:.3} threshold_pct={:.3} passed={}",
+            comparison.case_key,
+            comparison.baseline_median,
+            comparison.candidate_median,
+            comparison.regression_pct,
+            comparison.threshold_pct,
+            comparison.passed
+        );
+    }
+    Ok(())
+}
+
+fn compare_with_baseline(
+    candidate: &CallbackReport,
+    baseline: &CallbackReport,
+    threshold_pct: f64,
+) -> Result<Vec<RegressionComparison>, String> {
+    validate_performance_baseline(
+        "callback",
+        PerformanceReportIdentity {
+            schema_version: candidate.schema_version,
+            probe: &candidate.probe,
+            mode: candidate.mode,
+            environment: &candidate.environment,
+            conditions: &candidate.conditions,
+        },
+        PerformanceReportIdentity {
+            schema_version: baseline.schema_version,
+            probe: &baseline.probe,
+            mode: baseline.mode,
+            environment: &baseline.environment,
+            conditions: &baseline.conditions,
+        },
+    )?;
+
+    compare_case_medians(
+        candidate
+            .cases
+            .iter()
+            .map(|case| (case.case_key.clone(), case.ns_per_sample.median)),
+        baseline
+            .cases
+            .iter()
+            .map(|case| (case.case_key.clone(), case.ns_per_sample.median)),
+        threshold_pct,
+    )
+}
+
+fn enforce_report(report: &CallbackReport) -> Result<(), String> {
+    let invalid_cases = report
+        .cases
+        .iter()
+        .filter(|case| {
+            !case.work_validation.valid
+                || case.ns_per_sample.samples.len() != report.conditions.trials
+                || case.ns_per_buffer.samples.len() != report.conditions.trials
+        })
+        .map(|case| case.case_key.as_str())
+        .collect::<Vec<_>>();
+    if !invalid_cases.is_empty() {
+        return Err(format!(
+            "callback report validity gate failed for cases: {}",
+            invalid_cases.join(", ")
+        ));
+    }
+    if let Some(error) = regression_gate_error(
+        &report.comparisons,
+        "callback median regression gate failed",
+        "ns/sample",
+    ) {
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn benchmark_scenario(
@@ -115,24 +354,72 @@ fn benchmark_scenario(
     frames: usize,
     iterations: usize,
     trials: usize,
-) -> Report {
-    let mut best: Option<Report> = None;
+) -> Result<CallbackCase, String> {
+    let corpus = synthetic_buffer(frames, CHANNELS);
+    let work_validation = validate_work(scenario, frames, &corpus);
+    let mut ns_per_sample = Vec::with_capacity(trials);
+    let mut ns_per_buffer = Vec::with_capacity(trials);
 
     for _ in 0..trials {
         let mut bundle = build_chain_bundle(scenario);
-        let corpus = synthetic_buffer(frames, CHANNELS);
         warm_chain(&mut bundle, scenario, &corpus);
-        let report = measure_chain(&mut bundle.chain, &corpus, frames, iterations);
-
-        if best
-            .as_ref()
-            .is_none_or(|current| report.ns_per_sample < current.ns_per_sample)
-        {
-            best = Some(report);
-        }
+        let measurement = measure_chain(&mut bundle.chain, &corpus, frames, iterations);
+        ns_per_sample.push(measurement.ns_per_sample);
+        ns_per_buffer.push(measurement.ns_per_buffer);
     }
 
-    best.expect("at least one trial")
+    let ns_per_sample = summarize_trials(ns_per_sample)?;
+    let ns_per_buffer = summarize_trials(ns_per_buffer)?;
+    let buffer_duration_ns = frames as f64 / SAMPLE_RATE * 1.0e9;
+    Ok(CallbackCase {
+        case_key: format!(
+            "scenario={};frames={};config={}",
+            scenario.name(),
+            frames,
+            scenario.config_key()
+        ),
+        scenario: scenario.name().to_string(),
+        scenario_config: scenario.config_description().to_string(),
+        frames,
+        samples: frames * CHANNELS,
+        median_deadline_utilization_pct: ns_per_buffer.median / buffer_duration_ns * 100.0,
+        p95_deadline_utilization_pct: ns_per_buffer.p95 / buffer_duration_ns * 100.0,
+        ns_per_sample,
+        ns_per_buffer,
+        buffer_duration_ns,
+        work_validation,
+    })
+}
+
+fn validate_work(scenario: Scenario, frames: usize, corpus: &[f64]) -> WorkValidation {
+    let mut bundle = build_chain_bundle(scenario);
+    warm_chain(&mut bundle, scenario, corpus);
+    let mut scratch = corpus.to_vec();
+    let progress = bundle
+        .chain
+        .process(&mut scratch, CHANNELS)
+        .expect("benchmark callback validation must succeed");
+    let all_samples_finite = scratch.iter().all(|sample| sample.is_finite());
+    let output_changed = scratch
+        .iter()
+        .zip(corpus)
+        .any(|(output, input)| output.to_bits() != input.to_bits());
+    let expected_output_changed = !matches!(scenario, Scenario::BypassDefault);
+    let bypassed = progress.is_bypassed();
+    let consumed_frames = progress.consumed_frames();
+    let produced_frames = progress.produced_frames();
+    WorkValidation {
+        valid: all_samples_finite
+            && output_changed == expected_output_changed
+            && consumed_frames == frames
+            && produced_frames == frames,
+        all_samples_finite,
+        output_changed,
+        expected_output_changed,
+        bypassed,
+        consumed_frames,
+        produced_frames,
+    }
 }
 
 // Rebuilds the callback-safe output chain from the crate's canonical builder.
@@ -268,7 +555,12 @@ fn warm_chain(bundle: &mut ChainBundle, _scenario: Scenario, corpus: &[f64]) {
     }
 }
 
-fn measure_chain(chain: &mut DspChain, corpus: &[f64], frames: usize, iterations: usize) -> Report {
+fn measure_chain(
+    chain: &mut DspChain,
+    corpus: &[f64],
+    frames: usize,
+    iterations: usize,
+) -> TrialMeasurement {
     let mut scratch = vec![0.0; corpus.len()];
     let start = Instant::now();
 
@@ -284,10 +576,9 @@ fn measure_chain(chain: &mut DspChain, corpus: &[f64], frames: usize, iterations
     let ns_per_buffer = elapsed.as_nanos() as f64 / iterations as f64;
     let ns_per_sample = ns_per_buffer / (frames * CHANNELS) as f64;
 
-    Report {
+    TrialMeasurement {
         ns_per_sample,
         ns_per_buffer,
-        elapsed,
     }
 }
 
