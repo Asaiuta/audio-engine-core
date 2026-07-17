@@ -73,7 +73,7 @@ pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,
     canonical_output_stage_descriptors, finish_checked, offline_stage_names,
     offline_stage_order_csv, process_checked, AtomicLoudnessState, AudioBlockError, AudioBlockMut,
-    AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
+    AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions, AutomixKeyStatus,
     ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
     FrameDuration, FrameRounding, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter,
     LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams,

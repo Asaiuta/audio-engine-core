@@ -49,7 +49,7 @@ pub mod traits;
 // Public processor API re-exports.
 pub use automix_analysis::{
     analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
-    AutomixAnalysisOptions,
+    AutomixAnalysisOptions, AutomixKeyStatus,
 };
 pub use convolver::{
     ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
