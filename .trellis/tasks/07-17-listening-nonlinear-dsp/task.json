@@ -3,7 +3,7 @@
   "name": "listening-nonlinear-dsp",
   "title": "修复 Listening 与 Nonlinear DSP",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,
