@@ -106,6 +106,55 @@ jobs:
       - name: Test (no default features)
         run: cargo test --no-default-features
 
+  # Deterministic quality gates plus machine-readable realtime evidence. The
+  # shared runner does not enforce an absolute timing budget; a compatible
+  # baseline must be supplied explicitly to enable the 10% median gate.
+  quality-performance-gates:
+    name: quality + realtime quick gates
+    runs-on: ubuntu-latest
+    env:
+      AUDIO_BENCH_REVISION: ${{ github.sha }}
+      AUDIO_BENCH_DIRTY: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Objective audio-quality quick gate
+        run: >-
+          cargo bench --bench audio_quality_measurements --
+          --quick --enforce
+          --out target/bench-reports/audio-quality-quick.json
+
+      - name: Callback-chain quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_callback_chain_perf --
+          --quick --enforce
+          --out target/bench-reports/callback-chain-quick.json
+
+      - name: Streaming-resampler quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_resampler_streaming_perf --
+          --quick --enforce
+          --out target/bench-reports/streaming-resampler-quick.json
+
+      - name: Upload quality and performance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-quality-performance-${{ github.sha }}
+          path: target/bench-reports/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
   # Verify the crate packages cleanly the same way `cargo publish` would.
   package:
     name: package (publish dry-run)
