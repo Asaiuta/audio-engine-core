@@ -202,6 +202,7 @@ impl NoiseShaperCurve {
 /// - Internal xorshift64 RNG (realtime-safe, no thread_rng overhead)
 /// - TPDF dither at ±1 LSB (standard amplitude)
 /// - Error clamp ±2 LSB (prevents burst noise)
+/// - Signed target-range clipping and channel-local non-finite recovery
 /// - Runtime curve switching with history reset
 pub struct NoiseShaper {
     /// Per-channel error history (9 samples each)
@@ -377,7 +378,7 @@ impl NoiseShaper {
     /// * `ch` - Channel index for error history
     ///
     /// # Returns
-    /// * Quantized sample in [-1, 1] range
+    /// * Quantized sample in `[-1, 1 - LSB]` for the selected signed bit depth
     #[inline(always)]
     pub fn process_sample(&mut self, sample: f64, ch: usize) -> f64 {
         match self.active_taps {
@@ -389,23 +390,10 @@ impl NoiseShaper {
 
     #[inline(always)]
     fn process_sample_with_taps<const TAPS: usize>(&mut self, sample: f64, ch: usize) -> f64 {
-        if !self.enabled || ch >= self.error_history.len() {
-            return sample;
+        if let Some(output) = self.bypass_or_recover_invalid(sample, ch) {
+            return output;
         }
-
-        // Adaptive dither: skip dither and noise shaping in silence regions
-        // Threshold: -120 dBFS (1e-6)
-        // Rationale: 24-bit TPDF dither RMS ≈ -146 dBFS, so -120 dBFS is far below
-        // perceptible range. This avoids audible dither noise in quiet passages.
-        const SILENCE_THRESHOLD: f64 = 1e-6; // -120 dBFS
-
-        if sample.abs() < SILENCE_THRESHOLD {
-            // Clear error history to prevent burst noise when audio resumes
-            // If we don't do this, accumulated error from silence would suddenly
-            // be released when signal returns, causing an audible click
-            self.error_history[ch] = [0.0; 9];
-            return sample;
-        }
+        let sample = sample.clamp(-1.0, 1.0);
 
         // 1. Generate TPDF dither FIRST (before borrowing error_history)
         //    tpdf() returns (-1, 1) which is ±1 LSB in the integer domain
@@ -465,7 +453,7 @@ impl NoiseShaper {
             e[0] = clamped_error;
         }
 
-        quantized * self.cached_lsb
+        self.clamp_quantized(quantized)
     }
 
     #[inline(always)]
@@ -485,17 +473,10 @@ impl NoiseShaper {
 
     #[inline(always)]
     fn process_sample_9tap_ring(&mut self, sample: f64, ch: usize) -> f64 {
-        if !self.enabled || ch >= self.error_history_9tap.len() {
-            return sample;
+        if let Some(output) = self.bypass_or_recover_invalid(sample, ch) {
+            return output;
         }
-
-        const SILENCE_THRESHOLD: f64 = 1e-6;
-
-        if sample.abs() < SILENCE_THRESHOLD {
-            self.error_history_9tap[ch] = [0.0; 18];
-            self.error_history_9tap_heads[ch] = 0;
-            return sample;
-        }
+        let sample = sample.clamp(-1.0, 1.0);
 
         let dither = self.tpdf(ch);
         let head = self.error_history_9tap_heads[ch];
@@ -517,7 +498,33 @@ impl NoiseShaper {
         e[next_head + 9] = clamped_error;
         self.error_history_9tap_heads[ch] = next_head;
 
-        quantized * self.cached_lsb
+        self.clamp_quantized(quantized)
+    }
+
+    #[inline(always)]
+    fn bypass_or_recover_invalid(&mut self, sample: f64, ch: usize) -> Option<f64> {
+        if !self.enabled || ch >= self.rng_state.len() {
+            return Some(sample);
+        }
+        if sample.is_finite() {
+            return None;
+        }
+
+        self.clear_channel_history(ch);
+        Some(0.0)
+    }
+
+    #[inline(always)]
+    fn clamp_quantized(&self, quantized: f64) -> f64 {
+        let minimum = -self.cached_scale;
+        let maximum = self.cached_scale - 1.0;
+        quantized.clamp(minimum, maximum) * self.cached_lsb
+    }
+
+    fn clear_channel_history(&mut self, ch: usize) {
+        self.error_history[ch] = [0.0; 9];
+        self.error_history_9tap[ch] = [0.0; 18];
+        self.error_history_9tap_heads[ch] = 0;
     }
 
     /// Process a buffer of samples (convenience method)
@@ -587,16 +594,10 @@ mod tests {
     }
 
     fn legacy_process_sample(ns: &mut NoiseShaper, sample: f64, ch: usize) -> f64 {
-        if !ns.enabled || ch >= ns.error_history.len() {
-            return sample;
+        if let Some(output) = ns.bypass_or_recover_invalid(sample, ch) {
+            return output;
         }
-
-        const SILENCE_THRESHOLD: f64 = 1e-6;
-
-        if sample.abs() < SILENCE_THRESHOLD {
-            ns.error_history[ch] = [0.0; 9];
-            return sample;
-        }
+        let sample = sample.clamp(-1.0, 1.0);
 
         let dither = ns.tpdf(ch);
         let e = &mut ns.error_history[ch];
@@ -609,7 +610,7 @@ mod tests {
         e.copy_within(0..8, 1);
         e[0] = clamped_error;
 
-        quantized * ns.cached_lsb
+        ns.clamp_quantized(quantized)
     }
 
     #[test]
@@ -658,8 +659,9 @@ mod tests {
             let sample = if i % 2 == 0 { 1.0 } else { -1.0 };
             let out = ns.process_sample(sample, 0);
 
-            // Output should stay in valid range (allow small overshoot from dither)
-            assert!(out.abs() <= 1.001, "Output diverged: {}", out);
+            // Output must stay inside the signed target range.
+            let maximum = 1.0 - ns.cached_lsb;
+            assert!((-1.0..=maximum).contains(&out), "Output diverged: {out}");
 
             // Check error history stays bounded by clamp
             let e = &ns.error_history[0];
@@ -709,30 +711,29 @@ mod tests {
     }
 
     #[test]
-    fn test_idle_tone_free() {
-        // With adaptive dither, zero input returns zero output (silence bypass)
-        // Test that near-silence (above threshold) produces dithered output
+    fn very_low_level_input_is_dithered_and_quantized() {
         let mut ns = NoiseShaper::new(1, 44100, 24);
         let n_samples = 44100;
         let mut samples = Vec::with_capacity(n_samples);
 
-        // Use a signal just above the silence threshold
-        let above_threshold = 2e-6; // -114 dBFS, above -120 dBFS threshold
+        let low_level = 1.0e-7; // -140 dBFS, below the removed -120 dBFS gate.
 
         for _ in 0..n_samples {
-            samples.push(ns.process_sample(above_threshold, 0));
+            samples.push(ns.process_sample(low_level, 0));
         }
 
-        // Check 1: Output should be non-zero (dither is working)
         let non_zero_count = samples.iter().filter(|&&x| x != 0.0).count();
         assert!(
-            non_zero_count > n_samples / 2,
+            non_zero_count > n_samples / 4,
             "Dither not working: only {}/{} samples non-zero",
             non_zero_count,
             n_samples
         );
+        assert!(samples.iter().all(|sample| *sample != low_level));
+        assert!(samples
+            .iter()
+            .all(|sample| (sample * ns.cached_scale).fract().abs() <= f64::EPSILON));
 
-        // Check 2: Output should have reasonable variance (dither is adding noise)
         let mean = samples.iter().sum::<f64>() / n_samples as f64;
         let variance = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n_samples as f64;
 
@@ -746,29 +747,17 @@ mod tests {
     }
 
     #[test]
-    fn test_adaptive_dither_silence() {
-        // Test that silence below threshold bypasses dither
+    fn digital_silence_receives_signal_independent_tpdf() {
         let mut ns = NoiseShaper::new(1, 44100, 24);
+        ns.set_curve(NoiseShaperCurve::TpdfOnly);
+        let samples = (0..16_384)
+            .map(|_| ns.process_sample(0.0, 0))
+            .collect::<Vec<_>>();
 
-        // Zero input should return zero output
-        assert_eq!(ns.process_sample(0.0, 0), 0.0);
-
-        // Very low input below threshold should return input unchanged
-        let below_threshold = 0.5e-6; // -126 dBFS, below -120 dBFS threshold
-        assert_eq!(ns.process_sample(below_threshold, 0), below_threshold);
-
-        // Error history should be cleared after silence
-        ns.process_sample(1e-3, 0); // First, build up some error history
-        let has_nonzero = ns.error_history[0].iter().any(|&e| e != 0.0);
-        assert!(has_nonzero, "Error history should be non-zero after signal");
-
-        // Now feed silence
-        ns.process_sample(0.0, 0);
-
-        // Error history should be cleared
-        for &e in ns.error_history[0].iter() {
-            assert_eq!(e, 0.0, "Error history should be cleared after silence");
-        }
+        let non_zero = samples.iter().filter(|sample| **sample != 0.0).count();
+        assert!(non_zero > samples.len() / 10);
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+        assert!(samples.iter().all(|sample| sample.abs() <= ns.cached_lsb));
     }
 
     #[test]
@@ -826,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn test_noise_shaper_silence_reset_is_channel_local() {
+    fn test_noise_shaper_non_finite_recovery_is_channel_local() {
         let mut ns = NoiseShaper::new(2, 44100, 24);
 
         for _ in 0..16 {
@@ -836,14 +825,14 @@ mod tests {
         assert!(ns.error_history[0].iter().any(|&e| e != 0.0));
         assert!(ns.error_history[1].iter().any(|&e| e != 0.0));
 
-        ns.process_sample(0.0, 0);
+        assert_eq!(ns.process_sample(f64::NAN, 0), 0.0);
 
         assert!(ns.error_history[0].iter().all(|&e| e == 0.0));
         assert!(ns.error_history[1].iter().any(|&e| e != 0.0));
     }
 
     #[test]
-    fn test_noise_shaper_9tap_ring_silence_reset_is_channel_local() {
+    fn test_noise_shaper_9tap_non_finite_recovery_is_channel_local() {
         let mut ns = NoiseShaper::new(2, 44100, 24);
         ns.set_curve(NoiseShaperCurve::FWeighted9);
 
@@ -854,7 +843,7 @@ mod tests {
         assert!(ns.error_history_9tap[0].iter().any(|&e| e != 0.0));
         assert!(ns.error_history_9tap[1].iter().any(|&e| e != 0.0));
 
-        ns.process_sample(0.0, 0);
+        assert_eq!(ns.process_sample(f64::INFINITY, 0), 0.0);
 
         assert!(ns.error_history_9tap[0].iter().all(|&e| e == 0.0));
         assert_eq!(ns.error_history_9tap_heads[0], 0);
@@ -930,5 +919,59 @@ mod tests {
                 assert!(out.abs() <= 1.0, "Curve {:?} diverged: {}", curve, out);
             }
         }
+    }
+
+    #[test]
+    fn all_curves_bound_overload_and_recover_after_non_finite_input() {
+        for curve in [
+            NoiseShaperCurve::Lipshitz5,
+            NoiseShaperCurve::FWeighted9,
+            NoiseShaperCurve::ModifiedE9,
+            NoiseShaperCurve::ImprovedE9,
+            NoiseShaperCurve::TpdfOnly,
+        ] {
+            let mut ns = NoiseShaper::new(1, 44_100, 16);
+            ns.set_curve(curve);
+            let maximum = 1.0 - ns.cached_lsb;
+            let mut seed = 0xD1B5_4A32_D192_ED03_u64;
+
+            for index in 0..20_000 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let unit = seed as f64 / u64::MAX as f64;
+                let sample = match index % 4096 {
+                    0 => f64::NAN,
+                    1 => f64::INFINITY,
+                    2 => f64::NEG_INFINITY,
+                    3 => 4.0,
+                    4 => -4.0,
+                    _ => unit * 2.4 - 1.2,
+                };
+                let output = ns.process_sample(sample, 0);
+                assert!(output.is_finite(), "{curve:?} produced {output} at {index}");
+                assert!(
+                    (-1.0..=maximum).contains(&output),
+                    "{curve:?} escaped signed range: {output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn noise_shaper_processing_is_allocation_free_after_setup() {
+        let mut ns = NoiseShaper::new(2, 48_000, 24);
+        ns.set_curve(NoiseShaperCurve::ImprovedE9);
+        let mut buffer = vec![0.0; 512 * 2];
+        for (index, sample) in buffer.iter_mut().enumerate() {
+            *sample = ((index + 1) as f64 * 0.017).sin() * 0.9;
+        }
+        ns.process(&mut buffer, 2);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..32 {
+                ns.process(&mut buffer, 2);
+            }
+        });
     }
 }

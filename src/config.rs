@@ -158,7 +158,7 @@ impl Default for DynamicLoudnessConfig {
 pub struct CrossfeedConfig {
     /// Whether crossfeed is active.
     pub enabled: bool,
-    /// Blend amount from 0.0 (off) to 1.0 (maximum crossfeed).
+    /// Dry-to-Bauer-reference strength from 0.0 (off) to 1.0 (full profile).
     pub mix: f64,
 }
 

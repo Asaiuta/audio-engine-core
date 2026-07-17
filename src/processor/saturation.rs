@@ -41,6 +41,11 @@ pub enum SaturationQuality {
 }
 
 const OVERSAMPLING_MAX_FILTER_TAPS: usize = 33;
+/// Width of the C1 transition from identity to the selected waveshaper.
+///
+/// A fixed 5% full-scale knee keeps the threshold local while remaining
+/// continuous even when callers intentionally process samples above 0 dBFS.
+const SATURATION_SOFT_KNEE_WIDTH: f64 = 0.05;
 const OVERSAMPLING_2X_FILTER: [f64; 17] = [
     5.251027135038586e-19,
     -3.0197042000540625e-4,
@@ -286,7 +291,7 @@ impl Saturation {
         self.input_gain_linear = db_to_linear(gain_db);
     }
 
-    /// Set output gain (dB) - applied only to saturated samples for compensation
+    /// Set output gain (dB), applied after the dry/wet saturation blend.
     pub fn set_output_gain(&mut self, gain_db: f64) {
         self.output_gain_db = gain_db;
         self.output_gain_linear = db_to_linear(gain_db);
@@ -398,19 +403,12 @@ impl Saturation {
         let threshold = self.threshold;
         let drive_plus1 = 1.0 + self.drive;
         let mix = self.mix;
-        let one_minus_mix = 1.0 - mix;
         let sat_type = self.sat_type;
 
         for sample in samples.iter_mut() {
             let dry = *sample * input_gain;
-
-            if dry.abs() > threshold {
-                let driven = dry * drive_plus1;
-                let saturated = Self::apply_saturation_type(sat_type, driven);
-                *sample = (dry * one_minus_mix + saturated * mix) * output_gain;
-            } else {
-                *sample = dry;
-            }
+            let wet = Self::apply_thresholded_saturation(sat_type, dry, threshold, drive_plus1);
+            *sample = (dry + (wet - dry) * mix) * output_gain;
         }
     }
 
@@ -430,7 +428,6 @@ impl Saturation {
         let threshold = self.threshold;
         let drive_plus1 = 1.0 + self.drive;
         let mix = self.mix;
-        let one_minus_mix = 1.0 - mix;
         let sat_type = self.sat_type;
         let ratio = self.quality.ratio();
         let filter = self.quality.decimation_filter();
@@ -448,11 +445,7 @@ impl Saturation {
                 drive_plus1,
             );
 
-            if dry.abs() > threshold {
-                *sample = (dry * one_minus_mix + wet * mix) * output_gain;
-            } else {
-                *sample = dry;
-            }
+            *sample = (dry + (wet - dry) * mix) * output_gain;
         }
     }
 
@@ -561,11 +554,15 @@ impl Saturation {
         threshold: f64,
         drive_plus1: f64,
     ) -> f64 {
-        if input.abs() > threshold {
-            Self::apply_saturation_type(sat_type, input * drive_plus1)
-        } else {
-            input
+        let excess = input.abs() - threshold;
+        if excess <= 0.0 {
+            return input;
         }
+
+        let shaped = Self::apply_saturation_type(sat_type, input * drive_plus1);
+        let position = (excess / SATURATION_SOFT_KNEE_WIDTH).min(1.0);
+        let weight = position * position * (3.0 - 2.0 * position);
+        input + (shaped - input) * weight
     }
 
     #[inline]
@@ -715,6 +712,77 @@ mod tests {
         let mut samples = vec![0.9];
         sat.process(&mut samples);
         assert!(samples[0].abs() < 0.9);
+    }
+
+    fn transfer_at(
+        sat_type: SaturationType,
+        threshold: f64,
+        drive: f64,
+        output_gain_db: f64,
+        input: f64,
+    ) -> f64 {
+        let mut saturation = Saturation::with_type(sat_type);
+        saturation.set_threshold(threshold);
+        saturation.set_drive(drive);
+        saturation.set_mix(1.0);
+        saturation.set_output_gain(output_gain_db);
+        let mut sample = [input];
+        saturation.process_with_channels(&mut sample, 1);
+        sample[0]
+    }
+
+    #[test]
+    fn threshold_transfer_is_c1_for_every_saturation_type() {
+        let threshold = 0.8;
+        let epsilon = 1.0e-6;
+        let expected_slope = db_to_linear(-3.0);
+
+        for sat_type in [
+            SaturationType::Tape,
+            SaturationType::Tube,
+            SaturationType::Transistor,
+        ] {
+            for sign in [-1.0, 1.0] {
+                let center = sign * threshold;
+                let outside = center + sign * epsilon;
+                let inside = center - sign * epsilon;
+                let center_out = transfer_at(sat_type, threshold, 1.3, -3.0, center);
+                let outside_out = transfer_at(sat_type, threshold, 1.3, -3.0, outside);
+                let inside_out = transfer_at(sat_type, threshold, 1.3, -3.0, inside);
+                let jump = (outside_out - inside_out).abs();
+                let inside_slope = (center_out - inside_out) / (center - inside);
+                let outside_slope = (outside_out - center_out) / (outside - center);
+
+                assert!(
+                    jump <= 2.0e-6,
+                    "{sat_type:?} sign={sign} threshold jump {jump:e}"
+                );
+                assert!(
+                    (inside_slope - expected_slope).abs() <= 1.0e-9,
+                    "{sat_type:?} sign={sign} inside slope {inside_slope:e}"
+                );
+                assert!(
+                    (outside_slope - inside_slope).abs() <= 1.0e-3,
+                    "{sat_type:?} sign={sign} slope mismatch inside={inside_slope:e} outside={outside_slope:e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn output_gain_is_consistent_below_and_above_threshold() {
+        let mut saturation = Saturation::with_type(SaturationType::Tube);
+        saturation.set_threshold(0.8);
+        saturation.set_mix(1.0);
+        saturation.set_output_gain(-6.0);
+        let mut samples = [0.5, 0.8, 0.9];
+
+        saturation.process_with_channels(&mut samples, 1);
+
+        let output_gain = db_to_linear(-6.0);
+        assert!((samples[0] - 0.5 * output_gain).abs() <= 1.0e-12);
+        assert!((samples[1] - 0.8 * output_gain).abs() <= 1.0e-12);
+        assert!(samples[2] < 0.9 * output_gain);
     }
 
     #[test]
