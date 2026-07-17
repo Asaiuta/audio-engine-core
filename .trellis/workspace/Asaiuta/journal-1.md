@@ -434,3 +434,38 @@ Standardized quality, callback, and streaming-resampler reports with versioned e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Fix AutoMix and FIR algorithms
+
+**Date**: 2026-07-17
+**Task**: Fix AutoMix and FIR algorithms
+
+### Summary
+
+Corrected AutoMix spectral cadence and explicit unsupported key status; fixed FIR one-tap gain, absolute magnitude, and minimum-phase taper; standardized FIR JSON/baseline performance gates with CI, docs, specs, and complete verification evidence.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `456e54b` | (see git log) |
+| `0345b59` | (see git log) |
+| `4503f37` | (see git log) |
+| `87a8acc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
