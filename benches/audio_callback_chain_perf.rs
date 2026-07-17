@@ -66,7 +66,7 @@ impl Scenario {
                 "optional stages disabled; volume unity; convolver slot empty"
             }
             Self::ActiveDspNoConvolver => {
-                "EQ + Oversampled4x Tube saturation + crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty"
+                "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty"
             }
             Self::ActiveDspWithConvolver => {
                 "active DSP configuration plus a stereo 256-tap synthetic convolver"
