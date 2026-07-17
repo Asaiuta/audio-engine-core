@@ -54,6 +54,10 @@ const SATURATION_ALIAS_STRESS_FREQUENCY_HZ: f64 = 11_000.0;
 const SATURATION_ALIAS_AMPLITUDE_DBFS: f64 = -2.0;
 const SATURATION_ALIAS_DRIVE: f64 = 1.35;
 const SATURATION_ALIAS_MIX: f64 = 1.0;
+const SATURATION_CONTINUITY_THRESHOLD: f64 = 0.8;
+const SATURATION_CONTINUITY_DRIVE: f64 = 1.3;
+const SATURATION_CONTINUITY_OUTPUT_GAIN_DB: f64 = -3.0;
+const SATURATION_CONTINUITY_EPSILON: f64 = 1.0e-6;
 const LISTENING_DSP_AMPLITUDE_DBFS: f64 = -24.0;
 const LISTENING_EQ_TARGET_GAIN_DB: f64 = 6.0;
 const LISTENING_CROSSFEED_MIX: f64 = 0.35;
@@ -63,6 +67,9 @@ const LISTENING_CROSSFEED_HIGH_HZ: f64 = 2_000.0;
 const LISTENING_LOUDNESS_REFERENCE_DB: f64 = -15.0;
 const LISTENING_LOUDNESS_LOW_DB: f64 = -40.0;
 const LISTENING_LOUDNESS_STRENGTH: f64 = 1.0;
+const NOISE_LOW_LEVEL_INPUT_DBFS: f64 = -140.0;
+const BAUER_REFERENCE_DC_DIRECT_GAIN: f64 = 0.626_699_081_666_732;
+const BAUER_REFERENCE_DC_CROSS_GAIN: f64 = 0.373_300_918_333_268;
 
 // Gate thresholds for the synthetic (always-runs) metrics. These are deliberately
 // conservative: observed values sit far inside them so the gates survive across
@@ -72,14 +79,21 @@ const GATE_RESAMPLER_THDN_MAX_DB: f64 = -100.0; // observed ~-187 dB
 const GATE_PASSBAND_DEVIATION_MAX_DB: f64 = 0.10; // observed ~0.0013 dB
 const GATE_ALIAS_ATTENUATION_MAX_DB: f64 = -100.0; // observed ~-295 dB (more negative is better)
 const GATE_SATURATION_ALIAS_REDUCTION_MIN_DB: f64 = 6.0;
+const GATE_SATURATION_THRESHOLD_JUMP_MAX: f64 = 2.0e-6;
+const GATE_SATURATION_SLOPE_MISMATCH_MAX: f64 = 1.0e-3;
 const GATE_EQ_TARGET_ERROR_MAX_DB: f64 = 0.50;
-const GATE_CROSSFEED_HIGH_BAND_MIN_DB: f64 = -13.0;
-const GATE_CROSSFEED_LOW_VS_HIGH_MAX_DB: f64 = -12.0;
+const GATE_CROSSFEED_LOW_BAND_MIN_DB: f64 = -20.0;
+const GATE_CROSSFEED_LOW_VS_HIGH_MIN_DB: f64 = 7.0;
+const GATE_CROSSFEED_REFERENCE_ERROR_MAX: f64 = 1.0e-9;
+const GATE_CROSSFEED_FIRST_FRAME_DELTA_MAX: f64 = 1.0e-3;
 const GATE_CROSSFEED_MIX_CHANGE_PRESERVED_MAX_DELTA: f64 = 1.0e-12;
 const GATE_CROSSFEED_MIX_CHANGE_LEGACY_RESET_MIN_DELTA: f64 = 1.0e-4;
 const GATE_DYNAMIC_LOUDNESS_BASS_COMPENSATION_MIN_DB: f64 = 6.0;
 const GATE_LIMITER_MARGIN_MAX_DB: f64 = 0.05; // sample-peak ceiling; observed ~0.00 dB
 const GATE_NOISE_SHAPER_ADVANTAGE_MIN_DB: f64 = 3.0; // observed up to ~+35 dB
+const GATE_NOISE_LOW_LEVEL_CHANGED_FRACTION_MIN: f64 = 0.99;
+const GATE_NOISE_STRESS_PEAK_MAX: f64 = 1.0;
+const GATE_NOISE_STRESS_NON_FINITE_MAX: f64 = 0.0;
 const GATE_LOUDNESS_PARITY_MAX_LU: f64 = 1.0e-6; // wrapper forwards to ebur128
 
 const EBU_TRUE_PEAK_FILES: [EbuExpectedFile; 9] = [
@@ -285,6 +299,7 @@ struct QualityReport {
     frequency_response: FrequencyResponseSection,
     limiter: LimiterSection,
     resampler_stopband: StopbandSection,
+    saturation_continuity: SaturationContinuitySection,
     saturation_aliasing: SaturationAliasingSection,
     listening_dsp: ListeningDspSection,
     noise_shaping: NoiseShapingSection,
@@ -455,6 +470,7 @@ struct Conditions {
     thdn_method: &'static str,
     frequency_response_method: &'static str,
     stopband_method: &'static str,
+    saturation_continuity_method: &'static str,
     saturation_aliasing_method: &'static str,
     listening_dsp_method: &'static str,
     limiter_method: &'static str,
@@ -544,6 +560,27 @@ struct SaturationAliasingSection {
 }
 
 #[derive(Serialize)]
+struct SaturationContinuitySection {
+    threshold: f64,
+    drive: f64,
+    output_gain_db: f64,
+    epsilon: f64,
+    points: Vec<SaturationContinuityPoint>,
+    max_threshold_jump_linear: f64,
+    max_first_derivative_mismatch: f64,
+}
+
+#[derive(Serialize)]
+struct SaturationContinuityPoint {
+    saturation_type: &'static str,
+    sign: f64,
+    threshold_jump_linear: f64,
+    inside_first_derivative: f64,
+    outside_first_derivative: f64,
+    first_derivative_mismatch: f64,
+}
+
+#[derive(Serialize)]
 struct SaturationAliasPoint {
     harmonic: u32,
     folded_frequency_hz: f64,
@@ -584,6 +621,10 @@ struct ListeningCrossfeedSection {
     low_crossfeed_db: f64,
     high_crossfeed_db: f64,
     low_vs_high_crossfeed_db: f64,
+    reference_dc_direct_gain: f64,
+    reference_dc_cross_gain: f64,
+    reference_max_abs_error: f64,
+    mix_change_first_frame_delta: f64,
     mix_change_preserved_max_delta: f64,
     mix_change_legacy_reset_max_delta: f64,
 }
@@ -611,6 +652,11 @@ struct NoiseShapingSection {
     fft_len: usize,
     points: Vec<NoiseShapingPoint>,
     strongest_shaped_high_minus_ear_band_advantage_db: f64,
+    low_level_input_dbfs: f64,
+    low_level_changed_fraction: f64,
+    silence_non_zero_fraction: f64,
+    stress_max_abs_output: f64,
+    stress_non_finite_outputs: usize,
 }
 
 #[derive(Serialize)]
@@ -808,6 +854,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     let frequency_response = measure_frequency_response(frames, amplitude)?;
     let limiter = measure_limiter(frames, test_frequency, amplitude, limiter_transparent)?;
     let resampler_stopband = measure_stopband(frames)?;
+    let saturation_continuity = measure_saturation_continuity();
     let saturation_aliasing = measure_saturation_aliasing(frames)?;
     let listening_dsp = measure_listening_dsp(frames)?;
     let noise_shaping = measure_noise_shaping(frames)?;
@@ -821,6 +868,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         &frequency_response,
         &limiter,
         &resampler_stopband,
+        &saturation_continuity,
         &saturation_aliasing,
         &listening_dsp,
         &noise_shaping,
@@ -841,10 +889,11 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
             thdn_method: "least-squares sine fit with DC term, THD+N = residual_rms / fitted_sine_rms",
             frequency_response_method: "single-tone amplitude fit after 44.1 kHz -> 48 kHz resampling",
             stopband_method: "96 kHz -> 48 kHz resampling of above-output-Nyquist tones; alias fit plus broad residual RMS",
+            saturation_continuity_method: "one-sided finite-difference transfer probe across the soft-knee threshold for Tape/Tube/Transistor with non-unity output gain",
             saturation_aliasing_method: "11 kHz driven tube waveshaper; fit folded above-Nyquist harmonics and compare source-rate Direct vs Oversampled4x alias energy",
-            listening_dsp_method: "single-tone fits through IIR EQ, Bauer crossfeed, and dynamic-loudness processors after settling; reports target response/effect size rather than external conformance",
+            listening_dsp_method: "single-tone fits through IIR EQ, libbs2b-style low-pass/high-boost Bauer crossfeed, and dynamic-loudness processors after settling; crossfeed also checks the independent 4.5 dB reference DC profile and parameter-ramp continuity",
             limiter_method: "PeakLimiter (default 4x-oversampled true-peak detection) in-place processing; reports sample-peak ceiling, below-threshold THD+N, and intersample-peak stress vs legacy sample-peak mode",
-            noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands",
+            noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands plus -140 dBFS, silence, overload, and non-finite boundary probes",
             loudness_reference_method: "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
             full_output_true_peak_method: format!(
                 "offline canonical output chain: {} -> LoudnessMeter true-peak analysis",
@@ -867,6 +916,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         frequency_response,
         limiter,
         resampler_stopband,
+        saturation_continuity,
         saturation_aliasing,
         listening_dsp,
         noise_shaping,
@@ -883,6 +933,7 @@ fn build_metrics(
     frequency_response: &FrequencyResponseSection,
     limiter: &LimiterSection,
     resampler_stopband: &StopbandSection,
+    saturation_continuity: &SaturationContinuitySection,
     saturation_aliasing: &SaturationAliasingSection,
     listening_dsp: &ListeningDspSection,
     noise_shaping: &NoiseShapingSection,
@@ -913,6 +964,20 @@ fn build_metrics(
             "dB",
         ),
         MetricResult::gate(
+            "saturation_threshold_transfer_jump",
+            Comparison::AtMost,
+            saturation_continuity.max_threshold_jump_linear,
+            GATE_SATURATION_THRESHOLD_JUMP_MAX,
+            "linear",
+        ),
+        MetricResult::gate(
+            "saturation_threshold_first_derivative_mismatch",
+            Comparison::AtMost,
+            saturation_continuity.max_first_derivative_mismatch,
+            GATE_SATURATION_SLOPE_MISMATCH_MAX,
+            "linear/linear",
+        ),
+        MetricResult::gate(
             "saturation_oversampled4x_alias_reduction",
             Comparison::AtLeast,
             saturation_aliasing.alias_reduction_db,
@@ -927,18 +992,32 @@ fn build_metrics(
             "dB",
         ),
         MetricResult::gate(
-            "listening_crossfeed_high_band_level",
+            "listening_crossfeed_low_band_level",
             Comparison::AtLeast,
-            listening_dsp.crossfeed.high_crossfeed_db,
-            GATE_CROSSFEED_HIGH_BAND_MIN_DB,
+            listening_dsp.crossfeed.low_crossfeed_db,
+            GATE_CROSSFEED_LOW_BAND_MIN_DB,
             "dB",
         ),
         MetricResult::gate(
-            "listening_crossfeed_low_vs_high_attenuation",
-            Comparison::AtMost,
+            "listening_crossfeed_low_vs_high_separation",
+            Comparison::AtLeast,
             listening_dsp.crossfeed.low_vs_high_crossfeed_db,
-            GATE_CROSSFEED_LOW_VS_HIGH_MAX_DB,
+            GATE_CROSSFEED_LOW_VS_HIGH_MIN_DB,
             "dB",
+        ),
+        MetricResult::gate(
+            "listening_crossfeed_bauer_reference_dc_gain_error",
+            Comparison::AtMost,
+            listening_dsp.crossfeed.reference_max_abs_error,
+            GATE_CROSSFEED_REFERENCE_ERROR_MAX,
+            "linear",
+        ),
+        MetricResult::gate(
+            "listening_crossfeed_mix_change_first_frame_delta",
+            Comparison::AtMost,
+            listening_dsp.crossfeed.mix_change_first_frame_delta,
+            GATE_CROSSFEED_FIRST_FRAME_DELTA_MAX,
+            "linear",
         ),
         MetricResult::gate(
             "listening_crossfeed_mix_change_preserves_history",
@@ -974,6 +1053,27 @@ fn build_metrics(
             noise_shaping.strongest_shaped_high_minus_ear_band_advantage_db,
             GATE_NOISE_SHAPER_ADVANTAGE_MIN_DB,
             "dB",
+        ),
+        MetricResult::gate(
+            "noise_shaper_low_level_changed_fraction",
+            Comparison::AtLeast,
+            noise_shaping.low_level_changed_fraction,
+            GATE_NOISE_LOW_LEVEL_CHANGED_FRACTION_MIN,
+            "ratio",
+        ),
+        MetricResult::gate(
+            "noise_shaper_stress_peak",
+            Comparison::AtMost,
+            noise_shaping.stress_max_abs_output,
+            GATE_NOISE_STRESS_PEAK_MAX,
+            "linear",
+        ),
+        MetricResult::gate(
+            "noise_shaper_stress_non_finite_outputs",
+            Comparison::AtMost,
+            noise_shaping.stress_non_finite_outputs as f64,
+            GATE_NOISE_STRESS_NON_FINITE_MAX,
+            "samples",
         ),
         MetricResult::gate(
             "loudness_integrated_parity_vs_ebur128",
@@ -1329,6 +1429,77 @@ fn measure_stopband(frames: usize) -> Result<StopbandSection, String> {
     })
 }
 
+fn measure_saturation_continuity() -> SaturationContinuitySection {
+    let mut points = Vec::new();
+
+    for saturation_type in [
+        SaturationType::Tape,
+        SaturationType::Tube,
+        SaturationType::Transistor,
+    ] {
+        for sign in [-1.0, 1.0] {
+            let center = sign * SATURATION_CONTINUITY_THRESHOLD;
+            let inside = center - sign * SATURATION_CONTINUITY_EPSILON;
+            let outside = center + sign * SATURATION_CONTINUITY_EPSILON;
+            let inside_output = saturation_transfer_sample(saturation_type, inside);
+            let center_output = saturation_transfer_sample(saturation_type, center);
+            let outside_output = saturation_transfer_sample(saturation_type, outside);
+            let inside_first_derivative = (center_output - inside_output) / (center - inside);
+            let outside_first_derivative = (outside_output - center_output) / (outside - center);
+
+            points.push(SaturationContinuityPoint {
+                saturation_type: saturation_type_name(saturation_type),
+                sign,
+                threshold_jump_linear: (outside_output - inside_output).abs(),
+                inside_first_derivative,
+                outside_first_derivative,
+                first_derivative_mismatch: (outside_first_derivative - inside_first_derivative)
+                    .abs(),
+            });
+        }
+    }
+
+    let max_threshold_jump_linear = points
+        .iter()
+        .map(|point| point.threshold_jump_linear)
+        .fold(0.0, f64::max);
+    let max_first_derivative_mismatch = points
+        .iter()
+        .map(|point| point.first_derivative_mismatch)
+        .fold(0.0, f64::max);
+
+    SaturationContinuitySection {
+        threshold: SATURATION_CONTINUITY_THRESHOLD,
+        drive: SATURATION_CONTINUITY_DRIVE,
+        output_gain_db: SATURATION_CONTINUITY_OUTPUT_GAIN_DB,
+        epsilon: SATURATION_CONTINUITY_EPSILON,
+        points,
+        max_threshold_jump_linear,
+        max_first_derivative_mismatch,
+    }
+}
+
+fn saturation_transfer_sample(saturation_type: SaturationType, input: f64) -> f64 {
+    let mut saturation = Saturation::with_type(saturation_type);
+    saturation.set_channel_count(1);
+    saturation.set_quality(SaturationQuality::Direct);
+    saturation.set_threshold(SATURATION_CONTINUITY_THRESHOLD);
+    saturation.set_drive(SATURATION_CONTINUITY_DRIVE);
+    saturation.set_mix(1.0);
+    saturation.set_output_gain(SATURATION_CONTINUITY_OUTPUT_GAIN_DB);
+    let mut sample = [input];
+    saturation.process_with_channels(&mut sample, 1);
+    sample[0]
+}
+
+fn saturation_type_name(saturation_type: SaturationType) -> &'static str {
+    match saturation_type {
+        SaturationType::Tape => "Tape",
+        SaturationType::Tube => "Tube",
+        SaturationType::Transistor => "Transistor",
+    }
+}
+
 fn measure_saturation_aliasing(frames: usize) -> Result<SaturationAliasingSection, String> {
     let amplitude = db_to_linear(SATURATION_ALIAS_AMPLITUDE_DBFS);
     let input = sine_mono(
@@ -1483,6 +1654,8 @@ fn measure_listening_eq(frames: usize) -> Result<ListeningEqSection, String> {
 fn measure_listening_crossfeed(frames: usize) -> Result<ListeningCrossfeedSection, String> {
     let low_crossfeed_db = measure_crossfeed_right_gain(frames, LISTENING_CROSSFEED_LOW_HZ)?;
     let high_crossfeed_db = measure_crossfeed_right_gain(frames, LISTENING_CROSSFEED_HIGH_HZ)?;
+    let (reference_dc_direct_gain, reference_dc_cross_gain, reference_max_abs_error) =
+        measure_crossfeed_dc_reference();
     let continuity = measure_crossfeed_mix_change_continuity()?;
 
     Ok(ListeningCrossfeedSection {
@@ -1493,9 +1666,29 @@ fn measure_listening_crossfeed(frames: usize) -> Result<ListeningCrossfeedSectio
         low_crossfeed_db,
         high_crossfeed_db,
         low_vs_high_crossfeed_db: low_crossfeed_db - high_crossfeed_db,
+        reference_dc_direct_gain,
+        reference_dc_cross_gain,
+        reference_max_abs_error,
+        mix_change_first_frame_delta: continuity.first_frame_delta,
         mix_change_preserved_max_delta: continuity.preserved_max_delta,
         mix_change_legacy_reset_max_delta: continuity.legacy_reset_max_delta,
     })
+}
+
+fn measure_crossfeed_dc_reference() -> (f64, f64, f64) {
+    let mut samples = vec![0.0; 8_192 * CHANNELS];
+    for frame in samples.chunks_exact_mut(CHANNELS) {
+        frame[0] = 1.0;
+    }
+    let mut crossfeed =
+        Crossfeed::with_params(SAMPLE_RATE as f64, LISTENING_CROSSFEED_CUTOFF_HZ, 1.0);
+    crossfeed.process(&mut samples, CHANNELS);
+    let direct = samples[samples.len() - 2];
+    let cross = samples[samples.len() - 1];
+    let error = (direct - BAUER_REFERENCE_DC_DIRECT_GAIN)
+        .abs()
+        .max((cross - BAUER_REFERENCE_DC_CROSS_GAIN).abs());
+    (direct, cross, error)
 }
 
 fn measure_crossfeed_right_gain(frames: usize, frequency: f64) -> Result<f64, String> {
@@ -1527,6 +1720,7 @@ fn measure_crossfeed_right_gain(frames: usize, frequency: f64) -> Result<f64, St
 }
 
 struct CrossfeedContinuityResult {
+    first_frame_delta: f64,
     preserved_max_delta: f64,
     legacy_reset_max_delta: f64,
 }
@@ -1555,14 +1749,21 @@ fn measure_crossfeed_mix_change_continuity() -> Result<CrossfeedContinuityResult
         LISTENING_CROSSFEED_CUTOFF_HZ,
         LISTENING_CROSSFEED_MIX,
     );
+    let mut old_mix_reference = Crossfeed::with_params(
+        SAMPLE_RATE as f64,
+        LISTENING_CROSSFEED_CUTOFF_HZ,
+        LISTENING_CROSSFEED_MIX,
+    );
 
     let warm = hard_panned_sine_for_frame_range(4096, 0, LISTENING_CROSSFEED_HIGH_HZ);
     let mut proc_warm = warm.clone();
     let mut reference_warm = warm.clone();
     let mut legacy_warm = warm;
+    let mut old_mix_warm = legacy_warm.clone();
     process_adapter_block(&mut proc, &mut proc_warm, CHANNELS)?;
     reference.process(&mut reference_warm, CHANNELS);
     legacy_reset.process(&mut legacy_warm, CHANNELS);
+    old_mix_reference.process(&mut old_mix_warm, CHANNELS);
 
     let changed_mix = 0.7;
     params.set_mix(changed_mix);
@@ -1574,11 +1775,14 @@ fn measure_crossfeed_mix_change_continuity() -> Result<CrossfeedContinuityResult
     let mut proc_next = next.clone();
     let mut reference_next = next.clone();
     let mut legacy_next = next;
+    let mut old_mix_next = legacy_next.clone();
     process_adapter_block(&mut proc, &mut proc_next, CHANNELS)?;
     reference.process(&mut reference_next, CHANNELS);
     legacy_reset.process(&mut legacy_next, CHANNELS);
+    old_mix_reference.process(&mut old_mix_next, CHANNELS);
 
     Ok(CrossfeedContinuityResult {
+        first_frame_delta: max_abs_delta(&proc_next[..CHANNELS], &old_mix_next[..CHANNELS]),
         preserved_max_delta: max_abs_delta(&proc_next, &reference_next),
         legacy_reset_max_delta: max_abs_delta(&proc_next, &legacy_next),
     })
@@ -1705,6 +1909,7 @@ fn measure_noise_shaping(frames: usize) -> Result<NoiseShapingSection, String> {
         .filter(|point| point.curve != "TpdfOnly")
         .map(|point| point.high_minus_ear_band_db - tpdf_high_minus_ear)
         .fold(f64::NEG_INFINITY, f64::max);
+    let boundaries = measure_noise_shaper_boundaries();
 
     Ok(NoiseShapingSection {
         sample_rate_hz: SAMPLE_RATE,
@@ -1716,7 +1921,77 @@ fn measure_noise_shaping(frames: usize) -> Result<NoiseShapingSection, String> {
         fft_len: analysis_len,
         points,
         strongest_shaped_high_minus_ear_band_advantage_db,
+        low_level_input_dbfs: NOISE_LOW_LEVEL_INPUT_DBFS,
+        low_level_changed_fraction: boundaries.low_level_changed_fraction,
+        silence_non_zero_fraction: boundaries.silence_non_zero_fraction,
+        stress_max_abs_output: boundaries.stress_max_abs_output,
+        stress_non_finite_outputs: boundaries.stress_non_finite_outputs,
     })
+}
+
+struct NoiseShaperBoundaryResult {
+    low_level_changed_fraction: f64,
+    silence_non_zero_fraction: f64,
+    stress_max_abs_output: f64,
+    stress_non_finite_outputs: usize,
+}
+
+fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
+    const PROBE_SAMPLES: usize = 16_384;
+
+    let low_level = db_to_linear(NOISE_LOW_LEVEL_INPUT_DBFS);
+    let mut low_level_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+    let low_level_changed = (0..PROBE_SAMPLES)
+        .filter(|_| low_level_shaper.process_sample(low_level, 0).to_bits() != low_level.to_bits())
+        .count();
+
+    let mut silence_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+    silence_shaper.set_curve(NoiseShaperCurve::TpdfOnly);
+    let silence_non_zero = (0..PROBE_SAMPLES)
+        .filter(|_| silence_shaper.process_sample(0.0, 0) != 0.0)
+        .count();
+
+    let curves = [
+        NoiseShaperCurve::TpdfOnly,
+        NoiseShaperCurve::Lipshitz5,
+        NoiseShaperCurve::FWeighted9,
+        NoiseShaperCurve::ModifiedE9,
+        NoiseShaperCurve::ImprovedE9,
+    ];
+    let mut stress_max_abs_output = 0.0_f64;
+    let mut stress_non_finite_outputs = 0;
+    for curve in curves {
+        let mut shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+        shaper.set_curve(curve);
+        let mut seed = 0xA076_1D64_78BD_642F_u64;
+        for index in 0..PROBE_SAMPLES {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let unit = seed as f64 / u64::MAX as f64;
+            let input = match index % 4096 {
+                0 => f64::NAN,
+                1 => f64::INFINITY,
+                2 => f64::NEG_INFINITY,
+                3 => 4.0,
+                4 => -4.0,
+                _ => unit * 2.4 - 1.2,
+            };
+            let output = shaper.process_sample(input, 0);
+            if output.is_finite() {
+                stress_max_abs_output = stress_max_abs_output.max(output.abs());
+            } else {
+                stress_non_finite_outputs += 1;
+            }
+        }
+    }
+
+    NoiseShaperBoundaryResult {
+        low_level_changed_fraction: low_level_changed as f64 / PROBE_SAMPLES as f64,
+        silence_non_zero_fraction: silence_non_zero as f64 / PROBE_SAMPLES as f64,
+        stress_max_abs_output,
+        stress_non_finite_outputs,
+    }
 }
 
 fn analyze_noise_spectrum(samples: &[f64], sample_rate: u32) -> Result<NoiseSpectrumBands, String> {
@@ -3042,6 +3317,26 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
         );
     }
     println!(
+        "quality_saturation_continuity threshold={:.3} drive={:.2} output_gain_db={:.1} epsilon={:.1e} max_threshold_jump_linear={:.3e} max_first_derivative_mismatch={:.3e}",
+        report.saturation_continuity.threshold,
+        report.saturation_continuity.drive,
+        report.saturation_continuity.output_gain_db,
+        report.saturation_continuity.epsilon,
+        report.saturation_continuity.max_threshold_jump_linear,
+        report.saturation_continuity.max_first_derivative_mismatch
+    );
+    for point in &report.saturation_continuity.points {
+        println!(
+            "quality_saturation_continuity_point type={} sign={:.0} threshold_jump_linear={:.3e} inside_first_derivative={:.9} outside_first_derivative={:.9} first_derivative_mismatch={:.3e}",
+            point.saturation_type,
+            point.sign,
+            point.threshold_jump_linear,
+            point.inside_first_derivative,
+            point.outside_first_derivative,
+            point.first_derivative_mismatch
+        );
+    }
+    println!(
         "quality_saturation_aliasing type={} quality={} stress_frequency_hz={:.1} direct_alias_energy_dbfs={:.2} upgraded_alias_energy_dbfs={:.2} alias_reduction_db={:.2} direct_fundamental_dbfs={:.2} upgraded_fundamental_dbfs={:.2}",
         report.saturation_aliasing.saturation_type,
         report.saturation_aliasing.upgraded_quality,
@@ -3078,7 +3373,7 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
         );
     }
     println!(
-        "quality_listening_crossfeed mix={:.2} cutoff_hz={:.1} low_frequency_hz={:.1} high_frequency_hz={:.1} low_crossfeed_db={:.2} high_crossfeed_db={:.2} low_vs_high_crossfeed_db={:.2} mix_change_preserved_max_delta={:.3e} mix_change_legacy_reset_max_delta={:.3e}",
+        "quality_listening_crossfeed mix={:.2} cutoff_hz={:.1} low_frequency_hz={:.1} high_frequency_hz={:.1} low_crossfeed_db={:.2} high_crossfeed_db={:.2} low_minus_high_crossfeed_db={:.2} reference_dc_direct_gain={:.9} reference_dc_cross_gain={:.9} reference_max_abs_error={:.3e} mix_change_first_frame_delta={:.3e} mix_change_preserved_max_delta={:.3e} mix_change_legacy_reset_max_delta={:.3e}",
         report.listening_dsp.crossfeed.mix,
         report.listening_dsp.crossfeed.cutoff_hz,
         report.listening_dsp.crossfeed.low_frequency_hz,
@@ -3086,6 +3381,13 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
         report.listening_dsp.crossfeed.low_crossfeed_db,
         report.listening_dsp.crossfeed.high_crossfeed_db,
         report.listening_dsp.crossfeed.low_vs_high_crossfeed_db,
+        report.listening_dsp.crossfeed.reference_dc_direct_gain,
+        report.listening_dsp.crossfeed.reference_dc_cross_gain,
+        report.listening_dsp.crossfeed.reference_max_abs_error,
+        report
+            .listening_dsp
+            .crossfeed
+            .mix_change_first_frame_delta,
         report
             .listening_dsp
             .crossfeed
@@ -3126,6 +3428,14 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
             point.high_minus_ear_band_db
         );
     }
+    println!(
+        "quality_noise_shaping_boundaries low_level_input_dbfs={:.1} low_level_changed_fraction={:.6} silence_non_zero_fraction={:.6} stress_max_abs_output={:.9} stress_non_finite_outputs={}",
+        report.noise_shaping.low_level_input_dbfs,
+        report.noise_shaping.low_level_changed_fraction,
+        report.noise_shaping.silence_non_zero_fraction,
+        report.noise_shaping.stress_max_abs_output,
+        report.noise_shaping.stress_non_finite_outputs
+    );
     println!(
         "quality_loudness_reference fixtures={} max_integrated_delta_lu={:.9} max_momentary_delta_lu={:.9} max_short_term_delta_lu={:.9} max_loudness_range_delta_lu={:.9} max_true_peak_delta_db={:.6}",
         report.loudness_reference.fixtures.len(),
