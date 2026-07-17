@@ -168,7 +168,8 @@ extended benches must keep it:
 
 - Trigger: changing `audio_quality_measurements`,
   `audio_callback_chain_perf`, `audio_resampler_streaming_perf`, shared
-  `benches/support/` code, benchmark CI wiring, or a documented timing claim.
+  `audio_fir_eq_perf`, `benches/support/` code, benchmark CI wiring, or a
+  documented timing claim.
 - These are custom-main benches (`harness = false`). Benchmark plumbing stays
   bench-local; do not expose report helpers as crate public API.
 
@@ -187,10 +188,15 @@ cargo bench --bench audio_resampler_streaming_perf -- \
   [--quick|--heavy] [--enforce] [--out <candidate.json>] \
   [--baseline <baseline.json>] \
   [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_fir_eq_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
 ```
 
 Omitting `--quick` / `--heavy` selects full mode. Quality supports quick/full;
-the two performance probes additionally support heavy. Environment overrides
+the three performance probes additionally support heavy. Environment overrides
 are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 `AUDIO_BENCH_RUSTC_VERBOSE`, `AUDIO_BENCH_TARGET`, `AUDIO_BENCH_CPU`, and
 `AUDIO_BENCH_PROFILE`; `GITHUB_SHA` is a revision fallback.
@@ -205,7 +211,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - Performance cases have unique stable `case_key` values, declared iterations
   and trials, raw trial samples, and min/median/nearest-rank-p95/max. Callback
   utilization uses the device-buffer deadline. Resampler utilization is only a
-  source-buffer realtime reference and must be named as such.
+  source-buffer realtime reference and must be named as such. FIR regeneration
+  compares ns/regeneration while FIR apply compares ns/sample; the case key and
+  payload must state that primary unit explicitly.
 - Quality keeps `gate` / `report` / `skipped` distinct. Full-output points copy
   `RenderedOutput` rendered frames, algorithmic latency, semantic tail, and
   truncation fields directly. Missing external corpus counts remain visible.
@@ -216,7 +224,7 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - The default median regression limit is 10%: exactly +10% passes and any
   greater regression fails under `--enforce`. Without `--baseline`, absolute
   timing is report-only; `--enforce` still validates work and report integrity.
-- Shared CI runners run all three quick reports and upload JSON, but never use
+- Shared CI runners run all four quick reports and upload JSON, but never use
   a cross-run absolute nanosecond gate without an explicitly supplied
   compatible baseline.
 
@@ -255,12 +263,14 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   diagnostic contains case, baseline, candidate, measured regression, and
   threshold.
 - Each performance quick run asserts unique case keys, trial-vector lengths,
-  finite timing, complete consumed/produced work, and output bounds.
+  finite timing, and complete work. Callback/resampler additionally assert
+  consumed/produced work and output bounds; FIR asserts IR length/finite
+  samples, finite changed apply output, and overlap-save routing.
 - Quality quick `--enforce --out` must deserialize and expose environment,
   skipped count, rendered frames, latency, semantic tail, and truncation.
-- Before release, run callback/resampler quick/full/heavy, quality quick/full,
-  both feature test matrices, both strict Clippy matrices, rustfmt, docs, and
-  package verification.
+- Before release, run callback/resampler/FIR quick/full/heavy, quality
+  quick/full, both feature test matrices, both strict Clippy matrices, rustfmt,
+  docs, and package verification.
 
 ### 7. Wrong vs Correct
 
