@@ -292,3 +292,35 @@ Closed the release-hardening gate, updated public docs and release evidence, cap
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Migrate fixed DSP chain to streaming contract
+
+**Date**: 2026-07-17
+**Task**: Migrate fixed DSP chain to streaming contract
+
+### Summary
+
+Migrated all fixed DSP adapters and the callback chain to StreamingProcessor, added fixed 1:1 lifecycle/error semantics, preserved realtime no-allocation behavior, documented the breaking API change, and recorded callback performance evidence.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c4bbf2e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

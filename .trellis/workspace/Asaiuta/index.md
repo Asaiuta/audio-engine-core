@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-06-26
+- **Total Sessions**: 8
+- **Last Active**: 2026-07-17
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~300 | Active |
+| `journal-1.md` | ~326 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-17 | Migrate fixed DSP chain to streaming contract | `c4bbf2e` | `-` |
 | 7 | 2026-06-26 | Audio engine release hardening | `5d1448e`, `28f8f1f` | `-` |
 | 6 | 2026-06-26 | EQ perceptual DSP evidence | `aebda99` | `-` |
 | 5 | 2026-06-26 | Oversampled saturation validation | `bb715bf` | `feat/channel-layout-mixing` |
