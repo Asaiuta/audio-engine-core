@@ -3,7 +3,7 @@
   "name": "audio-quality-performance-gates",
   "title": "建立音质与实时性能门禁",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,

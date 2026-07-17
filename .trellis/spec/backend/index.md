@@ -23,7 +23,7 @@ obey its hot-path prohibitions (no alloc/lock/log/IO/panic/unbounded work).
 | [Directory Structure](./directory-structure.md) | Live `src/` layout: `decoder/`, `processor/`, `processor/loudness/`, benches, examples, and where new code goes. |
 | [Error Handling](./error-handling.md) | `DecoderError` / `NetworkError` model via `thiserror`, `?` propagation, and the no-panic-on-callback rule. |
 | [Logging Guidelines](./logging-guidelines.md) | `log`-facade conventions for non-RT paths; logging is forbidden on the hot path. |
-| [Quality Guidelines](./quality-guidelines.md) | The evidence policy (claims need a test, current bench, or a limitation note) plus forbidden/required patterns and the review checklist. |
+| [Quality Guidelines](./quality-guidelines.md) | The evidence policy, versioned benchmark/baseline/CI contracts, forbidden/required patterns, and review checklist. |
 | [Database Guidelines](./database-guidelines.md) | The optional `loudness-db` SQLite cache only — not a business DB; never on the realtime path. |
 
 ## Cross-References

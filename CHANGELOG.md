@@ -35,6 +35,10 @@ SemVer for pre-1.0 releases.
 - Compensated and raw-causal offline render policies, configurable unknown-tail
   energy/hold/maximum termination, and explicit render metadata for latency,
   finite tail length, rendered frames, and tail truncation.
+- Versioned JSON evidence for the quality, callback-chain, and streaming-
+  resampler benchmark entry points, including reproducible environment metadata,
+  trial distributions, stable case keys, and compatible-baseline comparison.
+- Ubuntu CI quick gates that upload all three quality/performance JSON reports.
 
 ### Changed
 - Realtime DSP adapters and `DspChain` now use the object-safe
@@ -54,6 +58,10 @@ SemVer for pre-1.0 releases.
 - The README performance and quality sections now distinguish enforced gates,
   report-only probes, missing optional EBU corpus data, and known true-peak
   limitations.
+- Callback and streaming-resampler benchmarks now report min/median/p95/max and
+  raw trials instead of best-of-N. Quality full-output points now retain
+  `RenderedOutput` latency, semantic-tail, rendered-frame, and truncation
+  metadata; skipped corpus counts remain explicit in text and JSON.
 
 ### Fixed
 - Equalizer crossfades now adopt the target branch's complete biquad state at

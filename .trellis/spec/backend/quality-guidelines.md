@@ -162,6 +162,124 @@ extended benches must keep it:
   the observed value and margin rationale in the task's benchmark inventory.
 - **No network**, and `--quick` must stay fast for local dev.
 
+## Scenario: Versioned Benchmark Evidence And Compatible Baselines
+
+### 1. Scope / Trigger
+
+- Trigger: changing `audio_quality_measurements`,
+  `audio_callback_chain_perf`, `audio_resampler_streaming_perf`, shared
+  `benches/support/` code, benchmark CI wiring, or a documented timing claim.
+- These are custom-main benches (`harness = false`). Benchmark plumbing stays
+  bench-local; do not expose report helpers as crate public API.
+
+### 2. Signatures
+
+```bash
+cargo bench --bench audio_quality_measurements -- \
+  --quick --enforce --out <quality.json>
+
+cargo bench --bench audio_callback_chain_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_resampler_streaming_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+```
+
+Omitting `--quick` / `--heavy` selects full mode. Quality supports quick/full;
+the two performance probes additionally support heavy. Environment overrides
+are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
+`AUDIO_BENCH_RUSTC_VERBOSE`, `AUDIO_BENCH_TARGET`, `AUDIO_BENCH_CPU`, and
+`AUDIO_BENCH_PROFILE`; `GITHUB_SHA` is a revision fallback.
+
+### 3. Contracts
+
+- Every report has `schema_version`, stable `probe`, `generated_unix_ms`,
+  `mode`, `environment`, and explicit measurement `conditions`.
+- Environment contains revision, nullable dirty state, rustc, target, OS,
+  architecture, CPU, Cargo profile, and compiled feature names. Failed probes
+  produce `"unknown"` / `null`; they do not abort a report without a baseline.
+- Performance cases have unique stable `case_key` values, declared iterations
+  and trials, raw trial samples, and min/median/nearest-rank-p95/max. Callback
+  utilization uses the device-buffer deadline. Resampler utilization is only a
+  source-buffer realtime reference and must be named as such.
+- Quality keeps `gate` / `report` / `skipped` distinct. Full-output points copy
+  `RenderedOutput` rendered frames, algorithmic latency, semantic tail, and
+  truncation fields directly. Missing external corpus counts remain visible.
+- A requested baseline must match schema, probe, mode, conditions, complete
+  case set, rustc, target, OS/architecture, CPU, profile, and features. Unknown
+  required environment fields are not comparable. Revision and dirty state may
+  differ and are retained for traceability.
+- The default median regression limit is 10%: exactly +10% passes and any
+  greater regression fails under `--enforce`. Without `--baseline`, absolute
+  timing is report-only; `--enforce` still validates work and report integrity.
+- Shared CI runners run all three quick reports and upload JSON, but never use
+  a cross-run absolute nanosecond gate without an explicitly supplied
+  compatible baseline.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown CLI option, missing path, negative/non-finite threshold | named argument error |
+| Empty, non-finite, or non-positive trial sample | report construction error |
+| Duplicate/missing case key | baseline comparison rejected with both case sets named |
+| Corrupt JSON | deserialization error naming the file and report type |
+| Schema/probe/mode/conditions mismatch | comparison rejected before percentages are computed |
+| Required environment mismatch or `unknown` | comparison rejected with each incompatible field |
+| Candidate median exactly 10% slower | comparison passes |
+| Candidate median more than 10% slower | enforced failure names case, baseline, candidate, regression, and threshold |
+| No baseline on a shared runner | timing remains report-only; work/report gates still run |
+| EBU vectors absent | `skipped` with missing-file count, never pass/conformance |
+
+### 5. Good / Base / Bad Cases
+
+- Good: compare two reports from the same compiler, target, CPU, profile,
+  features, mode, conditions, and case set; allow revisions to differ.
+- Base: generate a quick CI artifact with `--enforce --out` and no baseline;
+  deterministic quality/work checks are enforced while timing is evidence.
+- Bad: compare two `cpu = "unknown"` reports, compare debug with release, or
+  call a source-buffer resampler percentage a device callback utilization.
+- Bad: cite min/best-of-N as representative performance or turn a missing EBU
+  corpus into a successful conformance claim.
+
+### 6. Tests Required
+
+- Shared support tests assert odd/even median, nearest-rank p95, raw sample
+  retention, invalid samples, CLI modes/paths/thresholds, JSON round trip, and
+  environment compatibility including unknown-field rejection.
+- Regression tests assert exactly +10% passes, greater than +10% fails, and the
+  diagnostic contains case, baseline, candidate, measured regression, and
+  threshold.
+- Each performance quick run asserts unique case keys, trial-vector lengths,
+  finite timing, complete consumed/produced work, and output bounds.
+- Quality quick `--enforce --out` must deserialize and expose environment,
+  skipped count, rendered frames, latency, semantic tail, and truncation.
+- Before release, run callback/resampler quick/full/heavy, quality quick/full,
+  both feature test matrices, both strict Clippy matrices, rustfmt, docs, and
+  package verification.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+Candidate is 8 ns/sample, therefore this is the fastest implementation.
+GitHub timing regressed, so fail against last run regardless of runner CPU.
+```
+
+#### Correct
+
+```text
+On the recorded compiler/target/CPU/profile/features, the seven-trial quick
+median was 8 ns/input-sample; see the JSON for p95 and raw samples. Enforce a
+timing regression only against an explicitly compatible same-environment
+baseline; shared-runner absolute timing remains report-only.
+```
+
 ## Code Review Checklist
 
 - [ ] Hot path: no alloc/lock/log/IO/panic/unbounded work.
