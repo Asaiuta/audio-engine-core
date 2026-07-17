@@ -38,7 +38,11 @@ SemVer for pre-1.0 releases.
 - Versioned JSON evidence for the quality, callback-chain, and streaming-
   resampler benchmark entry points, including reproducible environment metadata,
   trial distributions, stable case keys, and compatible-baseline comparison.
-- Ubuntu CI quick gates that upload all three quality/performance JSON reports.
+- `AutomixKeyStatus` so versioned AutoMix results explicitly distinguish an
+  unsupported key detector from a detector that ran without enough evidence.
+- Versioned JSON evidence and compatible same-environment baseline comparison
+  for FIR-EQ regeneration and apply performance.
+- Ubuntu CI quick gates that upload all four quality/performance JSON reports.
 
 ### Changed
 - Realtime DSP adapters and `DspChain` now use the object-safe
@@ -62,8 +66,17 @@ SemVer for pre-1.0 releases.
   raw trials instead of best-of-N. Quality full-output points now retain
   `RenderedOutput` latency, semantic-tail, rendered-frame, and truncation
   metadata; skipped corpus counts remain explicit in text and JSON.
+- FIR-EQ performance now reports seven-trial quick distributions, stable case
+  keys, work validation, and report-only timing unless a compatible baseline is
+  supplied.
 
 ### Fixed
+- AutoMix tempo conversion now uses the spectral analyzer's actual
+  `sample_rate / 512` cadence and tempo-derived lag bounds instead of applying
+  the 50 Hz envelope cadence to spectral-flux samples.
+- FIR EQ one-tap filters now produce a finite 1 kHz-reference scalar, uniform
+  positive/negative gains retain their absolute magnitude, and the
+  minimum-phase tail window fades in the correct direction.
 - Equalizer crossfades now adopt the target branch's complete biquad state at
   transition completion instead of combining target coefficients with stale
   active-branch delay history.

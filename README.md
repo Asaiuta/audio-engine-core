@@ -204,12 +204,13 @@ cargo bench --bench audio_fir_eq_perf -- --quick
 cargo bench --bench audio_quality_measurements -- --quick
 ```
 
-The three P0 evidence entry points can also write versioned JSON reports:
+The standardized evidence entry points can also write versioned JSON reports:
 
 ```bash
 cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
+cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
 ```
 
 Quality `--enforce` applies deterministic objective gates while keeping
@@ -230,9 +231,9 @@ OS/architecture, CPU, Cargo profile, feature set, mode, conditions, or case set;
 an unavailable required environment field is also rejected. Revision and dirty
 state are recorded but may differ. Reports retain every trial plus
 min/median/nearest-rank p95/max and the complete build environment.
-Omit `--quick` for the full workload or pass `--heavy` to the two performance
+Omit `--quick` for the full workload or pass `--heavy` to the three performance
 benches for stress runs. The quality bench uses quick/full only. GitHub shared
-runners generate and upload the three quick JSON artifacts without imposing a
+runners generate and upload the four quick JSON artifacts without imposing a
 cross-machine absolute nanosecond threshold.
 
 The table below records representative local runs; rows should be regenerated
@@ -250,7 +251,7 @@ in-crate processing.
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 126.2 ns | 129.2 us | seven-trial quick median; p95 callback utilization 1.24% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
-| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |
+| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
 
 For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
 chain measured here uses well under one callback period.
@@ -269,9 +270,20 @@ naive split-atomic field-by-field read and ~83 ns for an unconditional
 `FirEq` designs a linear- or minimum-phase impulse response from 10 band gains;
 the IR is then convolved (typically with `FFTConvolver`) to apply the EQ.
 Generation is an offline/control-thread cost, not a per-sample one. On this
-machine a 511-tap linear-phase design regenerates in ~31 us; minimum-phase
-designs cost roughly 3x more because of the extra cepstral phase shaping, and
-cost scales with tap count (`audio_fir_eq_perf`).
+machine a 511-tap linear-phase design has a seven-trial quick median of ~33 us;
+minimum-phase is ~105 us because of the extra cepstral phase shaping, and cost
+scales with tap count (`audio_fir_eq_perf`). The generated response preserves
+absolute band gain: a uniform +6 dB curve remains +6 dB. A one-tap design is
+explicitly a pure scalar at the 1 kHz reference (flat 0 dB is `[1.0]`).
+
+### AutoMix analysis contract
+
+AutoMix analysis schema version 2 converts spectral-flux lag using the actual
+`sample_rate / 512` observation cadence and derives lag bounds from the
+supported tempo range. Musical-key detection is not implemented or claimed:
+`AutomixKeyStatus::Unsupported` is serialized as `key_status: "unsupported"`,
+and the reserved root/mode/confidence/Camelot fields remain null until a future
+detector is validated against an independently labeled music corpus.
 
 ### FFT convolution routing
 
