@@ -65,7 +65,6 @@ struct BiquadGeometry {
     q: f64,
     sample_rate: f64,
     cos_w0: f64,
-    sin_w0: f64,
     alpha: f64,
 }
 
@@ -84,7 +83,6 @@ impl BiquadGeometry {
             q,
             sample_rate,
             cos_w0,
-            sin_w0,
             alpha,
         }
     }
@@ -183,20 +181,18 @@ impl BiquadFilter {
 
         let a = 10.0_f64.powf(gain_db / 40.0);
         let cos_w0 = geometry.cos_w0;
-        let sin_w0 = geometry.sin_w0;
-
         // RBJ cookbook: S=1 (shelf slope), alpha and beta formulas
         // alpha = sin(w0)/2 * sqrt(2) when S=1
-        // beta = 2 * sqrt(A) * alpha
+        // two_sqrt_a_alpha = 2 * sqrt(A) * alpha
         let alpha = geometry.alpha;
-        let beta = 2.0 * a.sqrt() * alpha;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
 
-        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + beta * sin_w0);
+        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
         let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - beta * sin_w0);
-        let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + beta * sin_w0;
+        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
         let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - beta * sin_w0;
+        let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
 
         BiquadCoeffs {
             b0: b0 / a0,
@@ -216,18 +212,16 @@ impl BiquadFilter {
 
         let a = 10.0_f64.powf(gain_db / 40.0);
         let cos_w0 = geometry.cos_w0;
-        let sin_w0 = geometry.sin_w0;
-
         // RBJ cookbook: S=1 (shelf slope), alpha and beta formulas
         let alpha = geometry.alpha;
-        let beta = 2.0 * a.sqrt() * alpha;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
 
-        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + beta * sin_w0);
+        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
         let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - beta * sin_w0);
-        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + beta * sin_w0;
+        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
         let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - beta * sin_w0;
+        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
 
         BiquadCoeffs {
             b0: b0 / a0,
@@ -282,6 +276,7 @@ impl BiquadFilter {
                 FilterType::LowShelf => Self::calc_low_shelf_coeffs(&self.geometry, 0.0),
                 FilterType::HighShelf => Self::calc_high_shelf_coeffs(&self.geometry, 0.0),
             };
+            self.reset();
         }
     }
 }
@@ -302,17 +297,27 @@ struct ParameterSmoother {
 }
 
 impl ParameterSmoother {
+    fn smoothing_coeff(smoothing_time_ms: f64, sample_rate: f64) -> f64 {
+        let tau = (smoothing_time_ms / 1000.0) * sample_rate;
+        if tau > 0.0 {
+            (-1.0 / tau).exp()
+        } else {
+            0.0
+        }
+    }
+
     /// Create a new smoother with time constant in milliseconds
     fn new(smoothing_time_ms: f64, sample_rate: f64) -> Self {
-        let tau = (smoothing_time_ms / 1000.0) * sample_rate;
-        let coeff = if tau > 0.0 { (-1.0 / tau).exp() } else { 0.0 };
-
         Self {
             current: 0.0,
             target: 0.0,
-            coeff,
+            coeff: Self::smoothing_coeff(smoothing_time_ms, sample_rate),
             samples_remaining: 0,
         }
+    }
+
+    fn set_sample_rate(&mut self, smoothing_time_ms: f64, sample_rate: f64) {
+        self.coeff = Self::smoothing_coeff(smoothing_time_ms, sample_rate);
     }
 
     /// Set target value
@@ -587,12 +592,17 @@ impl DynamicLoudness {
                     filter.set_sample_rate(sample_rate);
                 }
             }
-            self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
-            self.active_bands = [false; LOUDNESS_BANDS_N];
-
             // Update smoothers
             for smoother in &mut self.smoothers {
-                *smoother = ParameterSmoother::new(50.0, sample_rate);
+                smoother.set_sample_rate(50.0, sample_rate);
+            }
+
+            // Old-rate biquad histories were reset above. Rebuild each band at
+            // its preserved current smoother gain before the next frame.
+            self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
+            self.active_bands = [false; LOUDNESS_BANDS_N];
+            for band in 0..LOUDNESS_BANDS_N {
+                self.apply_band_gain_if_changed(band, self.smoothers[band].current);
             }
         }
     }
@@ -784,7 +794,7 @@ mod tests {
         }
     }
 
-    fn legacy_peaking_coeffs(freq: f64, gain_db: f64, q: f64, sample_rate: f64) -> BiquadCoeffs {
+    fn rbj_peaking_coeffs(freq: f64, gain_db: f64, q: f64, sample_rate: f64) -> BiquadCoeffs {
         if gain_db.abs() < 0.0001 {
             return BiquadCoeffs::default();
         }
@@ -811,7 +821,7 @@ mod tests {
         }
     }
 
-    fn legacy_low_shelf_coeffs(freq: f64, gain_db: f64, sample_rate: f64) -> BiquadCoeffs {
+    fn rbj_low_shelf_coeffs(freq: f64, gain_db: f64, sample_rate: f64) -> BiquadCoeffs {
         if gain_db.abs() < 0.0001 {
             return BiquadCoeffs::default();
         }
@@ -821,14 +831,14 @@ mod tests {
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let alpha = sin_w0 / std::f64::consts::SQRT_2;
-        let beta = 2.0 * a.sqrt() * alpha;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
 
-        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + beta * sin_w0);
+        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
         let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - beta * sin_w0);
-        let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + beta * sin_w0;
+        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
         let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - beta * sin_w0;
+        let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
 
         BiquadCoeffs {
             b0: b0 / a0,
@@ -839,7 +849,7 @@ mod tests {
         }
     }
 
-    fn legacy_high_shelf_coeffs(freq: f64, gain_db: f64, sample_rate: f64) -> BiquadCoeffs {
+    fn rbj_high_shelf_coeffs(freq: f64, gain_db: f64, sample_rate: f64) -> BiquadCoeffs {
         if gain_db.abs() < 0.0001 {
             return BiquadCoeffs::default();
         }
@@ -849,14 +859,14 @@ mod tests {
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let alpha = sin_w0 / std::f64::consts::SQRT_2;
-        let beta = 2.0 * a.sqrt() * alpha;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
 
-        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + beta * sin_w0);
+        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
         let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - beta * sin_w0);
-        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + beta * sin_w0;
+        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
         let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - beta * sin_w0;
+        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
 
         BiquadCoeffs {
             b0: b0 / a0,
@@ -875,8 +885,21 @@ mod tests {
         assert_eq!(actual.a2.to_bits(), expected.a2.to_bits(), "a2");
     }
 
+    fn response_db(coeffs: BiquadCoeffs, frequency: f64, sample_rate: f64) -> f64 {
+        let w = 2.0 * std::f64::consts::PI * frequency / sample_rate;
+        let (sin_w, cos_w) = w.sin_cos();
+        let (sin_2w, cos_2w) = (2.0 * w).sin_cos();
+        let numerator_re = coeffs.b0 + coeffs.b1 * cos_w + coeffs.b2 * cos_2w;
+        let numerator_im = -coeffs.b1 * sin_w - coeffs.b2 * sin_2w;
+        let denominator_re = 1.0 + coeffs.a1 * cos_w + coeffs.a2 * cos_2w;
+        let denominator_im = -coeffs.a1 * sin_w - coeffs.a2 * sin_2w;
+        let numerator = numerator_re.hypot(numerator_im);
+        let denominator = denominator_re.hypot(denominator_im);
+        20.0 * (numerator / denominator).log10()
+    }
+
     #[test]
-    fn test_cached_geometry_coefficients_match_legacy_formulas() {
+    fn test_cached_geometry_coefficients_match_rbj_reference() {
         let cases = [
             (FilterType::LowShelf, 40.0, 0.7, 12.0, 192_000.0),
             (FilterType::Peaking, 100.0, 0.9, -12.0, 44_100.0),
@@ -893,12 +916,86 @@ mod tests {
             filter.set_gain_db(gain);
 
             let expected = match filter_type {
-                FilterType::Peaking => legacy_peaking_coeffs(freq, gain, q, sample_rate),
-                FilterType::LowShelf => legacy_low_shelf_coeffs(freq, gain, sample_rate),
-                FilterType::HighShelf => legacy_high_shelf_coeffs(freq, gain, sample_rate),
+                FilterType::Peaking => rbj_peaking_coeffs(freq, gain, q, sample_rate),
+                FilterType::LowShelf => rbj_low_shelf_coeffs(freq, gain, sample_rate),
+                FilterType::HighShelf => rbj_high_shelf_coeffs(freq, gain, sample_rate),
             };
-            assert_coeffs_bit_equal(&filter.coeffs, &expected);
+            for (actual, expected) in [
+                (filter.coeffs.b0, expected.b0),
+                (filter.coeffs.b1, expected.b1),
+                (filter.coeffs.b2, expected.b2),
+                (filter.coeffs.a1, expected.a1),
+                (filter.coeffs.a2, expected.a2),
+            ] {
+                assert!((actual - expected).abs() <= 1.0e-12);
+            }
+            for probe in [20.0, freq, (freq * 2.0).min(sample_rate * 0.49)] {
+                let actual_db = response_db(filter.coeffs, probe, sample_rate);
+                let expected_db = response_db(expected, probe, sample_rate);
+                assert!(
+                    (actual_db - expected_db).abs() <= 1.0e-9,
+                    "{filter_type:?} {probe} Hz: {actual_db} vs {expected_db}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn sample_rate_change_preserves_control_and_smoother_state_but_resets_filters() {
+        let mut dl = DynamicLoudness::new(2, 48_000.0);
+        dl.set_strength(0.37);
+        dl.set_volume_db(-30.0);
+        let mut input = vec![0.25; BLOCK_SIZE * 4 * 2];
+        dl.process(&mut input);
+        let factor = dl.current_loudness_factor;
+        let old_smoother_coeffs = dl
+            .smoothers
+            .iter()
+            .map(|smoother| smoother.coeff)
+            .collect::<Vec<_>>();
+        let smoother_state = dl
+            .smoothers
+            .iter()
+            .map(|smoother| {
+                (
+                    smoother.current,
+                    smoother.target,
+                    smoother.samples_remaining,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(dl
+            .filters
+            .iter()
+            .flatten()
+            .any(|filter| filter.state.z1 != 0.0 || filter.state.z2 != 0.0));
+
+        dl.set_sample_rate(96_000.0);
+
+        assert_eq!(dl.sample_rate, 96_000.0);
+        assert_eq!(dl.strength, 0.37);
+        assert_eq!(dl.current_loudness_factor, factor);
+        for ((smoother, expected), old_coeff) in dl
+            .smoothers
+            .iter()
+            .zip(smoother_state)
+            .zip(old_smoother_coeffs)
+        {
+            assert_eq!(
+                (
+                    smoother.current,
+                    smoother.target,
+                    smoother.samples_remaining
+                ),
+                expected
+            );
+            assert!(smoother.coeff > old_coeff);
+        }
+        assert!(dl
+            .filters
+            .iter()
+            .flatten()
+            .all(|filter| filter.state.z1 == 0.0 && filter.state.z2 == 0.0));
     }
 
     #[test]
@@ -907,7 +1004,7 @@ mod tests {
         filter.set_sample_rate(96_000.0);
         filter.set_gain_db(6.0);
 
-        let expected = legacy_peaking_coeffs(1000.0, 6.0, 1.0, 96_000.0);
+        let expected = rbj_peaking_coeffs(1000.0, 6.0, 1.0, 96_000.0);
         assert_coeffs_bit_equal(&filter.coeffs, &expected);
         assert_eq!(filter.geometry.sample_rate, 96_000.0);
     }

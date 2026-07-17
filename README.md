@@ -216,8 +216,8 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 114.8 ns | 117.6 us | five-run median, `audio_callback_chain_perf --quick` |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 123.4 ns | 126.3 us | five-run median, `audio_callback_chain_perf --quick` |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 120.5 ns | 123.4 us | five-run median, `audio_callback_chain_perf --quick` |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 128.7 ns | 131.7 us | five-run median, `audio_callback_chain_perf --quick` |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 13.2 ns/input sample | 13.5 us/input buffer | five-run median, `audio_resampler_streaming_perf --quick` |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |
@@ -277,7 +277,7 @@ replace listening tests.
 | Crossfeed high-band level at 2 kHz | -9.18 dB |
 | Crossfeed low-vs-high attenuation (80 Hz vs 2 kHz) | -37.63 dB |
 | Crossfeed mix-change continuity delta | 0.000e0 (vs 7.992e-3 for a reset simulation) |
-| Dynamic loudness low-volume compensation | +8.23 dB at 40 Hz, +2.83 dB at 3 kHz |
+| Dynamic loudness low-volume compensation | +8.41 dB at 40 Hz, +2.83 dB at 3 kHz |
 
 The saturation alias probe drives an 11 kHz Tube waveshaper and fits folded
 above-Nyquist harmonics. In the current quick run, `Oversampled4x` reduced the

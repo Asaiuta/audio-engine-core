@@ -33,7 +33,8 @@ pub struct AtomicLoudnessState {
     pub preamp_gain_db: AtomicF64,
     /// Enable/disable normalization
     pub enabled: AtomicBool,
-    /// Normalization mode: 0=Track, 1=Album, 2=Streaming
+    /// Normalization mode: 0=Track, 1=Album, 2=Streaming,
+    /// 3=ReplayGainTrack, 4=ReplayGainAlbum.
     pub mode: AtomicU8,
 }
 
@@ -86,6 +87,18 @@ impl AtomicLoudnessState {
     /// Set mode: 0=Track, 1=Album, 2=Streaming, 3=ReplayGainTrack, 4=ReplayGainAlbum
     pub fn set_mode(&self, mode: u8) {
         self.mode.store(mode, Ordering::Relaxed);
+    }
+
+    /// Publish a typed normalization mode without exposing its atomic encoding.
+    pub fn set_normalization_mode(&self, mode: NormalizationMode) {
+        let value = match mode {
+            NormalizationMode::Track => 0,
+            NormalizationMode::Album => 1,
+            NormalizationMode::Streaming => 2,
+            NormalizationMode::ReplayGainTrack => 3,
+            NormalizationMode::ReplayGainAlbum => 4,
+        };
+        self.set_mode(value);
     }
 
     /// Get normalization mode as enum

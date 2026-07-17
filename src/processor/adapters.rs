@@ -991,7 +991,8 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("DynamicLoudness", sample_rate_hz)?;
         self.sample_rate = sample_rate_hz;
-        self.dynamic_loudness = DynamicLoudness::new(self.channels, self.sample_rate as f64);
+        self.dynamic_loudness
+            .set_sample_rate(self.sample_rate as f64);
         Ok(())
     }
 }
@@ -1934,6 +1935,22 @@ mod tests {
 
         assert!(result.is_bypassed());
         assert_eq!(buffer, original);
+    }
+
+    #[test]
+    fn dynamic_loudness_sample_rate_change_preserves_published_controls() {
+        let params = Arc::new(AtomicDynamicLoudnessParams::new());
+        params.set_ref_volume_db(-30.0);
+        params.set_strength(0.37);
+        let telemetry = Arc::new(AtomicDynamicLoudnessTelemetry::new());
+        let mut proc = DynamicLoudnessProcessor::new(2, 48_000, params, telemetry);
+        let factor = proc.dynamic_loudness.loudness_factor();
+
+        proc.set_sample_rate(96_000).unwrap();
+
+        assert_eq!(proc.sample_rate, 96_000);
+        assert_eq!(proc.dynamic_loudness.strength(), 0.37);
+        assert_eq!(proc.dynamic_loudness.loudness_factor(), factor);
     }
 
     #[test]

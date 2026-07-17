@@ -52,7 +52,9 @@ Concretely:
   coefficient-geometry updates. Mix/strength/enabled changes should preserve
   filter history unless the processor contract explicitly requires a reset;
   sample-rate, cutoff, latency-window, or topology changes may reset state when
-  documented and tested.
+  documented and tested. Crossfade branch ownership, config publication,
+  coefficient-oracle, and sample-rate state boundaries additionally follow
+  `dsp-state-correctness.md`.
 - Streaming processor implementations and drivers must follow
   `streaming-lifecycle.md`: validated zero-copy blocks, complete 1:1 in-place
   progress, explicit backpressure, idempotent finish, native-state reset, and
