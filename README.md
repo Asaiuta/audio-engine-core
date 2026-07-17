@@ -204,9 +204,39 @@ cargo bench --bench audio_fir_eq_perf -- --quick
 cargo bench --bench audio_quality_measurements -- --quick
 ```
 
-Drop `--quick` for longer multi-trial runs before citing numbers externally. The
-table below records representative local runs; rows should be regenerated after
-changing the relevant processing path.
+The three P0 evidence entry points can also write versioned JSON reports:
+
+```bash
+cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
+cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
+cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
+```
+
+Quality `--enforce` applies deterministic objective gates while keeping
+report-only metrics and missing optional corpora distinct. Performance
+`--enforce` always validates finite timing, complete work, stable case keys, and
+report integrity. Timing remains report-only unless a compatible same-machine
+baseline is supplied; the default gate allows exactly 10% median regression and
+fails above it:
+
+```bash
+cargo bench --bench audio_callback_chain_perf -- --quick --enforce \
+  --baseline target/bench-reports/callback-baseline.json \
+  --out target/bench-reports/callback-candidate.json
+```
+
+Baseline comparison rejects mismatched schema, probe, Rust target/compiler,
+OS/architecture, CPU, Cargo profile, feature set, mode, conditions, or case set;
+an unavailable required environment field is also rejected. Revision and dirty
+state are recorded but may differ. Reports retain every trial plus
+min/median/nearest-rank p95/max and the complete build environment.
+Omit `--quick` for the full workload or pass `--heavy` to the two performance
+benches for stress runs. The quality bench uses quick/full only. GitHub shared
+runners generate and upload the three quick JSON artifacts without imposing a
+cross-machine absolute nanosecond threshold.
+
+The table below records representative local runs; rows should be regenerated
+after changing the relevant processing path.
 
 ### Realtime processing budget
 
@@ -216,9 +246,9 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 120.5 ns | 123.4 us | five-run median, `audio_callback_chain_perf --quick` |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 128.7 ns | 131.7 us | five-run median, `audio_callback_chain_perf --quick` |
-| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 13.2 ns/input sample | 13.5 us/input buffer | five-run median, `audio_resampler_streaming_perf --quick` |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.8 ns | 119.6 us | seven-trial quick median; p95 callback utilization 1.41% |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 126.2 ns | 129.2 us | seven-trial quick median; p95 callback utilization 1.24% |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |
 
@@ -296,7 +326,12 @@ ear-band advantage over flat TPDF dither.
 The benchmark also includes an optional EBU Tech 3341/3342 expected-value corpus
 check. It is skipped unless the `libebur128/test` reference vectors are present
 (they are not bundled with this crate); the deterministic `LoudnessMeter` parity
-fixtures above always run.
+fixtures above always run. Text and JSON summaries report the skipped count
+explicitly. Full-output points also publish authoritative rendered frames,
+algorithmic latency, retained semantic tail, and truncation state from
+`RenderedOutput`; the default compensated timeline uses a -120 dBFS pre-dither
+energy threshold, 250 ms continuous silence hold, and 30 s safety maximum for
+unknown or infinite tails.
 
 `PeakLimiter` defaults to 4x-oversampled intersample (true-peak) detection: on
 an intersample-stress signal whose sample peak sits below the ceiling but whose

@@ -46,6 +46,31 @@ cargo test --all-features
 cargo test --no-default-features
 ```
 
+## Quality and performance evidence
+
+Changes to the streaming, output-chain, or realtime DSP paths should run the
+three quick evidence entry points and preserve their JSON artifacts:
+
+```bash
+cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
+cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
+cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
+```
+
+Omit `--quick` for the full workload; callback and resampler also accept
+`--heavy`. Their reports include revision/dirty state, compiler/target,
+OS/architecture/CPU, Cargo profile/features, stable case keys, raw trials, and
+min/median/p95/max statistics. Passing `--baseline <json>` activates the
+same-environment median comparison (10% maximum regression by default). Do not
+compare incompatible or incompletely identified environments, or treat a
+shared-runner absolute timing as a hard performance guarantee. Without a
+baseline, performance `--enforce` checks work completion and report validity
+only.
+
+The quality report distinguishes `gate`, `report`, and `skipped`; a missing EBU
+Tech 3341/3342 corpus is visible evidence of missing conformance coverage, not a
+pass. CI runs all three quick commands and uploads the JSON reports.
+
 ## Before submitting a change
 
 1. `cargo fmt --all` — formatting must match `rustfmt`.
@@ -58,7 +83,7 @@ cargo test --no-default-features
 
 CI runs all of the above on Linux, macOS, and Windows, plus a `cargo package`
 publish dry-run and a docs.rs-parity doc build. See
-`.github/workflows/audio-engine-core.yml`.
+`.github/workflows/ci.yml`.
 
 ## Realtime-safety conventions
 
