@@ -49,7 +49,10 @@ The following are **forbidden** inside the hot path:
   total stream length inside a single callback.
 - **Panics** — no `unwrap()`, `expect()`, or `panic!` in hot-path code; a panic
   across the callback boundary is undefined/aborting. `dsp_chain.rs` and
-  `adapters.rs` currently contain zero of these. See `error-handling.md`.
+  `adapters.rs` currently contain zero of these. Native consumed/produced counts
+  must be bounds-checked before they are used for slicing so malformed backend
+  progress becomes a typed error rather than a callback panic. See
+  `error-handling.md`.
 
 ## What Is Allowed
 
@@ -78,3 +81,7 @@ allocation on a processing path. New hot-path code should be covered by a
 no-allocation test after setup. Fixed-stage migrations additionally require
 irregular frame-chunk equivalence and reset-isolation coverage so callback block
 size cannot silently change signal content or leak a prior stream's history.
+Variable-I/O processors additionally pre-size every deinterleave/interleave and
+native output scratch buffer for their documented maximum step. Their tests must
+cover both ordinary process and finish/drain because a grow-on-finish path is
+still an audio-thread allocation defect.

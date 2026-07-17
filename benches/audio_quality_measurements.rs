@@ -8,13 +8,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use arc_swap::ArcSwapOption;
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
-    offline_stage_order_csv, process_checked, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
-    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
-    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, AudioBlockMut, Crossfeed,
-    CrossfeedProcessor, DynamicLoudness, Equalizer, FFTConvolver, LimiterMode, LoudnessMeter,
-    NoiseShaper, NoiseShaperCurve, OutputChainBuilder, OutputChainParams, PeakLimiter,
-    ProcessBuffers, RenderedOutput, Saturation, SaturationQuality, SaturationType,
-    StreamingProcessor, StreamingResampler, EQ_BANDS,
+    finish_checked, offline_stage_order_csv, process_checked, AtomicCrossfeedParams,
+    AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqParams,
+    AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams,
+    AudioBlockMut, AudioBlockRef, Crossfeed, CrossfeedProcessor, DynamicLoudness, Equalizer,
+    FFTConvolver, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OutputChainBuilder,
+    OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState, RenderedOutput, Saturation,
+    SaturationQuality, SaturationType, StreamingProcessor, StreamingResampler, EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -2294,10 +2294,32 @@ fn resample_mono(input: &[f64], from_rate: u32, to_rate: u32) -> Result<Vec<f64>
     let estimated_len = ((input.len() as f64 * to_rate as f64 / from_rate as f64).ceil() as usize)
         .saturating_add(256);
     let mut output = Vec::with_capacity(estimated_len);
+    let mut scratch = vec![0.0; 4096];
     for chunk in input.chunks(4096) {
-        resampler.process_chunk_append(chunk, &mut output);
+        let mut consumed = 0;
+        while consumed < chunk.len() {
+            let input_block =
+                AudioBlockRef::new(&chunk[consumed..], 1).map_err(|error| error.to_string())?;
+            let output_block =
+                AudioBlockMut::new(&mut scratch, 1).map_err(|error| error.to_string())?;
+            let buffers = ProcessBuffers::out_of_place(input_block, output_block)
+                .map_err(|error| error.to_string())?;
+            let progress =
+                process_checked(&mut resampler, buffers).map_err(|error| error.to_string())?;
+            consumed += progress.consumed_frames();
+            output.extend_from_slice(&scratch[..progress.produced_frames()]);
+        }
     }
-    resampler.flush_into(&mut output);
+    loop {
+        let output_block =
+            AudioBlockMut::new(&mut scratch, 1).map_err(|error| error.to_string())?;
+        let progress =
+            finish_checked(&mut resampler, output_block).map_err(|error| error.to_string())?;
+        output.extend_from_slice(&scratch[..progress.produced_frames()]);
+        if progress.state() == ProcessState::Finished {
+            break;
+        }
+    }
     Ok(output)
 }
 

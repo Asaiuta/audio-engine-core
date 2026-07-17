@@ -76,12 +76,12 @@ pub use processor::{
     AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
     ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
     FrameDuration, FrameRounding, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter,
-    LoudnessNormalizer, NoiseShaper, OutputChainBuilder, OutputChainParams, OutputRenderChain,
-    OutputStageDescriptor, OutputStageId, PeakLimiter, ProcessBufferMode, ProcessBufferParts,
-    ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState, RenderedOutput,
-    Resampler, SpectrumAnalyzer, StreamingProcessor, StreamingResampler, TailSpec, TimingError,
-    TruePeakDetector, VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
-    PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+    LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams,
+    OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter, ProcessBufferMode,
+    ProcessBufferParts, ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress,
+    ProcessState, RenderTimeline, RenderedOutput, Resampler, SpectrumAnalyzer, StreamingProcessor,
+    StreamingResampler, TailSpec, TimingError, TruePeakDetector, UnknownTailPolicy,
+    VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

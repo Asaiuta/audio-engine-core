@@ -18,14 +18,13 @@
 
 ## Acceptance Criteria
 
-* [ ] 48→96 kHz 的短/长输入和随机分块均不丢帧；输出长度符合明确舍入契约。
-* [ ] Drain 终止且幂等，reset 后零输入不泄漏旧音频。
-* [ ] 末帧 impulse 不消失，默认模式首 impulse 时间对齐，raw/default 内容可互相验证。
-* [ ] 有限 convolution/limiter/resampler tail 正确传播；未知 tail 终止不依赖 block size。
-* [ ] Streaming 热路径使用预分配 scratch 并通过 no-allocation 检查。
+* [x] 48→96 kHz 的短/长输入和随机分块均不丢帧；输出长度符合明确舍入契约。
+* [x] Drain 终止且幂等，reset 后零输入不泄漏旧音频。
+* [x] 末帧 impulse 不消失，默认模式首 impulse 时间对齐，raw/default 内容可互相验证。
+* [x] 有限 convolution/limiter/resampler tail 正确传播；未知 tail 终止不依赖 block size。
+* [x] Streaming 热路径使用预分配 scratch 并通过 no-allocation 检查。
 
 ## Dependencies
 
 * `07-17-streaming-trait-contract`
 * `07-17-fixed-dsp-streaming-migration`
-

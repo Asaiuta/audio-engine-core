@@ -1,7 +1,10 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use audio_engine_core::processor::StreamingResampler;
+use audio_engine_core::processor::{
+    process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, StreamingProcessor,
+    StreamingResampler,
+};
 
 const CHANNELS: usize = 2;
 const BUFFER_FRAMES: [usize; 3] = [128, 256, 512];
@@ -34,29 +37,27 @@ const SCENARIOS: [Scenario; 3] = [
 
 #[derive(Clone, Copy)]
 enum ApiPath {
-    Borrowed,
-    Into,
-    Append,
+    Checked,
+    Direct,
 }
 
 impl ApiPath {
     fn name(self) -> &'static str {
         match self {
-            Self::Borrowed => "process_chunk_borrowed",
-            Self::Into => "process_chunk_into",
-            Self::Append => "process_chunk_append",
+            Self::Checked => "process_checked",
+            Self::Direct => "trait_process_direct",
         }
     }
 
     fn all() -> &'static [Self] {
-        &[Self::Borrowed, Self::Into, Self::Append]
+        &[Self::Checked, Self::Direct]
     }
 }
 
 struct Report {
     ns_per_input_sample: f64,
     ns_per_input_buffer: f64,
-    output_frames: usize,
+    output_frames_total: usize,
     elapsed: Duration,
 }
 
@@ -95,14 +96,14 @@ fn main() {
             for &api in ApiPath::all() {
                 let report = benchmark_api(scenario, api, frames, &input, iterations, trials);
                 println!(
-                    "resampler_streaming scenario={} api={} frames={} input_samples={} from_rate={} to_rate={} output_frames={} iterations={} trials={} ns_per_input_sample={:.3} ns_per_input_buffer={:.3} elapsed_ms={:.3}",
+                    "resampler_streaming scenario={} api={} frames={} input_samples={} from_rate={} to_rate={} output_frames_total={} iterations={} trials={} ns_per_input_sample={:.3} ns_per_input_buffer={:.3} elapsed_ms={:.3}",
                     scenario.name,
                     api.name(),
                     frames,
                     frames * CHANNELS,
                     scenario.from_rate,
                     scenario.to_rate,
-                    report.output_frames,
+                    report.output_frames_total,
                     iterations,
                     trials,
                     report.ns_per_input_sample,
@@ -112,11 +113,11 @@ fn main() {
 
                 if enforce
                     && scenario.name == "music_44k1_to_48k"
-                    && matches!(api, ApiPath::Borrowed)
+                    && matches!(api, ApiPath::Checked)
                     && frames == 512
                 {
                     assert!(
-                        report.ns_per_input_sample.is_finite() && report.output_frames > 0,
+                        report.ns_per_input_sample.is_finite() && report.output_frames_total > 0,
                         "resampler benchmark produced invalid timing or no output"
                     );
                 }
@@ -154,10 +155,9 @@ fn benchmark_api(
 
 fn warm_resampler(resampler: &mut StreamingResampler, api: ApiPath, input: &[f64]) {
     let mut output = vec![0.0; streaming_output_capacity(resampler, input.len())];
-    let mut append_output = Vec::with_capacity(output.len());
 
     for _ in 0..WARMUP_BUFFERS {
-        run_api(resampler, api, input, &mut output, &mut append_output);
+        run_api(resampler, api, input, &mut output);
     }
 }
 
@@ -169,28 +169,36 @@ fn measure_resampler(
     iterations: usize,
 ) -> Report {
     let mut output = vec![0.0; streaming_output_capacity(resampler, input.len())];
-    let mut append_output = Vec::with_capacity(output.len());
-    let mut output_frames = 0usize;
+    let mut output_frames_total = 0usize;
     let start = Instant::now();
 
     for _ in 0..iterations {
-        output_frames = run_api(
-            resampler,
-            api,
-            black_box(input),
-            &mut output,
-            &mut append_output,
-        );
+        output_frames_total += run_api(resampler, api, black_box(input), &mut output);
     }
 
     let elapsed = start.elapsed();
+    let expected_output_frames = (frames as f64 * iterations as f64 * resampler.to_rate() as f64
+        / resampler.from_rate() as f64)
+        .round() as usize;
+    let minimum_output_frames = expected_output_frames * 95 / 100;
+    let maximum_output_frames = expected_output_frames * 105 / 100;
+    assert!(
+        output_frames_total >= minimum_output_frames
+            && output_frames_total <= maximum_output_frames,
+        "{}->{} {} produced {} frames for {} expected streaming frames",
+        resampler.from_rate(),
+        resampler.to_rate(),
+        api.name(),
+        output_frames_total,
+        expected_output_frames
+    );
     let ns_per_input_buffer = elapsed.as_nanos() as f64 / iterations as f64;
     let ns_per_input_sample = ns_per_input_buffer / (frames * CHANNELS) as f64;
 
     Report {
         ns_per_input_sample,
         ns_per_input_buffer,
-        output_frames,
+        output_frames_total,
         elapsed,
     }
 }
@@ -210,26 +218,24 @@ fn run_api(
     api: ApiPath,
     input: &[f64],
     output: &mut [f64],
-    append_output: &mut Vec<f64>,
 ) -> usize {
-    match api {
-        ApiPath::Borrowed => {
-            let result = resampler.process_chunk_borrowed(input);
-            black_box(result.samples);
-            result.frames
-        }
-        ApiPath::Into => {
-            let frames = resampler.process_chunk_into(input, output);
-            black_box(&output[..frames * CHANNELS]);
-            frames
-        }
-        ApiPath::Append => {
-            append_output.clear();
-            let frames = resampler.process_chunk_append(input, append_output);
-            black_box(&append_output);
-            frames
-        }
+    let input_frames = input.len() / CHANNELS;
+    let mut consumed_frames = 0;
+    let mut output_frames = 0;
+    while consumed_frames < input_frames {
+        let input_block =
+            AudioBlockRef::new(&input[consumed_frames * CHANNELS..], CHANNELS).unwrap();
+        let output_block = AudioBlockMut::new(output, CHANNELS).unwrap();
+        let buffers = ProcessBuffers::out_of_place(input_block, output_block).unwrap();
+        let progress = match api {
+            ApiPath::Checked => process_checked(resampler, buffers).unwrap(),
+            ApiPath::Direct => resampler.process(buffers).unwrap(),
+        };
+        consumed_frames += progress.consumed_frames();
+        output_frames += progress.produced_frames();
+        black_box(&output[..progress.produced_frames() * CHANNELS]);
     }
+    output_frames
 }
 
 fn synthetic_buffer(frames: usize, channels: usize, sample_rate: u32) -> Vec<f64> {

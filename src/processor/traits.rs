@@ -549,6 +549,8 @@ impl TailSpec {
 pub enum ProcessError {
     #[error(transparent)]
     InvalidBlock(#[from] AudioBlockError),
+    #[error(transparent)]
+    InvalidTiming(#[from] TimingError),
     #[error("processor {processor} does not support {mode:?} processing")]
     UnsupportedBufferMode {
         processor: &'static str,
@@ -581,6 +583,16 @@ pub enum ProcessError {
         processor: &'static str,
         sample_rate_hz: u32,
     },
+    #[error(
+        "processor {processor} expected {expected_sample_rate_hz} Hz input but received {actual_sample_rate_hz} Hz"
+    )]
+    SampleRateMismatch {
+        processor: &'static str,
+        expected_sample_rate_hz: u32,
+        actual_sample_rate_hz: u32,
+    },
+    #[error("invalid offline render policy: {message}")]
+    InvalidRenderPolicy { message: &'static str },
     /// Allocation-free backend diagnostic for realtime-capable processing.
     #[error("processor {processor} failed during {operation}: {message}")]
     Backend {

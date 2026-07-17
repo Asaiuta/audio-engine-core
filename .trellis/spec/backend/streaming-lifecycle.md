@@ -46,12 +46,49 @@ DspChain::set_sample_rate(&mut self, sample_rate_hz: u32)
 
 OutputChainBuilder::build_callback_chain(&self)
     -> Result<DspChain, ProcessError>
+
+OutputChainBuilder::build_render_chain_with_policy(
+    &self,
+    policy: OfflineRenderPolicy,
+) -> Result<OutputRenderChain, String>
+
+OutputRenderChain::render_with_policy(
+    &mut self,
+    samples: &[f64],
+    policy: OfflineRenderPolicy,
+) -> Result<RenderedOutput, ProcessError>
 ```
 
 `StreamingProcessor` supplies `process`, `finish`, `reset`, `latency`, `tail`,
 `output_sample_rate_hz`, enabled state, and off-RT sample-rate update methods.
 `FrameDuration` carries both frames and its sample-rate domain. Finite
 `TailSpec` values carry an exact `FrameDuration`.
+
+Offline policy and result fields are part of the public contract:
+
+```rust
+pub struct OfflineRenderPolicy {
+    pub timeline: RenderTimeline,
+    pub unknown_tail: UnknownTailPolicy,
+}
+
+pub enum RenderTimeline { Compensated, RawCausal }
+
+pub struct UnknownTailPolicy {
+    pub energy_threshold_dbfs: f64,
+    pub silence_hold_ms: u32,
+    pub max_tail_ms: u32,
+}
+
+pub struct RenderedOutput {
+    pub samples: Vec<f64>,
+    pub final_limiter_gain_reduction_db: f64,
+    pub rendered_frames: usize,
+    pub algorithmic_latency_frames: usize,
+    pub semantic_tail_frames: usize,
+    pub tail_truncated: bool,
+}
+```
 
 ## 3. Contracts
 
@@ -66,6 +103,10 @@ OutputChainBuilder::build_callback_chain(&self)
 * Out-of-place calls may partially consume input. `NeedInput` requires all
   supplied input consumed; `NeedOutput` requires all supplied output capacity
   filled.
+* Native variable-I/O counts are untrusted boundary data: validate consumed and
+  produced counts against the supplied capacities before advancing cursors or
+  slicing scratch. Multi-instance channel processors must also reject divergent
+  per-channel progress instead of interleaving misaligned audio.
 * Drivers use `process_checked` / `finish_checked`. These snapshot capacity,
   reject overruns, reject invalid direction, and reject zero progress when both
   input and output capacity are available.
@@ -91,6 +132,9 @@ OutputChainBuilder::build_callback_chain(&self)
   `ProcessError::AlreadyFinished`.
 * `reset` clears all Rust and native backend history and re-arms the processor
   for a logically new stream.
+* SoXR-backed processors advance both native `input_frames` and `output_frames`
+  exactly, use native `drain()` until it returns zero, and call native `clear()`
+  during reset. Empty-input `process` calls are not a substitute for drain.
 * `DspChain::reset` attempts every stage even after an error, then returns the
   first error. Its sample-rate update follows the same first-error policy and
   rejects zero before mutating any stage.
@@ -105,6 +149,22 @@ OutputChainBuilder::build_callback_chain(&self)
   compensation and ceiling for accumulated finite-tail preservation.
 * A finite tail is exact. `Unknown` and `Infinite` use the offline renderer's
   configured pre-dither energy/hold/max-tail policy.
+* Offline composition is stage-complete: consume all stage input, drive its
+  finish contract, then pass the combined process + finish output into the next
+  stage. This is what carries an upstream last-frame impulse or convolution
+  tail through downstream limiter and resampling stages.
+* `Compensated` removes accumulated algorithmic latency exactly once at the
+  final output sample rate and retains semantic tails. `RawCausal` retains the
+  leading delay and all finalize output. Both report the same timing metadata.
+* A natively drained SoXR sequence is duration- and impulse-aligned, so the
+  resampler reports zero offline timeline latency; cropping nominal filter
+  group delay would remove valid program audio.
+* Unknown/infinite-tail RMS state persists across finish blocks. Detection runs
+  before noise shaping, stops finish generation as soon as the configured
+  continuous below-threshold hold is reached, and drops the quiet hold from the
+  retained signal. The maximum is a safety cap, not the normal amount of work;
+  reaching it sets `tail_truncated = true` even if a downstream stage later
+  produces silence.
 
 ### Errors and realtime safety
 
@@ -132,12 +192,20 @@ OutputChainBuilder::build_callback_chain(&self)
 | `NeedInput` from finish | `ProcessError::InvalidProgress` |
 | input after terminal finish | `ProcessError::AlreadyFinished` |
 | sample rate is zero | `ProcessError::InvalidSampleRate` or `TimingError::ZeroSampleRate` |
+| stage input rate differs from fixed resampler input rate | `ProcessError::SampleRateMismatch` |
+| unknown-tail threshold is non-finite or above 0 dBFS | `ProcessError::InvalidRenderPolicy` |
+| silence hold is zero or exceeds maximum tail | `ProcessError::InvalidRenderPolicy` |
+| finite finish does not terminate inside its declared bound | `ProcessError::Backend` |
+| unknown/infinite finish reaches its maximum | successful output with `tail_truncated = true` |
 | hot-path native error | allocation-free `ProcessError::Backend` |
 
 ## 5. Good / Base / Bad Cases
 
 * Good: a resampler fills output, returns `NeedOutput` with exact input/output
   counts, then resumes at the unconsumed input frame.
+* Good: an unknown decay crosses the RMS threshold, remains below it for the
+  hold duration across multiple blocks, and stops without computing the rest of
+  the safety cap.
 * Base: a fixed EQ processes the complete block in place and returns equal
   consumed/produced counts with `NeedInput`.
 * Good: a fixed out-of-place stage fills a short output, returns equal
@@ -147,6 +215,9 @@ OutputChainBuilder::build_callback_chain(&self)
   have overwritten the corresponding unconsumed samples.
 * Bad: an offline renderer calls `process(&[])` as an undocumented flush instead
   of repeatedly driving the processor's finish contract.
+* Bad: an unknown-tail renderer always computes `max_tail_ms` and only then
+  scans/truncates the buffered result; this preserves output but wastes up to
+  the full safety-cap CPU and memory on every render.
 * Bad: callback code ignores the `Result` from `DspChain::process`, logs the
   error on the audio thread, or unwraps it across the callback boundary.
 
@@ -163,6 +234,15 @@ OutputChainBuilder::build_callback_chain(&self)
   after setup.
 * Processor/chain migrations add random chunking equivalence and native reset
   isolation tests, not only finite-output smoke tests.
+* Variable-rate tests cover short and long exact-ratio streams, random input and
+  output chunking, a mid-stream impulse peak at the rate-converted frame, native
+  drain idempotence, and process/finish no-allocation after setup.
+* Offline finalize tests cover a last-frame impulse, raw-vs-compensated content
+  equivalence, finite convolution + limiter + resampler propagation, and final
+  timing metadata.
+* Unknown-tail tests assert retained output is block-size independent, decays
+  stop before the configured maximum is generated, persistent energy reaches
+  the exact cap, and capped status survives later silence trimming.
 
 ## 7. Wrong vs Correct
 
@@ -189,4 +269,22 @@ that can apply a preselected non-panicking fault policy:
 
 ```rust
 let _progress = chain.process(samples, channels)?;
+```
+
+For offline unknown tails, energy detection belongs inside the finish loop, not
+in a post-pass after generating the maximum:
+
+```rust
+// Wrong: always pay max_tail_ms, then trim.
+while generated < max_tail_frames { append(finish_checked(...)?); }
+trim_below_threshold(&mut output);
+
+// Correct: keep detector state across blocks and stop as soon as hold is met.
+while generated < max_tail_frames {
+    let progress = finish_checked(processor, output_block)?;
+    if let Some(silence_start) = detector.observe(produced_samples, channels, first_frame) {
+        output.truncate(silence_start * channels);
+        break;
+    }
+}
 ```

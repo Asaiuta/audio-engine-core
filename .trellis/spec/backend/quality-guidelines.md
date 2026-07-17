@@ -126,6 +126,12 @@ Contracts to preserve when changing this path:
   behavior must add tests, not rely on existing ones.
 - Cover continuity across buffers, reset behavior, silence, and edge inputs
   (non-finite samples, sample-rate changes) where the processor is stateful.
+- Offline finalize changes must cover last-frame impulse survival,
+  raw-vs-compensated content equivalence, finite tail propagation through every
+  downstream rate domain, and timing metadata. Unknown-tail tests must prove
+  both block-size-independent retained output and early energy termination; a
+  test that generates the full safety maximum and only checks post-trim samples
+  is insufficient performance evidence.
 - When fixing adapter-level parameter continuity, compare the adapter against a
   direct processor reference that preserves history, and include a reset
   reference when possible so the test proves it would catch the old click/glitch

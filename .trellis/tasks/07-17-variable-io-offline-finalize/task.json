@@ -3,7 +3,7 @@
   "name": "variable-io-offline-finalize",
   "title": "修复可变 I/O 与离线 Finalize",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,

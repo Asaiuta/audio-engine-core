@@ -128,7 +128,8 @@ The `examples/` directory contains self-contained programs that need no audio
 files and no optional features:
 
 - `resample_sine` — streams a synthetic 48 kHz sine through the SoX VHQ
-  resampler down to 44.1 kHz, demonstrating the chunked feed-then-flush pattern.
+  resampler down to 44.1 kHz, demonstrating exact consumed/produced cursor
+  advancement followed by `finish_checked`.
 - `equalizer_curve` — runs a stereo buffer through the 10-band `Equalizer`.
 
 ```bash
@@ -174,6 +175,19 @@ logging or panicking on the audio thread. Fixed processors retain the zero-copy
 in-place fast path. Out-of-place calls use caller-provided output and report
 `NeedInput` / `NeedOutput` backpressure explicitly.
 
+`StreamingResampler` uses that same out-of-place contract. Callers must advance
+both cursors from `ProcessProgress`; end of stream is native SoXR `drain()`
+through `finish_checked`, and `reset()` clears the native SoXR history. The old
+`process_chunk_*` and `flush_*` convenience methods were removed because their
+return values could not represent partially consumed input.
+
+Offline `OutputRenderChain::render` defaults to a compensated timeline: it
+removes accumulated algorithmic latency once at the final output rate while
+retaining finite semantic effect tails. `OfflineRenderPolicy::raw_causal()`
+retains the leading delay and all finalize output. Unknown/infinite tails use a
+configurable pre-dither RMS threshold, continuous silence hold, and hard maximum;
+`RenderedOutput::tail_truncated` is set when that maximum is reached.
+
 ## Performance And Audio Quality
 
 These numbers come from the benchmarks in `benches/`, which run entirely against
@@ -204,7 +218,7 @@ in-crate processing.
 | --- | ---: | ---: | --- |
 | DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 114.8 ns | 117.6 us | five-run median, `audio_callback_chain_perf --quick` |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 123.4 ns | 126.3 us | five-run median, `audio_callback_chain_perf --quick` |
-| Streaming resampler, 44.1 kHz to 48 kHz | 7.9 ns/input sample | 8.1 us/input buffer | `audio_resampler_streaming_perf` |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 13.2 ns/input sample | 13.5 us/input buffer | five-run median, `audio_resampler_streaming_perf --quick` |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 19.4 ns | 19.8 us | `audio_fir_eq_perf --quick` |
 
