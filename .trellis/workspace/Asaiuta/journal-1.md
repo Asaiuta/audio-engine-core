@@ -19,7 +19,15 @@ Reviewed all 11 Trellis PRDs against source; fixed parent roadmap (4->9 child ta
 
 ### Main Changes
 
-(Add details)
+- Made `StreamingResampler` implement the unified streaming contract with exact
+  SoXR consumed/produced progress, native drain-to-zero, native clear on reset,
+  and allocation-free process/finish paths.
+- Added stage-complete offline finalize with compensated and raw-causal
+  timelines, explicit latency/tail metadata, and downstream tail propagation.
+- Distinguished limiter look-ahead latency from convolution semantic tail and
+  added pre-dither unknown-tail energy termination with a hard truncation cap.
+- Migrated examples/benches off the removed resampler convenience API and
+  captured the resulting contracts in backend Trellis specs.
 
 ### Git Commits
 
@@ -316,6 +324,42 @@ Migrated all fixed DSP adapters and the callback chain to StreamingProcessor, ad
 ### Testing
 
 - [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 9: Finalize variable-I/O streaming and offline rendering
+
+**Date**: 2026-07-17
+**Task**: Finalize variable-I/O streaming and offline rendering
+
+### Summary
+
+Unified StreamingResampler with exact SoXR progress, native drain/reset, stage-complete offline finalize, latency compensation, semantic-tail preservation, and pre-dither energy termination with a hard cap.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `987c450` | feat(processor): finalize variable-I/O streaming offline |
+
+### Testing
+
+- [OK] 250 all-feature unit tests + 2 doctests
+- [OK] 242 no-default-feature unit tests + 2 doctests
+- [OK] Strict all-target Clippy for both feature configurations
+- [OK] Strict rustdoc, resample example, objective audio-quality gate, and
+  offline package verification
 
 ### Status
 
