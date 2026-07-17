@@ -9,16 +9,21 @@ use crate::processor::LoudnessMeter;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
 
-const ANALYSIS_VERSION: u32 = 1;
+const ANALYSIS_VERSION: u32 = 2;
 const DEFAULT_MAX_ANALYZE_TIME_SEC: f64 = 60.0;
 const MIN_ANALYZE_TIME_SEC: f64 = 5.0;
 const MAX_ANALYZE_TIME_SEC: f64 = 300.0;
 const ENVELOPE_RATE: f64 = 50.0;
 const WINDOW_SIZE_MS: usize = 20;
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
-const BPM_MIN_LAG: usize = 15;
-const BPM_MAX_LAG: usize = 55;
+const MIN_TEMPO_BPM: f64 = 55.0;
+const MAX_TEMPO_BPM: f64 = 200.0;
+// Rounded observation grids weaken a true non-integer beat period while an
+// integer multiple can align exactly. Sixty percent retains the fundamental
+// for those grids without accepting the low background autocorrelation floor.
+const HARMONIC_PEAK_RATIO: f32 = 0.6;
 const FFT_SIZE: usize = 1024;
+const SPECTRAL_HOP_SIZE: usize = FFT_SIZE / 2;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +38,20 @@ impl AutomixAnalysisMode {
     pub fn includes_tail(self) -> bool {
         matches!(self, Self::Full)
     }
+}
+
+/// Availability of musical-key analysis in an [`AutomixAnalysis`] result.
+///
+/// Version 2 reports [`Self::Unsupported`] explicitly instead of exposing
+/// permanently empty key fields as though a detector had run. A future key
+/// estimator must add evidence-calibrated result states before populating the
+/// reserved key payload.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AutomixKeyStatus {
+    /// This build does not run a musical-key estimator.
+    Unsupported,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -59,9 +78,21 @@ pub struct AutomixAnalysis {
     pub vocal_out_pos: Option<f64>,
     pub vocal_last_in_pos: Option<f64>,
     pub outro_energy_level: Option<f64>,
+    /// Whether musical-key analysis ran for this result.
+    pub key_status: AutomixKeyStatus,
+    /// Reserved pitch-class root (`0 = C` through `11 = B`).
+    ///
+    /// This is `None` while [`Self::key_status`] is
+    /// [`AutomixKeyStatus::Unsupported`].
     pub key_root: Option<i32>,
+    /// Reserved mode encoding (`0 = major`, `1 = minor`).
+    ///
+    /// This is `None` while [`Self::key_status`] is
+    /// [`AutomixKeyStatus::Unsupported`].
     pub key_mode: Option<i32>,
+    /// Reserved detector confidence in the inclusive range `0.0..=1.0`.
     pub key_confidence: Option<f64>,
+    /// Reserved Camelot-wheel label corresponding to the detected root/mode.
     pub camelot_key: Option<String>,
 }
 
@@ -207,8 +238,8 @@ impl SpectralFluxAccumulator {
             self.previous_magnitudes[i] = mag;
         }
 
-        self.scratch.copy_within(FFT_SIZE / 2..FFT_SIZE, 0);
-        self.pos = FFT_SIZE / 2;
+        self.scratch.copy_within(SPECTRAL_HOP_SIZE..FFT_SIZE, 0);
+        self.pos = SPECTRAL_HOP_SIZE;
         Some(flux / (FFT_SIZE / 2) as f32)
     }
 }
@@ -269,6 +300,7 @@ pub fn analyze_automix_with_cancel(
         options.mode,
         options.max_analyze_time_sec,
         duration,
+        sample_rate,
         &meter,
         &head,
         &tail,
@@ -353,6 +385,7 @@ fn finalize_analysis(
     mode: AutomixAnalysisMode,
     analyze_window: f64,
     duration: f64,
+    sample_rate: u32,
     meter: &LoudnessMeter,
     head: &AnalysisSegment,
     tail: &AnalysisSegment,
@@ -373,14 +406,15 @@ fn finalize_analysis(
         ENVELOPE_RATE,
         SILENCE_THRESHOLD_DB,
     );
-    let (bpm, bpm_confidence, first_beat) = detect_bpm(
-        if head.spectral_flux.len() >= 100 {
-            &head.spectral_flux
-        } else {
-            &head.envelope
-        },
-        ENVELOPE_RATE,
-    );
+    let (tempo_values, tempo_rate) = if head.spectral_flux.len() >= 100 {
+        (
+            head.spectral_flux.as_slice(),
+            sample_rate as f64 / SPECTRAL_HOP_SIZE as f64,
+        )
+    } else {
+        (head.envelope.as_slice(), ENVELOPE_RATE)
+    };
+    let (bpm, bpm_confidence, first_beat) = detect_bpm(tempo_values, tempo_rate);
     let drop_pos = detect_drop(&head.envelope, ENVELOPE_RATE);
     let (vocal_in, vocal_out, vocal_last_in) = detect_vocals(
         &head.envelope,
@@ -474,6 +508,7 @@ fn finalize_analysis(
         } else {
             None
         },
+        key_status: AutomixKeyStatus::Unsupported,
         key_root: None,
         key_mode: None,
         key_confidence: None,
@@ -525,35 +560,73 @@ pub fn detect_bpm(values: &[f32], rate: f64) -> (Option<f64>, Option<f64>, Optio
         return (None, None, None);
     }
 
-    let max_lag = BPM_MAX_LAG.min(flux.len().saturating_sub(1));
-    let mut best_corr = 0.0_f32;
-    let mut best_lag = 0usize;
-    let mut corr_sum = 0.0_f32;
-    let mut corr_count = 0usize;
-
-    for lag in BPM_MIN_LAG..=max_lag {
-        let mut sum = 0.0;
-        for idx in 0..flux.len() - lag {
-            sum += flux[idx] * flux[idx + lag];
-        }
-        let normalized = sum / (flux.len() - lag) as f32;
-        corr_sum += normalized;
-        corr_count += 1;
-        if normalized > best_corr {
-            best_corr = normalized;
-            best_lag = lag;
-        }
-    }
-
-    if best_lag == 0 || best_corr <= 1.0e-5 {
+    let min_lag = (rate * 60.0 / MAX_TEMPO_BPM).floor().max(1.0) as usize;
+    let max_lag = ((rate * 60.0 / MIN_TEMPO_BPM).ceil() as usize).min(flux.len().saturating_sub(1));
+    if min_lag > max_lag {
         return (None, None, None);
     }
 
-    let average_corr = if corr_count == 0 {
-        0.0
-    } else {
-        corr_sum / corr_count as f32
-    };
+    let mut correlations = Vec::with_capacity(max_lag - min_lag + 1);
+    let mut corr_sum = 0.0_f32;
+
+    for lag in min_lag..=max_lag {
+        let mut sum = 0.0;
+        let mut left_energy = 0.0;
+        let mut right_energy = 0.0;
+        for idx in 0..flux.len() - lag {
+            let left = flux[idx];
+            let right = flux[idx + lag];
+            sum += left * right;
+            left_energy += left * left;
+            right_energy += right * right;
+        }
+        let denominator = (left_energy * right_energy).sqrt();
+        let normalized = if denominator > 0.0 {
+            sum / denominator
+        } else {
+            0.0
+        };
+        corr_sum += normalized;
+        correlations.push((lag, normalized));
+    }
+
+    let strongest_corr = correlations
+        .iter()
+        .map(|(_, correlation)| *correlation)
+        .max_by(f32::total_cmp)
+        .unwrap_or(0.0);
+    if strongest_corr <= 1.0e-5 {
+        return (None, None, None);
+    }
+
+    // A periodic onset train produces equally valid autocorrelation peaks at
+    // integer multiples of its fundamental period. Prefer the shortest peak
+    // that is effectively as strong as the global maximum so 120/180 BPM are
+    // not folded to 60 BPM solely because a later multiple aligns exactly.
+    let peak_floor = strongest_corr * HARMONIC_PEAK_RATIO;
+    let (best_lag, best_corr) = correlations
+        .iter()
+        .enumerate()
+        .find(|(index, (_, correlation))| {
+            let previous = index
+                .checked_sub(1)
+                .and_then(|previous| correlations.get(previous))
+                .map_or(f32::NEG_INFINITY, |(_, value)| *value);
+            let next = correlations
+                .get(index + 1)
+                .map_or(f32::NEG_INFINITY, |(_, value)| *value);
+            *correlation >= peak_floor && *correlation >= previous && *correlation >= next
+        })
+        .map(|(_, value)| *value)
+        .unwrap_or_else(|| {
+            correlations
+                .iter()
+                .copied()
+                .max_by(|left, right| left.1.total_cmp(&right.1))
+                .unwrap_or((0, 0.0))
+        });
+
+    let average_corr = corr_sum / correlations.len() as f32;
     let confidence = ((best_corr - average_corr).max(0.0) / best_corr.max(1.0e-6)).clamp(0.0, 1.0);
     if confidence < 0.12 {
         return (None, Some(confidence as f64), None);
@@ -779,6 +852,35 @@ fn mean_square(values: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
+    fn pulse_train(rate: f64, bpm: f64, duration_seconds: f64) -> Vec<f32> {
+        let len = (rate * duration_seconds).ceil() as usize;
+        let period = rate * 60.0 / bpm;
+        let mut values = vec![0.0; len];
+        let mut position = 0.0_f64;
+        while (position.round() as usize) < values.len() {
+            values[position.round() as usize] = 1.0;
+            position += period;
+        }
+        values
+    }
+
+    fn empty_analysis_with_flux(sample_rate: u32, flux: Vec<f32>) -> AutomixAnalysis {
+        let meter = LoudnessMeter::new(2, sample_rate);
+        let head = AnalysisSegment {
+            spectral_flux: flux,
+            ..AnalysisSegment::default()
+        };
+        finalize_analysis(
+            AutomixAnalysisMode::Head,
+            DEFAULT_MAX_ANALYZE_TIME_SEC,
+            12.0,
+            sample_rate,
+            &meter,
+            &head,
+            &AnalysisSegment::default(),
+        )
+    }
+
     #[test]
     fn silence_detection_uses_head_and_tail_windows() {
         let mut head = vec![0.0; 50];
@@ -803,6 +905,15 @@ mod tests {
     }
 
     #[test]
+    fn bpm_detection_rejects_invalid_rate_and_short_input() {
+        let values = pulse_train(50.0, 120.0, 12.0);
+        for rate in [0.0, -50.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(detect_bpm(&values, rate), (None, None, None));
+        }
+        assert_eq!(detect_bpm(&values[..109], 50.0), (None, None, None));
+    }
+
+    #[test]
     fn bpm_detection_finds_regular_pulse_train() {
         let mut values = vec![0.0; 300];
         for idx in (0..values.len()).step_by(25) {
@@ -814,5 +925,53 @@ mod tests {
         assert!(bpm.is_some_and(|value| (value - 120.0).abs() < 0.1));
         assert!(confidence.is_some_and(|value| value > 0.12));
         assert!(first_beat.is_some());
+    }
+
+    #[test]
+    fn bpm_detection_uses_rate_derived_lag_bounds() {
+        for rate in [50.0, 44_100.0 / 512.0, 48_000.0 / 512.0] {
+            for bpm in [60.0, 120.0, 180.0] {
+                let values = pulse_train(rate, bpm, 12.0);
+                let (detected, _, _) = detect_bpm(&values, rate);
+                let detected = detected.unwrap_or_else(|| {
+                    panic!("expected {bpm} BPM to be detected at observation rate {rate}")
+                });
+                let relative_error = (detected - bpm).abs() / bpm;
+                assert!(
+                    relative_error <= 0.02,
+                    "expected {bpm} BPM at {rate} Hz, got {detected} ({relative_error:.3} relative error)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn finalize_analysis_uses_spectral_flux_cadence() {
+        let sample_rate = 44_100;
+        let flux_rate = sample_rate as f64 / 512.0;
+        let analysis = empty_analysis_with_flux(sample_rate, pulse_train(flux_rate, 120.0, 12.0));
+
+        assert!(
+            analysis
+                .bpm
+                .is_some_and(|value| (value - 120.0).abs() / 120.0 <= 0.02),
+            "spectral-flux BPM used the wrong cadence: {:?}",
+            analysis.bpm
+        );
+    }
+
+    #[test]
+    fn serialized_analysis_marks_key_detection_unsupported() {
+        let analysis = empty_analysis_with_flux(48_000, Vec::new());
+        let json = serde_json::to_value(&analysis).expect("analysis should serialize");
+
+        assert_eq!(json["version"], 2);
+        assert_eq!(json["key_status"], "unsupported");
+        for field in ["key_root", "key_mode", "key_confidence", "camelot_key"] {
+            assert!(
+                json[field].is_null(),
+                "{field} must be null when unsupported"
+            );
+        }
     }
 }

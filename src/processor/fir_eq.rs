@@ -48,6 +48,11 @@ impl FirEq {
     /// # Arguments
     /// * `sample_rate` - Audio sample rate in Hz
     /// * `num_taps` - Number of FIR taps (must be odd, will be forced to odd if even)
+    ///
+    /// A one-tap filter is a pure scalar using the requested gain at the
+    /// existing 1 kHz reference. Consequently a flat 0 dB curve produces the
+    /// unit impulse `[1.0]`; a non-uniform curve cannot retain its shape with a
+    /// single coefficient and collapses to that reference gain.
     pub fn new(sample_rate: f64, num_taps: usize) -> Self {
         // Ensure odd number of taps for symmetric IR
         let num_taps = if num_taps.is_multiple_of(2) {
@@ -140,6 +145,11 @@ impl FirEq {
 
     /// Regenerate IR from current band settings
     fn regenerate_ir(&mut self) {
+        if self.num_taps == 1 {
+            self.cached_ir = vec![10.0_f64.powf(self.interpolate_gain(1000.0) / 20.0)];
+            return;
+        }
+
         match self.phase_mode {
             FirPhaseMode::Linear => self.generate_linear_phase_ir(),
             FirPhaseMode::Minimum => self.generate_minimum_phase_ir(),
@@ -199,13 +209,6 @@ impl FirEq {
         for (i, sample) in ir_mono.iter_mut().enumerate() {
             let w = 0.5 * (1.0 - (2.0 * PI * i as f64 / (num_taps - 1) as f64).cos());
             *sample *= w;
-        }
-
-        // 7. Normalize to preserve overall gain (0 dB at 1 kHz reference)
-        let ref_gain = self.interpolate_gain(1000.0);
-        let norm_factor = 10.0_f64.powf(-ref_gain / 20.0);
-        for sample in ir_mono.iter_mut() {
-            *sample *= norm_factor;
         }
 
         self.cached_ir = ir_mono;
@@ -282,20 +285,10 @@ impl FirEq {
             .map(|i| spectrum[i].re / fft_size as f64)
             .collect();
 
-        // 8. Apply half-window (fade out at the end)
+        // 8. Apply a raised-cosine tail window. The causal half remains at
+        // unity, then the tail monotonically fades to zero at the final tap.
         for (i, sample) in ir_mono.iter_mut().enumerate() {
-            if i > num_taps / 2 {
-                let w =
-                    0.5 * (1.0 + ((num_taps - 1 - i) as f64 / (num_taps / 2) as f64 * PI).cos());
-                *sample *= w;
-            }
-        }
-
-        // 9. Normalize
-        let ref_gain = self.interpolate_gain(1000.0);
-        let norm_factor = 10.0_f64.powf(-ref_gain / 20.0);
-        for sample in ir_mono.iter_mut() {
-            *sample *= norm_factor;
+            *sample *= minimum_phase_tail_weight(i, num_taps);
         }
 
         self.cached_ir = ir_mono;
@@ -335,9 +328,51 @@ impl FirEq {
     }
 }
 
+fn minimum_phase_tail_weight(index: usize, num_taps: usize) -> f64 {
+    if num_taps <= 1 {
+        return 1.0;
+    }
+
+    let midpoint = num_taps / 2;
+    if index <= midpoint {
+        return 1.0;
+    }
+
+    let tail_length = num_taps - 1 - midpoint;
+    if tail_length == 0 {
+        return 1.0;
+    }
+    let progress = (index - midpoint) as f64 / tail_length as f64;
+    0.5 * (1.0 + (PI * progress).cos())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn measured_gain_db(ir: &[f64], frequency_hz: f64, sample_rate: f64) -> f64 {
+        let omega = 2.0 * PI * frequency_hz / sample_rate;
+        let (real, imaginary) =
+            ir.iter()
+                .enumerate()
+                .fold((0.0, 0.0), |(real, imaginary), (index, sample)| {
+                    let phase = omega * index as f64;
+                    (
+                        real + sample * phase.cos(),
+                        imaginary - sample * phase.sin(),
+                    )
+                });
+        20.0 * real.hypot(imaginary).log10()
+    }
+
+    fn energy_centroid(ir: &[f64]) -> f64 {
+        let total = ir.iter().map(|sample| sample * sample).sum::<f64>();
+        ir.iter()
+            .enumerate()
+            .map(|(index, sample)| index as f64 * sample * sample)
+            .sum::<f64>()
+            / total
+    }
 
     #[test]
     fn test_fir_eq_flat() {
@@ -421,5 +456,100 @@ mod tests {
             "Minimum phase boosted IR sum should be positive and > 0.5, got {}",
             sum
         );
+    }
+
+    #[test]
+    fn one_tap_is_a_finite_reference_gain_for_both_phase_modes() {
+        for phase_mode in [FirPhaseMode::Linear, FirPhaseMode::Minimum] {
+            for gain_db in [-6.0, 0.0, 6.0] {
+                let mut fir = FirEq::new(48_000.0, 1);
+                fir.set_phase_mode(phase_mode);
+                fir.set_bands(&[gain_db; 10]);
+
+                let expected = 10.0_f64.powf(gain_db / 20.0);
+                assert_eq!(fir.cached_ir.len(), 1);
+                assert!(fir.cached_ir[0].is_finite());
+                assert!(
+                    (fir.cached_ir[0] - expected).abs() <= 1.0e-12,
+                    "{phase_mode:?} one-tap {gain_db} dB gain was {}, expected {expected}",
+                    fir.cached_ir[0]
+                );
+            }
+        }
+
+        let mut fir = FirEq::new(48_000.0, 1);
+        let mut nonuniform = [0.0; 10];
+        nonuniform[5] = 3.0;
+        fir.set_bands(&nonuniform);
+        assert!((fir.cached_ir[0] - 10.0_f64.powf(3.0 / 20.0)).abs() <= 1.0e-12);
+    }
+
+    #[test]
+    fn uniform_gain_is_not_normalized_away() {
+        for phase_mode in [FirPhaseMode::Linear, FirPhaseMode::Minimum] {
+            for gain_db in [-6.0, 6.0] {
+                let mut fir = FirEq::new(48_000.0, 1023);
+                fir.set_phase_mode(phase_mode);
+                fir.set_bands(&[gain_db; 10]);
+
+                for frequency in [31.0, 1_000.0, 16_000.0] {
+                    let measured = measured_gain_db(&fir.cached_ir, frequency, 48_000.0);
+                    assert!(
+                        (measured - gain_db).abs() <= 1.0e-9,
+                        "{phase_mode:?} uniform {gain_db} dB measured {measured} dB at {frequency} Hz"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn minimum_phase_tail_window_fades_in_the_correct_direction() {
+        let num_taps = 11;
+        let weights = (0..num_taps)
+            .map(|index| minimum_phase_tail_weight(index, num_taps))
+            .collect::<Vec<_>>();
+
+        assert_eq!(weights[num_taps / 2], 1.0);
+        assert!(weights[num_taps / 2 + 1] < 1.0);
+        assert!(weights[num_taps / 2 + 1] > 0.0);
+        assert!(weights[num_taps - 1].abs() <= f64::EPSILON);
+        assert!(weights.windows(2).all(|pair| pair[1] <= pair[0]));
+    }
+
+    #[test]
+    fn minimum_phase_energy_precedes_linear_phase_energy() {
+        let curve = [6.0, 4.0, 2.0, 0.0, -2.0, -3.0, -1.5, 1.0, 3.5, 5.0];
+        let mut linear = FirEq::new(48_000.0, 1023);
+        linear.set_bands(&curve);
+        let mut minimum = FirEq::new(48_000.0, 1023);
+        minimum.set_phase_mode(FirPhaseMode::Minimum);
+        minimum.set_bands(&curve);
+
+        let linear_centroid = energy_centroid(&linear.cached_ir);
+        let minimum_centroid = energy_centroid(&minimum.cached_ir);
+        assert!(
+            minimum_centroid < linear_centroid * 0.5,
+            "minimum-phase centroid {minimum_centroid} was not materially earlier than linear {linear_centroid}"
+        );
+    }
+
+    #[test]
+    fn designed_response_tracks_representative_band_curve() {
+        let curve = [6.0, 4.0, 2.0, 0.0, -2.0, -3.0, -1.5, 1.0, 3.5, 5.0];
+        for phase_mode in [FirPhaseMode::Linear, FirPhaseMode::Minimum] {
+            let mut fir = FirEq::new(48_000.0, 2047);
+            fir.set_phase_mode(phase_mode);
+            fir.set_bands(&curve);
+
+            for (index, (frequency, _)) in STANDARD_BANDS.iter().enumerate() {
+                let measured = measured_gain_db(&fir.cached_ir, *frequency, 48_000.0);
+                let expected = curve[index];
+                assert!(
+                    (measured - expected).abs() <= 1.5,
+                    "{phase_mode:?} response at {frequency} Hz was {measured:.3} dB, expected {expected:.3} dB"
+                );
+            }
+        }
     }
 }
