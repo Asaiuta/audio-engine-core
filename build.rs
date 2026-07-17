@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "build/windows_runtime.rs"]
+mod windows_runtime;
+
 #[allow(dead_code)]
 fn main() {
     run_build_script();
@@ -10,6 +13,7 @@ fn main() {
 
 pub fn run_build_script() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build/windows_runtime.rs");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
 
@@ -76,7 +80,7 @@ fn ensure_msvc_import_lib(library: &pkg_config::Library) -> Result<(), String> {
     }
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
-    copy_runtime_dll(&dll_path, &out_dir)?;
+    windows_runtime::deploy_runtime_dlls(&dll_path, &out_dir)?;
 
     Ok(())
 }
@@ -103,21 +107,9 @@ fn find_soxr_dll(library: &pkg_config::Library) -> Option<PathBuf> {
 
     if let Some(dll_path) = env::var_os("PKG_CONFIG_PATH").and_then(|paths| {
         env::split_paths(&paths)
-            .flat_map(|dir| {
-                let mut candidates = vec![dir.join("..").join("bin").join("libsoxr.dll")];
-                candidates.push(dir.join("..").join("bin").join("soxr.dll"));
-                candidates
-            })
+            .flat_map(|dir| windows_runtime::soxr_dll_candidates_from_pkg_config_dir(&dir))
             .find(|path| path.exists())
     }) {
-        return Some(dll_path);
-    }
-
-    if let Some(dll_path) = path_candidates("libsoxr.dll")
-        .into_iter()
-        .chain(path_candidates("soxr.dll"))
-        .find(|path| path.exists())
-    {
         return Some(dll_path);
     }
 
@@ -137,6 +129,14 @@ fn find_soxr_dll(library: &pkg_config::Library) -> Option<PathBuf> {
                 }
             }
         }
+    }
+
+    if let Some(dll_path) = path_candidates("libsoxr.dll")
+        .into_iter()
+        .chain(path_candidates("soxr.dll"))
+        .find(|path| path.exists())
+    {
+        return Some(dll_path);
     }
 
     None
@@ -215,32 +215,6 @@ fn path_candidates(name: &str) -> Vec<PathBuf> {
     env::var_os("PATH")
         .map(|path| env::split_paths(&path).map(|dir| dir.join(name)).collect())
         .unwrap_or_default()
-}
-
-fn copy_runtime_dll(dll_path: &Path, out_dir: &Path) -> Result<(), String> {
-    let profile_dir = out_dir
-        .ancestors()
-        .nth(3)
-        .ok_or_else(|| "unable to resolve Cargo profile output directory".to_string())?;
-    let destination = profile_dir.join(
-        dll_path
-            .file_name()
-            .ok_or_else(|| "soxr dll path is missing a file name".to_string())?,
-    );
-
-    if destination.exists() {
-        return Ok(());
-    }
-
-    fs::copy(dll_path, &destination).map_err(|error| {
-        format!(
-            "failed to copy {} to {}: {error}",
-            dll_path.display(),
-            destination.display()
-        )
-    })?;
-
-    Ok(())
 }
 
 fn run(command: &mut Command, name: &str) -> Result<(), String> {
