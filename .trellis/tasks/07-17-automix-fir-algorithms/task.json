@@ -3,7 +3,7 @@
   "name": "automix-fir-algorithms",
   "title": "修复 AutoMix 与 FIR EQ 算法",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,
