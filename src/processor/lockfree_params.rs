@@ -22,6 +22,11 @@ use atomic_float::AtomicF64;
 
 use crate::processor::loudness::LimiterMode;
 
+use super::crossfeed::{
+    DEFAULT_CUTOFF_HZ as CROSSFEED_DEFAULT_CUTOFF_HZ, DEFAULT_MIX as CROSSFEED_DEFAULT_MIX,
+    MAX_CUTOFF_HZ as CROSSFEED_MAX_CUTOFF_HZ, MIN_CUTOFF_HZ as CROSSFEED_MIN_CUTOFF_HZ,
+};
+
 struct SharedParams<T> {
     current: ArcSwap<T>,
     generation: AtomicU64,
@@ -496,8 +501,8 @@ pub struct CrossfeedParamsSnapshot {
 impl Default for CrossfeedParamsSnapshot {
     fn default() -> Self {
         Self {
-            mix: 0.35,
-            cutoff_hz: 700.0,
+            mix: CROSSFEED_DEFAULT_MIX,
+            cutoff_hz: CROSSFEED_DEFAULT_CUTOFF_HZ,
             enabled: true,
         }
     }
@@ -525,7 +530,7 @@ impl AtomicCrossfeedParams {
     #[inline]
     pub fn set_cutoff(&self, hz: f64) {
         self.shared.update(|snapshot| {
-            snapshot.cutoff_hz = hz.clamp(200.0, 2000.0);
+            snapshot.cutoff_hz = hz.clamp(CROSSFEED_MIN_CUTOFF_HZ, CROSSFEED_MAX_CUTOFF_HZ);
         });
     }
 

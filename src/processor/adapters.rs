@@ -392,10 +392,8 @@ impl CrossfeedProcessor {
     pub fn new(sample_rate: f64, params: Arc<AtomicCrossfeedParams>) -> Self {
         let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
-        let mut crossfeed = Crossfeed::new(sample_rate);
-        crossfeed.set_mix(cached.mix);
+        let mut crossfeed = Crossfeed::with_params(sample_rate, cached.cutoff_hz, cached.mix);
         crossfeed.set_enabled(cached.enabled);
-        crossfeed.set_sample_rate(sample_rate, cached.cutoff_hz);
         Self {
             crossfeed,
             params,
@@ -410,14 +408,17 @@ impl CrossfeedProcessor {
         if let Some((current, generation)) =
             self.params.load_if_changed_since(self.cached_generation)
         {
-            let previous_cutoff_hz = self.cached.cutoff_hz;
+            let previous = self.cached;
             self.cached = *current;
             self.cached_generation = generation;
-            self.crossfeed.set_mix(self.cached.mix);
-            self.crossfeed.set_enabled(self.cached.enabled);
-            if (self.cached.cutoff_hz - previous_cutoff_hz).abs() > f64::EPSILON {
-                self.crossfeed
-                    .set_sample_rate(self.sample_rate, self.cached.cutoff_hz);
+            if self.cached.mix != previous.mix {
+                self.crossfeed.set_mix(self.cached.mix);
+            }
+            if self.cached.enabled != previous.enabled {
+                self.crossfeed.set_enabled(self.cached.enabled);
+            }
+            if self.cached.cutoff_hz != previous.cutoff_hz {
+                self.crossfeed.set_cutoff(self.cached.cutoff_hz);
             }
         }
     }
@@ -821,11 +822,18 @@ impl NoiseShaperProcessor {
         if let Some((current, generation)) =
             self.params.load_if_changed_since(self.cached_generation)
         {
+            let previous = self.cached;
             self.cached = *current;
             self.cached_generation = generation;
-            self.noise_shaper.set_enabled(self.cached.enabled);
-            self.noise_shaper.set_bits(self.cached.bits);
-            self.noise_shaper.set_curve(self.cached.curve);
+            if self.cached.enabled != previous.enabled {
+                self.noise_shaper.set_enabled(self.cached.enabled);
+            }
+            if self.cached.bits != previous.bits {
+                self.noise_shaper.set_bits(self.cached.bits);
+            }
+            if self.cached.curve != previous.curve {
+                self.noise_shaper.set_curve(self.cached.curve);
+            }
         }
     }
 }
@@ -1292,6 +1300,7 @@ mod tests {
         PeakLimiterProcessor,
         VolumeProcessor,
         ConvolverProcessor,
+        NoiseShaperProcessor,
     );
 
     #[test]
@@ -1572,7 +1581,46 @@ mod tests {
         let max_reset_delta = max_abs_delta(&proc_next, &reset_next);
         assert!(
             max_reference_delta <= 1.0e-12,
-            "mix change should preserve HPF state, max_reference_delta={max_reference_delta:.3e}"
+            "mix change should preserve Bauer filter state, max_reference_delta={max_reference_delta:.3e}"
+        );
+        assert!(
+            max_reset_delta > 1.0e-4,
+            "test signal should distinguish reset history, max_reset_delta={max_reset_delta:.3e}"
+        );
+    }
+
+    #[test]
+    fn crossfeed_processor_cutoff_change_preserves_filter_history() {
+        let params = Arc::new(AtomicCrossfeedParams::new());
+        let mut proc = CrossfeedProcessor::new(48_000.0, Arc::clone(&params));
+        let mut reference = Crossfeed::with_params(48_000.0, 700.0, 0.35);
+        let mut reset_reference = Crossfeed::with_params(48_000.0, 700.0, 0.35);
+
+        let warm = hard_panned_sine(2048, 0, 48_000.0, 431.0);
+        let mut proc_warm = warm.clone();
+        let mut reference_warm = warm.clone();
+        let mut reset_warm = warm;
+        proc.process(&mut proc_warm, 2);
+        reference.process(&mut reference_warm, 2);
+        reset_reference.process(&mut reset_warm, 2);
+
+        params.set_cutoff(1_100.0);
+        reference.set_cutoff(1_100.0);
+        reset_reference.set_sample_rate(48_000.0, 1_100.0);
+
+        let next = hard_panned_sine(512, 2048, 48_000.0, 431.0);
+        let mut proc_next = next.clone();
+        let mut reference_next = next.clone();
+        let mut reset_next = next;
+        proc.process(&mut proc_next, 2);
+        reference.process(&mut reference_next, 2);
+        reset_reference.process(&mut reset_next, 2);
+
+        let max_reference_delta = max_abs_delta(&proc_next, &reference_next);
+        let max_reset_delta = max_abs_delta(&proc_next, &reset_next);
+        assert!(
+            max_reference_delta <= 1.0e-12,
+            "cutoff change should preserve and ramp Bauer state, max_reference_delta={max_reference_delta:.3e}"
         );
         assert!(
             max_reset_delta > 1.0e-4,
@@ -1593,6 +1641,29 @@ mod tests {
                 proc.process(&mut buffer, 2);
             }
         });
+    }
+
+    #[test]
+    fn noise_shaper_bits_change_does_not_reset_unchanged_curve_history() {
+        let params = Arc::new(AtomicNoiseShaperParams::new());
+        let mut processor = NoiseShaperProcessor::new(2, 48_000, Arc::clone(&params));
+        let mut reference = NoiseShaper::new(2, 48_000, 24);
+        reference.set_curve(params.curve());
+
+        let mut warm = hard_panned_sine(2048, 0, 48_000.0, 997.0);
+        let mut reference_warm = warm.clone();
+        processor.process(&mut warm, 2);
+        reference.process(&mut reference_warm, 2);
+        assert_eq!(warm, reference_warm);
+
+        params.set_bits(16);
+        reference.set_bits(16);
+        let mut next = hard_panned_sine(512, 2048, 48_000.0, 997.0);
+        let mut reference_next = next.clone();
+        processor.process(&mut next, 2);
+        reference.process(&mut reference_next, 2);
+
+        assert_eq!(next, reference_next);
     }
 
     fn assert_lazy_settle_residual_bounds(name: &str, input: &[f64], channels: usize) {
