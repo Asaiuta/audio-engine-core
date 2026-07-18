@@ -6,15 +6,16 @@
 //!
 //! # Design Pattern
 //!
-//! Processor parameters are published as immutable snapshots through `ArcSwap`.
-//! Setters patch snapshots with `ArcSwap::rcu`, so concurrent UI/control writes
-//! retry instead of silently overwriting each other's fields. The audio thread
-//! observes either the old or the new complete snapshot, never a mix of fields
-//! from both.
+//! Control-side reads retain convenient immutable `ArcSwap` snapshots.
+//! Realtime consumers subscribe during setup to a dedicated hazard slot and
+//! copy a complete `Copy` snapshot at block boundaries. Replaced storage is
+//! reclaimed only by the control-side publisher, so the audio thread never
+//! allocates, deallocates, or becomes the last owner of a published snapshot.
 
+use std::ptr;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+    atomic::{AtomicPtr, AtomicU64, Ordering},
+    Arc, Mutex, MutexGuard,
 };
 
 use arc_swap::{ArcSwap, Guard};
@@ -27,21 +28,149 @@ use super::crossfeed::{
     MAX_CUTOFF_HZ as CROSSFEED_MAX_CUTOFF_HZ, MIN_CUTOFF_HZ as CROSSFEED_MIN_CUTOFF_HZ,
 };
 
-struct SharedParams<T> {
+struct RealtimeSnapshotControl<T> {
+    readers: Vec<Arc<AtomicPtr<T>>>,
+    retired: Vec<Box<T>>,
+}
+
+struct RealtimeSnapshot<T> {
+    current: AtomicPtr<T>,
+    sequence: AtomicU64,
+    control: Mutex<RealtimeSnapshotControl<T>>,
+}
+
+/// Pre-registered realtime reader for one immutable parameter snapshot type.
+///
+/// Obtain this only through the matching `Atomic*Params::subscribe_realtime`
+/// method during setup, then retain it for allocation-free block-boundary
+/// reads. The handle deliberately exposes no raw ownership operations.
+pub struct RealtimeSnapshotReader<T> {
+    hazard: Arc<AtomicPtr<T>>,
+}
+
+impl<T> Drop for RealtimeSnapshotReader<T> {
+    fn drop(&mut self) {
+        self.hazard.store(ptr::null_mut(), Ordering::SeqCst);
+    }
+}
+
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+impl<T: Copy> RealtimeSnapshot<T> {
+    fn new(snapshot: T) -> Self {
+        Self {
+            current: AtomicPtr::new(Box::into_raw(Box::new(snapshot))),
+            sequence: AtomicU64::new(0),
+            control: Mutex::new(RealtimeSnapshotControl {
+                readers: Vec::new(),
+                retired: Vec::new(),
+            }),
+        }
+    }
+
+    fn subscribe(&self) -> RealtimeSnapshotReader<T> {
+        let hazard = Arc::new(AtomicPtr::new(ptr::null_mut()));
+        lock_unpoisoned(&self.control)
+            .readers
+            .push(Arc::clone(&hazard));
+        RealtimeSnapshotReader { hazard }
+    }
+
+    fn load_with_generation(&self, reader: &RealtimeSnapshotReader<T>) -> Option<(T, u64)> {
+        let before = self.sequence.load(Ordering::SeqCst);
+        if before & 1 != 0 {
+            return None;
+        }
+        let pointer = self.current.load(Ordering::SeqCst);
+        reader.hazard.store(pointer, Ordering::SeqCst);
+        if self.current.load(Ordering::SeqCst) != pointer
+            || self.sequence.load(Ordering::SeqCst) != before
+        {
+            reader.hazard.store(ptr::null_mut(), Ordering::SeqCst);
+            return None;
+        }
+
+        // The writer retains every replaced Box while its pointer appears in
+        // a reader hazard slot. The pointed-to snapshot is immutable and Copy.
+        let snapshot = unsafe { *pointer };
+        let after = self.sequence.load(Ordering::SeqCst);
+        reader.hazard.store(ptr::null_mut(), Ordering::SeqCst);
+        (before == after).then_some((snapshot, before / 2))
+    }
+
+    fn load_if_changed_since(
+        &self,
+        reader: &RealtimeSnapshotReader<T>,
+        cached_generation: u64,
+    ) -> Option<(T, u64)> {
+        let sequence = self.sequence.load(Ordering::Acquire);
+        if sequence & 1 != 0 || sequence / 2 == cached_generation {
+            return None;
+        }
+        self.load_with_generation(reader)
+            .filter(|(_, generation)| *generation != cached_generation)
+    }
+
+    fn publish(&self, snapshot: T) {
+        let mut control = lock_unpoisoned(&self.control);
+        let before = self.sequence.load(Ordering::SeqCst);
+        debug_assert_eq!(before & 1, 0);
+        let next = before.wrapping_add(2);
+        self.sequence
+            .store(before.wrapping_add(1), Ordering::SeqCst);
+        let previous = self
+            .current
+            .swap(Box::into_raw(Box::new(snapshot)), Ordering::SeqCst);
+        self.sequence.store(next, Ordering::SeqCst);
+
+        // SAFETY: `previous` was created by Box::into_raw and atomically
+        // removed from `current`; this control-side vector resumes ownership.
+        control.retired.push(unsafe { Box::from_raw(previous) });
+        let RealtimeSnapshotControl { readers, retired } = &mut *control;
+        readers.retain(|reader| Arc::strong_count(reader) > 1);
+        retired.retain(|retired| {
+            let pointer = (&**retired) as *const T as *mut T;
+            readers
+                .iter()
+                .any(|reader| reader.load(Ordering::SeqCst) == pointer)
+        });
+    }
+}
+
+impl<T> Drop for RealtimeSnapshot<T> {
+    fn drop(&mut self) {
+        let pointer = *self.current.get_mut();
+        if !pointer.is_null() {
+            // SAFETY: `self` has exclusive access and `pointer` is the one Box
+            // still owned by the current slot.
+            unsafe { drop(Box::from_raw(pointer)) };
+        }
+    }
+}
+
+struct SharedParams<T: Copy> {
     current: ArcSwap<T>,
+    realtime: RealtimeSnapshot<T>,
+    writer: Mutex<()>,
     generation: AtomicU64,
 }
 
-impl<T: Default> SharedParams<T> {
+impl<T: Copy + Default> SharedParams<T> {
     fn new() -> Self {
         Self::from_snapshot(T::default())
     }
 }
 
-impl<T> SharedParams<T> {
+impl<T: Copy> SharedParams<T> {
     fn from_snapshot(snapshot: T) -> Self {
         Self {
             current: ArcSwap::new(Arc::new(snapshot)),
+            realtime: RealtimeSnapshot::new(snapshot),
+            writer: Mutex::new(()),
             generation: AtomicU64::new(0),
         }
     }
@@ -55,10 +184,14 @@ impl<T> SharedParams<T> {
     fn load_with_generation(&self) -> (Arc<T>, u64) {
         loop {
             let before = self.generation.load(Ordering::Acquire);
+            if before & 1 != 0 {
+                std::hint::spin_loop();
+                continue;
+            }
             let current = self.current.load_full();
             let after = self.generation.load(Ordering::Acquire);
             if before == after {
-                return (current, after);
+                return (current, after / 2);
             }
         }
     }
@@ -76,34 +209,59 @@ impl<T> SharedParams<T> {
     #[inline]
     fn load_if_changed_since(&self, cached_generation: u64) -> Option<(Arc<T>, u64)> {
         let generation = self.generation.load(Ordering::Acquire);
-        if generation == cached_generation {
-            None
-        } else {
-            Some((self.current.load_full(), generation))
+        if generation & 1 == 0 && generation / 2 == cached_generation {
+            return None;
         }
+        let (current, generation) = self.load_with_generation();
+        (generation != cached_generation).then_some((current, generation))
     }
 
     #[inline]
     fn publish(&self, snapshot: T) {
+        let _writer = lock_unpoisoned(&self.writer);
+        self.publish_locked(snapshot);
+    }
+
+    fn publish_locked(&self, snapshot: T) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.current.store(Arc::new(snapshot));
+        self.realtime.publish(snapshot);
         self.generation.fetch_add(1, Ordering::Release);
+    }
+
+    fn subscribe_realtime(&self) -> (RealtimeSnapshotReader<T>, T, u64) {
+        let reader = self.realtime.subscribe();
+        loop {
+            if let Some((snapshot, generation)) = self.realtime.load_with_generation(&reader) {
+                return (reader, snapshot, generation);
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    #[inline]
+    fn load_realtime_if_changed_since(
+        &self,
+        reader: &RealtimeSnapshotReader<T>,
+        cached_generation: u64,
+    ) -> Option<(T, u64)> {
+        self.realtime
+            .load_if_changed_since(reader, cached_generation)
     }
 }
 
-impl<T: Clone> SharedParams<T> {
+impl<T: Copy> SharedParams<T> {
     #[inline]
     fn read(&self) -> T {
-        (*self.current.load_full()).clone()
+        *self.current.load_full()
     }
 
     #[inline]
     fn update(&self, mut f: impl FnMut(&mut T)) {
-        self.current.rcu(|current| {
-            let mut snapshot = T::clone(current);
-            f(&mut snapshot);
-            snapshot
-        });
-        self.generation.fetch_add(1, Ordering::Release);
+        let _writer = lock_unpoisoned(&self.writer);
+        let mut snapshot = **self.current.load();
+        f(&mut snapshot);
+        self.publish_locked(snapshot);
     }
 }
 
@@ -140,6 +298,26 @@ macro_rules! impl_snapshot_accessors {
             cached_generation: u64,
         ) -> Option<(Arc<$snapshot>, u64)> {
             self.shared.load_if_changed_since(cached_generation)
+        }
+
+        /// Register one realtime consumer and return its initial snapshot.
+        ///
+        /// Registration allocates and takes a control-side lock, so call this
+        /// before entering an audio callback.
+        pub fn subscribe_realtime(&self) -> (RealtimeSnapshotReader<$snapshot>, $snapshot, u64) {
+            self.shared.subscribe_realtime()
+        }
+
+        /// Copy a newly published complete snapshot without allocation or
+        /// ownership destruction on the calling thread.
+        #[inline]
+        pub fn load_realtime_if_changed_since(
+            &self,
+            reader: &RealtimeSnapshotReader<$snapshot>,
+            cached_generation: u64,
+        ) -> Option<($snapshot, u64)> {
+            self.shared
+                .load_realtime_if_changed_since(reader, cached_generation)
         }
     };
 }
@@ -367,6 +545,8 @@ pub struct SaturationParamsSnapshot {
     pub highpass_mode: bool,
     pub highpass_cutoff: f64,
     pub enabled: bool,
+    /// Setup/reset-time activation of the fixed-latency stage.
+    pub armed: bool,
 }
 
 impl Default for SaturationParamsSnapshot {
@@ -382,6 +562,7 @@ impl Default for SaturationParamsSnapshot {
             highpass_mode: false,
             highpass_cutoff: 4000.0,
             enabled: true,
+            armed: true,
         }
     }
 }
@@ -471,6 +652,14 @@ impl AtomicSaturationParams {
     }
 
     impl_set_enabled_accessor!();
+
+    /// Arm or hard-bypass the stage for the next reset/setup boundary.
+    #[inline]
+    pub fn set_armed(&self, armed: bool) {
+        self.shared.update(|snapshot| {
+            snapshot.armed = armed;
+        });
+    }
 
     /// Read all parameters into a snapshot
     #[inline]
@@ -699,7 +888,7 @@ impl_default_via_new!(AtomicVolumeParams);
 // ============================================================================
 
 /// Noise shaper parameter snapshot
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoiseShaperParamsSnapshot {
     pub enabled: bool,
     pub bits: u32,
@@ -893,6 +1082,7 @@ impl_default_via_new!(AtomicDynamicLoudnessTelemetry);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn test_eq_params_write_read() {
@@ -989,5 +1179,71 @@ mod tests {
 
         params.set_muted(true);
         assert!((params.effective_volume() - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn realtime_reader_is_allocation_free_during_concurrent_publication() {
+        const UPDATES: u64 = 10_000;
+        const MAX_READ_ATTEMPTS: usize = 20_000_000;
+
+        let params = Arc::new(AtomicEqParams::new());
+        let (reader, initial, initial_generation) = params.subscribe_realtime();
+        let ready = Arc::new(AtomicBool::new(false));
+        let start = Arc::new(AtomicBool::new(false));
+        let publishing_done = Arc::new(AtomicBool::new(false));
+
+        let audio_params = Arc::clone(&params);
+        let audio_ready = Arc::clone(&ready);
+        let audio_start = Arc::clone(&start);
+        let audio_publishing_done = Arc::clone(&publishing_done);
+        let audio = std::thread::spawn(move || {
+            let mut snapshot = initial;
+            let mut generation = initial_generation;
+            let mut attempts = 0;
+
+            assert_no_alloc::assert_no_alloc(|| {
+                audio_ready.store(true, Ordering::Release);
+                while !audio_start.load(Ordering::Acquire) {
+                    std::hint::spin_loop();
+                }
+
+                while attempts < MAX_READ_ATTEMPTS {
+                    attempts += 1;
+                    if let Some((next, next_generation)) =
+                        audio_params.load_realtime_if_changed_since(&reader, generation)
+                    {
+                        let marker = next.gains[0];
+                        assert!(next.gains.iter().all(|gain| *gain == marker));
+                        assert_eq!(next.enabled, (marker as u64) & 1 == 0);
+                        snapshot = next;
+                        generation = next_generation;
+                    }
+
+                    if audio_publishing_done.load(Ordering::Acquire) && generation == UPDATES {
+                        break;
+                    }
+                    std::hint::spin_loop();
+                }
+            });
+
+            (snapshot, generation, attempts)
+        });
+
+        while !ready.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        start.store(true, Ordering::Release);
+        for update in 1..=UPDATES {
+            params.write(&[update as f64; EQ_BANDS], update & 1 == 0);
+        }
+        publishing_done.store(true, Ordering::Release);
+
+        let (snapshot, generation, attempts) = audio.join().unwrap();
+        assert_eq!(
+            generation, UPDATES,
+            "reader stopped after {attempts} attempts"
+        );
+        assert_eq!(snapshot.gains, [UPDATES as f64; EQ_BANDS]);
+        assert!(snapshot.enabled);
     }
 }

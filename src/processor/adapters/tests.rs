@@ -2,6 +2,10 @@ use super::*;
 use crate::processor::loudness::LimiterMode;
 use crate::processor::traits::AudioBlockRef;
 
+fn valid_convolver(ir: &[f64], channels: usize) -> FFTConvolver {
+    FFTConvolver::new(ir, channels).unwrap()
+}
+
 struct TestProgress(ProcessProgress);
 
 impl TestProgress {
@@ -51,7 +55,7 @@ fn test_convolver_processor_swaps_in_and_processes() {
 
     assert!(proc.process(&mut buffer, 1).is_bypassed());
 
-    let generation = control.publish(FFTConvolver::new(&[0.5], 1));
+    let generation = control.publish(valid_convolver(&[0.5], 1));
     control.set_enabled(true);
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
@@ -70,10 +74,12 @@ fn test_convolver_processor_clear_disables_owned_convolver() {
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-    control.publish(FFTConvolver::new(&[0.5], 1));
+    control.publish(valid_convolver(&[0.5], 1));
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
 
     control.set_enabled(false);
+    let mut transition = vec![1.0; 256];
+    assert!(!proc.process(&mut transition, 1).is_bypassed());
     let mut bypassed = vec![1.0, 2.0, 3.0, 4.0];
     assert!(proc.process(&mut bypassed, 1).is_bypassed());
     assert_eq!(bypassed, vec![1.0, 2.0, 3.0, 4.0]);
@@ -88,8 +94,8 @@ fn convolver_publication_is_latest_wins_before_audio_withdrawal() {
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-    let first = control.publish(FFTConvolver::new(&[0.5], 1));
-    let latest = control.publish(FFTConvolver::new(&[0.25], 1));
+    let first = control.publish(valid_convolver(&[0.5], 1));
+    let latest = control.publish(valid_convolver(&[0.25], 1));
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert_eq!(buffer, vec![0.25, 0.5, 0.75, 1.0]);
 
@@ -105,14 +111,14 @@ fn convolver_publication_is_latest_wins_before_audio_withdrawal() {
 fn convolver_disable_reports_retirement_backpressure_and_recovers() {
     let control = ConvolverControl::new(true);
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
-    let mut buffer = vec![1.0; 4];
+    let mut buffer = vec![1.0; 256];
 
-    control.publish(FFTConvolver::new(&[1.0], 1));
+    control.publish(valid_convolver(&[1.0], 1));
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
-    control.publish(FFTConvolver::new(&[0.5], 1));
+    control.publish(valid_convolver(&[0.5], 1));
     control.set_enabled(false);
 
-    assert!(proc.process(&mut buffer, 1).is_bypassed());
+    assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert!(proc.process(&mut buffer, 1).is_bypassed());
     let saturated = control.status();
     assert!(saturated.backpressured);
@@ -138,7 +144,7 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
 
     for _ in 0..8 {
         // Control side: publishing allocates (allowed).
-        control.publish(FFTConvolver::new(&[0.5, 0.25], 1));
+        control.publish(valid_convolver(&[0.5, 0.25], 1));
         // Audio side: swap-in, retirement hand-off, and processing must not
         // allocate or deallocate.
         assert_no_alloc::assert_no_alloc(|| {
@@ -148,7 +154,7 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
         let _ = control.reclaim_retired();
     }
 
-    control.publish(FFTConvolver::new(&[0.75], 1));
+    control.publish(valid_convolver(&[0.75], 1));
     control.set_enabled(false);
     assert_no_alloc::assert_no_alloc(|| {
         proc.process(&mut buffer, 1);
@@ -163,7 +169,7 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
     assert!(control.reclaim_retired());
 
     control.set_enabled(true);
-    control.publish(FFTConvolver::new(&[0.25], 1));
+    control.publish(valid_convolver(&[0.25], 1));
     assert_no_alloc::assert_no_alloc(|| {
         proc.process(&mut buffer, 1);
     });
@@ -175,12 +181,12 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
 
     let control = ConvolverControl::new(true);
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
-    let mut buffer = [1.0; 4];
+    let mut buffer = [1.0; 256];
     let mut latest_gain = 0.0;
 
     for update in 0..UPDATES {
         latest_gain = 0.25 + (update % 23) as f64 * 0.01;
-        let generation = control.publish(FFTConvolver::new(&[latest_gain], 1));
+        let generation = control.publish(valid_convolver(&[latest_gain], 1));
         assert_eq!(generation, update + 1);
 
         if update % 17 == 0 {
@@ -210,9 +216,9 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
     assert_eq!(burst_status.pending_kernels, 0);
     assert_eq!(burst_status.pending_reclamations, 0);
 
-    control.publish(FFTConvolver::new(&[0.5], 1));
+    control.publish(valid_convolver(&[0.5], 1));
     control.set_enabled(false);
-    assert!(proc.process(&mut buffer, 1).is_bypassed());
+    assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert!(proc.process(&mut buffer, 1).is_bypassed());
     let saturated = control.status();
     assert!(saturated.backpressured);
@@ -224,10 +230,10 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
     assert!(control.is_quiescent());
 
     control.set_enabled(true);
-    let final_generation = control.publish(FFTConvolver::new(&[0.875], 1));
+    let final_generation = control.publish(valid_convolver(&[0.875], 1));
     buffer.fill(1.0);
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
-    assert_eq!(buffer, [0.875; 4]);
+    assert_eq!(buffer, [0.875; 256]);
 
     let final_status = control.status();
     assert_eq!(final_status.latest_adopted_generation, final_generation);
@@ -261,7 +267,7 @@ fn convolver_control_serializes_concurrent_publishers() {
             for update in 0..UPDATES_PER_PUBLISHER {
                 let ordinal = publisher * UPDATES_PER_PUBLISHER + update + 1;
                 let gain = ordinal as f64 / TOTAL_UPDATES as f64;
-                let generation = control.publish(FFTConvolver::new(&[gain], 1));
+                let generation = control.publish(valid_convolver(&[gain], 1));
                 published.push((generation, gain));
             }
             published
@@ -304,7 +310,7 @@ fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
     let audio_thread = std::thread::spawn(move || {
         ready_tx.send(std::thread::current().id()).unwrap();
         let mut proc = ConvolverProcessor::new(audio_control).unwrap();
-        let mut buffer = [1.0; 4];
+        let mut buffer = [1.0; 256];
         while command_rx.recv().unwrap() {
             buffer.fill(1.0);
             let _ = proc.process(&mut buffer, 1);
@@ -324,15 +330,15 @@ fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
         processed_rx.recv().unwrap();
     };
 
-    control.publish_with_drop_probe(FFTConvolver::new(&[1.0], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[1.0], 1), make_probe());
     process_once();
-    control.publish_with_drop_probe(FFTConvolver::new(&[0.75], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.75], 1), make_probe());
     process_once();
     assert_eq!(drop_count.load(Ordering::Acquire), 0);
     assert!(control.reclaim_retired());
 
-    control.publish_with_drop_probe(FFTConvolver::new(&[0.5], 1), make_probe());
-    control.publish_with_drop_probe(FFTConvolver::new(&[0.25], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.5], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.25], 1), make_probe());
     process_once();
     assert_eq!(drop_count.load(Ordering::Acquire), 2);
     assert!(control.reclaim_retired());
@@ -488,6 +494,621 @@ fn test_saturation_processor() {
 
     // tanh(0.9 * 2) ≈ 0.96, less than input
     assert!(buffer[0].abs() < 0.9 * 2.0);
+}
+
+#[test]
+fn saturation_soft_disable_keeps_fixed_timeline_and_drains_delay() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_mix(1.0);
+    params.set_drive(1.0);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    let mut input = vec![0.95; 64];
+    let _ = proc.process(&mut input, 1);
+    assert_eq!(proc.latency().frames(), SATURATION_LATENCY_FRAMES);
+
+    params.set_enabled(false);
+    let mut disabled = vec![0.25; SATURATION_TRANSITION_FRAMES + 8];
+    let _ = proc.process(&mut disabled, 1);
+    assert_eq!(proc.latency().frames(), SATURATION_LATENCY_FRAMES);
+    assert!(disabled.iter().any(|sample| sample.abs() > 0.0));
+
+    let mut scratch = [0.0; SATURATION_LATENCY_FRAMES];
+    let mut saw_output = false;
+    loop {
+        let progress = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut scratch, 1).unwrap(),
+        )
+        .unwrap();
+        saw_output |= progress.produced_frames() > 0;
+        if progress.state() == ProcessState::Finished {
+            break;
+        }
+    }
+    assert!(saw_output);
+}
+
+#[test]
+fn saturation_sparse_events_start_at_exact_frame_and_are_chunk_stable() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_mix(1.0);
+    params.set_drive(0.75);
+    let events = [SaturationEvent {
+        frame_offset: 7,
+        kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+    }];
+
+    let mut whole = SaturationProcessor::new(1, Arc::clone(&params));
+    let mut chunked = SaturationProcessor::new(1, Arc::clone(&params));
+    let input = vec![0.95; 96];
+    let mut whole_output = input.clone();
+    let _ = whole
+        .process_with_events(&mut whole_output, 1, &events)
+        .unwrap();
+
+    let mut chunked_output = input;
+    let _ = chunked
+        .process_with_events(&mut chunked_output[..7], 1, &[])
+        .unwrap();
+    let _ = chunked
+        .process_with_events(
+            &mut chunked_output[7..],
+            1,
+            &[SaturationEvent {
+                frame_offset: 0,
+                kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+            }],
+        )
+        .unwrap();
+
+    assert!(whole_output[..7]
+        .iter()
+        .zip(&chunked_output[..7])
+        .all(|(left, right)| left.to_bits() == right.to_bits()));
+    assert!(whole_output[7..]
+        .iter()
+        .zip(&chunked_output[7..])
+        .all(|(left, right)| (left - right).abs() < 1.0e-10));
+}
+
+#[test]
+fn saturation_quality_transition_replays_target_source_history() {
+    for highpass_mode in [false, true] {
+        let switched_params = Arc::new(AtomicSaturationParams::new());
+        switched_params.set_mix(1.0);
+        switched_params.set_drive(0.9);
+        switched_params.set_highpass_mode(highpass_mode);
+
+        let direct_params = Arc::new(AtomicSaturationParams::new());
+        direct_params.set_mix(1.0);
+        direct_params.set_drive(0.9);
+        direct_params.set_highpass_mode(highpass_mode);
+
+        let target_params = Arc::new(AtomicSaturationParams::new());
+        target_params.set_mix(1.0);
+        target_params.set_drive(0.9);
+        target_params.set_highpass_mode(highpass_mode);
+        target_params.set_quality(SaturationQualityValue::Oversampled4x);
+
+        let mut switched = SaturationProcessor::new(1, switched_params);
+        let mut direct = SaturationProcessor::new(1, direct_params);
+        let mut target = SaturationProcessor::new(1, target_params);
+        let warm = (0..128)
+            .map(|frame| ((frame as f64) * 0.371).sin() * 0.98)
+            .collect::<Vec<_>>();
+        let mut switched_warm = warm.clone();
+        let mut direct_warm = warm.clone();
+        let mut target_warm = warm;
+        let _ = switched.process(&mut switched_warm, 1);
+        let _ = direct.process(&mut direct_warm, 1);
+        let _ = target.process(&mut target_warm, 1);
+
+        let input = (128..176)
+            .map(|frame| ((frame as f64) * 0.371).sin() * 0.98)
+            .collect::<Vec<_>>();
+        let mut actual = input.clone();
+        let mut direct_output = input.clone();
+        let mut target_output = input;
+        let _ = switched
+            .process_with_events(
+                &mut actual,
+                1,
+                &[SaturationEvent {
+                    frame_offset: 0,
+                    kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+                }],
+            )
+            .unwrap();
+        let _ = direct.process(&mut direct_output, 1);
+        let _ = target.process(&mut target_output, 1);
+
+        for frame in 0..SATURATION_TRANSITION_FRAMES {
+            let t = frame as f64 / (SATURATION_TRANSITION_FRAMES - 1) as f64;
+            let target_weight = t * t * (3.0 - 2.0 * t);
+            let expected = direct_output[frame]
+                + (target_output[frame] - direct_output[frame]) * target_weight;
+            assert!(
+                (actual[frame] - expected).abs() <= 1.0e-12,
+                "highpass={highpass_mode} frame={frame} actual={} expected={expected}",
+                actual[frame]
+            );
+        }
+    }
+}
+
+#[test]
+fn saturation_soft_disable_blends_to_ungained_delayed_input() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_input_gain(6.0);
+    params.set_output_gain(-3.0);
+    params.set_mix(1.0);
+    let mut proc = SaturationProcessor::new(1, params);
+    let mut warm = vec![0.25; 64];
+    let _ = proc.process(&mut warm, 1);
+
+    let mut output = vec![0.25; SATURATION_TRANSITION_FRAMES + 2];
+    let _ = proc
+        .process_with_events(
+            &mut output,
+            1,
+            &[SaturationEvent {
+                frame_offset: 0,
+                kind: SaturationEventKind::EffectEnabled(false),
+            }],
+        )
+        .unwrap();
+
+    assert!((output[SATURATION_TRANSITION_FRAMES - 1] - 0.25).abs() <= 1.0e-12);
+    assert!((output[SATURATION_TRANSITION_FRAMES] - 0.25).abs() <= 1.0e-12);
+}
+
+#[test]
+fn saturation_soft_reenable_replays_inactive_oversampling_history() {
+    let reactivated_params = Arc::new(AtomicSaturationParams::new());
+    reactivated_params.set_quality(SaturationQualityValue::Oversampled4x);
+    reactivated_params.set_mix(1.0);
+    reactivated_params.set_drive(0.9);
+    reactivated_params.set_enabled(false);
+
+    let wet_params = Arc::new(AtomicSaturationParams::new());
+    wet_params.set_quality(SaturationQualityValue::Oversampled4x);
+    wet_params.set_mix(1.0);
+    wet_params.set_drive(0.9);
+
+    let bypass_params = Arc::new(AtomicSaturationParams::new());
+    bypass_params.set_quality(SaturationQualityValue::Oversampled4x);
+    bypass_params.set_mix(1.0);
+    bypass_params.set_drive(0.9);
+    bypass_params.set_enabled(false);
+
+    let mut reactivated = SaturationProcessor::new(1, reactivated_params);
+    let mut wet = SaturationProcessor::new(1, wet_params);
+    let mut bypass = SaturationProcessor::new(1, bypass_params);
+    let warm = (0..128)
+        .map(|frame| ((frame as f64) * 0.293).cos() * 0.98)
+        .collect::<Vec<_>>();
+    let mut reactivated_warm = warm.clone();
+    let mut wet_warm = warm.clone();
+    let mut bypass_warm = warm;
+    let _ = reactivated.process(&mut reactivated_warm, 1);
+    let _ = wet.process(&mut wet_warm, 1);
+    let _ = bypass.process(&mut bypass_warm, 1);
+
+    let input = (128..176)
+        .map(|frame| ((frame as f64) * 0.293).cos() * 0.98)
+        .collect::<Vec<_>>();
+    let mut actual = input.clone();
+    let mut wet_output = input.clone();
+    let mut bypass_output = input;
+    let _ = reactivated
+        .process_with_events(
+            &mut actual,
+            1,
+            &[SaturationEvent {
+                frame_offset: 0,
+                kind: SaturationEventKind::EffectEnabled(true),
+            }],
+        )
+        .unwrap();
+    let _ = wet.process(&mut wet_output, 1);
+    let _ = bypass.process(&mut bypass_output, 1);
+
+    for frame in 0..SATURATION_TRANSITION_FRAMES {
+        let t = frame as f64 / (SATURATION_TRANSITION_FRAMES - 1) as f64;
+        let wet_weight = t * t * (3.0 - 2.0 * t);
+        let expected =
+            bypass_output[frame] + (wet_output[frame] - bypass_output[frame]) * wet_weight;
+        assert!(
+            (actual[frame] - expected).abs() <= 1.0e-12,
+            "frame={frame} actual={} expected={expected}",
+            actual[frame]
+        );
+    }
+}
+
+#[test]
+fn saturation_dense_quality_retargeting_preserves_weight_sum_and_chunking() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_mix(1.0);
+    params.set_drive(0.9);
+    let qualities = [
+        SaturationQualityValue::Oversampled4x,
+        SaturationQualityValue::Oversampled2x,
+        SaturationQualityValue::Direct,
+    ];
+    let events = (1..48)
+        .map(|frame_offset| SaturationEvent {
+            frame_offset,
+            kind: SaturationEventKind::Quality(qualities[(frame_offset - 1) % qualities.len()]),
+        })
+        .collect::<Vec<_>>();
+    let input = (0..96)
+        .map(|frame| ((frame as f64) * 0.173).sin() * 0.95)
+        .collect::<Vec<_>>();
+    let mut whole = SaturationProcessor::new(1, Arc::clone(&params));
+    let mut chunked = SaturationProcessor::new(1, Arc::clone(&params));
+    let mut invariant = SaturationProcessor::new(1, Arc::clone(&params));
+    let mut whole_output = input.clone();
+    let mut chunked_output = input;
+
+    let mut sample = [0.9];
+    for quality in qualities.into_iter().cycle().take(47) {
+        let _ = invariant
+            .process_with_events(
+                &mut sample,
+                1,
+                &[SaturationEvent {
+                    frame_offset: 0,
+                    kind: SaturationEventKind::Quality(quality),
+                }],
+            )
+            .unwrap();
+        assert!(invariant
+            .quality_weights
+            .iter()
+            .all(|weight| weight.is_finite() && *weight >= 0.0));
+        assert!((invariant.quality_weights.iter().sum::<f64>() - 1.0).abs() <= 1.0e-12);
+    }
+
+    let _ = whole
+        .process_with_events(&mut whole_output, 1, &events)
+        .unwrap();
+    let chunk_pattern = [1, 7, 3, 19, 2, 11];
+    let mut start = 0usize;
+    let mut pattern = 0usize;
+    while start < chunked_output.len() {
+        let end = (start + chunk_pattern[pattern % chunk_pattern.len()]).min(chunked_output.len());
+        let local_events = events
+            .iter()
+            .filter(|event| (start..end).contains(&event.frame_offset))
+            .map(|event| SaturationEvent {
+                frame_offset: event.frame_offset - start,
+                kind: event.kind,
+            })
+            .collect::<Vec<_>>();
+        let _ = chunked
+            .process_with_events(&mut chunked_output[start..end], 1, &local_events)
+            .unwrap();
+        start = end;
+        pattern += 1;
+    }
+
+    assert!(whole
+        .quality_weights
+        .iter()
+        .all(|weight| weight.is_finite()));
+    assert!((whole.quality_weights.iter().sum::<f64>() - 1.0).abs() <= 1.0e-12);
+    assert!(whole_output
+        .iter()
+        .zip(&chunked_output)
+        .all(|(left, right)| (left - right).abs() <= 1.0e-12));
+}
+
+#[test]
+fn saturation_same_offset_quality_events_coalesce_to_last_value() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut proc = SaturationProcessor::new(1, params);
+    let mut samples = [0.9; 4];
+    let events = [
+        SaturationEvent {
+            frame_offset: 0,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+        },
+        SaturationEvent {
+            frame_offset: 0,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Direct),
+        },
+        SaturationEvent {
+            frame_offset: 0,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled2x),
+        },
+    ];
+
+    let _ = proc.process_with_events(&mut samples, 1, &events).unwrap();
+
+    assert_eq!(
+        proc.quality_transition_target,
+        Some(SaturationQualityValue::Oversampled2x)
+    );
+}
+
+fn dirty_all_saturation_quality_slots(proc: &mut SaturationProcessor) {
+    let mut samples = (0..96)
+        .map(|frame| ((frame as f64) * 0.137).cos() * 0.9)
+        .collect::<Vec<_>>();
+    let events = [
+        SaturationEvent {
+            frame_offset: 1,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+        },
+        SaturationEvent {
+            frame_offset: 2,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled2x),
+        },
+        SaturationEvent {
+            frame_offset: 3,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Direct),
+        },
+    ];
+    let _ = proc.process_with_events(&mut samples, 1, &events).unwrap();
+}
+
+fn assert_saturation_quality_bank_matches_fresh(
+    reused: &mut SaturationProcessor,
+    fresh: &mut SaturationProcessor,
+) {
+    let events = [
+        SaturationEvent {
+            frame_offset: 0,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+        },
+        SaturationEvent {
+            frame_offset: 1,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled2x),
+        },
+        SaturationEvent {
+            frame_offset: 2,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Direct),
+        },
+    ];
+    let input = (0..128)
+        .map(|frame| ((frame as f64) * 0.097).sin() * 0.92)
+        .collect::<Vec<_>>();
+    let mut actual = input.clone();
+    let mut expected = input;
+    let _ = reused.process_with_events(&mut actual, 1, &events).unwrap();
+    let _ = fresh
+        .process_with_events(&mut expected, 1, &events)
+        .unwrap();
+    assert!(actual
+        .iter()
+        .zip(&expected)
+        .all(|(left, right)| left.to_bits() == right.to_bits()));
+}
+
+#[test]
+fn saturation_reset_clears_every_preallocated_quality_state() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut reused = SaturationProcessor::new(1, Arc::clone(&params));
+    dirty_all_saturation_quality_slots(&mut reused);
+    reused.reset().unwrap();
+    let mut fresh = SaturationProcessor::new(1, params);
+
+    assert_saturation_quality_bank_matches_fresh(&mut reused, &mut fresh);
+}
+
+#[test]
+fn saturation_sample_rate_change_clears_every_preallocated_quality_state() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut reused = SaturationProcessor::new(1, Arc::clone(&params));
+    dirty_all_saturation_quality_slots(&mut reused);
+    reused.set_sample_rate(96_000).unwrap();
+    let mut fresh = SaturationProcessor::new(1, params);
+    fresh.set_sample_rate(96_000).unwrap();
+
+    assert_saturation_quality_bank_matches_fresh(&mut reused, &mut fresh);
+}
+
+#[test]
+fn saturation_finish_completes_last_frame_quality_transition() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_mix(1.0);
+    params.set_drive(1.0);
+    let mut proc = SaturationProcessor::new(1, params);
+    let mut input = vec![0.95; 16];
+    let _ = proc
+        .process_with_events(
+            &mut input,
+            1,
+            &[SaturationEvent {
+                frame_offset: 15,
+                kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+            }],
+        )
+        .unwrap();
+    let expected_finish_frames = proc.finite_finish_frames();
+    let semantic_tail = proc.tail().finite_duration().unwrap().frames();
+    assert_eq!(
+        expected_finish_frames,
+        SATURATION_LATENCY_FRAMES + semantic_tail
+    );
+    assert_eq!(expected_finish_frames, SATURATION_TRANSITION_FRAMES - 1);
+
+    let mut produced = 0usize;
+    let mut scratch = [0.0; 5];
+    loop {
+        let progress = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut scratch, 1).unwrap(),
+        )
+        .unwrap();
+        produced += progress.produced_frames();
+        if progress.state() == ProcessState::Finished {
+            break;
+        }
+    }
+    assert_eq!(produced, expected_finish_frames);
+    assert_eq!(proc.quality_transition_target, None);
+}
+
+#[test]
+fn saturation_event_validation_is_typed_and_non_mutating() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut proc = SaturationProcessor::new(1, params);
+    let mut samples = [0.5; 8];
+    let before = samples;
+    let result = proc.process_with_events(
+        &mut samples,
+        1,
+        &[
+            SaturationEvent {
+                frame_offset: 4,
+                kind: SaturationEventKind::EffectEnabled(false),
+            },
+            SaturationEvent {
+                frame_offset: 2,
+                kind: SaturationEventKind::EffectEnabled(true),
+            },
+        ],
+    );
+    assert!(matches!(
+        result,
+        Err(ProcessError::InvalidAutomation { .. })
+    ));
+    assert_eq!(samples, before);
+}
+
+#[test]
+fn saturation_finite_finish_preserves_delayed_impulse_for_all_quality_modes() {
+    for quality in [
+        SaturationQualityValue::Direct,
+        SaturationQualityValue::Oversampled2x,
+        SaturationQualityValue::Oversampled4x,
+    ] {
+        let params = Arc::new(AtomicSaturationParams::new());
+        params.set_mix(1.0);
+        params.set_drive(1.0);
+        params.set_quality(quality);
+        let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+        let mut input = vec![0.0; 16];
+        input[15] = 0.95;
+        let _ = proc.process(&mut input, 1);
+        let finish_frames = proc.finite_finish_frames();
+        let expected_finish_frames = match quality {
+            SaturationQualityValue::Direct => SATURATION_LATENCY_FRAMES,
+            SaturationQualityValue::Oversampled2x | SaturationQualityValue::Oversampled4x => 8,
+        };
+        assert_eq!(finish_frames, expected_finish_frames);
+
+        let quality_index = SaturationProcessor::quality_index(quality);
+        let mut oracle = proc.quality_states[quality_index].clone();
+        let mut oracle_tail = vec![0.0; finish_frames + 1];
+        oracle.process_with_channels_mix(&mut oracle_tail, 1, 1.0);
+
+        let mut tail = Vec::new();
+        let mut scratch = [0.0; 3];
+        loop {
+            let progress = super::super::traits::finish_checked(
+                &mut proc,
+                AudioBlockMut::new(&mut scratch, 1).unwrap(),
+            )
+            .unwrap();
+            tail.extend_from_slice(&scratch[..progress.produced_frames()]);
+            if progress.state() == ProcessState::Finished {
+                break;
+            }
+        }
+        assert_eq!(tail.len(), finish_frames);
+        assert_eq!(tail, oracle_tail[..finish_frames]);
+        assert_ne!(tail.last().copied().unwrap_or(0.0), 0.0);
+        assert_eq!(oracle_tail[finish_frames], 0.0);
+    }
+}
+
+#[test]
+fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
+    fn assert_rearmed(mut processor: impl StreamingProcessor, channels: usize) {
+        let mut finish_output = vec![0.0; channels * 16];
+        let finished = super::super::traits::finish_checked(
+            &mut processor,
+            AudioBlockMut::new(&mut finish_output, channels).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            finished.state(),
+            ProcessState::Finished,
+            "{}",
+            processor.name()
+        );
+
+        processor.set_sample_rate(96_000).unwrap();
+        let mut input = vec![0.25; channels * 4];
+        let block = AudioBlockMut::new(&mut input, channels).unwrap();
+        let progress =
+            super::super::traits::process_checked(&mut processor, ProcessBuffers::in_place(block))
+                .unwrap();
+        assert_eq!(
+            progress.state(),
+            ProcessState::NeedInput,
+            "{}",
+            processor.name()
+        );
+    }
+
+    let eq = Arc::new(AtomicEqParams::new());
+    eq.set_enabled(false);
+    assert_rearmed(EqProcessor::new(2, 48_000.0, eq), 2);
+
+    let saturation = Arc::new(AtomicSaturationParams::new());
+    saturation.set_armed(false);
+    assert_rearmed(SaturationProcessor::new(2, saturation), 2);
+
+    let crossfeed = Arc::new(AtomicCrossfeedParams::new());
+    crossfeed.set_enabled(false);
+    assert_rearmed(CrossfeedProcessor::new(48_000.0, crossfeed), 2);
+
+    let limiter = Arc::new(AtomicPeakLimiterParams::new());
+    limiter.set_enabled(false);
+    assert_rearmed(PeakLimiterProcessor::new(2, 48_000, limiter), 2);
+
+    assert_rearmed(VolumeProcessor::new(Arc::new(AtomicVolumeParams::new())), 2);
+    assert_rearmed(
+        NoiseShaperProcessor::new(2, 48_000, Arc::new(AtomicNoiseShaperParams::new())),
+        2,
+    );
+
+    let dynamic = Arc::new(AtomicDynamicLoudnessParams::new());
+    dynamic.set_enabled(false);
+    assert_rearmed(
+        DynamicLoudnessProcessor::new(
+            2,
+            48_000,
+            dynamic,
+            Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+        ),
+        2,
+    );
+}
+
+#[test]
+fn saturation_event_processing_is_allocation_free_after_setup() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut proc = SaturationProcessor::new(2, params);
+    let mut samples = vec![0.9; 128 * 2];
+    let events = [
+        SaturationEvent {
+            frame_offset: 7,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+        },
+        SaturationEvent {
+            frame_offset: 63,
+            kind: SaturationEventKind::EffectEnabled(false),
+        },
+    ];
+
+    assert_no_alloc::assert_no_alloc(|| {
+        let _ = proc.process_with_events(&mut samples, 2, &events).unwrap();
+    });
 }
 
 #[test]
@@ -867,6 +1488,31 @@ fn configured_channel_count_is_validated_before_processing() {
 }
 
 #[test]
+fn crossfeed_non_stereo_bypass_has_no_finish_tail() {
+    for channels in [1, 3] {
+        let params = Arc::new(AtomicCrossfeedParams::new());
+        params.set_enabled(true);
+        let mut processor = CrossfeedProcessor::new(48_000.0, params);
+        let mut input = vec![0.25; channels * 8];
+        let original = input.clone();
+        let progress = processor.process(&mut input, channels);
+
+        assert!(progress.is_bypassed());
+        assert_eq!(input, original);
+        assert_eq!(processor.tail(), TailSpec::None);
+
+        let mut output = vec![9.0; channels * 8];
+        let progress = super::super::traits::finish_checked(
+            &mut processor,
+            AudioBlockMut::new(&mut output, channels).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(progress, ProcessProgress::finished(0));
+        assert_eq!(output, vec![9.0; channels * 8]);
+    }
+}
+
+#[test]
 fn fixed_out_of_place_processing_is_allocation_free_after_setup() {
     let params = Arc::new(AtomicVolumeParams::new());
     params.set_volume(0.5);
@@ -890,6 +1536,88 @@ fn peak_limiter_processor_defaults_to_true_peak_mode() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
     let proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
     assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+}
+
+#[test]
+fn final_output_limiter_forces_true_peak_mode() {
+    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+    limiter_params.set_mode(LimiterMode::SamplePeak);
+    let noise_params = Arc::new(AtomicNoiseShaperParams::new());
+    let mut proc = PeakLimiterProcessor::new_with_output_guard(
+        2,
+        48_000,
+        Arc::clone(&limiter_params),
+        noise_params,
+    );
+    assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+
+    let mut buffer = vec![0.25; 32 * 2];
+    let _ = proc.process(&mut buffer, 2);
+    assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
+}
+
+#[test]
+fn final_output_guard_survives_callback_sample_rate_initialization() {
+    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+    limiter_params.set_threshold(-1.0);
+    let noise_params = Arc::new(AtomicNoiseShaperParams::new());
+    noise_params.set_enabled(true);
+    noise_params.set_bits(8);
+    noise_params.set_curve(NoiseShaperCurve::TpdfOnly);
+
+    let mut initialized_at_source_rate = PeakLimiterProcessor::new_with_output_guard(
+        1,
+        44_100,
+        Arc::clone(&limiter_params),
+        Arc::clone(&noise_params),
+    );
+    initialized_at_source_rate.set_sample_rate(48_000).unwrap();
+    let mut initialized_at_output_rate =
+        PeakLimiterProcessor::new_with_output_guard(1, 48_000, limiter_params, noise_params);
+
+    assert!(initialized_at_source_rate.output_ceiling_guard_db() > 0.0);
+    assert_eq!(
+        initialized_at_source_rate.output_ceiling_guard_db(),
+        initialized_at_output_rate.output_ceiling_guard_db()
+    );
+
+    let mut rebuilt_output = vec![1.25; 2_048];
+    let mut fresh_output = rebuilt_output.clone();
+    let _ = initialized_at_source_rate.process(&mut rebuilt_output, 1);
+    let _ = initialized_at_output_rate.process(&mut fresh_output, 1);
+    assert_eq!(rebuilt_output, fresh_output);
+}
+
+#[test]
+fn final_limiter_and_noise_shaper_share_one_block_snapshot() {
+    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+    let noise_params = Arc::new(AtomicNoiseShaperParams::new());
+    noise_params.set_bits(24);
+    let latch = NoiseShaperSnapshotLatch::new(noise_params.read());
+    let mut limiter = PeakLimiterProcessor::new_with_output_guard_latch(
+        1,
+        48_000,
+        limiter_params,
+        Arc::clone(&noise_params),
+        latch.clone(),
+    );
+    let mut noise = NoiseShaperProcessor::new_with_output_guard_latch(
+        1,
+        48_000,
+        Arc::clone(&noise_params),
+        latch,
+    );
+
+    let mut limiter_block = [0.25; 32];
+    let _ = limiter.process(&mut limiter_block, 1);
+    noise_params.set_bits(8);
+    let mut noise_block = limiter_block;
+    let _ = noise.process(&mut noise_block, 1);
+    assert_eq!(noise.noise_shaper.bits(), 24);
+
+    let _ = limiter.process(&mut limiter_block, 1);
+    let _ = noise.process(&mut noise_block, 1);
+    assert_eq!(noise.noise_shaper.bits(), 8);
 }
 
 #[test]
@@ -1130,7 +1858,9 @@ fn assert_convolver_matches_direct_oracle(input_frames: usize, ir_frames: usize,
         (vec![1, 4, 2, 7, 3], vec![1, 5, 17, 257]),
     ] {
         let control = ConvolverControl::new(true);
-        control.publish(FFTConvolver::new(&ir, channels));
+        control
+            .publish_at_rate(valid_convolver(&ir, channels), 48_000)
+            .unwrap();
         let mut proc = ConvolverProcessor::new(control).unwrap();
         proc.set_sample_rate(48_000).unwrap();
         let actual = render_convolver_with_patterns(
@@ -1166,7 +1896,9 @@ fn convolver_reset_isolates_prior_process_and_partial_finish_history() {
     const CHANNELS: usize = 2;
     let ir = deterministic_convolver_ir(11, CHANNELS);
     let control = ConvolverControl::new(true);
-    let generation = control.publish(FFTConvolver::new(&ir, CHANNELS));
+    let generation = control
+        .publish_at_rate(valid_convolver(&ir, CHANNELS), 48_000)
+        .unwrap();
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     proc.set_sample_rate(48_000).unwrap();
 
@@ -1200,9 +1932,11 @@ fn convolver_reset_isolates_prior_process_and_partial_finish_history() {
 }
 
 #[test]
-fn convolver_sample_rate_only_retags_finite_tail_duration() {
+fn convolver_sample_rate_change_waits_for_a_matching_kernel() {
     let control = ConvolverControl::new(true);
-    let generation = control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+    let generation = control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 48_000)
+        .unwrap();
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     proc.set_sample_rate(48_000).unwrap();
     let mut input = [1.0];
@@ -1211,8 +1945,20 @@ fn convolver_sample_rate_only_retags_finite_tail_duration() {
     assert_eq!(proc.latency(), FrameDuration::ZERO);
     assert_eq!(proc.tail(), TailSpec::finite(2, 48_000).unwrap());
     proc.set_sample_rate(96_000).unwrap();
-    assert_eq!(proc.tail(), TailSpec::finite(2, 96_000).unwrap());
+    let mut dry = [0.25, -0.5];
+    assert!(proc.process(&mut dry, 1).is_bypassed());
+    assert_eq!(dry, [0.25, -0.5]);
+    assert_eq!(proc.tail(), TailSpec::None);
     assert_eq!(control.status().latest_adopted_generation, generation);
+    assert_eq!(control.status().waiting_for_sample_rate_hz, Some(96_000));
+
+    let replacement = control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 96_000)
+        .unwrap();
+    let mut activation = vec![1.0; 480];
+    assert!(!proc.process(&mut activation, 1).is_bypassed());
+    assert_eq!(control.status().latest_adopted_generation, replacement);
+    assert_eq!(control.status().waiting_for_sample_rate_hz, None);
 
     control.set_enabled(false);
     assert_eq!(proc.tail(), TailSpec::None);
@@ -1227,7 +1973,9 @@ fn convolver_sample_rate_only_retags_finite_tail_duration() {
 #[test]
 fn convolver_finish_preserves_last_frame_impulse_tail() {
     let control = ConvolverControl::new(true);
-    control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 48_000)
+        .unwrap();
     let mut proc = ConvolverProcessor::new(control).unwrap();
     proc.set_sample_rate(48_000).unwrap();
 
@@ -1257,7 +2005,9 @@ fn convolver_finish_preserves_last_frame_impulse_tail() {
 #[test]
 fn convolver_terminal_finish_can_retire_to_control_quiescence() {
     let control = ConvolverControl::new(true);
-    control.publish(FFTConvolver::new(&[1.0, 0.5], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5], 1), 44_100)
+        .unwrap();
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut input = [1.0];
     let _ = proc.process(&mut input, 1);
@@ -1272,7 +2022,9 @@ fn convolver_terminal_finish_can_retire_to_control_quiescence() {
         ProcessState::Finished
     );
 
-    control.publish(FFTConvolver::new(&[0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.25], 1), 44_100)
+        .unwrap();
     control.set_enabled(false);
     for _ in 0..2 {
         assert_eq!(
@@ -1309,7 +2061,9 @@ fn finite_finish_paths_are_allocation_free_after_processing() {
     let mut limiter_output = vec![0.0; limiter.limiter.delay_frames()];
 
     let control = ConvolverControl::new(true);
-    control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 48_000)
+        .unwrap();
     let mut convolver = ConvolverProcessor::new(control).unwrap();
     let mut convolver_input = [1.0, 0.0];
     let _ = convolver.process(&mut convolver_input, 1);

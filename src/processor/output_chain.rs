@@ -9,7 +9,8 @@ use crate::config::{PhaseResponse, ResampleQuality};
 
 use super::adapters::{
     ConvolverControl, ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor,
-    EqProcessor, NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
+    EqProcessor, NoiseShaperProcessor, NoiseShaperSnapshotLatch, PeakLimiterProcessor,
+    SaturationProcessor, VolumeProcessor,
 };
 use super::dsp_chain::DspChain;
 use super::lockfree_params::{
@@ -105,9 +106,7 @@ impl OfflineRenderPolicy {
 
 struct OfflineStageOutput {
     samples: Vec<f64>,
-    output_sample_rate_hz: u32,
-    latency: FrameDuration,
-    tail: TailSpec,
+    #[cfg(test)]
     unknown_finish_capped: bool,
 }
 
@@ -116,18 +115,16 @@ struct RenderTiming {
     latencies: Vec<FrameDuration>,
     finite_tails: Vec<FrameDuration>,
     has_unknown_tail: bool,
-    unknown_finish_capped: bool,
 }
 
 impl RenderTiming {
-    fn observe(&mut self, stage: &OfflineStageOutput) {
-        self.latencies.push(stage.latency);
-        match stage.tail {
+    fn observe_values(&mut self, latency: FrameDuration, tail: TailSpec) {
+        self.latencies.push(latency);
+        match tail {
             TailSpec::None => {}
             TailSpec::Finite(duration) => self.finite_tails.push(duration),
             TailSpec::Unknown | TailSpec::Infinite => self.has_unknown_tail = true,
         }
-        self.unknown_finish_capped |= stage.unknown_finish_capped;
     }
 
     fn latency_frames(&self, sample_rate_hz: u32) -> Result<usize, ProcessError> {
@@ -209,6 +206,352 @@ impl TailEnergyDetector {
             }
         }
         None
+    }
+}
+
+struct TailObservation {
+    detector: TailEnergyDetector,
+    protected_frames: usize,
+    generated_frames: usize,
+    max_frames: usize,
+    stopped: bool,
+    capped: bool,
+}
+
+struct ObservationDecision {
+    keep_frames: usize,
+    truncate_to_frame: Option<usize>,
+}
+
+impl TailObservation {
+    fn new(
+        policy: UnknownTailPolicy,
+        sample_rate_hz: u32,
+        protected_frames: usize,
+    ) -> Result<Self, ProcessError> {
+        Ok(Self {
+            detector: TailEnergyDetector::new(policy, sample_rate_hz)?,
+            protected_frames,
+            generated_frames: 0,
+            max_frames: frames_for_milliseconds(policy.max_tail_ms, sample_rate_hz)?,
+            stopped: false,
+            capped: false,
+        })
+    }
+
+    fn observe(
+        &mut self,
+        samples: &[f64],
+        channels: usize,
+        first_frame: usize,
+    ) -> ObservationDecision {
+        if self.stopped {
+            return ObservationDecision {
+                keep_frames: 0,
+                truncate_to_frame: None,
+            };
+        }
+
+        let frames = samples.len() / channels;
+        let protected = self.protected_frames.min(frames);
+        self.protected_frames -= protected;
+        let available = frames - protected;
+        let allowed = available.min(self.max_frames.saturating_sub(self.generated_frames));
+        let keep_frames = protected + allowed;
+
+        let mut truncate_to_frame = None;
+        if allowed > 0 {
+            let start = protected * channels;
+            let end = (protected + allowed) * channels;
+            truncate_to_frame =
+                self.detector
+                    .observe(&samples[start..end], channels, first_frame + protected);
+            self.generated_frames = self.generated_frames.saturating_add(allowed);
+        }
+
+        if truncate_to_frame.is_some() {
+            self.stopped = true;
+        } else if self.generated_frames >= self.max_frames {
+            self.stopped = true;
+            self.capped = true;
+        }
+        ObservationDecision {
+            keep_frames,
+            truncate_to_frame,
+        }
+    }
+
+    fn remaining_capacity_frames(&self) -> usize {
+        if self.stopped {
+            0
+        } else {
+            self.protected_frames
+                .saturating_add(self.max_frames.saturating_sub(self.generated_frames))
+        }
+    }
+}
+
+struct OutputBlockCollector<'a> {
+    channels: usize,
+    limiter: &'a mut PeakLimiterProcessor,
+    noise_shaper: &'a mut NoiseShaperProcessor,
+    samples: Vec<f64>,
+    observation: Option<TailObservation>,
+    tail_truncated: bool,
+}
+
+impl<'a> OutputBlockCollector<'a> {
+    fn new(
+        channels: usize,
+        limiter: &'a mut PeakLimiterProcessor,
+        noise_shaper: &'a mut NoiseShaperProcessor,
+        estimated_samples: usize,
+    ) -> Self {
+        Self {
+            channels,
+            limiter,
+            noise_shaper,
+            samples: Vec::with_capacity(estimated_samples),
+            observation: None,
+            tail_truncated: false,
+        }
+    }
+
+    fn begin_observation(
+        &mut self,
+        policy: UnknownTailPolicy,
+        sample_rate_hz: u32,
+        protected_frames: usize,
+    ) -> Result<(), ProcessError> {
+        self.observation = Some(TailObservation::new(
+            policy,
+            sample_rate_hz,
+            protected_frames,
+        )?);
+        Ok(())
+    }
+
+    fn observation_stopped(&self) -> bool {
+        self.observation
+            .as_ref()
+            .is_some_and(|observation| observation.stopped)
+    }
+
+    fn observation_active(&self) -> bool {
+        self.observation.is_some()
+    }
+
+    fn observation_capacity_frames(&self, requested: usize) -> usize {
+        self.observation
+            .as_ref()
+            .map(|observation| requested.min(observation.remaining_capacity_frames()))
+            .unwrap_or(requested)
+    }
+
+    fn end_observation(&mut self) {
+        if let Some(observation) = self.observation.take() {
+            self.tail_truncated |= observation.capped;
+        }
+    }
+
+    fn mark_tail_truncated(&mut self) {
+        self.tail_truncated = true;
+    }
+
+    fn push_pre_limiter(&mut self, block: &mut [f64]) -> Result<(), ProcessError> {
+        let total_frames = block.len() / self.channels;
+        let mut processed_frames = 0usize;
+        while processed_frames < total_frames && !self.observation_stopped() {
+            let remaining = total_frames - processed_frames;
+            let frames = self.observation_capacity_frames(remaining);
+            if frames == 0 {
+                break;
+            }
+            let start = processed_frames * self.channels;
+            let end = start + frames * self.channels;
+            let chunk = &mut block[start..end];
+            let _ = process_fixed_stage(self.limiter, chunk, self.channels)?;
+            self.push_post_limiter(chunk)?;
+            processed_frames += frames;
+        }
+        Ok(())
+    }
+
+    fn push_post_limiter(&mut self, block: &mut [f64]) -> Result<(), ProcessError> {
+        if self.observation_stopped() {
+            return Ok(());
+        }
+        let frames = block.len() / self.channels;
+        let first_frame = self.samples.len() / self.channels;
+        let decision = self
+            .observation
+            .as_mut()
+            .map(|observation| observation.observe(block, self.channels, first_frame))
+            .unwrap_or(ObservationDecision {
+                keep_frames: frames,
+                truncate_to_frame: None,
+            });
+
+        let keep_samples = decision.keep_frames * self.channels;
+        if keep_samples > 0 {
+            let retained = &mut block[..keep_samples];
+            let _ = process_fixed_stage(self.noise_shaper, retained, self.channels)?;
+            self.samples
+                .extend(retained.iter().map(|sample| *sample as f32 as f64));
+        }
+        if let Some(frame) = decision.truncate_to_frame {
+            self.samples.truncate(frame * self.channels);
+        }
+        Ok(())
+    }
+
+    fn finish_limiter(
+        &mut self,
+        scratch: &mut [f64],
+        frame_limit: usize,
+    ) -> Result<(), ProcessError> {
+        let mut generated = 0usize;
+        loop {
+            if generated >= frame_limit {
+                return Err(ProcessError::Backend {
+                    processor: "PeakLimiter",
+                    operation: "finish",
+                    message: "limiter finish exceeded its declared bound",
+                });
+            }
+            let capacity = (scratch.len() / self.channels).min(frame_limit - generated);
+            let block =
+                AudioBlockMut::new(&mut scratch[..capacity * self.channels], self.channels)?;
+            let progress = finish_checked(self.limiter, block)?;
+            let produced = progress.produced_frames();
+            self.push_post_limiter(&mut scratch[..produced * self.channels])?;
+            generated += produced;
+            if progress.state() == ProcessState::Finished {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_noise_shaper(&mut self) -> Result<(), ProcessError> {
+        let mut empty = [];
+        let block = AudioBlockMut::new(&mut empty, self.channels)?;
+        let progress = finish_checked(self.noise_shaper, block)?;
+        if progress.state() != ProcessState::Finished || progress.produced_frames() != 0 {
+            return Err(ProcessError::Backend {
+                processor: "NoiseShaper",
+                operation: "finish",
+                message: "terminal noise shaper produced unexpected output",
+            });
+        }
+        Ok(())
+    }
+
+    fn into_output(mut self) -> (Vec<f64>, bool) {
+        self.end_observation();
+        (self.samples, self.tail_truncated)
+    }
+}
+
+struct RateBoundary<'a> {
+    channels: usize,
+    resampler: Option<&'a mut StreamingResampler>,
+    scratch: Vec<f64>,
+    input_frames_seen: usize,
+}
+
+impl<'a> RateBoundary<'a> {
+    fn new(
+        channels: usize,
+        resampler: Option<&'a mut StreamingResampler>,
+        block_frames: usize,
+    ) -> Result<Self, ProcessError> {
+        let samples = block_frames
+            .checked_mul(channels)
+            .ok_or(TimingError::FrameCountOverflow)?;
+        Ok(Self {
+            channels,
+            resampler,
+            scratch: vec![0.0; samples],
+            input_frames_seen: 0,
+        })
+    }
+
+    fn push(
+        &mut self,
+        source: &mut [f64],
+        collector: &mut OutputBlockCollector<'_>,
+    ) -> Result<(), ProcessError> {
+        let Some(resampler) = self.resampler.as_mut() else {
+            return collector.push_pre_limiter(source);
+        };
+        let input = AudioBlockRef::new(source, self.channels)?;
+        let mut consumed = 0usize;
+        while consumed < input.frames() && !collector.observation_stopped() {
+            let input_start = consumed * self.channels;
+            let input_view = AudioBlockRef::new(&source[input_start..], self.channels)?;
+            let capacity_frames = collector
+                .observation_capacity_frames(self.scratch.len() / self.channels)
+                .max(1);
+            let output_view = AudioBlockMut::new(
+                &mut self.scratch[..capacity_frames * self.channels],
+                self.channels,
+            )?;
+            let progress = process_checked(
+                *resampler,
+                ProcessBuffers::out_of_place(input_view, output_view)?,
+            )?;
+            let produced = progress.produced_frames();
+            collector.push_pre_limiter(&mut self.scratch[..produced * self.channels])?;
+            let step_consumed = progress.consumed_frames();
+            consumed += step_consumed;
+            self.input_frames_seen = checked_frame_sum(self.input_frames_seen, step_consumed)?;
+        }
+        Ok(())
+    }
+
+    fn finish_frame_limit(&self, block_frames: usize) -> Result<usize, ProcessError> {
+        let Some(resampler) = self.resampler.as_ref() else {
+            return Ok(1);
+        };
+        let input_samples = self
+            .input_frames_seen
+            .checked_mul(self.channels)
+            .ok_or(TimingError::FrameCountOverflow)?;
+        let estimated_output_samples = resampler.max_output_len_for_input(input_samples);
+        let estimated_output_frames = estimated_output_samples / self.channels;
+        Ok(checked_frame_sum(estimated_output_frames, block_frames)?.max(1))
+    }
+
+    fn finish(
+        &mut self,
+        collector: &mut OutputBlockCollector<'_>,
+        frame_limit: usize,
+    ) -> Result<(), ProcessError> {
+        let Some(resampler) = self.resampler.as_mut() else {
+            return Ok(());
+        };
+        let mut generated = 0usize;
+        loop {
+            if generated >= frame_limit {
+                return Err(ProcessError::Backend {
+                    processor: "Resampler",
+                    operation: "finish",
+                    message: "resampler finish exceeded its declared bound",
+                });
+            }
+            let capacity = (self.scratch.len() / self.channels).min(frame_limit - generated);
+            let output =
+                AudioBlockMut::new(&mut self.scratch[..capacity * self.channels], self.channels)?;
+            let progress = finish_checked(*resampler, output)?;
+            let produced = progress.produced_frames();
+            collector.push_pre_limiter(&mut self.scratch[..produced * self.channels])?;
+            generated += produced;
+            if progress.state() == ProcessState::Finished {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -351,13 +694,12 @@ fn drive_offline_stage(
 
     Ok(OfflineStageOutput {
         samples,
-        output_sample_rate_hz,
-        latency,
-        tail,
+        #[cfg(test)]
         unknown_finish_capped: !terminal && !energy_stopped && unknown_tail,
     })
 }
 
+#[cfg(test)]
 fn trim_unknown_tail_before_dither(
     samples: &mut Vec<f64>,
     channels: usize,
@@ -415,7 +757,7 @@ macro_rules! output_stage_manifest {
                 yes,
                 true,
                 true,
-                "optional high-pass and oversampling filter state; direct mode has no explicit output delay"
+                "armed Direct/2x/4x paths share four source frames of delay; hard bypass is zero latency"
             ),
             (
                 crossfeed,
@@ -434,8 +776,8 @@ macro_rules! output_stage_manifest {
                 source,
                 yes,
                 true,
-                true,
-                "IR- and partition-size-dependent convolution latency"
+                false,
+                "zero-latency convolution head with IR-dependent finite semantic tail"
             ),
             (
                 dynamic_loudness,
@@ -448,24 +790,24 @@ macro_rules! output_stage_manifest {
                 "filter and smoother state, no explicit output delay"
             ),
             (
-                limiter,
-                PeakLimiter,
-                "PeakLimiter",
-                source,
-                yes,
-                true,
-                true,
-                "lookahead delay depends on sample rate and limiter mode"
-            ),
-            (
                 resampler,
                 Resampler,
                 "Resampler",
                 rate_boundary,
                 no,
                 true,
+                false,
+                "duration-aligned SoX drain reports zero offline timeline latency"
+            ),
+            (
+                limiter,
+                PeakLimiter,
+                "PeakLimiter",
+                output,
+                yes,
                 true,
-                "SoX filter state; playback callback receives already-resampled buffers"
+                true,
+                "single final-float-domain lookahead limiter at the active output rate"
             ),
             (
                 noise_shaper,
@@ -658,32 +1000,32 @@ pub fn post_render_analysis_order_csv() -> String {
 }
 
 macro_rules! add_callback_stage {
-    ($chain:ident, $params:ident, $rate:ident, (volume, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (volume, $($rest:tt)*)) => {
         $chain.add(VolumeProcessor::new(Arc::clone(&$params.volume_params)));
     };
-    ($chain:ident, $params:ident, $rate:ident, (eq, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (eq, $($rest:tt)*)) => {
         $chain.add(EqProcessor::new(
             $params.channels,
             $rate as f64,
             Arc::clone(&$params.eq_params),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (saturation, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (saturation, $($rest:tt)*)) => {
         $chain.add(SaturationProcessor::new(
             $params.channels,
             Arc::clone(&$params.saturation_params),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (crossfeed, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (crossfeed, $($rest:tt)*)) => {
         $chain.add(CrossfeedProcessor::new(
             $rate as f64,
             Arc::clone(&$params.crossfeed_params),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (convolver, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (convolver, $($rest:tt)*)) => {
         $chain.add(ConvolverProcessor::new($params.convolver_control.clone())?);
     };
-    ($chain:ident, $params:ident, $rate:ident, (dynamic_loudness, $($rest:tt)*)) => {
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (dynamic_loudness, $($rest:tt)*)) => {
         $chain.add(DynamicLoudnessProcessor::new(
             $params.channels,
             $rate,
@@ -691,27 +1033,30 @@ macro_rules! add_callback_stage {
             Arc::clone(&$params.dynamic_loudness_telemetry),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (limiter, $($rest:tt)*)) => {
-        $chain.add(PeakLimiterProcessor::new(
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (limiter, $($rest:tt)*)) => {
+        $chain.add(PeakLimiterProcessor::new_with_output_guard_latch(
             $params.channels,
             $rate,
             Arc::clone(&$params.limiter_params),
+            Arc::clone(&$params.noise_shaper_params),
+            $latch.clone(),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (resampler, $($rest:tt)*)) => {};
-    ($chain:ident, $params:ident, $rate:ident, (noise_shaper, $($rest:tt)*)) => {
-        $chain.add(NoiseShaperProcessor::new(
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (resampler, $($rest:tt)*)) => {};
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (noise_shaper, $($rest:tt)*)) => {
+        $chain.add(NoiseShaperProcessor::new_with_output_guard_latch(
             $params.channels,
             $rate,
             Arc::clone(&$params.noise_shaper_params),
+            $latch.clone(),
         ));
     };
-    ($chain:ident, $params:ident, $rate:ident, (quantize, $($rest:tt)*)) => {};
+    ($chain:ident, $params:ident, $rate:ident, $latch:ident, (quantize, $($rest:tt)*)) => {};
 }
 
 macro_rules! build_callback_stages {
-    (($chain:ident, $params:ident, $rate:ident); $($entry:tt),+ $(,)?) => {
-        $(add_callback_stage!($chain, $params, $rate, $entry);)+
+    (($chain:ident, $params:ident, $rate:ident, $latch:ident); $($entry:tt),+ $(,)?) => {
+        $(add_callback_stage!($chain, $params, $rate, $latch, $entry);)+
     };
 }
 
@@ -741,57 +1086,6 @@ macro_rules! process_pre_quantize_stage {
 macro_rules! process_pre_quantize_stages {
     (($chain:ident, $buffer:ident); $($entry:tt),+ $(,)?) => {
         $(process_pre_quantize_stage!($chain, $buffer, $entry);)+
-    };
-}
-
-macro_rules! render_pre_dither_stage {
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
-        $render!(&mut $chain.$field);
-    };
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {
-        if let Some(processor) = $chain.$field.as_mut() {
-            $render!(processor);
-        }
-    };
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
-}
-
-macro_rules! render_pre_dither_stages {
-    (($chain:ident, $render:ident); $($entry:tt),+ $(,)?) => {
-        $(render_pre_dither_stage!($chain, $render, $entry);)+
-    };
-}
-
-macro_rules! render_output_stage {
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {
-        $render!(&mut $chain.$field);
-    };
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {};
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
-    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
-}
-
-macro_rules! render_output_stages {
-    (($chain:ident, $render:ident); $($entry:tt),+ $(,)?) => {
-        $(render_output_stage!($chain, $render, $entry);)+
-    };
-}
-
-macro_rules! apply_terminal_stage {
-    ($output:ident, (quantize, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {
-        for sample in &mut $output {
-            *sample = *sample as f32 as f64;
-        }
-    };
-    ($output:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {};
-    ($output:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
-    ($output:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
-}
-
-macro_rules! apply_terminal_stages {
-    (($output:ident); $($entry:tt),+ $(,)?) => {
-        $(apply_terminal_stage!($output, $entry);)+
     };
 }
 
@@ -829,6 +1123,207 @@ macro_rules! set_source_rate_stages {
     (($chain:ident, $rate:ident); $($entry:tt),+ $(,)?) => {
         $(set_source_rate_stage!($chain, $rate, $entry);)+
     };
+}
+
+macro_rules! process_source_stage {
+    ($pipeline:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        let _ = process_fixed_stage($pipeline.$field, $buffer, $pipeline.channels)?;
+    };
+    ($pipeline:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($pipeline:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($pipeline:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! process_source_stages {
+    (($pipeline:ident, $buffer:ident); $($entry:tt),+ $(,)?) => {
+        $(process_source_stage!($pipeline, $buffer, $entry);)+
+    };
+}
+
+macro_rules! process_source_stage_after {
+    ($pipeline:ident, $buffer:ident, $target:ident, $found:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        if $found {
+            let _ = process_fixed_stage($pipeline.$field, $buffer, $pipeline.channels)?;
+        } else if $target == OutputStageId::$id {
+            $found = true;
+        }
+    };
+    ($pipeline:ident, $buffer:ident, $target:ident, $found:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($pipeline:ident, $buffer:ident, $target:ident, $found:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($pipeline:ident, $buffer:ident, $target:ident, $found:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! process_source_stages_after {
+    (($pipeline:ident, $buffer:ident, $target:ident, $found:ident); $($entry:tt),+ $(,)?) => {
+        $(process_source_stage_after!($pipeline, $buffer, $target, $found, $entry);)+
+    };
+}
+
+macro_rules! finish_source_stage {
+    ($pipeline:ident, $target:ident, $scratch:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        if $target == OutputStageId::$id {
+            let output = AudioBlockMut::new($scratch, $pipeline.channels)?;
+            return finish_checked($pipeline.$field, output);
+        }
+    };
+    ($pipeline:ident, $target:ident, $scratch:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($pipeline:ident, $target:ident, $scratch:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($pipeline:ident, $target:ident, $scratch:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! finish_selected_source_stage {
+    (($pipeline:ident, $target:ident, $scratch:ident); $($entry:tt),+ $(,)?) => {
+        $(finish_source_stage!($pipeline, $target, $scratch, $entry);)+
+    };
+}
+
+macro_rules! collect_source_stage_timing {
+    ($pipeline:ident, $timings:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        $timings.extend([SourceStageTiming {
+            id: OutputStageId::$id,
+            name: $name,
+            timing: ProcessorTiming {
+                latency: $pipeline.$field.latency(),
+                tail: $pipeline.$field.tail(),
+            },
+        }]);
+    };
+    ($pipeline:ident, $timings:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($pipeline:ident, $timings:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($pipeline:ident, $timings:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! collect_source_stage_timings {
+    (($pipeline:ident, $timings:ident); $($entry:tt),+ $(,)?) => {
+        $(collect_source_stage_timing!($pipeline, $timings, $entry);)+
+    };
+}
+
+#[derive(Clone, Copy)]
+struct ProcessorTiming {
+    latency: FrameDuration,
+    tail: TailSpec,
+}
+
+#[derive(Clone, Copy)]
+struct SourceStageTiming {
+    id: OutputStageId,
+    name: &'static str,
+    timing: ProcessorTiming,
+}
+
+struct SourcePipeline<'a> {
+    channels: usize,
+    volume: &'a mut VolumeProcessor,
+    eq: &'a mut EqProcessor,
+    saturation: &'a mut SaturationProcessor,
+    crossfeed: &'a mut CrossfeedProcessor,
+    convolver: &'a mut ConvolverProcessor,
+    dynamic_loudness: &'a mut DynamicLoudnessProcessor,
+}
+
+impl SourcePipeline<'_> {
+    fn process_all(&mut self, buffer: &mut [f64]) -> Result<(), ProcessError> {
+        let pipeline = self;
+        output_stage_manifest!(process_source_stages, pipeline, buffer);
+        Ok(())
+    }
+
+    fn process_after(
+        &mut self,
+        target: OutputStageId,
+        buffer: &mut [f64],
+    ) -> Result<(), ProcessError> {
+        let pipeline = self;
+        let mut found = false;
+        output_stage_manifest!(process_source_stages_after, pipeline, buffer, target, found);
+        if !found {
+            return Err(ProcessError::Backend {
+                processor: "OutputRenderChain",
+                operation: "process source tail",
+                message: "source finish stage is absent from the canonical manifest",
+            });
+        }
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        target: OutputStageId,
+        scratch: &mut [f64],
+    ) -> Result<ProcessProgress, ProcessError> {
+        let pipeline = self;
+        output_stage_manifest!(finish_selected_source_stage, pipeline, target, scratch);
+        Err(ProcessError::Backend {
+            processor: "OutputRenderChain",
+            operation: "finish source stage",
+            message: "source finish stage is absent from the canonical manifest",
+        })
+    }
+
+    fn timings(&self) -> Vec<SourceStageTiming> {
+        let pipeline = self;
+        let mut timings = Vec::with_capacity(6);
+        output_stage_manifest!(collect_source_stage_timings, pipeline, timings);
+        timings
+    }
+}
+
+fn append_protected_durations(durations: &mut Vec<FrameDuration>, timing: ProcessorTiming) {
+    durations.push(timing.latency);
+    if let TailSpec::Finite(tail) = timing.tail {
+        durations.push(tail);
+    }
+}
+
+fn protected_output_frames(
+    source_timings: &[SourceStageTiming],
+    source_index: usize,
+    rate_boundary_timing: ProcessorTiming,
+    limiter_timing: ProcessorTiming,
+    noise_shaper_timing: ProcessorTiming,
+    output_sample_rate_hz: u32,
+) -> Result<usize, ProcessError> {
+    let remaining = source_timings.len().saturating_sub(source_index);
+    let mut durations = Vec::with_capacity(remaining.saturating_mul(2).saturating_add(6));
+    for stage in &source_timings[source_index..] {
+        append_protected_durations(&mut durations, stage.timing);
+    }
+    append_protected_durations(&mut durations, rate_boundary_timing);
+    append_protected_durations(&mut durations, limiter_timing);
+    append_protected_durations(&mut durations, noise_shaper_timing);
+    rounded_duration_sum(&durations, output_sample_rate_hz, FrameRounding::Ceil).map_err(Into::into)
+}
+
+fn source_finish_frame_limit(
+    timing: ProcessorTiming,
+    protected_frames: usize,
+    source_sample_rate_hz: u32,
+    output_sample_rate_hz: u32,
+    policy: OfflineRenderPolicy,
+    block_frames: usize,
+) -> Result<usize, ProcessError> {
+    let latency_frames = timing
+        .latency
+        .rounded_frames_at_rate(source_sample_rate_hz, FrameRounding::Ceil)?;
+    let finite_tail_frames = timing
+        .tail
+        .finite_duration()
+        .map(|duration| duration.rounded_frames_at_rate(source_sample_rate_hz, FrameRounding::Ceil))
+        .transpose()?
+        .unwrap_or(0);
+    let declared = checked_frame_sum(latency_frames, finite_tail_frames)?;
+    let limit = match timing.tail {
+        TailSpec::Unknown | TailSpec::Infinite => {
+            let max_tail =
+                frames_for_milliseconds(policy.unknown_tail.max_tail_ms, source_sample_rate_hz)?;
+            let protected = FrameDuration::new(protected_frames, output_sample_rate_hz)?
+                .rounded_frames_at_rate(source_sample_rate_hz, FrameRounding::Ceil)?;
+            checked_frame_sum(checked_frame_sum(max_tail, protected)?, block_frames)?
+        }
+        TailSpec::None | TailSpec::Finite(_) => checked_frame_sum(declared, block_frames)?,
+    };
+    Ok(limit.max(1))
 }
 
 /// All parameter and control handles required to materialize an output chain.
@@ -874,9 +1369,24 @@ impl OutputChainBuilder {
     /// Build the callback-safe DSP chain from the canonical callback order.
     pub fn build_callback_chain(&self) -> Result<DspChain, ProcessError> {
         let params = &self.params;
-        let sample_rate_hz = self.params.source_sample_rate;
+        if params.source_sample_rate == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "OutputChainBuilder",
+                sample_rate_hz: 0,
+            });
+        }
+        // Playback callbacks receive buffers in the actual device domain; the
+        // offline renderer alone owns the source-rate/resampler boundary.
+        let sample_rate_hz = self.params.output_sample_rate;
+        let noise_latch = NoiseShaperSnapshotLatch::new(params.noise_shaper_params.read());
         let mut chain = DspChain::with_capacity(CALLBACK_STAGE_COUNT, sample_rate_hz);
-        output_stage_manifest!(build_callback_stages, chain, params, sample_rate_hz);
+        output_stage_manifest!(
+            build_callback_stages,
+            chain,
+            params,
+            sample_rate_hz,
+            noise_latch
+        );
 
         chain.set_sample_rate(sample_rate_hz)?;
         Ok(chain)
@@ -901,6 +1411,8 @@ impl OutputChainBuilder {
 pub struct RenderedOutput {
     pub samples: Vec<f64>,
     pub final_limiter_gain_reduction_db: f64,
+    /// Derived internal headroom below the user-facing true-peak ceiling.
+    pub final_limiter_ceiling_guard_db: f64,
     /// Final frame count after optional latency compensation.
     pub rendered_frames: usize,
     /// Algorithmic latency removed in compensated mode, or retained in raw mode.
@@ -950,6 +1462,7 @@ impl OutputRenderChain {
         default_policy: OfflineRenderPolicy,
     ) -> Result<Self, ProcessError> {
         let source_sample_rate = params.source_sample_rate as f64;
+        let noise_latch = NoiseShaperSnapshotLatch::new(params.noise_shaper_params.read());
         let resampler = if params.source_sample_rate == params.output_sample_rate {
             None
         } else {
@@ -997,16 +1510,19 @@ impl OutputRenderChain {
                 Arc::clone(&params.dynamic_loudness_params),
                 Arc::clone(&params.dynamic_loudness_telemetry),
             ),
-            limiter: PeakLimiterProcessor::new(
+            limiter: PeakLimiterProcessor::new_with_output_guard_latch(
                 params.channels,
-                params.source_sample_rate,
+                params.output_sample_rate,
                 Arc::clone(&params.limiter_params),
+                Arc::clone(&params.noise_shaper_params),
+                noise_latch.clone(),
             ),
             resampler,
-            noise_shaper: NoiseShaperProcessor::new(
+            noise_shaper: NoiseShaperProcessor::new_with_output_guard_latch(
                 params.channels,
                 params.output_sample_rate,
                 Arc::clone(&params.noise_shaper_params),
+                noise_latch,
             ),
             default_policy,
         };
@@ -1044,88 +1560,267 @@ impl OutputRenderChain {
         self.render_with_policy_and_block_frames(samples, policy, DEFAULT_OFFLINE_BLOCK_FRAMES)
     }
 
-    fn render_with_policy_and_block_frames(
+    /// Render with an explicit bounded scheduler block size.
+    ///
+    /// Smaller blocks reduce scratch memory and increase scheduling overhead;
+    /// the signal and lifecycle result remain block-size independent.
+    pub fn render_with_policy_and_block_frames(
         &mut self,
         samples: &[f64],
         policy: OfflineRenderPolicy,
         block_frames: usize,
     ) -> Result<RenderedOutput, ProcessError> {
+        if block_frames == 0 {
+            return Err(ProcessError::InvalidRenderPolicy {
+                message: "offline block size must be greater than zero",
+            });
+        }
+
         let reclaimer = ConvolverReclaimer(self.convolver.control());
         reclaimer.reclaim();
         let policy = policy.validate()?;
         let source_block = AudioBlockRef::new(samples, self.channels)?;
+        let source_frames = source_block.frames();
         self.reset_for_render()?;
-
-        let mut output = samples.to_vec();
-        let mut sample_rate_hz = self.source_sample_rate;
-        let mut timing = RenderTiming::default();
-
-        macro_rules! render_stage {
-            ($processor:expr) => {{
-                let stage = drive_offline_stage(
-                    $processor,
-                    &output,
-                    self.channels,
-                    sample_rate_hz,
-                    policy,
-                    block_frames,
-                )?;
-                timing.observe(&stage);
-                sample_rate_hz = stage.output_sample_rate_hz;
-                output = stage.samples;
-            }};
-        }
-
-        output_stage_manifest!(render_pre_dither_stages, self, render_stage);
-
-        if sample_rate_hz != self.output_sample_rate {
+        let channels = self.channels;
+        let source_sample_rate_hz = self.source_sample_rate;
+        let output_sample_rate_hz = self.output_sample_rate;
+        let boundary_output_rate = self
+            .resampler
+            .as_ref()
+            .map(|resampler| resampler.output_sample_rate_hz(source_sample_rate_hz))
+            .transpose()?
+            .unwrap_or(source_sample_rate_hz);
+        if boundary_output_rate != output_sample_rate_hz {
             return Err(ProcessError::SampleRateMismatch {
                 processor: "OutputRenderChain",
-                expected_sample_rate_hz: self.output_sample_rate,
-                actual_sample_rate_hz: sample_rate_hz,
+                expected_sample_rate_hz: output_sample_rate_hz,
+                actual_sample_rate_hz: boundary_output_rate,
             });
         }
 
-        let latency_frames = timing.latency_frames(sample_rate_hz)?;
-        let semantic_tail_frames = timing.finite_tail_frames(sample_rate_hz)?;
-        let source_duration_frames =
-            FrameDuration::new(source_block.frames(), self.source_sample_rate)?
-                .rounded_frames_at_rate(sample_rate_hz, FrameRounding::Nearest)?;
-        let protected_frames = checked_frame_sum(
-            checked_frame_sum(source_duration_frames, latency_frames)?,
-            semantic_tail_frames,
-        )?;
-        let tail_truncated = if timing.has_unknown_tail {
-            trim_unknown_tail_before_dither(
-                &mut output,
-                self.channels,
-                protected_frames,
-                sample_rate_hz,
-                policy.unknown_tail,
-                timing.unknown_finish_capped,
-            )?
-        } else {
-            false
+        let scratch_samples = block_frames
+            .checked_mul(channels)
+            .ok_or(TimingError::FrameCountOverflow)?;
+        let nominal_output_frames = FrameDuration::new(source_frames, source_sample_rate_hz)?
+            .rounded_frames_at_rate(output_sample_rate_hz, FrameRounding::Ceil)?;
+        let mut timing = RenderTiming::default();
+
+        let (mut output, tail_truncated) = {
+            let mut source_scratch = vec![0.0; scratch_samples];
+            {
+                let mut sync_pipeline = SourcePipeline {
+                    channels,
+                    volume: &mut self.volume,
+                    eq: &mut self.eq,
+                    saturation: &mut self.saturation,
+                    crossfeed: &mut self.crossfeed,
+                    convolver: &mut self.convolver,
+                    dynamic_loudness: &mut self.dynamic_loudness,
+                };
+                // Zero-frame calls publish current control snapshots without
+                // advancing signal history, including for an empty render.
+                sync_pipeline.process_all(&mut source_scratch[..0])?;
+            }
+            let _ = process_fixed_stage(&mut self.limiter, &mut source_scratch[..0], channels)?;
+            let _ =
+                process_fixed_stage(&mut self.noise_shaper, &mut source_scratch[..0], channels)?;
+            // A new offline stream starts settled at the snapshots just
+            // published above, rather than ramping from the previous render.
+            self.reset_for_render()?;
+
+            let mut source_pipeline = SourcePipeline {
+                channels,
+                volume: &mut self.volume,
+                eq: &mut self.eq,
+                saturation: &mut self.saturation,
+                crossfeed: &mut self.crossfeed,
+                convolver: &mut self.convolver,
+                dynamic_loudness: &mut self.dynamic_loudness,
+            };
+            let mut boundary = RateBoundary::new(channels, self.resampler.as_mut(), block_frames)?;
+
+            let source_timings = source_pipeline.timings();
+            let rate_boundary_timing = boundary
+                .resampler
+                .as_deref()
+                .map(|processor| ProcessorTiming {
+                    latency: processor.latency(),
+                    tail: processor.tail(),
+                })
+                .unwrap_or(ProcessorTiming {
+                    latency: FrameDuration::ZERO,
+                    tail: TailSpec::None,
+                });
+            let limiter_timing = ProcessorTiming {
+                latency: self.limiter.latency(),
+                tail: self.limiter.tail(),
+            };
+            let noise_shaper_timing = ProcessorTiming {
+                latency: self.noise_shaper.latency(),
+                tail: self.noise_shaper.tail(),
+            };
+
+            for stage in &source_timings {
+                timing.observe_values(stage.timing.latency, stage.timing.tail);
+            }
+            timing.observe_values(rate_boundary_timing.latency, rate_boundary_timing.tail);
+            timing.observe_values(limiter_timing.latency, limiter_timing.tail);
+            timing.observe_values(noise_shaper_timing.latency, noise_shaper_timing.tail);
+
+            let latency_reserve = rounded_duration_sum(
+                &timing.latencies,
+                output_sample_rate_hz,
+                FrameRounding::Ceil,
+            )?;
+            let finite_tail_reserve = timing.finite_tail_frames(output_sample_rate_hz)?;
+            let unknown_hold_reserve = if timing.has_unknown_tail {
+                frames_for_milliseconds(policy.unknown_tail.silence_hold_ms, output_sample_rate_hz)?
+            } else {
+                0
+            };
+            let estimated_frames = checked_frame_sum(
+                checked_frame_sum(
+                    checked_frame_sum(nominal_output_frames, latency_reserve)?,
+                    finite_tail_reserve,
+                )?,
+                unknown_hold_reserve,
+            )?;
+            let estimated_samples = estimated_frames
+                .checked_mul(channels)
+                .ok_or(TimingError::FrameCountOverflow)?;
+            let mut collector = OutputBlockCollector::new(
+                channels,
+                &mut self.limiter,
+                &mut self.noise_shaper,
+                estimated_samples,
+            );
+
+            for input in samples.chunks(scratch_samples) {
+                let block = &mut source_scratch[..input.len()];
+                block.copy_from_slice(input);
+                source_pipeline.process_all(block)?;
+                boundary.push(block, &mut collector)?;
+            }
+
+            for (source_index, stage) in source_timings.iter().enumerate() {
+                let unknown_tail =
+                    matches!(stage.timing.tail, TailSpec::Unknown | TailSpec::Infinite);
+                if unknown_tail && collector.observation_stopped() {
+                    continue;
+                }
+
+                let protected_frames = if unknown_tail {
+                    protected_output_frames(
+                        &source_timings,
+                        source_index,
+                        rate_boundary_timing,
+                        limiter_timing,
+                        noise_shaper_timing,
+                        output_sample_rate_hz,
+                    )?
+                } else {
+                    0
+                };
+                let started_observation = unknown_tail && !collector.observation_active();
+                if started_observation {
+                    collector.begin_observation(
+                        policy.unknown_tail,
+                        output_sample_rate_hz,
+                        protected_frames,
+                    )?;
+                }
+
+                let frame_limit = source_finish_frame_limit(
+                    stage.timing,
+                    protected_frames,
+                    source_sample_rate_hz,
+                    output_sample_rate_hz,
+                    policy,
+                    block_frames,
+                )?;
+                let mut generated_frames = 0usize;
+                let mut terminal = false;
+                let mut policy_stopped = false;
+                loop {
+                    if unknown_tail && collector.observation_stopped() {
+                        policy_stopped = true;
+                        break;
+                    }
+                    if generated_frames >= frame_limit {
+                        break;
+                    }
+
+                    let capacity_frames = block_frames.min(frame_limit - generated_frames);
+                    let block = &mut source_scratch[..capacity_frames * channels];
+                    let progress = source_pipeline.finish(stage.id, block)?;
+                    let produced_frames = progress.produced_frames();
+                    if produced_frames > 0 {
+                        let produced = &mut block[..produced_frames * channels];
+                        source_pipeline.process_after(stage.id, produced)?;
+                        boundary.push(produced, &mut collector)?;
+                    }
+                    generated_frames = checked_frame_sum(generated_frames, produced_frames)?;
+                    if progress.state() == ProcessState::Finished {
+                        terminal = true;
+                        break;
+                    }
+                }
+
+                let source_cap_reached =
+                    unknown_tail && !terminal && !policy_stopped && generated_frames >= frame_limit;
+                if source_cap_reached {
+                    // A rate boundary can retain the last source-domain tail
+                    // frames until its own finish call. Reaching the bounded
+                    // source budget is therefore a policy truncation, not a
+                    // backend failure; downstream stages still need draining.
+                    collector.mark_tail_truncated();
+                } else if !terminal && !policy_stopped {
+                    return Err(ProcessError::Backend {
+                        processor: stage.name,
+                        operation: "finish",
+                        message: "source stage finish exceeded its safety bound",
+                    });
+                }
+                if started_observation && terminal && !collector.observation_stopped() {
+                    collector.end_observation();
+                }
+            }
+
+            let resampler_finish_limit = boundary.finish_frame_limit(block_frames)?;
+            boundary.finish(&mut collector, resampler_finish_limit)?;
+
+            let limiter_finish_limit = finish_frame_limit(
+                0,
+                output_sample_rate_hz,
+                output_sample_rate_hz,
+                limiter_timing.latency,
+                limiter_timing.tail,
+                policy,
+                block_frames,
+            )?;
+            collector.finish_limiter(&mut boundary.scratch, limiter_finish_limit)?;
+            collector.finish_noise_shaper()?;
+            collector.into_output()
         };
 
-        output_stage_manifest!(render_output_stages, self, render_stage);
-        let latency_frames = timing.latency_frames(sample_rate_hz)?;
-        let semantic_tail_frames = timing.finite_tail_frames(sample_rate_hz)?;
-        output_stage_manifest!(apply_terminal_stages, output);
+        let latency_frames = timing.latency_frames(output_sample_rate_hz)?;
+        let semantic_tail_frames = timing.finite_tail_frames(output_sample_rate_hz)?;
 
         if policy.timeline == RenderTimeline::Compensated {
-            let trim_frames = latency_frames.min(output.len() / self.channels);
-            let trim_samples = trim_frames * self.channels;
+            let trim_frames = latency_frames.min(output.len() / channels);
+            let trim_samples = trim_frames * channels;
             output.copy_within(trim_samples.., 0);
             output.truncate(output.len() - trim_samples);
         }
 
-        let rendered_frames = output.len() / self.channels;
+        let rendered_frames = output.len() / channels;
         reclaimer.reclaim();
 
         Ok(RenderedOutput {
             samples: output,
             final_limiter_gain_reduction_db: self.limiter.gain_reduction_db(),
+            final_limiter_ceiling_guard_db: self.limiter.output_ceiling_guard_db(),
             rendered_frames,
             algorithmic_latency_frames: latency_frames,
             semantic_tail_frames,
@@ -1135,6 +1830,10 @@ impl OutputRenderChain {
 
     pub fn limiter_gain_reduction_db(&self) -> f64 {
         self.limiter.gain_reduction_db()
+    }
+
+    pub fn limiter_output_ceiling_guard_db(&self) -> f64 {
+        self.limiter.output_ceiling_guard_db()
     }
 
     fn reset_for_render(&mut self) -> Result<(), ProcessError> {
@@ -1199,7 +1898,12 @@ mod tests {
         let mut chain = builder.build_callback_chain().unwrap();
 
         control.set_enabled(true);
-        let generation = control.publish(FFTConvolver::new(&[0.5, 0.5], CHANNELS));
+        let generation = control
+            .publish_at_rate(
+                FFTConvolver::new(&[0.5, 0.5], CHANNELS).unwrap(),
+                SAMPLE_RATE,
+            )
+            .unwrap();
         let mut samples = [1.0, -1.0, 0.5, -0.5];
         let progress = chain.process(&mut samples, CHANNELS).unwrap();
 
@@ -1243,6 +1947,20 @@ mod tests {
     }
 
     #[test]
+    fn callback_chain_uses_the_device_output_rate() {
+        let mut params = test_params();
+        params.source_sample_rate = 44_100;
+        params.output_sample_rate = 96_000;
+        let control = params.convolver_control.clone();
+        let chain = OutputChainBuilder::new(params)
+            .build_callback_chain()
+            .unwrap();
+
+        assert_eq!(chain.latency().sample_rate_hz(), Some(96_000));
+        assert_eq!(control.status().active_sample_rate_hz, 96_000);
+    }
+
+    #[test]
     fn callback_stage_order_assertion_rejects_reordered_chain() {
         let mut reordered = callback_stage_names();
         reordered.swap(0, 1);
@@ -1268,8 +1986,8 @@ mod tests {
                 "Crossfeed",
                 "Convolver",
                 "DynamicLoudness",
-                "PeakLimiter",
                 "Resampler",
+                "PeakLimiter",
                 "NoiseShaper",
                 "Quantize",
             ]
@@ -1287,6 +2005,15 @@ mod tests {
 
     #[test]
     fn stage_metadata_marks_stateful_and_latency_stages() {
+        let saturation = descriptor(OutputStageId::Saturation);
+        assert!(saturation.introduces_latency);
+
+        let convolver = descriptor(OutputStageId::Convolver);
+        assert!(!convolver.introduces_latency);
+
+        let resampler = descriptor(OutputStageId::Resampler);
+        assert!(!resampler.introduces_latency);
+
         let limiter = descriptor(OutputStageId::PeakLimiter);
         assert!(limiter.carries_state);
         assert!(limiter.introduces_latency);
@@ -1314,6 +2041,115 @@ mod tests {
                 left.to_bits(),
                 right.to_bits(),
                 "sample {idx} diverged: callback={left:?} render={right:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_output_guard_covers_every_bit_depth_and_noise_shaper_curve() {
+        use crate::processor::dsp::{db_to_linear, linear_to_db};
+        use crate::processor::loudness::{true_peak_reconstruction_l1_bound, TruePeakDetector};
+
+        const TARGET_DBTP: f64 = -1.0;
+        const METER_TOLERANCE_DB: f64 = 0.01;
+        const FRAMES: usize = 2_048;
+        let amplitude = db_to_linear(0.1);
+        let mut input = Vec::with_capacity(FRAMES * CHANNELS);
+        for frame in 0..FRAMES {
+            let phase = std::f64::consts::FRAC_PI_2 * frame as f64 + std::f64::consts::FRAC_PI_4;
+            let sample = phase.sin() * amplitude;
+            input.extend_from_slice(&[sample, -sample]);
+        }
+
+        for curve in [
+            NoiseShaperCurve::TpdfOnly,
+            NoiseShaperCurve::Lipshitz5,
+            NoiseShaperCurve::FWeighted9,
+            NoiseShaperCurve::ModifiedE9,
+            NoiseShaperCurve::ImprovedE9,
+        ] {
+            let mut previous_guard_db = f64::INFINITY;
+            for bits in 8..=32 {
+                let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+                params.limiter_params.set_enabled(true);
+                params.limiter_params.set_threshold(TARGET_DBTP);
+                params.noise_shaper_params.set_enabled(true);
+                params.noise_shaper_params.set_bits(bits);
+                params.noise_shaper_params.set_curve(curve);
+                let mut chain = OutputChainBuilder::new(params)
+                    .build_render_chain()
+                    .unwrap();
+
+                let rendered = chain.render(&input).unwrap();
+
+                let target = db_to_linear(TARGET_DBTP);
+                let additive_bound = (curve.quantization_error_bound(bits)
+                    + f32::EPSILON as f64 * 0.5)
+                    * true_peak_reconstruction_l1_bound();
+                let guarded = (target - additive_bound).max(f64::MIN_POSITIVE);
+                let expected_guard_db = TARGET_DBTP - linear_to_db(guarded);
+                assert!(
+                    (rendered.final_limiter_ceiling_guard_db - expected_guard_db).abs() <= 1.0e-12,
+                    "bits={bits} curve={curve:?}: actual_guard={} expected_guard={expected_guard_db}",
+                    rendered.final_limiter_ceiling_guard_db
+                );
+                assert!(
+                    rendered.final_limiter_ceiling_guard_db.is_finite()
+                        && rendered.final_limiter_ceiling_guard_db > 0.0,
+                    "bits={bits} curve={curve:?}: guard must be finite and positive"
+                );
+                assert!(
+                    rendered.final_limiter_ceiling_guard_db < previous_guard_db,
+                    "bits={bits} curve={curve:?}: guard={} must be below prior-bit guard={previous_guard_db}",
+                    rendered.final_limiter_ceiling_guard_db
+                );
+                previous_guard_db = rendered.final_limiter_ceiling_guard_db;
+
+                let mut max_true_peak = 0.0_f64;
+                for channel in 0..CHANNELS {
+                    let mut detector = TruePeakDetector::new();
+                    detector.process_strided(&rendered.samples, channel, CHANNELS);
+                    detector.process(&[0.0; 16]);
+                    max_true_peak = max_true_peak.max(detector.max_true_peak());
+                }
+                let measured_dbtp = linear_to_db(max_true_peak);
+                assert!(
+                    measured_dbtp <= TARGET_DBTP + METER_TOLERANCE_DB,
+                    "bits={bits} curve={curve:?}: measured={measured_dbtp:.6} dBTP target={TARGET_DBTP:.6} dBTP guard={:.6} dB",
+                    rendered.final_limiter_ceiling_guard_db
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reused_render_starts_settled_at_the_latest_parameter_snapshot() {
+        let reused_params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+        let reused_eq = Arc::clone(&reused_params.eq_params);
+        let mut reused = OutputChainBuilder::new(reused_params)
+            .build_render_chain()
+            .unwrap();
+        let input = fixture_signal(512);
+        let _ = reused.render(&input).unwrap();
+
+        let gains = [3.0; EQ_BANDS];
+        reused_eq.write(&gains, true);
+
+        let fresh_params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+        fresh_params.eq_params.write(&gains, true);
+        let mut fresh = OutputChainBuilder::new(fresh_params)
+            .build_render_chain()
+            .unwrap();
+
+        let actual = reused.render(&input).unwrap();
+        let expected = fresh.render(&input).unwrap();
+        assert_eq!(actual.samples.len(), expected.samples.len());
+        for (index, (actual, expected)) in actual.samples.iter().zip(&expected.samples).enumerate()
+        {
+            assert_eq!(
+                actual.to_bits(),
+                expected.to_bits(),
+                "sample {index} started from stale render state: actual={actual:?} expected={expected:?}"
             );
         }
     }
@@ -1434,10 +2270,12 @@ mod tests {
         let builder = OutputChainBuilder::new(params);
         let control = builder.convolver_control();
         control.set_enabled(true);
-        control.publish(FFTConvolver::new(
-            &[1.0, 1.0, 0.5, 0.5, 0.25, 0.25],
-            CHANNELS,
-        ));
+        control
+            .publish_at_rate(
+                FFTConvolver::new(&[1.0, 1.0, 0.5, 0.5, 0.25, 0.25], CHANNELS).unwrap(),
+                48_000,
+            )
+            .unwrap();
         let mut chain = builder.build_render_chain().unwrap();
         let mut input = vec![0.0; 64 * CHANNELS];
         let input_len = input.len();
@@ -1464,6 +2302,110 @@ mod tests {
         assert!(small_blocks.samples[small_blocks.samples.len() - 16..]
             .iter()
             .any(|sample| sample.abs() > 1.0e-5));
+    }
+
+    #[test]
+    fn production_iir_tail_stops_early_and_is_block_size_independent() {
+        let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+        let mut gains = [0.0; EQ_BANDS];
+        gains[EQ_BANDS - 1] = 6.0;
+        params.eq_params.write(&gains, true);
+        params.limiter_params.set_enabled(true);
+        let builder = OutputChainBuilder::new(params);
+        let mut chain = builder.build_render_chain().unwrap();
+        let mut input = vec![0.0; 256 * CHANNELS];
+        let last = input.len();
+        input[last - 2] = 0.5;
+        input[last - 1] = -0.5;
+        let policy = OfflineRenderPolicy {
+            unknown_tail: UnknownTailPolicy {
+                energy_threshold_dbfs: -80.0,
+                silence_hold_ms: 5,
+                max_tail_ms: 100,
+            },
+            ..OfflineRenderPolicy::default()
+        };
+
+        let small = chain
+            .render_with_policy_and_block_frames(&input, policy, 17)
+            .unwrap();
+        let large = chain
+            .render_with_policy_and_block_frames(&input, policy, 257)
+            .unwrap();
+
+        assert!(!small.tail_truncated);
+        assert_eq!(small.samples, large.samples);
+        assert_eq!(small.rendered_frames, large.rendered_frames);
+        assert_eq!(
+            small.algorithmic_latency_frames,
+            large.algorithmic_latency_frames
+        );
+        assert_eq!(small.semantic_tail_frames, 0);
+        assert!(small.rendered_frames >= input.len() / CHANNELS);
+        assert!(
+            small.rendered_frames < input.len() / CHANNELS + SAMPLE_RATE as usize / 10,
+            "decaying EQ tail should stop before the 100 ms safety cap"
+        );
+    }
+
+    #[test]
+    fn resampled_unknown_tail_with_single_frame_blocks_respects_cap_without_backend_error() {
+        let source_rate = 48_000;
+        let output_rate = 8_000;
+        let params = transparent_render_params(source_rate, output_rate);
+        let mut gains = [0.0; EQ_BANDS];
+        gains[EQ_BANDS - 1] = 6.0;
+        params.eq_params.write(&gains, true);
+
+        let builder = OutputChainBuilder::new(params);
+        let mut chain = builder.build_render_chain().unwrap();
+        let mut input = vec![0.0; 32 * CHANNELS];
+        input[..CHANNELS].fill(0.5);
+        let policy = OfflineRenderPolicy {
+            unknown_tail: UnknownTailPolicy {
+                energy_threshold_dbfs: -40.0,
+                silence_hold_ms: 1,
+                max_tail_ms: 2,
+            },
+            ..OfflineRenderPolicy::default()
+        };
+
+        let single_frame_blocks = chain
+            .render_with_policy_and_block_frames(&input, policy, 1)
+            .unwrap();
+        let regular_blocks = chain
+            .render_with_policy_and_block_frames(&input, policy, 64)
+            .unwrap();
+
+        assert!(single_frame_blocks.tail_truncated);
+        assert_eq!(single_frame_blocks.samples, regular_blocks.samples);
+        assert_eq!(
+            single_frame_blocks.tail_truncated,
+            regular_blocks.tail_truncated
+        );
+        assert!(single_frame_blocks
+            .samples
+            .iter()
+            .all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn render_rejects_zero_block_size_before_processing() {
+        let mut chain =
+            OutputChainBuilder::new(transparent_render_params(SAMPLE_RATE, SAMPLE_RATE))
+                .build_render_chain()
+                .unwrap();
+
+        assert!(matches!(
+            chain.render_with_policy_and_block_frames(
+                &[0.0; CHANNELS],
+                OfflineRenderPolicy::default(),
+                0,
+            ),
+            Err(ProcessError::InvalidRenderPolicy {
+                message: "offline block size must be greater than zero",
+            })
+        ));
     }
 
     struct UnknownTailProcessor {
@@ -1735,6 +2677,7 @@ mod tests {
         params.output_sample_rate = output_sample_rate;
         params.eq_params.write(&[0.0; EQ_BANDS], false);
         params.saturation_params.set_enabled(false);
+        params.saturation_params.set_armed(false);
         params.crossfeed_params.set_enabled(false);
         params.dynamic_loudness_params.set_enabled(false);
         params.limiter_params.set_enabled(false);

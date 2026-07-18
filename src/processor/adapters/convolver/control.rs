@@ -6,6 +6,10 @@ use crate::processor::traits::ProcessError;
 
 use super::handoff::{AtomicBoxSlot, AudioOwned};
 
+/// Compatibility rate used by the legacy [`ConvolverControl::publish`] API.
+/// New code should publish with an explicit rate domain.
+pub const DEFAULT_CONVOLVER_SAMPLE_RATE_HZ: u32 = 44_100;
+
 /// Allocation-free snapshot of dynamic convolver lifecycle telemetry.
 ///
 /// Counter fields are monotonic and eventually consistent. Use
@@ -27,10 +31,15 @@ pub struct ConvolverStatus {
     pub pending_reclamations: u64,
     pub backpressured: bool,
     pub audio_idle: bool,
+    /// Active stream rate reported by the audio consumer.
+    pub active_sample_rate_hz: u32,
+    /// Required rate while enabled processing waits for a matching kernel.
+    pub waiting_for_sample_rate_hz: Option<u32>,
 }
 
 pub(super) struct PublishedConvolver {
     pub(super) generation: u64,
+    pub(super) sample_rate_hz: u32,
     pub(super) kernel: FFTConvolver,
     #[cfg(test)]
     pub(crate) _drop_probe: Option<ConvolverDropProbe>,
@@ -69,6 +78,8 @@ struct ConvolverControlInner {
     reclaimed_kernels: AtomicU64,
     deferred_adoptions: AtomicU64,
     backpressured: AtomicBool,
+    active_sample_rate_hz: AtomicU64,
+    waiting_for_sample_rate_hz: AtomicU64,
 }
 
 /// Cloneable control-plane handle for one dynamic Convolver audio consumer.
@@ -106,6 +117,8 @@ impl ConvolverControl {
                 reclaimed_kernels: AtomicU64::new(0),
                 deferred_adoptions: AtomicU64::new(0),
                 backpressured: AtomicBool::new(false),
+                active_sample_rate_hz: AtomicU64::new(0),
+                waiting_for_sample_rate_hz: AtomicU64::new(0),
             }),
         }
     }
@@ -113,17 +126,40 @@ impl ConvolverControl {
     pub fn publish(&self, kernel: FFTConvolver) -> u64 {
         #[cfg(test)]
         {
-            self.publish_inner(kernel, None)
+            self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, None)
         }
         #[cfg(not(test))]
         {
-            self.publish_inner(kernel)
+            self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ)
+        }
+    }
+
+    /// Publish a kernel in an explicit non-zero sample-rate domain.
+    pub fn publish_at_rate(
+        &self,
+        kernel: FFTConvolver,
+        sample_rate_hz: u32,
+    ) -> Result<u64, ProcessError> {
+        if sample_rate_hz == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "ConvolverControl",
+                sample_rate_hz,
+            });
+        }
+        #[cfg(test)]
+        {
+            Ok(self.publish_inner(kernel, sample_rate_hz, None))
+        }
+        #[cfg(not(test))]
+        {
+            Ok(self.publish_inner(kernel, sample_rate_hz))
         }
     }
 
     fn publish_inner(
         &self,
         kernel: FFTConvolver,
+        sample_rate_hz: u32,
         #[cfg(test)] drop_probe: Option<ConvolverDropProbe>,
     ) -> u64 {
         let _control_guard = self
@@ -143,6 +179,7 @@ impl ConvolverControl {
             .published
             .replace_on_control(Box::new(PublishedConvolver {
                 generation,
+                sample_rate_hz,
                 kernel,
                 #[cfg(test)]
                 _drop_probe: drop_probe,
@@ -167,7 +204,7 @@ impl ConvolverControl {
         kernel: FFTConvolver,
         drop_probe: ConvolverDropProbe,
     ) -> u64 {
-        self.publish_inner(kernel, Some(drop_probe))
+        self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, Some(drop_probe))
     }
 
     pub fn reclaim_retired(&self) -> bool {
@@ -251,6 +288,15 @@ impl ConvolverControl {
             pending_reclamations: retired_kernels.saturating_sub(reclaimed_kernels),
             backpressured: self.inner.backpressured.load(Ordering::Acquire),
             audio_idle: audio_drained_generation == latest_published_generation,
+            active_sample_rate_hz: self.inner.active_sample_rate_hz.load(Ordering::Acquire) as u32,
+            waiting_for_sample_rate_hz: match self
+                .inner
+                .waiting_for_sample_rate_hz
+                .load(Ordering::Acquire) as u32
+            {
+                0 => None,
+                rate => Some(rate),
+            },
         }
     }
 
@@ -302,6 +348,18 @@ impl ConvolverControl {
 
     pub(super) fn clear_backpressure(&self) {
         self.inner.backpressured.store(false, Ordering::Release);
+    }
+
+    pub(super) fn set_active_sample_rate(&self, sample_rate_hz: u32) {
+        self.inner
+            .active_sample_rate_hz
+            .store(sample_rate_hz as u64, Ordering::Release);
+    }
+
+    pub(super) fn set_waiting_sample_rate(&self, sample_rate_hz: Option<u32>) {
+        self.inner
+            .waiting_for_sample_rate_hz
+            .store(sample_rate_hz.unwrap_or(0) as u64, Ordering::Release);
     }
 
     pub(super) fn acknowledge_drained(&self) {

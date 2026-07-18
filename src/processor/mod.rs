@@ -85,16 +85,18 @@ pub use spectrum::SpectrumAnalyzer;
 pub use adapters::{
     ConvolverControl, ConvolverProcessor, ConvolverStatus, CrossfeedProcessor,
     DynamicLoudnessProcessor, EqProcessor, NoiseShaperProcessor, PeakLimiterProcessor,
-    SaturationProcessor, VolumeProcessor,
+    SaturationEvent, SaturationEventKind, SaturationProcessor, VolumeProcessor,
+    DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, SATURATION_TRANSITION_FRAMES,
 };
 pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
-pub use dsp_chain::DspChain;
+pub use dsp_chain::{ChainFinishPolicy, DspChain};
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, CrossfeedParamsSnapshot, DynamicLoudnessParamsSnapshot, EqParamsSnapshot,
-    NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, SaturationParamsSnapshot,
-    SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
+    NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, RealtimeSnapshotReader,
+    SaturationParamsSnapshot, SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot,
+    EQ_BANDS,
 };
 pub use traits::{
     finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration,

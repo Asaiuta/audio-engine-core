@@ -586,6 +586,19 @@ pub enum ProcessError {
         sample_rate_hz: u32,
     },
     #[error(
+        "processor {processor} received invalid interleaved geometry during {operation}: {message}"
+    )]
+    InvalidGeometry {
+        processor: &'static str,
+        operation: &'static str,
+        message: &'static str,
+    },
+    #[error("processor {processor} received invalid automation events: {message}")]
+    InvalidAutomation {
+        processor: &'static str,
+        message: &'static str,
+    },
+    #[error(
         "processor {processor} expected {expected_sample_rate_hz} Hz input but received {actual_sample_rate_hz} Hz"
     )]
     SampleRateMismatch {
@@ -655,6 +668,14 @@ pub trait StreamingProcessor: Send {
 
     /// Whether signal processing is active.
     fn is_enabled(&self) -> bool;
+
+    /// Mark a terminal transform whose output must be excluded from unknown
+    /// tail energy observation (for example, dither/noise shaping). The chain
+    /// observes immediately before the first such stage and still forwards the
+    /// resulting tail through it.
+    fn tail_energy_observation_barrier(&self) -> bool {
+        false
+    }
 
     /// Enable or transparently bypass this processor.
     fn set_enabled(&mut self, enabled: bool);
