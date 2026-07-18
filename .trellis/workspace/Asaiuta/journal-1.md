@@ -505,3 +505,50 @@ Corrected saturation continuity and gain order, continuous signed noise shaping,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Complete convolver lifecycle and EBU quality verification
+
+**Date**: 2026-07-18
+**Task**: Complete convolver lifecycle and EBU quality verification
+
+### Summary
+
+Unified convolver control and reclamation across direct, callback, and offline paths; verified lifecycle, latency, tail, quality, and performance contracts; ran quick and full EBU Tech 3341/3342 corpus gates at 25/25 with zero skips; ignored the local corpus and archived the completed child and 8/8 parent tasks.
+
+### Main Changes
+
+- Replaced the hidden convolver disposal slot with explicit `ConvolverControl`
+  publication, status, backpressure, and control-thread reclamation shared by
+  direct, callback, and offline entry points.
+- Preserved zero algorithmic latency, exact `IR length - 1` finite tail,
+  idempotent finish/reset behavior, bounded audio-side ownership, and
+  allocation-free callback adoption under concurrent publication stress.
+- Added the local EBU corpus ignore rule and recorded the supplied v05 archive
+  hash plus quick/full EBU Tech 3341/3342 conformance-gate evidence.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ebea9be` | fix(processor): unify convolver control and reclamation |
+| `a528296` | docs(task): record convolver lifecycle contract and evidence |
+| `d732b72` | chore: ignore local EBU reference corpus |
+| `72ee161` | docs(task): record EBU corpus verification |
+
+### Testing
+
+- [OK] `cargo test --all-features` and `cargo test --no-default-features`
+- [OK] Strict Clippy for both feature matrices, rustfmt, and rustdoc
+- [OK] Callback, FIR, and convolver quick performance gates
+- [OK] Quality quick/full `--enforce` with EBU corpus: 25/25 gates, 0 skipped
+- [OK] 10,000-publication stress, direct-convolution oracle, destructor-thread,
+  and `assert_no_alloc` lifecycle coverage
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
