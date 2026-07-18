@@ -179,9 +179,11 @@ fn benchmark_convolver_once(
     let mut legacy_output = vec![0.0; input.len()];
     let mut legacy_inplace_buffer = input.clone();
 
-    let mut into_conv = FFTConvolver::new(&ir, channels);
-    let mut inplace_conv = FFTConvolver::new(&ir, channels);
-    let mut allocating_conv = FFTConvolver::new(&ir, channels);
+    let mut into_conv = FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
+    let mut inplace_conv =
+        FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
+    let mut allocating_conv =
+        FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
     let mut legacy_into_conv = LegacyConvolver::new(&ir, channels);
     let mut legacy_inplace_conv = LegacyConvolver::new(&ir, channels);
     let strategy = into_conv.strategy();
@@ -190,7 +192,9 @@ fn benchmark_convolver_once(
 
     let into_duration = measure(
         || {
-            into_conv.process_into(black_box(&input), black_box(&mut output));
+            into_conv
+                .process_into(black_box(&input), black_box(&mut output))
+                .expect("benchmark geometry is valid");
             black_box(output[0])
         },
         iterations,
@@ -207,7 +211,9 @@ fn benchmark_convolver_once(
     let inplace_duration = measure(
         || {
             inplace_buffer.copy_from_slice(&input);
-            inplace_conv.process_inplace(black_box(&mut inplace_buffer));
+            inplace_conv
+                .process_inplace(black_box(&mut inplace_buffer))
+                .expect("benchmark geometry is valid");
             black_box(inplace_buffer[0])
         },
         iterations,
@@ -224,7 +230,9 @@ fn benchmark_convolver_once(
 
     let allocating_duration = measure(
         || {
-            let output = allocating_conv.process(black_box(&input));
+            let output = allocating_conv
+                .process(black_box(&input))
+                .expect("benchmark geometry is valid");
             black_box(output[0])
         },
         iterations,

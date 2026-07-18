@@ -139,6 +139,13 @@ jobs:
           --quick --enforce
           --out target/bench-reports/callback-chain-quick.json
 
+      - name: Offline-render quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_output_render_perf --
+          --quick --enforce
+          --out target/bench-reports/output-render-quick.json
+
       - name: Streaming-resampler quick report gate
         if: always()
         run: >-

@@ -56,6 +56,10 @@ name = "audio_callback_chain_perf"
 harness = false
 
 [[bench]]
+name = "audio_output_render_perf"
+harness = false
+
+[[bench]]
 name = "audio_quality_measurements"
 harness = false
 

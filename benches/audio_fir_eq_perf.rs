@@ -399,14 +399,16 @@ fn validate_apply(taps: usize) -> (ApplyValidation, usize, ConvolutionStrategy, 
     let ir = fir.get_ir(CHANNELS);
     let actual_ir_length = fir.ir_length();
     let all_ir_samples_finite = ir.iter().all(|sample| sample.is_finite());
-    let mut convolver = FFTConvolver::new(&ir, CHANNELS);
+    let mut convolver = FFTConvolver::new(&ir, CHANNELS).expect("generated FIR geometry is valid");
     let fft_size = convolver.fft_size();
     let strategy = convolver.strategy();
     let partition_size = convolver.partition_size();
     let input = synthetic_input(PROCESS_FRAMES, CHANNELS);
     let mut output = vec![0.0; input.len()];
     warm_apply(&mut convolver, &input, &mut output);
-    convolver.process_into(&input, &mut output);
+    convolver
+        .process_into(&input, &mut output)
+        .expect("benchmark geometry is valid");
     let all_output_samples_finite = output.iter().all(|sample| sample.is_finite());
     let output_changed = output
         .iter()
@@ -434,12 +436,14 @@ fn build_apply_convolver(taps: usize) -> FFTConvolver {
     let mut fir = FirEq::new(SAMPLE_RATE, taps);
     fir.set_phase_mode(FirPhaseMode::Linear);
     fir.set_bands(&STANDARD_TEST_CURVE);
-    FFTConvolver::new(&fir.get_ir(CHANNELS), CHANNELS)
+    FFTConvolver::new(&fir.get_ir(CHANNELS), CHANNELS).expect("generated FIR geometry is valid")
 }
 
 fn warm_apply(convolver: &mut FFTConvolver, input: &[f64], output: &mut [f64]) {
     for _ in 0..APPLY_WARMUP_BUFFERS {
-        convolver.process_into(input, output);
+        convolver
+            .process_into(input, output)
+            .expect("benchmark geometry is valid");
     }
 }
 
@@ -452,7 +456,9 @@ fn measure_apply(
 ) -> ApplyMeasurement {
     let start = Instant::now();
     for _ in 0..iterations {
-        convolver.process_into(black_box(input), black_box(output));
+        convolver
+            .process_into(black_box(input), black_box(output))
+            .expect("benchmark geometry is valid");
         black_box(output[0]);
     }
     let ns_per_buffer = start.elapsed().as_nanos() as f64 / iterations as f64;

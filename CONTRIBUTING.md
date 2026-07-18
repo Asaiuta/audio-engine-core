@@ -56,12 +56,13 @@ the relevant quick evidence entry points and preserve their JSON artifacts:
 ```bash
 cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
+cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
 cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
 ```
 
-Omit `--quick` for the full workload; callback, resampler, and FIR EQ also accept
-`--heavy`. Their reports include revision/dirty state, compiler/target,
+Omit `--quick` for the full workload; callback, output render, resampler, and
+FIR EQ also accept `--heavy`. Their reports include revision/dirty state, compiler/target,
 OS/architecture/CPU, Cargo profile/features, stable case keys, raw trials, and
 min/median/p95/max statistics. Passing `--baseline <json>` activates the
 same-environment median comparison (10% maximum regression by default). Do not

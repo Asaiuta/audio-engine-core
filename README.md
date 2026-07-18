@@ -203,6 +203,7 @@ differ by CPU, compiler version, and load.
 
 ```bash
 cargo bench --bench audio_callback_chain_perf -- --quick
+cargo bench --bench audio_output_render_perf -- --quick
 cargo bench --bench audio_resampler_streaming_perf -- --quick
 cargo bench --bench audio_convolver_perf -- --quick
 cargo bench --bench audio_lockfree_params_perf -- --quick
@@ -215,6 +216,7 @@ The standardized evidence entry points can also write versioned JSON reports:
 ```bash
 cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
+cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
 cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
 ```
@@ -237,9 +239,9 @@ OS/architecture, CPU, Cargo profile, feature set, mode, conditions, or case set;
 an unavailable required environment field is also rejected. Revision and dirty
 state are recorded but may differ. Reports retain every trial plus
 min/median/nearest-rank p95/max and the complete build environment.
-Omit `--quick` for the full workload or pass `--heavy` to the three performance
+Omit `--quick` for the full workload or pass `--heavy` to the four performance
 benches for stress runs. The quality bench uses quick/full only. GitHub shared
-runners generate and upload the four quick JSON artifacts without imposing a
+runners generate and upload the five quick JSON artifacts without imposing a
 cross-machine absolute nanosecond threshold.
 
 The table below records representative local runs; rows should be regenerated
