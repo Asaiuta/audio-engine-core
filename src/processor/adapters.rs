@@ -8,8 +8,8 @@
 //! - References lock-free parameters (shared with main thread)
 //! - Synchronizes parameters before processing
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwapOption;
 
@@ -1009,63 +1009,340 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
 // Convolver Adapter
 // ============================================================================
 
-/// FFT convolver processor with wait-free kernel swap-in.
+/// Allocation-free snapshot of dynamic convolver publication and reclamation.
 ///
-/// Producer contract: publish a **uniquely-owned** `Arc<FFTConvolver>` into the
-/// swap slot and drop your own handle; the audio thread adopts it only once it
-/// is the sole owner (skip-and-retry otherwise — it never deep-clones).
-/// Retired kernels are handed back through [`ConvolverProcessor::disposal_slot`];
-/// drain that slot from a control thread (e.g. right before publishing a new
-/// kernel) so large deallocations never happen on the audio thread. Without
-/// draining, at most two retired kernels are parked and further kernel
-/// adoptions are deferred until the slot is drained.
+/// Counter fields are monotonic. A snapshot taken concurrently with control or
+/// audio work may observe a transient intermediate combination, but every field
+/// converges without requiring a lock.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConvolverStatus {
+    /// Current block-boundary enable switch.
+    pub enabled: bool,
+    /// Most recently installed control-side publication generation.
+    pub latest_published_generation: u64,
+    /// Most recently adopted audio-side generation.
+    pub latest_adopted_generation: u64,
+    /// Publications adopted by the audio consumer.
+    pub adopted_kernels: u64,
+    /// Publications replaced before the audio consumer withdrew them.
+    pub superseded_kernels: u64,
+    /// Withdrawn publications discarded because the processor was disabled.
+    pub discarded_kernels: u64,
+    /// Kernels transferred into fixed audio-side retirement staging.
+    pub retired_kernels: u64,
+    /// Retired kernels destroyed by a control/offline caller.
+    pub reclaimed_kernels: u64,
+    /// Number of transitions into a deferred-adoption/backpressure episode.
+    pub deferred_adoptions: u64,
+    /// Published or withdrawn kernels not yet adopted, superseded, or discarded.
+    pub pending_kernels: u64,
+    /// Retired kernels still in the fixed hand-off or pending-retire slots.
+    pub pending_reclamations: u64,
+    /// Whether fixed retirement capacity currently delays lifecycle progress.
+    pub backpressured: bool,
+    /// Whether the audio consumer currently owns no kernel or pending hand-off.
+    pub audio_idle: bool,
+}
+
+impl ConvolverStatus {
+    /// True once a disabled audio consumer holds no kernel and control has
+    /// reclaimed every retired kernel. Stop concurrent publishers first; the
+    /// chain may then be destroyed off RT while publication remains stopped.
+    pub fn is_quiescent(self) -> bool {
+        !self.enabled
+            && self.audio_idle
+            && self.pending_kernels == 0
+            && self.pending_reclamations == 0
+            && !self.backpressured
+    }
+}
+
+struct PublishedConvolver {
+    generation: u64,
+    kernel: FFTConvolver,
+    #[cfg(test)]
+    _drop_probe: Option<ConvolverDropProbe>,
+}
+
+#[cfg(test)]
+struct ConvolverDropProbe {
+    audio_thread_id: std::thread::ThreadId,
+    dropped_on_audio: Arc<AtomicBool>,
+    drop_count: Arc<AtomicU64>,
+}
+
+#[cfg(test)]
+impl Drop for ConvolverDropProbe {
+    fn drop(&mut self) {
+        if std::thread::current().id() == self.audio_thread_id {
+            self.dropped_on_audio.store(true, Ordering::Release);
+        }
+        self.drop_count.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+struct ConvolverControlInner {
+    control_gate: Mutex<()>,
+    published: ArcSwapOption<PublishedConvolver>,
+    enabled: AtomicBool,
+    retired: ArcSwapOption<PublishedConvolver>,
+    latest_published_generation: AtomicU64,
+    latest_adopted_generation: AtomicU64,
+    adopted_kernels: AtomicU64,
+    superseded_kernels: AtomicU64,
+    discarded_kernels: AtomicU64,
+    retired_kernels: AtomicU64,
+    reclaimed_kernels: AtomicU64,
+    deferred_adoptions: AtomicU64,
+    backpressured: AtomicBool,
+    audio_idle: AtomicBool,
+}
+
+/// Control-thread handle for dynamic convolver publication and reclamation.
+///
+/// One handle may have multiple control-side clones but exactly one live audio
+/// consumer. Build kernels and call [`ConvolverControl::publish`] and
+/// [`ConvolverControl::reclaim_retired`] off the realtime thread. Publication
+/// is latest-wins until audio withdraws a kernel; once withdrawn, ownership is
+/// never dropped or deep-cloned by the audio thread. Concurrent control-side
+/// publishers/reclaimers are serialized internally; the audio path never
+/// acquires that control-only lock.
+#[derive(Clone)]
+pub struct ConvolverControl {
+    inner: Arc<ConvolverControlInner>,
+}
+
+impl ConvolverControl {
+    /// Create a control handle with no published kernel.
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            inner: Arc::new(ConvolverControlInner {
+                control_gate: Mutex::new(()),
+                published: ArcSwapOption::empty(),
+                enabled: AtomicBool::new(enabled),
+                retired: ArcSwapOption::empty(),
+                latest_published_generation: AtomicU64::new(0),
+                latest_adopted_generation: AtomicU64::new(0),
+                adopted_kernels: AtomicU64::new(0),
+                superseded_kernels: AtomicU64::new(0),
+                discarded_kernels: AtomicU64::new(0),
+                retired_kernels: AtomicU64::new(0),
+                reclaimed_kernels: AtomicU64::new(0),
+                deferred_adoptions: AtomicU64::new(0),
+                backpressured: AtomicBool::new(false),
+                audio_idle: AtomicBool::new(true),
+            }),
+        }
+    }
+
+    /// Publish a uniquely-owned kernel and return its monotonic generation.
+    ///
+    /// This may allocate the wrapping `Arc` and destroy a superseded or retired
+    /// kernel, so it is a control/offline-thread operation. A kernel that audio
+    /// has not withdrawn is replaced latest-wins on this calling thread.
+    pub fn publish(&self, kernel: FFTConvolver) -> u64 {
+        #[cfg(test)]
+        {
+            self.publish_inner(kernel, None)
+        }
+        #[cfg(not(test))]
+        {
+            self.publish_inner(kernel)
+        }
+    }
+
+    fn publish_inner(
+        &self,
+        kernel: FFTConvolver,
+        #[cfg(test)] drop_probe: Option<ConvolverDropProbe>,
+    ) -> u64 {
+        let _control_guard = self
+            .inner
+            .control_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = self.reclaim_retired_unlocked();
+        let generation = self
+            .inner
+            .latest_published_generation
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
+        self.inner.audio_idle.store(false, Ordering::Release);
+
+        let replaced = self.inner.published.swap(Some(Arc::new(PublishedConvolver {
+            generation,
+            kernel,
+            #[cfg(test)]
+            _drop_probe: drop_probe,
+        })));
+        if replaced.is_some() {
+            self.inner
+                .superseded_kernels
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        drop(replaced);
+
+        // Close the common race where audio retired its previous kernel while
+        // this control-side publication was being installed.
+        let _ = self.reclaim_retired_unlocked();
+        generation
+    }
+
+    #[cfg(test)]
+    fn publish_with_drop_probe(&self, kernel: FFTConvolver, drop_probe: ConvolverDropProbe) -> u64 {
+        self.publish_inner(kernel, Some(drop_probe))
+    }
+
+    /// Destroy one handed-off kernel on the calling control/offline thread.
+    pub fn reclaim_retired(&self) -> bool {
+        let _control_guard = self
+            .inner
+            .control_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.reclaim_retired_unlocked()
+    }
+
+    fn reclaim_retired_unlocked(&self) -> bool {
+        let retired = self.inner.retired.swap(None);
+        if retired.is_none() {
+            return false;
+        }
+        self.inner.reclaimed_kernels.fetch_add(1, Ordering::Relaxed);
+        drop(retired);
+        true
+    }
+
+    /// Publish the block-boundary enable state from a control or setup thread.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.inner.enabled.store(enabled, Ordering::Release);
+    }
+
+    /// Read the current block-boundary enable state.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.enabled.load(Ordering::Acquire)
+    }
+
+    /// Read an allocation-free, eventually consistent lifecycle snapshot.
+    pub fn status(&self) -> ConvolverStatus {
+        let latest_published_generation = self
+            .inner
+            .latest_published_generation
+            .load(Ordering::Acquire);
+        let adopted_kernels = self.inner.adopted_kernels.load(Ordering::Acquire);
+        let superseded_kernels = self.inner.superseded_kernels.load(Ordering::Acquire);
+        let discarded_kernels = self.inner.discarded_kernels.load(Ordering::Acquire);
+        let retired_kernels = self.inner.retired_kernels.load(Ordering::Acquire);
+        let reclaimed_kernels = self.inner.reclaimed_kernels.load(Ordering::Acquire);
+        let completed_publications = adopted_kernels
+            .saturating_add(superseded_kernels)
+            .saturating_add(discarded_kernels);
+
+        ConvolverStatus {
+            enabled: self.is_enabled(),
+            latest_published_generation,
+            latest_adopted_generation: self.inner.latest_adopted_generation.load(Ordering::Acquire),
+            adopted_kernels,
+            superseded_kernels,
+            discarded_kernels,
+            retired_kernels,
+            reclaimed_kernels,
+            deferred_adoptions: self.inner.deferred_adoptions.load(Ordering::Acquire),
+            pending_kernels: latest_published_generation.saturating_sub(completed_publications),
+            pending_reclamations: retired_kernels.saturating_sub(reclaimed_kernels),
+            backpressured: self.inner.backpressured.load(Ordering::Acquire),
+            audio_idle: self.inner.audio_idle.load(Ordering::Acquire),
+        }
+    }
+
+    fn note_adopted(&self, generation: u64) {
+        self.inner
+            .latest_adopted_generation
+            .store(generation, Ordering::Release);
+        self.inner.adopted_kernels.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn note_discarded(&self) {
+        self.inner.discarded_kernels.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn note_retired(&self) {
+        self.inner.retired_kernels.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn mark_backpressured(&self) {
+        if !self.inner.backpressured.swap(true, Ordering::AcqRel) {
+            self.inner
+                .deferred_adoptions
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn clear_backpressure(&self) {
+        self.inner.backpressured.store(false, Ordering::Release);
+    }
+
+    fn set_audio_idle(&self, idle: bool) {
+        self.inner.audio_idle.store(idle, Ordering::Release);
+    }
+}
+
+impl Default for ConvolverControl {
+    fn default() -> Self {
+        Self::new(false)
+    }
+}
+
+/// FFT convolver processor with wait-free kernel publication hand-off.
+///
+/// Publish and reclaim through [`ConvolverControl`]. Retired kernels are handed
+/// back through its fixed single-slot channel; without control-side draining,
+/// at most two retired kernels are parked and further adoptions are deferred
+/// while the current valid kernel continues processing. Disable and drive
+/// process/repeated finish until [`ConvolverStatus::is_quiescent`] before an
+/// audio-thread-owned processor is destroyed; destroy the processor itself off
+/// the realtime thread.
 pub struct ConvolverProcessor {
     /// Active kernel. Held as a uniquely-owned `Arc` so retirement is a
     /// pointer hand-off instead of a reallocation.
-    owned: Option<Arc<FFTConvolver>>,
-    /// Kernel taken from `swap` but not yet adoptable (producer still holds a
-    /// handle, or retirement stages are full).
-    incoming: Option<Arc<FFTConvolver>>,
-    /// Retired kernel waiting for the disposal slot to free up.
-    pending_retire: Option<Arc<FFTConvolver>>,
-    swap: Arc<ArcSwapOption<FFTConvolver>>,
-    enabled: Arc<AtomicBool>,
-    /// Single-slot hand-off of retired kernels to the control side.
-    retired: Arc<ArcSwapOption<FFTConvolver>>,
+    owned: Option<Arc<PublishedConvolver>>,
+    /// Kernel withdrawn from the publication slot but not yet adoptable
+    /// (ownership is still shared, or retirement stages are full).
+    incoming: Option<Arc<PublishedConvolver>>,
+    /// Retired kernel waiting for the control-side hand-off slot to free up.
+    pending_retire: Option<Arc<PublishedConvolver>>,
+    control: ConvolverControl,
     lifecycle: FixedLifecycle,
     sample_rate_hz: u32,
     finish_remaining_frames: Option<usize>,
 }
 
 impl ConvolverProcessor {
-    pub fn new(swap: Arc<ArcSwapOption<FFTConvolver>>, enabled: Arc<AtomicBool>) -> Self {
+    /// Construct a processor that consumes one live audio side of `control`.
+    pub fn new(control: ConvolverControl) -> Self {
         Self {
             owned: None,
             incoming: None,
             pending_retire: None,
-            swap,
-            enabled,
-            retired: Arc::new(ArcSwapOption::empty()),
+            control,
             lifecycle: FixedLifecycle::default(),
             sample_rate_hz: 44_100,
             finish_remaining_frames: None,
         }
     }
 
-    /// Slot receiving kernels retired by the audio thread. Drain it (e.g.
-    /// `slot.swap(None)`) from a control thread; dropping the drained `Arc`
-    /// there performs the large deallocation off the audio path.
-    pub fn disposal_slot(&self) -> Arc<ArcSwapOption<FFTConvolver>> {
-        Arc::clone(&self.retired)
+    /// Clone the control-plane handle for off-audio publication/reclamation.
+    pub fn control(&self) -> ConvolverControl {
+        self.control.clone()
     }
 
-    /// Move `pending_retire` into the disposal slot when it is free.
+    /// Move `pending_retire` into the control-side hand-off slot when it is free.
     /// Audio thread is the only writer of `retired`; the control side only
     /// takes, so an observed-empty slot cannot be concurrently filled.
     fn try_flush_retired(&mut self) {
         if let Some(arc) = self.pending_retire.take() {
-            if self.retired.load().is_none() {
-                self.retired.store(Some(arc));
+            if self.control.inner.retired.load().is_none() {
+                self.control.inner.retired.store(Some(arc));
             } else {
                 self.pending_retire = Some(arc);
             }
@@ -1078,42 +1355,79 @@ impl ConvolverProcessor {
         // Withdraw any newly published kernel exactly once; keep it parked in
         // `incoming` until it is adoptable.
         if self.incoming.is_none() {
-            self.incoming = self.swap.swap(None);
+            self.incoming = self.control.inner.published.swap(None);
         }
 
-        if !self.enabled.load(Ordering::Acquire) {
+        if !self.control.is_enabled() {
             // Retire everything we hold, one stage per block if needed, without
             // deallocating on the audio thread.
             if self.pending_retire.is_none() {
-                if let Some(arc) = self.owned.take().or_else(|| self.incoming.take()) {
+                if let Some(arc) = self.owned.take() {
                     self.pending_retire = Some(arc);
+                    self.control.note_retired();
+                    self.try_flush_retired();
+                } else if let Some(arc) = self.incoming.take() {
+                    self.pending_retire = Some(arc);
+                    self.control.note_discarded();
+                    self.control.note_retired();
                     self.try_flush_retired();
                 }
+            }
+            let still_holding =
+                self.owned.is_some() || self.incoming.is_some() || self.pending_retire.is_some();
+            let has_pending_publication = self.control.status().pending_kernels > 0;
+            self.control
+                .set_audio_idle(!still_holding && !has_pending_publication);
+            if still_holding {
+                self.control.mark_backpressured();
+            } else {
+                self.control.clear_backpressure();
             }
             return;
         }
 
+        self.control.set_audio_idle(false);
+
         let Some(mut arc) = self.incoming.take() else {
+            if self.pending_retire.is_some() {
+                self.control.mark_backpressured();
+            } else {
+                self.control.clear_backpressure();
+            }
             return;
         };
         if Arc::get_mut(&mut arc).is_none() {
-            // Producer still holds a handle; retry next block instead of
-            // deep-cloning multi-MB kernel state on the audio thread.
+            // The control API publishes by value, so this can only be a broken
+            // ownership invariant. Retain and retry without cloning/dropping.
             self.incoming = Some(arc);
+            self.control.mark_backpressured();
             return;
         }
+        let generation = arc.generation;
         match self.owned.take() {
-            None => self.owned = Some(arc),
+            None => {
+                self.owned = Some(arc);
+                self.control.note_adopted(generation);
+                self.control.clear_backpressure();
+            }
             Some(old) => {
                 if self.pending_retire.is_none() {
                     self.owned = Some(arc);
+                    self.control.note_adopted(generation);
                     self.pending_retire = Some(old);
+                    self.control.note_retired();
                     self.try_flush_retired();
+                    if self.pending_retire.is_some() {
+                        self.control.mark_backpressured();
+                    } else {
+                        self.control.clear_backpressure();
+                    }
                 } else {
                     // Both retirement stages occupied: keep the old kernel and
                     // defer adoption until the control side drains.
                     self.owned = Some(old);
                     self.incoming = Some(arc);
+                    self.control.mark_backpressured();
                 }
             }
         }
@@ -1129,7 +1443,7 @@ impl StreamingProcessor for ConvolverProcessor {
         self.lifecycle.ensure_processing("Convolver")?;
         self.sync_convolver();
 
-        if !self.enabled.load(Ordering::Acquire) {
+        if !self.control.is_enabled() {
             return process_fixed_1_to_1("Convolver", false, None, buffers, |_, _| Ok(()));
         }
         let Some(arc) = self.owned.as_mut() else {
@@ -1142,31 +1456,44 @@ impl StreamingProcessor for ConvolverProcessor {
                 message: "owned kernel is not uniquely held",
             });
         };
-        let channels = convolver.channels();
+        let channels = convolver.kernel.channels();
         process_fixed_1_to_1(
             "Convolver",
             true,
             Some(channels),
             buffers,
             |buffer, _channels| {
-                convolver.process_inplace(buffer);
+                convolver.kernel.process_inplace(buffer);
                 Ok(())
             },
         )
     }
 
     fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
-        let channels = self.owned.as_ref().map(|convolver| convolver.channels());
+        if !self.control.is_enabled() {
+            // Repeated terminal finish calls are the only lifecycle-safe audio
+            // boundary available after ordinary processing has ended. Keep
+            // progressing disabled retirement so control can reach quiescence.
+            self.sync_convolver();
+        }
+        let enabled = self.control.is_enabled();
+        let channels = if enabled {
+            self.owned
+                .as_ref()
+                .map(|convolver| convolver.kernel.channels())
+        } else {
+            None
+        };
         validate_channels("Convolver", channels, output.channels())?;
         if self.lifecycle.is_finished() {
             return Ok(ProcessProgress::finished(0));
         }
 
         self.lifecycle.begin_finish();
-        let initial_remaining = if self.enabled.load(Ordering::Acquire) {
+        let initial_remaining = if enabled {
             self.owned
                 .as_ref()
-                .map(|convolver| convolver.ir_length().saturating_sub(1))
+                .map(|convolver| convolver.kernel.ir_length().saturating_sub(1))
                 .unwrap_or(0)
         } else {
             0
@@ -1197,7 +1524,9 @@ impl StreamingProcessor for ConvolverProcessor {
                     message: "owned kernel is not uniquely held",
                 });
             };
-            convolver.process_inplace(&mut output.samples_mut()[..samples]);
+            convolver
+                .kernel
+                .process_inplace(&mut output.samples_mut()[..samples]);
         }
         *remaining -= frames;
 
@@ -1218,7 +1547,7 @@ impl StreamingProcessor for ConvolverProcessor {
                     message: "owned kernel is not uniquely held",
                 });
             };
-            convolver.reset();
+            convolver.kernel.reset();
         }
         self.lifecycle.reset();
         self.finish_remaining_frames = None;
@@ -1226,25 +1555,25 @@ impl StreamingProcessor for ConvolverProcessor {
     }
 
     fn tail(&self) -> TailSpec {
-        if !self.enabled.load(Ordering::Acquire) {
+        if !self.control.is_enabled() {
             return TailSpec::None;
         }
         let frames = self
             .owned
             .as_ref()
-            .map(|convolver| convolver.ir_length().saturating_sub(1))
+            .map(|convolver| convolver.kernel.ir_length().saturating_sub(1))
             .unwrap_or(0);
         TailSpec::finite(frames, self.sample_rate_hz).unwrap_or(TailSpec::Unknown)
     }
 
     fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
+        self.control.is_enabled()
     }
 
     fn set_enabled(&mut self, enabled: bool) {
         // Kernel teardown is handled by `sync_convolver`'s disabled path so the
         // audio thread never deallocates it here.
-        self.enabled.store(enabled, Ordering::Release);
+        self.control.set_enabled(enabled);
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
@@ -1305,106 +1634,307 @@ mod tests {
 
     #[test]
     fn test_convolver_processor_swaps_in_and_processes() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(false));
-        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let control = ConvolverControl::default();
+        let mut proc = ConvolverProcessor::new(control.clone());
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
         assert!(proc.process(&mut buffer, 1).is_bypassed());
 
-        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
-        enabled.store(true, Ordering::Release);
+        let generation = control.publish(FFTConvolver::new(&[0.5], 1));
+        control.set_enabled(true);
         assert!(!proc.process(&mut buffer, 1).is_bypassed());
         assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
+
+        let status = control.status();
+        assert_eq!(status.latest_published_generation, generation);
+        assert_eq!(status.latest_adopted_generation, generation);
+        assert_eq!(status.adopted_kernels, 1);
+        assert_eq!(status.pending_kernels, 0);
+        assert!(!status.backpressured);
     }
 
     #[test]
     fn test_convolver_processor_clear_disables_owned_convolver() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let control = ConvolverControl::new(true);
+        let mut proc = ConvolverProcessor::new(control.clone());
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
+        control.publish(FFTConvolver::new(&[0.5], 1));
         assert!(!proc.process(&mut buffer, 1).is_bypassed());
 
-        enabled.store(false, Ordering::Release);
+        control.set_enabled(false);
         let mut bypassed = vec![1.0, 2.0, 3.0, 4.0];
         assert!(proc.process(&mut bypassed, 1).is_bypassed());
         assert_eq!(bypassed, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(control.status().pending_reclamations, 1);
+        assert!(control.reclaim_retired());
+        assert!(control.status().is_quiescent());
     }
 
     #[test]
-    fn convolver_processor_skips_shared_kernel_and_adopts_once_unique() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+    fn convolver_publication_is_latest_wins_before_audio_withdrawal() {
+        let control = ConvolverControl::new(true);
+        let mut proc = ConvolverProcessor::new(control.clone());
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-        // Producer still holds a handle: the kernel must NOT be adopted (and
-        // must never be deep-cloned on the audio side).
-        let kernel = Arc::new(FFTConvolver::new(&[0.5], 1));
-        swap.store(Some(Arc::clone(&kernel)));
-        assert!(proc.process(&mut buffer, 1).is_bypassed());
-        assert_eq!(buffer, vec![1.0, 2.0, 3.0, 4.0]);
-
-        // Producer drops its handle: the parked kernel is adopted next block.
-        drop(kernel);
+        let first = control.publish(FFTConvolver::new(&[0.5], 1));
+        let latest = control.publish(FFTConvolver::new(&[0.25], 1));
         assert!(!proc.process(&mut buffer, 1).is_bypassed());
-        assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
+        assert_eq!(buffer, vec![0.25, 0.5, 0.75, 1.0]);
+
+        let status = control.status();
+        assert_eq!(first, 1);
+        assert_eq!(status.latest_adopted_generation, latest);
+        assert_eq!(status.adopted_kernels, 1);
+        assert_eq!(status.superseded_kernels, 1);
+        assert_eq!(status.pending_kernels, 0);
     }
 
     #[test]
-    fn convolver_processor_defers_adoption_until_disposal_slot_drained() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
-        let slot = proc.disposal_slot();
+    fn convolver_disable_reports_retirement_backpressure_and_recovers() {
+        let control = ConvolverControl::new(true);
+        let mut proc = ConvolverProcessor::new(control.clone());
+        let mut buffer = vec![1.0; 4];
 
-        let process_gain = |proc: &mut ConvolverProcessor| {
-            let mut buffer = vec![1.0, 1.0, 1.0, 1.0];
-            proc.process(&mut buffer, 1);
-            buffer[0]
-        };
+        control.publish(FFTConvolver::new(&[1.0], 1));
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
+        control.publish(FFTConvolver::new(&[0.5], 1));
+        control.set_enabled(false);
 
-        // A adopted; B retires A into the slot; C parks B in pending_retire.
-        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0], 1))));
-        assert_eq!(process_gain(&mut proc), 1.0);
-        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
-        assert_eq!(process_gain(&mut proc), 0.5);
-        assert!(slot.load().is_some());
-        swap.store(Some(Arc::new(FFTConvolver::new(&[0.25], 1))));
-        assert_eq!(process_gain(&mut proc), 0.25);
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        let saturated = control.status();
+        assert!(saturated.backpressured);
+        assert_eq!(saturated.discarded_kernels, 1);
+        assert_eq!(saturated.pending_reclamations, 2);
 
-        // Both retirement stages occupied: D's adoption is deferred and the
-        // current kernel keeps processing.
-        swap.store(Some(Arc::new(FFTConvolver::new(&[0.125], 1))));
-        assert_eq!(process_gain(&mut proc), 0.25);
+        assert!(control.reclaim_retired());
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        let recovered = control.status();
+        assert!(!recovered.backpressured);
+        assert!(recovered.audio_idle);
+        assert_eq!(recovered.pending_reclamations, 1);
 
-        // Control side drains the slot: the deferred kernel lands.
-        assert!(slot.swap(None).is_some());
-        assert_eq!(process_gain(&mut proc), 0.125);
+        assert!(control.reclaim_retired());
+        assert!(control.status().is_quiescent());
     }
 
     #[test]
     fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
-        let slot = proc.disposal_slot();
+        let control = ConvolverControl::new(true);
+        let mut proc = ConvolverProcessor::new(control.clone());
         let mut buffer = vec![0.3; 512];
 
         for _ in 0..8 {
             // Control side: publishing allocates (allowed).
-            swap.store(Some(Arc::new(FFTConvolver::new(&[0.5, 0.25], 1))));
+            control.publish(FFTConvolver::new(&[0.5, 0.25], 1));
             // Audio side: swap-in, retirement hand-off, and processing must not
             // allocate or deallocate.
             assert_no_alloc::assert_no_alloc(|| {
                 proc.process(&mut buffer, 1);
             });
             // Control side: draining performs the large deallocation.
-            drop(slot.swap(None));
+            let _ = control.reclaim_retired();
         }
+
+        control.publish(FFTConvolver::new(&[0.75], 1));
+        control.set_enabled(false);
+        assert_no_alloc::assert_no_alloc(|| {
+            proc.process(&mut buffer, 1);
+            proc.process(&mut buffer, 1);
+        });
+        assert!(control.status().backpressured);
+
+        assert!(control.reclaim_retired());
+        assert_no_alloc::assert_no_alloc(|| {
+            proc.process(&mut buffer, 1);
+        });
+        assert!(control.reclaim_retired());
+
+        control.set_enabled(true);
+        control.publish(FFTConvolver::new(&[0.25], 1));
+        assert_no_alloc::assert_no_alloc(|| {
+            proc.process(&mut buffer, 1);
+        });
+    }
+
+    #[test]
+    fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
+        const UPDATES: u64 = 10_000;
+
+        let control = ConvolverControl::new(true);
+        let mut proc = ConvolverProcessor::new(control.clone());
+        let mut buffer = [1.0; 4];
+        let mut latest_gain = 0.0;
+
+        for update in 0..UPDATES {
+            latest_gain = 0.25 + (update % 23) as f64 * 0.01;
+            let generation = control.publish(FFTConvolver::new(&[latest_gain], 1));
+            assert_eq!(generation, update + 1);
+
+            if update % 17 == 0 {
+                buffer.fill(1.0);
+                assert!(!proc.process(&mut buffer, 1).is_bypassed());
+                assert!((buffer[0] - latest_gain).abs() <= f64::EPSILON);
+            }
+            if update % 113 == 0 {
+                let _ = control.reclaim_retired();
+            }
+        }
+
+        buffer.fill(1.0);
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
+        assert!((buffer[0] - latest_gain).abs() <= f64::EPSILON);
+        let _ = control.reclaim_retired();
+
+        let burst_status = control.status();
+        assert_eq!(burst_status.latest_published_generation, UPDATES);
+        assert_eq!(burst_status.latest_adopted_generation, UPDATES);
+        assert_eq!(
+            burst_status.adopted_kernels
+                + burst_status.superseded_kernels
+                + burst_status.discarded_kernels,
+            UPDATES
+        );
+        assert_eq!(burst_status.pending_kernels, 0);
+        assert_eq!(burst_status.pending_reclamations, 0);
+
+        control.publish(FFTConvolver::new(&[0.5], 1));
+        control.set_enabled(false);
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        let saturated = control.status();
+        assert!(saturated.backpressured);
+        assert_eq!(saturated.pending_reclamations, 2);
+
+        assert!(control.reclaim_retired());
+        assert!(proc.process(&mut buffer, 1).is_bypassed());
+        assert!(control.reclaim_retired());
+        assert!(control.status().is_quiescent());
+
+        control.set_enabled(true);
+        let final_generation = control.publish(FFTConvolver::new(&[0.875], 1));
+        buffer.fill(1.0);
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
+        assert_eq!(buffer, [0.875; 4]);
+
+        let final_status = control.status();
+        assert_eq!(final_status.latest_adopted_generation, final_generation);
+        assert_eq!(final_status.pending_kernels, 0);
+        assert_eq!(final_status.pending_reclamations, 0);
+        assert!(!final_status.backpressured);
+        assert!(final_status.deferred_adoptions >= 1);
+        assert_eq!(
+            final_status.adopted_kernels
+                + final_status.superseded_kernels
+                + final_status.discarded_kernels,
+            final_status.latest_published_generation
+        );
+    }
+
+    #[test]
+    fn convolver_control_serializes_concurrent_publishers() {
+        const PUBLISHERS: usize = 4;
+        const UPDATES_PER_PUBLISHER: usize = 64;
+        const TOTAL_UPDATES: usize = PUBLISHERS * UPDATES_PER_PUBLISHER;
+
+        let control = ConvolverControl::new(true);
+        let start = Arc::new(std::sync::Barrier::new(PUBLISHERS));
+        let mut publishers = Vec::with_capacity(PUBLISHERS);
+        for publisher in 0..PUBLISHERS {
+            let control = control.clone();
+            let start = Arc::clone(&start);
+            publishers.push(std::thread::spawn(move || {
+                start.wait();
+                let mut published = Vec::with_capacity(UPDATES_PER_PUBLISHER);
+                for update in 0..UPDATES_PER_PUBLISHER {
+                    let ordinal = publisher * UPDATES_PER_PUBLISHER + update + 1;
+                    let gain = ordinal as f64 / TOTAL_UPDATES as f64;
+                    let generation = control.publish(FFTConvolver::new(&[gain], 1));
+                    published.push((generation, gain));
+                }
+                published
+            }));
+        }
+
+        let mut publications = Vec::with_capacity(TOTAL_UPDATES);
+        for publisher in publishers {
+            publications.extend(publisher.join().unwrap());
+        }
+        publications.sort_by_key(|(generation, _)| *generation);
+        assert_eq!(publications.len(), TOTAL_UPDATES);
+        for (index, (generation, _)) in publications.iter().enumerate() {
+            assert_eq!(*generation, index as u64 + 1);
+        }
+
+        let (latest_generation, latest_gain) = publications[TOTAL_UPDATES - 1];
+        let mut proc = ConvolverProcessor::new(control.clone());
+        let mut buffer = [1.0; 4];
+        assert!(!proc.process(&mut buffer, 1).is_bypassed());
+        assert_eq!(buffer, [latest_gain; 4]);
+
+        let status = control.status();
+        assert_eq!(status.latest_published_generation, latest_generation);
+        assert_eq!(status.latest_adopted_generation, latest_generation);
+        assert_eq!(status.adopted_kernels, 1);
+        assert_eq!(status.superseded_kernels, TOTAL_UPDATES as u64 - 1);
+        assert_eq!(status.pending_kernels, 0);
+    }
+
+    #[test]
+    fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
+        use std::sync::mpsc::sync_channel;
+
+        let control = ConvolverControl::new(true);
+        let audio_control = control.clone();
+        let (command_tx, command_rx) = sync_channel::<bool>(0);
+        let (ready_tx, ready_rx) = sync_channel(0);
+        let (processed_tx, processed_rx) = sync_channel(0);
+        let audio_thread = std::thread::spawn(move || {
+            ready_tx.send(std::thread::current().id()).unwrap();
+            let mut proc = ConvolverProcessor::new(audio_control);
+            let mut buffer = [1.0; 4];
+            while command_rx.recv().unwrap() {
+                buffer.fill(1.0);
+                let _ = proc.process(&mut buffer, 1);
+                processed_tx.send(()).unwrap();
+            }
+        });
+        let audio_thread_id = ready_rx.recv().unwrap();
+        let dropped_on_audio = Arc::new(AtomicBool::new(false));
+        let drop_count = Arc::new(AtomicU64::new(0));
+        let make_probe = || ConvolverDropProbe {
+            audio_thread_id,
+            dropped_on_audio: Arc::clone(&dropped_on_audio),
+            drop_count: Arc::clone(&drop_count),
+        };
+        let process_once = || {
+            command_tx.send(true).unwrap();
+            processed_rx.recv().unwrap();
+        };
+
+        control.publish_with_drop_probe(FFTConvolver::new(&[1.0], 1), make_probe());
+        process_once();
+        control.publish_with_drop_probe(FFTConvolver::new(&[0.75], 1), make_probe());
+        process_once();
+        assert_eq!(drop_count.load(Ordering::Acquire), 0);
+        assert!(control.reclaim_retired());
+
+        control.publish_with_drop_probe(FFTConvolver::new(&[0.5], 1), make_probe());
+        control.publish_with_drop_probe(FFTConvolver::new(&[0.25], 1), make_probe());
+        process_once();
+        assert_eq!(drop_count.load(Ordering::Acquire), 2);
+        assert!(control.reclaim_retired());
+
+        control.set_enabled(false);
+        process_once();
+        assert!(control.reclaim_retired());
+        assert!(control.status().is_quiescent());
+
+        command_tx.send(false).unwrap();
+        audio_thread.join().unwrap();
+        assert_eq!(drop_count.load(Ordering::Acquire), 4);
+        assert!(!dropped_on_audio.load(Ordering::Acquire));
     }
 
     #[test]
@@ -2062,12 +2592,235 @@ mod tests {
         );
     }
 
+    fn direct_interleaved_convolution(input: &[f64], ir: &[f64], channels: usize) -> Vec<f64> {
+        let input_frames = input.len() / channels;
+        let ir_frames = ir.len() / channels;
+        let mut output = vec![0.0; (input_frames + ir_frames - 1) * channels];
+
+        for input_frame in 0..input_frames {
+            for tap in 0..ir_frames {
+                let output_frame = input_frame + tap;
+                for channel in 0..channels {
+                    output[output_frame * channels + channel] +=
+                        input[input_frame * channels + channel] * ir[tap * channels + channel];
+                }
+            }
+        }
+        output
+    }
+
+    fn deterministic_convolver_input(frames: usize, channels: usize) -> Vec<f64> {
+        (0..frames * channels)
+            .map(|sample| ((sample * 7 + 3) % 19) as f64 * 0.03125 - 0.28125)
+            .collect()
+    }
+
+    fn deterministic_convolver_ir(frames: usize, channels: usize) -> Vec<f64> {
+        let mut ir = vec![0.0; frames * channels];
+        for frame in 0..frames {
+            for channel in 0..channels {
+                let value = if frame == 0 {
+                    0.75 - channel as f64 * 0.125
+                } else {
+                    let sign = if (frame + channel) % 2 == 0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    sign * (0.2 + channel as f64 * 0.025) / (frame + 1) as f64
+                };
+                ir[frame * channels + channel] = value;
+            }
+        }
+        ir
+    }
+
+    fn render_convolver_with_patterns(
+        proc: &mut ConvolverProcessor,
+        input: &[f64],
+        channels: usize,
+        process_chunks: &[usize],
+        finish_chunks: &[usize],
+        expected_ir_frames: usize,
+    ) -> Vec<f64> {
+        assert!(!process_chunks.is_empty());
+        assert!(!finish_chunks.is_empty());
+        assert!(process_chunks.iter().all(|frames| *frames > 0));
+        assert!(finish_chunks.iter().all(|frames| *frames > 0));
+        assert_eq!(proc.latency(), FrameDuration::ZERO);
+
+        let input_frames = input.len() / channels;
+        let mut output = Vec::with_capacity((input_frames + expected_ir_frames - 1) * channels);
+        let mut cursor = 0;
+        let mut chunk_index = 0;
+        while cursor < input_frames {
+            let frames =
+                process_chunks[chunk_index % process_chunks.len()].min(input_frames - cursor);
+            let sample_start = cursor * channels;
+            let sample_end = (cursor + frames) * channels;
+            let mut block = input[sample_start..sample_end].to_vec();
+            let progress = super::super::traits::process_checked(
+                proc,
+                ProcessBuffers::in_place(AudioBlockMut::new(&mut block, channels).unwrap()),
+            )
+            .unwrap();
+            assert_eq!(progress.consumed_frames(), frames);
+            assert_eq!(progress.produced_frames(), frames);
+            assert_eq!(progress.state(), ProcessState::NeedInput);
+            output.extend_from_slice(&block);
+            cursor += frames;
+            chunk_index += 1;
+        }
+
+        assert_eq!(
+            proc.tail(),
+            TailSpec::finite(expected_ir_frames - 1, 48_000).unwrap()
+        );
+
+        let mut finish_index = 0;
+        let final_produced = loop {
+            let capacity_frames = finish_chunks[finish_index % finish_chunks.len()];
+            let mut scratch = vec![0.0; capacity_frames * channels];
+            let progress = super::super::traits::finish_checked(
+                proc,
+                AudioBlockMut::new(&mut scratch, channels).unwrap(),
+            )
+            .unwrap();
+            output.extend_from_slice(&scratch[..progress.produced_frames() * channels]);
+            if progress.state() == ProcessState::Finished {
+                break progress.produced_frames();
+            }
+            assert_eq!(progress.state(), ProcessState::NeedOutput);
+            assert_eq!(progress.produced_frames(), capacity_frames);
+            finish_index += 1;
+        };
+
+        if expected_ir_frames > 1 {
+            assert!(final_produced > 0);
+        }
+        let mut terminal_scratch = vec![0.0; finish_chunks[0] * channels];
+        assert_eq!(
+            super::super::traits::finish_checked(
+                proc,
+                AudioBlockMut::new(&mut terminal_scratch, channels).unwrap(),
+            )
+            .unwrap(),
+            ProcessProgress::finished(0)
+        );
+        output
+    }
+
+    fn assert_convolver_matches_direct_oracle(
+        input_frames: usize,
+        ir_frames: usize,
+        channels: usize,
+    ) {
+        let input = deterministic_convolver_input(input_frames, channels);
+        let ir = deterministic_convolver_ir(ir_frames, channels);
+        let expected = direct_interleaved_convolution(&input, &ir, channels);
+
+        for (process_chunks, finish_chunks) in [
+            (vec![input_frames], vec![ir_frames.max(1)]),
+            (vec![1, 4, 2, 7, 3], vec![1, 5, 17, 257]),
+        ] {
+            let control = ConvolverControl::new(true);
+            control.publish(FFTConvolver::new(&ir, channels));
+            let mut proc = ConvolverProcessor::new(control);
+            proc.set_sample_rate(48_000).unwrap();
+            let actual = render_convolver_with_patterns(
+                &mut proc,
+                &input,
+                channels,
+                &process_chunks,
+                &finish_chunks,
+                ir_frames,
+            );
+
+            assert_eq!(actual.len(), expected.len());
+            for (sample, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert!(
+                    (actual - expected).abs() <= 1.0e-8,
+                    "sample {sample} differs: actual={actual:?} expected={expected:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn convolver_process_and_finish_match_independent_direct_oracle() {
+        let long_ir_frames = super::super::convolver::PARTITIONED_CONVOLUTION_IR_THRESHOLD + 1;
+        assert_convolver_matches_direct_oracle(23, 1, 1);
+        assert_convolver_matches_direct_oracle(29, 9, 2);
+        assert_convolver_matches_direct_oracle(31, long_ir_frames, 1);
+        assert_convolver_matches_direct_oracle(27, long_ir_frames, 2);
+    }
+
+    #[test]
+    fn convolver_reset_isolates_prior_process_and_partial_finish_history() {
+        const CHANNELS: usize = 2;
+        let ir = deterministic_convolver_ir(11, CHANNELS);
+        let control = ConvolverControl::new(true);
+        let generation = control.publish(FFTConvolver::new(&ir, CHANNELS));
+        let mut proc = ConvolverProcessor::new(control.clone());
+        proc.set_sample_rate(48_000).unwrap();
+
+        let mut prior = deterministic_convolver_input(17, CHANNELS);
+        let _ = super::super::traits::process_checked(
+            &mut proc,
+            ProcessBuffers::in_place(AudioBlockMut::new(&mut prior, CHANNELS).unwrap()),
+        )
+        .unwrap();
+        let mut partial_tail = [0.0; 3 * CHANNELS];
+        let partial = super::super::traits::finish_checked(
+            &mut proc,
+            AudioBlockMut::new(&mut partial_tail, CHANNELS).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(partial.state(), ProcessState::NeedOutput);
+
+        proc.reset().unwrap();
+        assert_eq!(control.status().latest_adopted_generation, generation);
+        let input = deterministic_convolver_input(19, CHANNELS);
+        let actual =
+            render_convolver_with_patterns(&mut proc, &input, CHANNELS, &[2, 5, 1, 7], &[3, 4], 11);
+        let expected = direct_interleaved_convolution(&input, &ir, CHANNELS);
+
+        for (sample, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+            assert!(
+                (actual - expected).abs() <= 1.0e-10,
+                "sample {sample} leaked prior stream state: actual={actual:?} expected={expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn convolver_sample_rate_only_retags_finite_tail_duration() {
+        let control = ConvolverControl::new(true);
+        let generation = control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+        let mut proc = ConvolverProcessor::new(control.clone());
+        proc.set_sample_rate(48_000).unwrap();
+        let mut input = [1.0];
+        let _ = proc.process(&mut input, 1);
+
+        assert_eq!(proc.latency(), FrameDuration::ZERO);
+        assert_eq!(proc.tail(), TailSpec::finite(2, 48_000).unwrap());
+        proc.set_sample_rate(96_000).unwrap();
+        assert_eq!(proc.tail(), TailSpec::finite(2, 96_000).unwrap());
+        assert_eq!(control.status().latest_adopted_generation, generation);
+
+        control.set_enabled(false);
+        assert_eq!(proc.tail(), TailSpec::None);
+        assert_eq!(
+            ConvolverProcessor::new(ConvolverControl::new(true)).tail(),
+            TailSpec::None
+        );
+    }
+
     #[test]
     fn convolver_finish_preserves_last_frame_impulse_tail() {
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0, 0.5, 0.25], 1))));
-        let mut proc = ConvolverProcessor::new(swap, enabled);
+        let control = ConvolverControl::new(true);
+        control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+        let mut proc = ConvolverProcessor::new(control);
         proc.set_sample_rate(48_000).unwrap();
 
         let mut input = vec![0.0, 0.0, 0.0, 1.0];
@@ -2094,6 +2847,52 @@ mod tests {
     }
 
     #[test]
+    fn convolver_terminal_finish_can_retire_to_control_quiescence() {
+        let control = ConvolverControl::new(true);
+        control.publish(FFTConvolver::new(&[1.0, 0.5], 1));
+        let mut proc = ConvolverProcessor::new(control.clone());
+        let mut input = [1.0];
+        let _ = proc.process(&mut input, 1);
+        let mut scratch = [0.0];
+        assert_eq!(
+            super::super::traits::finish_checked(
+                &mut proc,
+                AudioBlockMut::new(&mut scratch, 1).unwrap(),
+            )
+            .unwrap()
+            .state(),
+            ProcessState::Finished
+        );
+
+        control.publish(FFTConvolver::new(&[0.25], 1));
+        control.set_enabled(false);
+        for _ in 0..2 {
+            assert_eq!(
+                super::super::traits::finish_checked(
+                    &mut proc,
+                    AudioBlockMut::new(&mut scratch, 1).unwrap(),
+                )
+                .unwrap(),
+                ProcessProgress::finished(0)
+            );
+        }
+        assert!(control.status().backpressured);
+        assert_eq!(control.status().pending_reclamations, 2);
+
+        assert!(control.reclaim_retired());
+        assert_eq!(
+            super::super::traits::finish_checked(
+                &mut proc,
+                AudioBlockMut::new(&mut scratch, 1).unwrap(),
+            )
+            .unwrap(),
+            ProcessProgress::finished(0)
+        );
+        assert!(control.reclaim_retired());
+        assert!(control.status().is_quiescent());
+    }
+
+    #[test]
     fn finite_finish_paths_are_allocation_free_after_processing() {
         let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
         let mut limiter = PeakLimiterProcessor::new(1, 48_000, limiter_params);
@@ -2101,10 +2900,9 @@ mod tests {
         let _ = limiter.process(&mut limiter_input, 1);
         let mut limiter_output = vec![0.0; limiter.limiter.delay_frames()];
 
-        let swap = Arc::new(ArcSwapOption::empty());
-        let enabled = Arc::new(AtomicBool::new(true));
-        swap.store(Some(Arc::new(FFTConvolver::new(&[1.0, 0.5, 0.25], 1))));
-        let mut convolver = ConvolverProcessor::new(swap, enabled);
+        let control = ConvolverControl::new(true);
+        control.publish(FFTConvolver::new(&[1.0, 0.5, 0.25], 1));
+        let mut convolver = ConvolverProcessor::new(control);
         let mut convolver_input = [1.0, 0.0];
         let _ = convolver.process(&mut convolver_input, 1);
         let mut convolver_output = [0.0; 2];

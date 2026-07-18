@@ -1,17 +1,15 @@
 use std::f64::consts::PI;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use arc_swap::ArcSwapOption;
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
     finish_checked, offline_stage_order_csv, process_checked, AtomicCrossfeedParams,
     AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqParams,
     AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams,
-    AudioBlockMut, AudioBlockRef, Crossfeed, CrossfeedProcessor, DynamicLoudness, Equalizer,
-    FFTConvolver, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
+    AudioBlockMut, AudioBlockRef, ConvolverControl, Crossfeed, CrossfeedProcessor, DynamicLoudness,
+    Equalizer, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
     OutputChainBuilder, OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState,
     RenderTimeline, RenderedOutput, Saturation, SaturationQuality, SaturationType,
     StreamingProcessor, StreamingResampler, EQ_BANDS,
@@ -2603,8 +2601,7 @@ fn render_full_output_chain(
         eq_params,
         saturation_params,
         crossfeed_params,
-        convolver_swap: Arc::new(ArcSwapOption::<FFTConvolver>::empty()),
-        convolver_enabled: Arc::new(AtomicBool::new(false)),
+        convolver_control: ConvolverControl::default(),
         volume_params,
         dynamic_loudness_params,
         dynamic_loudness_telemetry: Arc::new(AtomicDynamicLoudnessTelemetry::new()),
