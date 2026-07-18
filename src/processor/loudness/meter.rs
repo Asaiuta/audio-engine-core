@@ -298,6 +298,20 @@ pub(crate) fn true_peak_fir() -> &'static TruePeakFir {
     TRUE_PEAK_FIR.get_or_init(generate_true_peak_fir)
 }
 
+/// Maximum absolute reconstruction gain for a bounded additive sample error.
+pub(crate) fn true_peak_reconstruction_l1_bound() -> f64 {
+    true_peak_fir()
+        .inter_sample_coeffs
+        .iter()
+        .map(|phase| {
+            phase
+                .iter()
+                .map(|coefficient| coefficient.abs())
+                .sum::<f64>()
+        })
+        .fold(1.0, f64::max)
+}
+
 fn generate_true_peak_fir() -> TruePeakFir {
     let mut fir = TruePeakFir {
         sample_phase_coeff: 0.0,

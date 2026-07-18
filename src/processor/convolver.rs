@@ -7,6 +7,8 @@
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
 
+use super::traits::{AudioBlockRef, ProcessError};
+
 /// Per-channel IR length above which [`FFTConvolver::new`] selects the
 /// partitioned path.
 ///
@@ -31,7 +33,8 @@ pub enum ConvolutionStrategy {
 /// High-performance FFT convolver.
 ///
 /// Zero-allocation implementation: all scratch buffers are pre-allocated at
-/// construction time so `process_into`/`process_inplace` are realtime-safe.
+/// construction time so checked `process_into`/`process_inplace` calls are
+/// realtime-safe and return typed geometry errors without allocation.
 #[derive(Clone)]
 pub struct FFTConvolver {
     engine: ConvolverEngine,
@@ -44,23 +47,20 @@ enum ConvolverEngine {
 }
 
 impl FFTConvolver {
-    /// Create a new FFT convolver with the given impulse response.
-    ///
-    /// # Arguments
-    /// * `ir_data` - Impulse response samples in interleaved format [L0, R0, L1, R1, ...]
-    /// * `channels` - Number of channels
-    ///
-    /// # Panics
-    /// Panics if `channels` is zero, or if `ir_data` holds fewer than one frame
-    /// per channel (`ir_data.len() < channels`).
-    pub fn new(ir_data: &[f64], channels: usize) -> Self {
-        assert!(channels > 0, "channels must be greater than zero");
-        let ir_len_per_ch = ir_data.len() / channels;
-        assert!(
-            ir_len_per_ch > 0,
-            "impulse response must contain at least one frame per channel"
-        );
+    /// Constructs a convolver after validating the public interleaved IR boundary.
+    pub fn new(ir_data: &[f64], channels: usize) -> Result<Self, ProcessError> {
+        let block = AudioBlockRef::new(ir_data, channels)?;
+        if block.frames() == 0 {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "FFTConvolver",
+                operation: "construct",
+                message: "impulse response must contain at least one complete frame",
+            });
+        }
+        Ok(Self::from_validated_ir(ir_data, channels, block.frames()))
+    }
 
+    fn from_validated_ir(ir_data: &[f64], channels: usize, ir_len_per_ch: usize) -> Self {
         let engine = if ir_len_per_ch > PARTITIONED_CONVOLUTION_IR_THRESHOLD {
             ConvolverEngine::Partitioned(Box::new(PartitionedConvolver::new(ir_data, channels)))
         } else {
@@ -127,31 +127,157 @@ impl FFTConvolver {
     /// # Safety
     /// This method is real-time safe: no heap allocations, no mutex, no syscalls.
     #[inline]
-    pub fn process_into(&mut self, input: &[f64], output: &mut [f64]) {
+    pub fn process_into(&mut self, input: &[f64], output: &mut [f64]) -> Result<(), ProcessError> {
+        self.try_process_into(input, output)
+    }
+
+    #[inline]
+    fn process_into_validated(&mut self, input: &[f64], output: &mut [f64]) {
         match &mut self.engine {
             ConvolverEngine::OverlapSave(engine) => engine.process_into(input, output),
             ConvolverEngine::Partitioned(engine) => engine.process_into(input, output),
         }
     }
 
+    /// Checked zero-allocation processing entry point.
+    pub fn try_process_into(
+        &mut self,
+        input: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ProcessError> {
+        let input_block = AudioBlockRef::new(input, self.channels())?;
+        let output_block = AudioBlockRef::new(output, self.channels())?;
+        if input_block.frames() != output_block.frames() {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "FFTConvolver",
+                operation: "process_into",
+                message: "input and output must contain the same number of complete frames",
+            });
+        }
+        self.process_into_validated(input, output);
+        Ok(())
+    }
+
     /// Process audio block, returning a new Vec (convenience wrapper).
     ///
-    /// Note: This method allocates. For real-time use, prefer process_into().
-    pub fn process(&mut self, input: &[f64]) -> Vec<f64> {
+    /// Note: This method allocates. For real-time use, prefer `process_into`.
+    pub fn process(&mut self, input: &[f64]) -> Result<Vec<f64>, ProcessError> {
         let mut output = vec![0.0; input.len()];
-        self.process_into(input, &mut output);
-        output
+        self.process_into(input, &mut output)?;
+        Ok(output)
     }
 
     /// Process audio block in-place with zero allocation.
     ///
     /// Uses internal scratch buffers for temporary storage.
     #[inline]
-    pub fn process_inplace(&mut self, buf: &mut [f64]) {
+    pub fn process_inplace(&mut self, buf: &mut [f64]) -> Result<(), ProcessError> {
+        self.try_process_inplace(buf)
+    }
+
+    #[inline]
+    fn process_inplace_validated(&mut self, buf: &mut [f64]) {
         match &mut self.engine {
             ConvolverEngine::OverlapSave(engine) => engine.process_inplace(buf),
             ConvolverEngine::Partitioned(engine) => engine.process_inplace(buf),
         }
+    }
+
+    /// Process with one convolution kernel and a complementary dry/wet ramp.
+    ///
+    /// Existing engine scratch preserves the dry samples, so activation and
+    /// disable fades add no allocation and require no second kernel.
+    #[inline]
+    pub fn process_inplace_with_wet_ramp(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        fade_in: bool,
+    ) -> Result<(), ProcessError> {
+        let (start_wet, target_wet) = if fade_in { (0.0, 1.0) } else { (1.0, 0.0) };
+        self.try_process_inplace_with_wet_transition(
+            buf,
+            start_frame,
+            total_frames,
+            start_wet,
+            target_wet,
+        )
+    }
+
+    /// Checked in-place wet-ramp entry point.
+    pub fn try_process_inplace_with_wet_ramp(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        fade_in: bool,
+    ) -> Result<(), ProcessError> {
+        let (start_wet, target_wet) = if fade_in { (0.0, 1.0) } else { (1.0, 0.0) };
+        self.try_process_inplace_with_wet_transition(
+            buf,
+            start_frame,
+            total_frames,
+            start_wet,
+            target_wet,
+        )
+    }
+
+    pub(crate) fn try_process_inplace_with_wet_transition(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        start_wet: f64,
+        target_wet: f64,
+    ) -> Result<(), ProcessError> {
+        AudioBlockRef::new(buf, self.channels())?;
+        self.process_inplace_with_wet_transition_validated(
+            buf,
+            start_frame,
+            total_frames,
+            start_wet,
+            target_wet,
+        );
+        Ok(())
+    }
+
+    #[inline]
+    fn process_inplace_with_wet_transition_validated(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        start_wet: f64,
+        target_wet: f64,
+    ) {
+        if total_frames == 0 {
+            self.process_inplace_validated(buf);
+            return;
+        }
+        match &mut self.engine {
+            ConvolverEngine::OverlapSave(engine) => engine.process_inplace_with_wet_transition(
+                buf,
+                start_frame,
+                total_frames,
+                start_wet,
+                target_wet,
+            ),
+            ConvolverEngine::Partitioned(engine) => engine.process_inplace_with_wet_transition(
+                buf,
+                start_frame,
+                total_frames,
+                start_wet,
+                target_wet,
+            ),
+        }
+    }
+
+    /// Checked in-place processing entry point.
+    pub fn try_process_inplace(&mut self, buf: &mut [f64]) -> Result<(), ProcessError> {
+        AudioBlockRef::new(buf, self.channels())?;
+        self.process_inplace_validated(buf);
+        Ok(())
     }
 }
 
@@ -443,6 +569,61 @@ impl OverlapSaveConvolver {
             }
         }
     }
+
+    #[inline]
+    fn process_inplace_with_wet_transition(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        start_wet: f64,
+        target_wet: f64,
+    ) {
+        let channels = self.channels;
+        let total = buf.len() / channels;
+        let fft_size = self.fft_size;
+        let ir_len = self.ir_len;
+        let step_size = fft_size - ir_len + 1;
+        let inv_n = 1.0 / fft_size as f64;
+
+        for ch in 0..channels {
+            let mut processed_frames = 0;
+            while processed_frames < total {
+                let chunk_len = std::cmp::min(step_size, total - processed_frames);
+                Self::prepare_channel_chunk(
+                    &mut self.scratch_complex,
+                    &self.overlap_buffers[ch],
+                    buf,
+                    channels,
+                    ch,
+                    processed_frames,
+                    chunk_len,
+                    ir_len,
+                );
+                self.process_channel_chunk_fft(ch);
+                // The overlap must see the original input, before any sample
+                // is replaced by the mixed output.
+                Self::update_channel_overlap(
+                    &mut self.overlap_buffers[ch],
+                    buf,
+                    channels,
+                    ch,
+                    processed_frames,
+                    chunk_len,
+                    ir_len,
+                );
+                for i in 0..chunk_len {
+                    let frame = start_frame.saturating_add(processed_frames + i);
+                    let wet = transition_weight(frame, total_frames, start_wet, target_wet);
+                    let index = (processed_frames + i) * channels + ch;
+                    let dry = buf[index];
+                    let filtered = self.scratch_complex[i + ir_len - 1].re * inv_n;
+                    buf[index] = dry.mul_add(1.0 - wet, filtered * wet);
+                }
+                processed_frames += chunk_len;
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -598,6 +779,36 @@ impl PartitionedConvolver {
     }
 
     #[inline]
+    fn process_inplace_with_wet_transition(
+        &mut self,
+        buf: &mut [f64],
+        start_frame: usize,
+        total_frames: usize,
+        start_wet: f64,
+        target_wet: f64,
+    ) {
+        let total_frames_in_block = buf.len() / self.channels;
+        let mut processed_frames = 0;
+        while processed_frames < total_frames_in_block {
+            let chunk_frames = (total_frames_in_block - processed_frames).min(self.partition_size);
+            let chunk_samples = chunk_frames * self.channels;
+            let start = processed_frames * self.channels;
+            let end = start + chunk_samples;
+            self.inplace_scratch[..chunk_samples].copy_from_slice(&buf[start..end]);
+            self.head
+                .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end]);
+            self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end]);
+            for sample in 0..chunk_samples {
+                let frame = start_frame.saturating_add(processed_frames + sample / self.channels);
+                let wet = transition_weight(frame, total_frames, start_wet, target_wet);
+                let dry = self.inplace_scratch[sample];
+                buf[start + sample] = dry.mul_add(1.0 - wet, buf[start + sample] * wet);
+            }
+            processed_frames += chunk_frames;
+        }
+    }
+
+    #[inline]
     fn add_partitioned_tail(&mut self, input: &[f64], output: &mut [f64]) {
         let total_frames = input.len() / self.channels;
 
@@ -706,6 +917,16 @@ impl PartitionedConvolver {
     }
 }
 
+#[inline]
+fn transition_weight(frame: usize, total_frames: usize, start_wet: f64, target_wet: f64) -> f64 {
+    if total_frames <= 1 {
+        return target_wet;
+    }
+    let t = (frame.min(total_frames - 1) as f64) / (total_frames - 1) as f64;
+    let smooth = t * t * (3.0 - 2.0 * t);
+    start_wet + (target_wet - start_wet) * smooth
+}
+
 fn interleaved_ir_head(ir_data: &[f64], channels: usize, partition_size: usize) -> Vec<f64> {
     let ir_len = ir_data.len() / channels;
     let head_frames = ir_len.min(partition_size);
@@ -753,12 +974,12 @@ mod tests {
     fn test_convolver_identity() {
         // Identity impulse response [1.0, 0.0, 0.0, ...]
         let ir = vec![1.0, 0.0, 0.0, 0.0]; // 4 taps mono
-        let mut conv = FFTConvolver::new(&ir, 1);
+        let mut conv = FFTConvolver::new(&ir, 1).unwrap();
 
         let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let mut output = vec![0.0; input.len()];
 
-        conv.process_into(&input, &mut output);
+        conv.process_into(&input, &mut output).unwrap();
 
         // With identity IR, output should match input
         for i in 0..input.len() {
@@ -776,28 +997,44 @@ mod tests {
     fn test_convolver_stereo() {
         // Simple stereo IR
         let ir = vec![1.0, 1.0, 0.0, 0.0]; // 2 taps stereo (both channels same)
-        let mut conv = FFTConvolver::new(&ir, 2);
+        let mut conv = FFTConvolver::new(&ir, 2).unwrap();
 
         let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let mut output = vec![0.0; input.len()];
 
-        conv.process_into(&input, &mut output);
+        conv.process_into(&input, &mut output).unwrap();
 
         // Verify output is not all zeros
         assert!(output.iter().any(|&x| x != 0.0));
     }
 
     #[test]
+    fn public_convolver_entries_reject_incomplete_interleaved_geometry() {
+        assert!(FFTConvolver::new(&[1.0, 0.5, 0.25], 2).is_err());
+
+        let mut convolver = FFTConvolver::new(&[1.0, 0.5], 2).unwrap();
+        let mut output = [0.0; 2];
+        assert!(convolver
+            .try_process_into(&[1.0, 2.0, 3.0], &mut output)
+            .is_err());
+        assert!(convolver.try_process_inplace(&mut [1.0, 2.0, 3.0]).is_err());
+        assert!(convolver
+            .process_into(&[1.0, 2.0, 3.0], &mut output)
+            .is_err());
+        assert!(convolver.process_inplace(&mut [1.0, 2.0, 3.0]).is_err());
+    }
+
+    #[test]
     fn test_zero_allocation() {
         let ir: Vec<f64> = (0..1024).map(|i| (i as f64 / 1024.0).sin()).collect();
-        let mut conv = FFTConvolver::new(&ir, 1);
+        let mut conv = FFTConvolver::new(&ir, 1).unwrap();
 
         let input = vec![0.5; 4096];
         let mut output = vec![0.0; 4096];
 
         // Multiple calls should not allocate
         for _ in 0..100 {
-            conv.process_into(&input, &mut output);
+            conv.process_into(&input, &mut output).unwrap();
         }
 
         // Just verify it doesn't crash
@@ -808,7 +1045,7 @@ mod tests {
     fn test_partitioned_strategy_selected_for_long_ir() {
         let channels = 2;
         let ir = synthetic_ir(PARTITIONED_CONVOLUTION_IR_THRESHOLD + 1, channels);
-        let conv = FFTConvolver::new(&ir, channels);
+        let conv = FFTConvolver::new(&ir, channels).unwrap();
 
         assert_eq!(conv.strategy(), ConvolutionStrategy::Partitioned);
         assert_eq!(
@@ -822,7 +1059,7 @@ mod tests {
     fn test_overlap_save_strategy_retained_for_short_ir() {
         let channels = 2;
         let ir = synthetic_ir(PARTITIONED_CONVOLUTION_IR_THRESHOLD, channels);
-        let conv = FFTConvolver::new(&ir, channels);
+        let conv = FFTConvolver::new(&ir, channels).unwrap();
 
         assert_eq!(conv.strategy(), ConvolutionStrategy::OverlapSave);
         assert_eq!(conv.partition_size(), None);
@@ -835,13 +1072,13 @@ mod tests {
         let input = synthetic_input(8192, channels);
 
         let mut reference = OverlapSaveConvolver::new(&ir, channels);
-        let mut partitioned = FFTConvolver::new(&ir, channels);
+        let mut partitioned = FFTConvolver::new(&ir, channels).unwrap();
         assert_eq!(partitioned.strategy(), ConvolutionStrategy::Partitioned);
 
         let mut expected = vec![0.0; input.len()];
         let mut actual = vec![0.0; input.len()];
         reference.process_into(&input, &mut expected);
-        partitioned.process_into(&input, &mut actual);
+        partitioned.process_into(&input, &mut actual).unwrap();
 
         assert_close(&expected, &actual, 1.0e-8);
     }
@@ -853,13 +1090,13 @@ mod tests {
             let input = synthetic_input(8192, channels);
 
             let mut reference = OverlapSaveConvolver::new(&ir, channels);
-            let mut partitioned = FFTConvolver::new(&ir, channels);
+            let mut partitioned = FFTConvolver::new(&ir, channels).unwrap();
             assert_eq!(partitioned.strategy(), ConvolutionStrategy::Partitioned);
 
             let mut expected = vec![0.0; input.len()];
             let mut actual = vec![0.0; input.len()];
             reference.process_into(&input, &mut expected);
-            partitioned.process_into(&input, &mut actual);
+            partitioned.process_into(&input, &mut actual).unwrap();
 
             assert_close(&expected, &actual, 1.0e-8);
         }
@@ -873,7 +1110,7 @@ mod tests {
         let chunk_frames = [127, 512, 73, 1024, 1500, 31, 2048, 640, 997];
 
         let mut reference = OverlapSaveConvolver::new(&ir, channels);
-        let mut partitioned = FFTConvolver::new(&ir, channels);
+        let mut partitioned = FFTConvolver::new(&ir, channels).unwrap();
         let mut expected = vec![0.0; input.len()];
         let mut actual = vec![0.0; input.len()];
         let mut frame = 0;
@@ -886,7 +1123,9 @@ mod tests {
             let end = start + frames * channels;
 
             reference.process_into(&input[start..end], &mut expected[start..end]);
-            partitioned.process_into(&input[start..end], &mut actual[start..end]);
+            partitioned
+                .process_into(&input[start..end], &mut actual[start..end])
+                .unwrap();
 
             frame += frames;
             chunk_index += 1;
@@ -902,16 +1141,16 @@ mod tests {
         let warmup = synthetic_input(2048, channels);
         let input = synthetic_input(4096, channels);
 
-        let mut reused = FFTConvolver::new(&ir, channels);
-        let mut fresh = FFTConvolver::new(&ir, channels);
+        let mut reused = FFTConvolver::new(&ir, channels).unwrap();
+        let mut fresh = FFTConvolver::new(&ir, channels).unwrap();
         let mut scratch = vec![0.0; warmup.len()];
-        reused.process_into(&warmup, &mut scratch);
+        reused.process_into(&warmup, &mut scratch).unwrap();
         reused.reset();
 
         let mut expected = vec![0.0; input.len()];
         let mut actual = vec![0.0; input.len()];
-        fresh.process_into(&input, &mut expected);
-        reused.process_into(&input, &mut actual);
+        fresh.process_into(&input, &mut expected).unwrap();
+        reused.process_into(&input, &mut actual).unwrap();
 
         assert_close(&expected, &actual, 1.0e-8);
     }
@@ -922,13 +1161,13 @@ mod tests {
         let ir = synthetic_ir(PARTITIONED_CONVOLUTION_IR_THRESHOLD + 2049, channels);
         let input = synthetic_input(8192, channels);
 
-        let mut into_conv = FFTConvolver::new(&ir, channels);
-        let mut inplace_conv = FFTConvolver::new(&ir, channels);
+        let mut into_conv = FFTConvolver::new(&ir, channels).unwrap();
+        let mut inplace_conv = FFTConvolver::new(&ir, channels).unwrap();
 
         let mut expected = vec![0.0; input.len()];
         let mut actual = input.clone();
-        into_conv.process_into(&input, &mut expected);
-        inplace_conv.process_inplace(&mut actual);
+        into_conv.process_into(&input, &mut expected).unwrap();
+        inplace_conv.process_inplace(&mut actual).unwrap();
 
         assert_close(&expected, &actual, 1.0e-8);
     }
@@ -937,14 +1176,14 @@ mod tests {
     fn test_partitioned_process_inplace_is_allocation_free_after_setup() {
         let channels = 2;
         let ir = synthetic_ir(PARTITIONED_CONVOLUTION_IR_THRESHOLD + 2049, channels);
-        let mut conv = FFTConvolver::new(&ir, channels);
+        let mut conv = FFTConvolver::new(&ir, channels).unwrap();
         let mut buffer = synthetic_input(2048, channels);
 
-        conv.process_inplace(&mut buffer);
+        conv.process_inplace(&mut buffer).unwrap();
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..32 {
-                conv.process_inplace(&mut buffer);
+                conv.process_inplace(&mut buffer).unwrap();
             }
         });
     }
@@ -955,12 +1194,12 @@ mod tests {
     fn test_inplace_identity() {
         // Identity IR: process_inplace should preserve input
         let ir = vec![1.0, 0.0, 0.0, 0.0]; // 4 taps mono
-        let mut conv = FFTConvolver::new(&ir, 1);
+        let mut conv = FFTConvolver::new(&ir, 1).unwrap();
 
         let original = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let mut buf = original.clone();
 
-        conv.process_inplace(&mut buf);
+        conv.process_inplace(&mut buf).unwrap();
 
         for i in 0..original.len() {
             assert!(
@@ -979,14 +1218,14 @@ mod tests {
         let ir: Vec<f64> = (0..32).map(|i| (i as f64 / 32.0).sin() * 0.1).collect();
         let input: Vec<f64> = (0..256).map(|i| (i as f64 * 0.05).sin()).collect();
 
-        let mut conv1 = FFTConvolver::new(&ir, 1);
-        let mut conv2 = FFTConvolver::new(&ir, 1);
+        let mut conv1 = FFTConvolver::new(&ir, 1).unwrap();
+        let mut conv2 = FFTConvolver::new(&ir, 1).unwrap();
 
         let mut output_into = vec![0.0; input.len()];
-        conv1.process_into(&input, &mut output_into);
+        conv1.process_into(&input, &mut output_into).unwrap();
 
         let mut buf_inplace = input.clone();
-        conv2.process_inplace(&mut buf_inplace);
+        conv2.process_inplace(&mut buf_inplace).unwrap();
 
         for i in 0..input.len() {
             assert!(
@@ -1007,17 +1246,17 @@ mod tests {
             .map(|i| ((i + 3) as f64 * 0.11).cos() * 0.5)
             .collect();
 
-        let mut process_conv = FFTConvolver::new(&ir, channels);
-        let mut into_conv = FFTConvolver::new(&ir, channels);
-        let mut inplace_conv = FFTConvolver::new(&ir, channels);
+        let mut process_conv = FFTConvolver::new(&ir, channels).unwrap();
+        let mut into_conv = FFTConvolver::new(&ir, channels).unwrap();
+        let mut inplace_conv = FFTConvolver::new(&ir, channels).unwrap();
 
-        let process_output = process_conv.process(&input);
+        let process_output = process_conv.process(&input).unwrap();
 
         let mut into_output = vec![f64::NAN; input.len()];
-        into_conv.process_into(&input, &mut into_output);
+        into_conv.process_into(&input, &mut into_output).unwrap();
 
         let mut inplace_output = input.clone();
-        inplace_conv.process_inplace(&mut inplace_output);
+        inplace_conv.process_inplace(&mut inplace_output).unwrap();
 
         for i in 0..input.len() {
             assert!(
@@ -1046,11 +1285,11 @@ mod tests {
     fn test_inplace_small_buffer() {
         // Buffer smaller than IR length
         let ir = vec![1.0, 0.5, 0.25, 0.125, 0.0, 0.0, 0.0, 0.0]; // 8 taps mono
-        let mut conv = FFTConvolver::new(&ir, 1);
+        let mut conv = FFTConvolver::new(&ir, 1).unwrap();
 
         // Only 4 samples (less than 8-tap IR)
         let mut buf = vec![1.0, 0.0, 0.0, 0.0];
-        conv.process_inplace(&mut buf);
+        conv.process_inplace(&mut buf).unwrap();
 
         // Should produce convolution of delta with IR, truncated to 4 samples
         // Result: [1.0, 0.5, 0.25, 0.125]
@@ -1072,12 +1311,12 @@ mod tests {
     fn test_inplace_stereo_identity() {
         // Stereo identity IR
         let ir = vec![1.0, 1.0, 0.0, 0.0]; // 2 taps stereo identity
-        let mut conv = FFTConvolver::new(&ir, 2);
+        let mut conv = FFTConvolver::new(&ir, 2).unwrap();
 
         let original = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 4 frames stereo
         let mut buf = original.clone();
 
-        conv.process_inplace(&mut buf);
+        conv.process_inplace(&mut buf).unwrap();
 
         for i in 0..original.len() {
             assert!(
@@ -1094,14 +1333,14 @@ mod tests {
     fn test_inplace_multi_chunk() {
         // Multiple consecutive calls with continuity
         let ir = vec![1.0, 0.5, 0.0, 0.0]; // 4 taps mono
-        let mut conv = FFTConvolver::new(&ir, 1);
+        let mut conv = FFTConvolver::new(&ir, 1).unwrap();
 
         let mut buf1 = vec![1.0, 0.0, 0.0, 0.0];
-        conv.process_inplace(&mut buf1);
+        conv.process_inplace(&mut buf1).unwrap();
 
         // Second chunk should carry overlap from first
         let mut buf2 = vec![0.0, 0.0, 0.0, 0.0];
-        conv.process_inplace(&mut buf2);
+        conv.process_inplace(&mut buf2).unwrap();
 
         // buf1 should be [1.0, 0.5, 0.0, 0.0]
         assert!((buf1[0] - 1.0).abs() < 1e-10);

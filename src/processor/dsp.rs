@@ -173,6 +173,23 @@ impl NoiseShaperCurve {
         }
     }
 
+    /// Worst-case additive quantization error in linear sample units.
+    ///
+    /// The bound follows the implementation: each feedback error is clamped
+    /// to two integer LSBs, TPDF is strictly below one LSB, and rounding adds
+    /// at most half an LSB.
+    pub fn quantization_error_bound(self, bits: u32) -> f64 {
+        let bits = bits.clamp(8, 32);
+        let coefficient_l1 = self
+            .coeffs()
+            .iter()
+            .take(self.active_taps())
+            .map(|coefficient| coefficient.abs())
+            .sum::<f64>();
+        let integer_lsb_bound = 2.0 * coefficient_l1 + 1.5;
+        integer_lsb_bound / 2.0_f64.powi(bits as i32 - 1)
+    }
+
     #[inline]
     fn active_taps(&self) -> usize {
         match self {

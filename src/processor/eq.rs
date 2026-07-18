@@ -232,6 +232,18 @@ impl Equalizer {
             }
         }
     }
+
+    /// Start a new stream from the latest target coefficients without a
+    /// carry-over parameter transition or signal history.
+    pub(crate) fn reset_settled(&mut self) {
+        for channel in 0..self.channels {
+            for band in 0..EQ_BANDS {
+                self.bands[channel][band].clone_from(&self.target_bands[channel][band]);
+            }
+        }
+        self.smooth_counter.fill(0);
+        self.reset();
+    }
 }
 
 #[cfg(test)]
@@ -386,6 +398,27 @@ mod tests {
             .flatten()
             .chain(eq.target_bands.iter().flatten())
             .all(|band| band.z1 == 0.0 && band.z2 == 0.0));
+    }
+
+    #[test]
+    fn settled_reset_adopts_target_and_clears_transition_state() {
+        let mut eq = Equalizer::new(2, 48_000.0);
+        eq.set_enabled(true);
+        eq.set_band_gain(5, 9.0, 48_000.0);
+        let mut buffer = vec![0.25; 2 * 137];
+        eq.process(&mut buffer);
+        assert!(eq.smooth_counter[5] > 0);
+
+        eq.reset_settled();
+
+        assert!(eq.smooth_counter.iter().all(|&counter| counter == 0));
+        for channel in 0..2 {
+            for band in 0..EQ_BANDS {
+                assert_section_bit_equal(&eq.bands[channel][band], &eq.target_bands[channel][band]);
+                assert_eq!(eq.bands[channel][band].z1, 0.0);
+                assert_eq!(eq.bands[channel][band].z2, 0.0);
+            }
+        }
     }
 
     #[test]
