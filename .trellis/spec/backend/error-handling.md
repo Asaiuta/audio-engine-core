@@ -54,6 +54,26 @@ non-RT, decode-side path where sleeping/logging is acceptable.
   stringify an error early if a typed variant exists.
 - `Result` aliases per module are fine; the variant set is the contract.
 
+## DSP Process Errors
+
+Streaming processor, callback-chain, and offline-render construction propagate
+`ProcessError` without a `String` compatibility boundary. In particular, all
+three Convolver consumer entry points use the same conflict variant:
+
+```rust
+ProcessError::ConsumerAlreadyActive { processor: "Convolver" }
+
+ConvolverProcessor::new(control) -> Result<ConvolverProcessor, ProcessError>
+OutputChainBuilder::build_callback_chain(&self) -> Result<DspChain, ProcessError>
+OutputChainBuilder::build_render_chain(&self) -> Result<OutputRenderChain, ProcessError>
+```
+
+The consumer lease is private; callers cannot forge or mismatch it. A build
+that fails after acquiring the lease must release it through normal drop so a
+later construction can succeed. String conversion is allowed only at an
+external reporting boundary such as a custom benchmark whose enclosing return
+type is already `Result<_, String>`.
+
 ## No Panics On The Hot Path
 
 The DSP/callback path must not panic: no `unwrap()`, `expect()`, or `panic!` in

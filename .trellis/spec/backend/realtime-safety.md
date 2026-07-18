@@ -63,6 +63,13 @@ The following are **forbidden** inside the hot path:
   control/offline operations. Publication/reclamation may allocate or take the
   control-only serialization gate; `ConvolverProcessor::process` and `finish`
   never acquire that gate and only perform fixed atomic/ownership-stage work.
+  Dynamic kernel ownership crosses through one published and one retired
+  `AtomicPtr` slot. The control side creates and destroys `Box` values; audio
+  only performs a bounded exchange/CAS and moves unique local ownership.
+- `ArcSwap` remains valid for small immutable parameter snapshots whose guards
+  never become the last owner of a heavy object. It is forbidden for dynamic
+  Convolver kernel ownership: its first-use debt node, writer traversal, and
+  last-`Arc` destruction do not satisfy the hard realtime bound.
 - Decode-side allocation: the decoder is not on the audio callback. Even so,
   `decode_next_into` reuses its `sample_buf` and is allocation-free in steady
   state.
@@ -94,4 +101,9 @@ Dynamic heavy-kernel publication additionally requires a destructor-thread
 probe and a no-allocation assertion around adoption, retirement, backpressure,
 recovery, and terminal finish. A control snapshot must expose enough monotonic
 counters to distinguish a publication waiting for the next block from a
-retirement slot that the control side has stopped consuming.
+retirement slot that the control side has stopped consuming. Run the first
+audio-side boundary on a newly created OS thread so TLS or lazy initialization
+cannot be hidden by control-thread setup. Authoritative teardown checks must
+version their audio-drained acknowledgement and recheck both ownership slots
+after reading that acknowledgement; an eventually-consistent telemetry
+snapshot is not a lifecycle barrier.

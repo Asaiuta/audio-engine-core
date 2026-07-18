@@ -43,7 +43,14 @@ src/
     ├── resampler.rs  # SoX VHQ Resampler / StreamingResampler
     ├── automix_analysis.rs # offline automix analysis
     ├── lockfree_params.rs  # atomic parameter snapshots (RT boundary)
-    ├── adapters.rs   # StreamingProcessor adapters over each processor
+    ├── adapters.rs   # shared fixed-stage helpers + non-Convolver adapters
+    ├── adapters/
+    │   ├── convolver.rs          # Convolver RT state machine
+    │   ├── convolver/
+    │   │   ├── control.rs        # publisher, lease, telemetry, quiescence
+    │   │   ├── handoff.rs        # AtomicPtr/Box unique-ownership slots
+    │   │   └── tests.rs          # private ownership/lifecycle races
+    │   └── tests.rs              # remaining adapter tests
     ├── downmix.rs    # Downmixer + DownmixCoefficients (pre-chain layout mapping)
     ├── dsp_chain.rs  # DspChain: composable processing chain
     ├── traits.rs     # StreamingProcessor lifecycle, block/progress/timing/error types
@@ -80,7 +87,8 @@ examples/   # resample_sine, equalizer_curve (no audio files / features needed)
 ## Where New Code Goes
 
 - A new DSP processor → `src/processor/<name>.rs`, wired through `mod.rs`
-  re-exports, with an `adapters.rs` adapter and (if tunable) a
+  re-exports, with an `adapters.rs` adapter (or a targeted vertical adapter
+  module when it owns a substantial control/RT protocol) and, if tunable, a
   `lockfree_params.rs` snapshot type.
 - New decoder behavior → `src/decoder/`.
 - A new benchmark → `benches/<name>.rs` plus a `[[bench]] harness = false`

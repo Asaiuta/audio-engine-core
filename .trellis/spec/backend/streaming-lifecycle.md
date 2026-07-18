@@ -50,7 +50,7 @@ OutputChainBuilder::build_callback_chain(&self)
 OutputChainBuilder::build_render_chain_with_policy(
     &self,
     policy: OfflineRenderPolicy,
-) -> Result<OutputRenderChain, String>
+) -> Result<OutputRenderChain, ProcessError>
 
 OutputRenderChain::render_with_policy(
     &mut self,
@@ -304,30 +304,47 @@ ConvolverControl::new(enabled: bool) -> ConvolverControl
 ConvolverControl::publish(&self, kernel: FFTConvolver) -> u64
 ConvolverControl::reclaim_retired(&self) -> bool
 ConvolverControl::status(&self) -> ConvolverStatus
-ConvolverProcessor::new(control: ConvolverControl) -> ConvolverProcessor
+ConvolverControl::is_quiescent(&self) -> bool
+ConvolverProcessor::new(control: ConvolverControl)
+    -> Result<ConvolverProcessor, ProcessError>
 OutputChainBuilder::convolver_control(&self) -> ConvolverControl
+OutputChainBuilder::build_callback_chain(&self) -> Result<DspChain, ProcessError>
+OutputChainBuilder::build_render_chain(&self)
+    -> Result<OutputRenderChain, ProcessError>
 ```
 
 ### 3. Contracts
 
-* A control handle is cloneable for control-side callers but has exactly one
-  live audio consumer. Separate callback/render consumers require separate
-  handles.
+* A control handle is cloneable for control-side publishers, but a private CAS
+  lease permits exactly one live audio consumer. Direct processor, callback,
+  and offline-render construction all acquire the same lease. The lease is
+  released after any later construction failure and when the consumer drops.
 * `publish` accepts the kernel by value. It serializes concurrent control-side
   publish/reclaim calls, assigns install-order generations, opportunistically
   drains the retired slot, and is latest-wins until audio withdraws a value.
   The control-only serialization gate is never acquired by audio.
+* Publication and retirement use two fixed `AtomicPtr` ownership slots. The
+  control side converts `Box` values to/from raw pointers; audio withdraws into
+  unique `AudioOwned` values and only performs a fixed exchange/CAS. Audio
+  never allocates, deallocates, scans a thread registry, or adjusts an `Arc`
+  reference count for a heavy kernel.
 * Audio ownership is fixed and bounded: `owned`, `incoming`,
-  `pending_retire`, and one `retired` hand-off slot. Audio may withdraw,
-  adopt, or hand off ownership, but never drops or deep-clones a heavy kernel.
+  `pending_retire`, and one `retired` hand-off slot. A full retirement slot
+  keeps the old kernel active and defers adoption without dropping either
+  value on audio.
 * A full retirement path keeps the current kernel processing, leaves the new
   adoption pending, and reports `backpressured` plus
   `pending_reclamations` through the allocation-free status snapshot.
-* `set_enabled(false)` followed by process or repeated finish calls drains
-  disabled ownership staging. After control-side `reclaim_retired()` consumes
-  every hand-off, `status().is_quiescent()` is the only condition that permits
-  destroying an audio-owned processor from a non-realtime thread. Publishers
-  must be stopped before taking that shutdown snapshot and remain stopped.
+* The first `finish` call locks the current kernel generation and exact
+  `ir_length - 1` remaining frames. A later disable records control intent but
+  cannot retire that kernel until the promised tail reaches terminal
+  `Finished`; repeated terminal finish calls then progress disabled retirement.
+* `latest_published_generation` and `audio_drained_generation` form the
+  authoritative acknowledgement. `ConvolverStatus` is eventually-consistent
+  telemetry only. `ConvolverControl::is_quiescent()` runs under the control
+  gate, requires disabled plus equal generations, and checks both ownership
+  slots again after the generation read to close the retirement/acknowledgement
+  TOCTOU window. Publishers must stop before this check and remain stopped.
 * Dynamic convolver timing remains zero algorithmic latency and a finite
   `ir_length - 1` tail in the current sample-rate domain; reset preserves the
   adopted control/kernel configuration while clearing signal history.
@@ -336,12 +353,15 @@ OutputChainBuilder::convolver_control(&self) -> ConvolverControl
 
 | Condition | Required result |
 | --- | --- |
-| More than one live audio consumer uses one control | documented misuse; use distinct controls |
+| More than one live direct/callback/render consumer uses one control | `ProcessError::ConsumerAlreadyActive { processor: "Convolver" }` |
 | Control publishes before audio withdraws | older publication is superseded on control and counted |
 | Retirement slot is full | normal processing continues; adoption is deferred and status is backpressured |
 | Control reclaims a retired slot | next block/finish retries the pending hand-off without waiting |
+| Disable occurs after a partial finish | the locked generation emits every remaining frame, with no backend error or truncation |
 | Disabled terminal processor still owns a kernel | repeated `finish` calls advance retirement; no `NeedInput` is returned |
-| Owned kernel loses unique ownership | allocation-free `ProcessError::Backend`, never an audio-side clone |
+| Build fails after acquiring the consumer lease | the partial chain drops and a later consumer can acquire the same control |
+| Telemetry reports idle during a concurrent update | no teardown decision is made from `status()`; call `control.is_quiescent()` |
+| Audio stores retired ownership while acknowledging drained | the final slot recheck makes `is_quiescent()` return `false` |
 | `reclaim_retired` called with no retired value | returns `false`, no state change |
 
 ### 5. Good / Base / Bad Cases
@@ -351,9 +371,11 @@ OutputChainBuilder::convolver_control(&self) -> ConvolverControl
   kernels off the callback thread.
 * Base: a burst of publications coalesces to the latest withdrawn generation
   while status counters remain bounded and auditable.
-* Bad: retaining a strong kernel `Arc` in the producer, or exposing an
-  internal retirement slot only before type erasure, prevents unique adoption
-  or makes reclamation unreachable.
+* Good: a partial finish continues through a concurrent disable, then a
+  repeated terminal finish retires the locked kernel to the control side.
+* Bad: retaining a strong kernel `Arc`, using ArcSwap for the ownership slot,
+  or treating `status().audio_idle` as teardown authority can move destruction
+  to audio or admit a stale lifecycle decision.
 
 ### 6. Tests Required
 
@@ -364,6 +386,18 @@ OutputChainBuilder::convolver_control(&self) -> ConvolverControl
   and latest install under concurrent control clones.
 * `convolver_kernels_are_destroyed_by_control_not_audio_thread`: replaced and
   retired destructor probes never fire on the audio thread.
+* `first_process_on_a_new_audio_thread_is_allocation_free` and
+  `terminal_finish_and_retirement_are_allocation_free_on_new_audio_thread`:
+  first-use adoption/finish/retirement do not rely on same-thread prewarming.
+* `consumer_lease_rejects_second_direct_consumer_and_releases_on_drop` plus
+  output-chain entry tests: direct, callback, and render conflicts return the
+  same typed error, and failed construction/drop releases the lease.
+* `disable_during_partial_finish_preserves_locked_tail`: every declared tail
+  frame survives a mid-finish disable and terminal finish is idempotent.
+* `publication_during_idle_ack_cannot_commit_a_stale_generation` and
+  `quiescence_rechecks_retirement_after_generation_acknowledgement`: stale
+  acknowledgement and slot-check TOCTOU interleavings cannot authorize
+  teardown.
 * `convolver_processor_kernel_swap_is_allocation_free_on_audio_side` and
   `convolver_terminal_finish_can_retire_to_control_quiescence`: adoption,
   retirement, backpressure, finish, and recovery under `assert_no_alloc`.
@@ -375,9 +409,10 @@ OutputChainBuilder::convolver_control(&self) -> ConvolverControl
 #### Wrong
 
 ```rust
-let swap = ArcSwapOption::empty();
-let chain = OutputChainBuilder::new(params).build_callback_chain()?;
-// The erased processor's retirement slot has no reachable control owner.
+let control = ConvolverControl::new(true);
+let first = ConvolverProcessor::new(control.clone())?;
+let second = ConvolverProcessor::new(control.clone())?; // invalid second consumer
+let idle = control.status().audio_idle; // telemetry is not teardown authority
 ```
 
 #### Correct
@@ -386,7 +421,12 @@ let chain = OutputChainBuilder::new(params).build_callback_chain()?;
 let builder = OutputChainBuilder::new(params);
 let control = builder.convolver_control();
 let mut chain = builder.build_callback_chain()?;
-control.publish(kernel);       // control thread
+control.publish(kernel);            // control thread owns allocation
 chain.process(samples, channels)?; // audio thread, fixed ownership hand-off
-control.reclaim_retired();     // control/offline thread
+control.set_enabled(false);
+// Drive process/repeated finish until ownership is returned.
+control.reclaim_retired();          // control/offline thread destroys kernel
+if control.is_quiescent() {
+    drop(chain);                     // non-realtime teardown
+}
 ```

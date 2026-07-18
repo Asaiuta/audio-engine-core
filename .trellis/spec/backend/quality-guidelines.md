@@ -290,6 +290,102 @@ timing regression only against an explicitly compatible same-environment
 baseline; shared-runner absolute timing remains report-only.
 ```
 
+## Scenario: Canonical Output Stages And Post-Render Analysis
+
+### 1. Scope / Trigger
+
+- Trigger: adding, removing, renaming, or reordering an output-chain stage;
+  changing callback/offline traversal; or changing quality-report analysis
+  metadata.
+- The private output-stage manifest is the execution source. Do not restore
+  independent handwritten stage-order lists.
+
+### 2. Signatures
+
+```rust
+canonical_output_stage_descriptors() -> &'static [OutputStageDescriptor]
+callback_stage_names() -> Vec<&'static str>
+offline_render_stage_names() -> Vec<&'static str>
+canonical_post_render_analysis_descriptors()
+    -> &'static [PostRenderAnalysisDescriptor]
+post_render_analysis_names() -> Vec<&'static str>
+```
+
+`OutputStageDescriptor` exposes `callback_stage` and
+`offline_render_stage`. Post-render analysis has separate
+`PostRenderAnalysisId` / `PostRenderAnalysisDescriptor` types. The removed
+`offline_stage_names`, `offline_stage_order_csv`, and `offline_stage` names do
+not have compatibility wrappers.
+
+### 3. Contracts
+
+- One private declarative manifest orders source-rate transforms, the optional
+  resampler rate boundary, output-rate transforms, and terminal quantization.
+  It expands callback construction plus offline process/render/reset/rate
+  traversals while preserving concrete `OutputRenderChain` fields.
+- Callback retains its preallocated `DspChain` trait-object storage; offline
+  traversal remains statically dispatched. Manifest use must not add callback
+  allocation, per-block container growth, downcasts, or another virtual layer.
+- `LoudnessMeter` is analysis, not a signal transform. It never appears in
+  output-stage descriptors or `OutputRenderChain`; it is reported as the
+  opt-in `LoudnessMeterTruePeak` post-render analysis and consumes final
+  rendered samples without modifying them.
+- Quality JSON/report text carries actual render stages and post-render
+  analysis in separate fields. It must not append a second Meter label to a
+  stage CSV that already claims Meter execution.
+- Stage metadata APIs allocate only for setup/reporting. They are not called
+  from the callback processing loop.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Callback stage order differs from manifest descriptors | parity test fails with both observed and canonical orders |
+| Offline shared stage output differs from callback at equal rates | bit-exact pre-quantize parity test fails |
+| Meter appears in render-stage metadata | reject; move it to post-render analysis descriptors |
+| Resampler appears in callback traversal | reject; it is an offline rate-boundary role |
+| Quantize runs before output-rate noise shaping | reject; terminal transform must remain last |
+| New callback traversal allocates after setup | `assert_no_alloc` regression fails |
+
+### 5. Good / Base / Bad Cases
+
+- Good: move one manifest entry and let callback construction, offline
+  traversal, descriptors, and parity snapshots change together.
+- Base: keep `OutputRenderChain` typed fields for limiter telemetry and
+  Convolver reclamation while manifest macros emit direct method calls.
+- Bad: add Meter to the offline stage list without adding a Meter field and
+  actual signal traversal, or maintain a separate benchmark-only order string.
+
+### 6. Tests Required
+
+- Assert callback processor names equal the descriptor callback subset and a
+  deliberately reordered observation fails the parity assertion.
+- Assert offline names include Resampler and Quantize but exclude Meter; assert
+  post-render descriptors contain `LoudnessMeterTruePeak` exactly once.
+- Compare active callback and offline pre-quantize output bit-for-bit at equal
+  sample rates.
+- Keep callback no-allocation, irregular-chunk equivalence, and reset-isolation
+  tests after any manifest change.
+- Run `audio_quality_measurements --quick --enforce` and
+  `audio_callback_chain_perf --quick --enforce` after traversal/report changes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+const OFFLINE_NAMES: &[&str] = &["Volume", "Meter"];
+// OutputRenderChain never constructs or executes Meter.
+```
+
+#### Correct
+
+```rust
+let render_stages = offline_render_stage_names();
+let analyses = post_render_analysis_names();
+// Report the two plans separately; only render_stages transform samples.
+```
+
 ## Code Review Checklist
 
 - [ ] Hot path: no alloc/lock/log/IO/panic/unbounded work.
