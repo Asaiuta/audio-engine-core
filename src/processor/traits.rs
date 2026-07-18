@@ -570,6 +570,8 @@ pub enum ProcessError {
     Stalled { processor: &'static str },
     #[error("processor {processor} received input after end-of-stream; reset it first")]
     AlreadyFinished { processor: &'static str },
+    #[error("processor {processor} already has an active audio consumer")]
+    ConsumerAlreadyActive { processor: &'static str },
     #[error(
         "processor {processor} expected {expected_channels} channels but received {actual_channels}"
     )]

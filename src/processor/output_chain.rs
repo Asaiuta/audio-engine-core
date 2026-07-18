@@ -378,7 +378,184 @@ fn trim_unknown_tail_before_dither(
     Ok(finish_was_capped)
 }
 
-/// Canonical stage identifiers for the output chain.
+/// Invoke a consumer with the canonical render-stage manifest.
+///
+/// Roles are semantic boundaries: source-rate transforms run before the
+/// optional rate boundary, output-rate transforms run after tail trimming, and
+/// terminal transforms run after the final output-rate processor.
+macro_rules! output_stage_manifest {
+    ($consumer:ident $(, $arg:ident)*) => {
+        $consumer! {
+            ($($arg),*);
+            (
+                volume,
+                Volume,
+                "Volume",
+                source,
+                yes,
+                true,
+                false,
+                "gain smoothing state, no algorithmic delay"
+            ),
+            (
+                eq,
+                Equalizer,
+                "Equalizer",
+                source,
+                yes,
+                true,
+                false,
+                "IIR state, no explicit output delay"
+            ),
+            (
+                saturation,
+                Saturation,
+                "Saturation",
+                source,
+                yes,
+                true,
+                true,
+                "optional high-pass and oversampling filter state; direct mode has no explicit output delay"
+            ),
+            (
+                crossfeed,
+                Crossfeed,
+                "Crossfeed",
+                source,
+                yes,
+                true,
+                false,
+                "biquad state, no explicit output delay"
+            ),
+            (
+                convolver,
+                Convolver,
+                "Convolver",
+                source,
+                yes,
+                true,
+                true,
+                "IR- and partition-size-dependent convolution latency"
+            ),
+            (
+                dynamic_loudness,
+                DynamicLoudness,
+                "DynamicLoudness",
+                source,
+                yes,
+                true,
+                false,
+                "filter and smoother state, no explicit output delay"
+            ),
+            (
+                limiter,
+                PeakLimiter,
+                "PeakLimiter",
+                source,
+                yes,
+                true,
+                true,
+                "lookahead delay depends on sample rate and limiter mode"
+            ),
+            (
+                resampler,
+                Resampler,
+                "Resampler",
+                rate_boundary,
+                no,
+                true,
+                true,
+                "SoX filter state; playback callback receives already-resampled buffers"
+            ),
+            (
+                noise_shaper,
+                NoiseShaper,
+                "NoiseShaper",
+                output,
+                yes,
+                true,
+                false,
+                "error-feedback state, no explicit output delay"
+            ),
+            (
+                quantize,
+                Quantize,
+                "Quantize",
+                terminal,
+                no,
+                false,
+                false,
+                "final sample-format reduction"
+            ),
+        }
+    };
+}
+
+macro_rules! callback_flag {
+    (yes) => {
+        true
+    };
+    (no) => {
+        false
+    };
+}
+
+macro_rules! build_output_stage_descriptors {
+    (
+        ($($arg:ident),*);
+        $((
+            $field:ident,
+            $id:ident,
+            $name:literal,
+            $role:ident,
+            $callback:ident,
+            $carries_state:literal,
+            $introduces_latency:literal,
+            $latency_note:literal
+        )),+ $(,)?
+    ) => {
+        &[
+            $(OutputStageDescriptor {
+                id: OutputStageId::$id,
+                name: $name,
+                callback_stage: callback_flag!($callback),
+                offline_render_stage: true,
+                carries_state: $carries_state,
+                introduces_latency: $introduces_latency,
+                latency_note: $latency_note,
+            }),+
+        ]
+    };
+}
+
+macro_rules! callback_stage_count {
+    (
+        ($($arg:ident),*);
+        $((
+            $field:ident,
+            $id:ident,
+            $name:literal,
+            $role:ident,
+            $callback:ident,
+            $carries_state:literal,
+            $introduces_latency:literal,
+            $latency_note:literal
+        )),+ $(,)?
+    ) => {
+        0usize $(+ callback_stage_count_one!($callback))+
+    };
+}
+
+macro_rules! callback_stage_count_one {
+    (yes) => {
+        1usize
+    };
+    (no) => {
+        0usize
+    };
+}
+
+/// Canonical signal-transform stage identifiers for the output chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutputStageId {
     Volume,
@@ -391,126 +568,52 @@ pub enum OutputStageId {
     Resampler,
     NoiseShaper,
     Quantize,
-    Meter,
 }
 
-/// Static metadata for one output-chain stage.
+/// Static metadata for one executed output-chain stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputStageDescriptor {
     pub id: OutputStageId,
     pub name: &'static str,
     pub callback_stage: bool,
-    pub offline_stage: bool,
+    pub offline_render_stage: bool,
     pub carries_state: bool,
     pub introduces_latency: bool,
     pub latency_note: &'static str,
 }
 
-const OUTPUT_STAGE_DESCRIPTORS: [OutputStageDescriptor; 11] = [
-    OutputStageDescriptor {
-        id: OutputStageId::Volume,
-        name: "Volume",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "gain smoothing state, no algorithmic delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Equalizer,
-        name: "Equalizer",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "IIR state, no explicit output delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Saturation,
-        name: "Saturation",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: true,
-        latency_note: "optional high-pass and oversampling filter state; direct mode has no explicit output delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Crossfeed,
-        name: "Crossfeed",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "biquad state, no explicit output delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Convolver,
-        name: "Convolver",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: true,
-        latency_note: "IR- and partition-size-dependent convolution latency",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::DynamicLoudness,
-        name: "DynamicLoudness",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "filter and smoother state, no explicit output delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::PeakLimiter,
-        name: "PeakLimiter",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: true,
-        latency_note: "lookahead delay depends on sample rate and limiter mode",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Resampler,
-        name: "Resampler",
-        callback_stage: false,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: true,
-        latency_note: "SoX filter latency; playback callback receives already-resampled buffers",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::NoiseShaper,
-        name: "NoiseShaper",
-        callback_stage: true,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "error-feedback state, no explicit output delay",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Quantize,
-        name: "Quantize",
-        callback_stage: false,
-        offline_stage: true,
-        carries_state: false,
-        introduces_latency: false,
-        latency_note: "final sample-format reduction",
-    },
-    OutputStageDescriptor {
-        id: OutputStageId::Meter,
-        name: "Meter",
-        callback_stage: false,
-        offline_stage: true,
-        carries_state: true,
-        introduces_latency: false,
-        latency_note: "analysis-only accumulation; not a signal-transform stage",
-    },
-];
+/// Analysis that consumes rendered output without changing its samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PostRenderAnalysisId {
+    LoudnessMeterTruePeak,
+}
 
-/// Full canonical output-chain order.
+/// Static metadata for an opt-in post-render analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PostRenderAnalysisDescriptor {
+    pub id: PostRenderAnalysisId,
+    pub name: &'static str,
+    pub analysis_note: &'static str,
+}
+
+const OUTPUT_STAGE_DESCRIPTORS: &[OutputStageDescriptor] =
+    output_stage_manifest!(build_output_stage_descriptors);
+const CALLBACK_STAGE_COUNT: usize = output_stage_manifest!(callback_stage_count);
+const POST_RENDER_ANALYSIS_DESCRIPTORS: &[PostRenderAnalysisDescriptor] =
+    &[PostRenderAnalysisDescriptor {
+        id: PostRenderAnalysisId::LoudnessMeterTruePeak,
+        name: "LoudnessMeterTruePeak",
+        analysis_note: "opt-in EBU R128 true-peak analysis over final rendered samples",
+    }];
+
+/// Full canonical signal-transform order.
 pub fn canonical_output_stage_descriptors() -> &'static [OutputStageDescriptor] {
-    &OUTPUT_STAGE_DESCRIPTORS
+    OUTPUT_STAGE_DESCRIPTORS
+}
+
+/// Canonical post-render analyses, separate from signal transforms.
+pub fn canonical_post_render_analysis_descriptors() -> &'static [PostRenderAnalysisDescriptor] {
+    POST_RENDER_ANALYSIS_DESCRIPTORS
 }
 
 /// Callback-safe stage names in canonical order.
@@ -522,12 +625,20 @@ pub fn callback_stage_names() -> Vec<&'static str> {
         .collect()
 }
 
-/// Offline render-stage names in canonical order.
-pub fn offline_stage_names() -> Vec<&'static str> {
+/// Offline render-stage names in canonical execution order.
+pub fn offline_render_stage_names() -> Vec<&'static str> {
     OUTPUT_STAGE_DESCRIPTORS
         .iter()
-        .filter(|stage| stage.offline_stage)
+        .filter(|stage| stage.offline_render_stage)
         .map(|stage| stage.name)
+        .collect()
+}
+
+/// Post-render analysis names in canonical reporting order.
+pub fn post_render_analysis_names() -> Vec<&'static str> {
+    POST_RENDER_ANALYSIS_DESCRIPTORS
+        .iter()
+        .map(|analysis| analysis.name)
         .collect()
 }
 
@@ -536,9 +647,188 @@ pub fn callback_stage_order_csv() -> String {
     callback_stage_names().join(",")
 }
 
-/// CSV snapshot of offline render-stage names, for reports.
-pub fn offline_stage_order_csv() -> String {
-    offline_stage_names().join(",")
+/// CSV snapshot of actual offline render stages, for reports.
+pub fn offline_render_stage_order_csv() -> String {
+    offline_render_stage_names().join(",")
+}
+
+/// CSV snapshot of opt-in post-render analyses, for reports.
+pub fn post_render_analysis_order_csv() -> String {
+    post_render_analysis_names().join(",")
+}
+
+macro_rules! add_callback_stage {
+    ($chain:ident, $params:ident, $rate:ident, (volume, $($rest:tt)*)) => {
+        $chain.add(VolumeProcessor::new(Arc::clone(&$params.volume_params)));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (eq, $($rest:tt)*)) => {
+        $chain.add(EqProcessor::new(
+            $params.channels,
+            $rate as f64,
+            Arc::clone(&$params.eq_params),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (saturation, $($rest:tt)*)) => {
+        $chain.add(SaturationProcessor::new(
+            $params.channels,
+            Arc::clone(&$params.saturation_params),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (crossfeed, $($rest:tt)*)) => {
+        $chain.add(CrossfeedProcessor::new(
+            $rate as f64,
+            Arc::clone(&$params.crossfeed_params),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (convolver, $($rest:tt)*)) => {
+        $chain.add(ConvolverProcessor::new($params.convolver_control.clone())?);
+    };
+    ($chain:ident, $params:ident, $rate:ident, (dynamic_loudness, $($rest:tt)*)) => {
+        $chain.add(DynamicLoudnessProcessor::new(
+            $params.channels,
+            $rate,
+            Arc::clone(&$params.dynamic_loudness_params),
+            Arc::clone(&$params.dynamic_loudness_telemetry),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (limiter, $($rest:tt)*)) => {
+        $chain.add(PeakLimiterProcessor::new(
+            $params.channels,
+            $rate,
+            Arc::clone(&$params.limiter_params),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (resampler, $($rest:tt)*)) => {};
+    ($chain:ident, $params:ident, $rate:ident, (noise_shaper, $($rest:tt)*)) => {
+        $chain.add(NoiseShaperProcessor::new(
+            $params.channels,
+            $rate,
+            Arc::clone(&$params.noise_shaper_params),
+        ));
+    };
+    ($chain:ident, $params:ident, $rate:ident, (quantize, $($rest:tt)*)) => {};
+}
+
+macro_rules! build_callback_stages {
+    (($chain:ident, $params:ident, $rate:ident); $($entry:tt),+ $(,)?) => {
+        $(add_callback_stage!($chain, $params, $rate, $entry);)+
+    };
+}
+
+macro_rules! process_pre_quantize_stage {
+    ($chain:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        let _ = process_fixed_stage(&mut $chain.$field, $buffer, $chain.channels)?;
+    };
+    ($chain:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {
+        if let Some(processor) = $chain.$field.as_mut() {
+            let rendered = drive_offline_stage(
+                processor,
+                $buffer,
+                $chain.channels,
+                $chain.source_sample_rate,
+                OfflineRenderPolicy::default(),
+                DEFAULT_OFFLINE_BLOCK_FRAMES,
+            )?;
+            *$buffer = rendered.samples;
+        }
+    };
+    ($chain:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {
+        let _ = process_fixed_stage(&mut $chain.$field, $buffer, $chain.channels)?;
+    };
+    ($chain:ident, $buffer:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! process_pre_quantize_stages {
+    (($chain:ident, $buffer:ident); $($entry:tt),+ $(,)?) => {
+        $(process_pre_quantize_stage!($chain, $buffer, $entry);)+
+    };
+}
+
+macro_rules! render_pre_dither_stage {
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        $render!(&mut $chain.$field);
+    };
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {
+        if let Some(processor) = $chain.$field.as_mut() {
+            $render!(processor);
+        }
+    };
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! render_pre_dither_stages {
+    (($chain:ident, $render:ident); $($entry:tt),+ $(,)?) => {
+        $(render_pre_dither_stage!($chain, $render, $entry);)+
+    };
+}
+
+macro_rules! render_output_stage {
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {
+        $render!(&mut $chain.$field);
+    };
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {};
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($chain:ident, $render:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! render_output_stages {
+    (($chain:ident, $render:ident); $($entry:tt),+ $(,)?) => {
+        $(render_output_stage!($chain, $render, $entry);)+
+    };
+}
+
+macro_rules! apply_terminal_stage {
+    ($output:ident, (quantize, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {
+        for sample in &mut $output {
+            *sample = *sample as f32 as f64;
+        }
+    };
+    ($output:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {};
+    ($output:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($output:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+}
+
+macro_rules! apply_terminal_stages {
+    (($output:ident); $($entry:tt),+ $(,)?) => {
+        $(apply_terminal_stage!($output, $entry);)+
+    };
+}
+
+macro_rules! reset_render_stage {
+    ($chain:ident, $reset:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        $reset!(&mut $chain.$field);
+    };
+    ($chain:ident, $reset:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {
+        if let Some(processor) = $chain.$field.as_mut() {
+            $reset!(processor);
+        }
+    };
+    ($chain:ident, $reset:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {
+        $reset!(&mut $chain.$field);
+    };
+    ($chain:ident, $reset:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! reset_render_stages {
+    (($chain:ident, $reset:ident); $($entry:tt),+ $(,)?) => {
+        $(reset_render_stage!($chain, $reset, $entry);)+
+    };
+}
+
+macro_rules! set_source_rate_stage {
+    ($chain:ident, $rate:ident, ($field:ident, $id:ident, $name:literal, source, $($rest:tt)*)) => {
+        $chain.$field.set_sample_rate($rate)?;
+    };
+    ($chain:ident, $rate:ident, ($field:ident, $id:ident, $name:literal, rate_boundary, $($rest:tt)*)) => {};
+    ($chain:ident, $rate:ident, ($field:ident, $id:ident, $name:literal, output, $($rest:tt)*)) => {};
+    ($chain:ident, $rate:ident, ($field:ident, $id:ident, $name:literal, terminal, $($rest:tt)*)) => {};
+}
+
+macro_rules! set_source_rate_stages {
+    (($chain:ident, $rate:ident); $($entry:tt),+ $(,)?) => {
+        $(set_source_rate_stage!($chain, $rate, $entry);)+
+    };
 }
 
 /// All parameter and control handles required to materialize an output chain.
@@ -583,51 +873,17 @@ impl OutputChainBuilder {
 
     /// Build the callback-safe DSP chain from the canonical callback order.
     pub fn build_callback_chain(&self) -> Result<DspChain, ProcessError> {
+        let params = &self.params;
         let sample_rate_hz = self.params.source_sample_rate;
-        let sample_rate = sample_rate_hz as f64;
-        let mut chain = DspChain::with_capacity(callback_stage_names().len(), sample_rate_hz);
-
-        chain
-            .add(VolumeProcessor::new(Arc::clone(&self.params.volume_params)))
-            .add(EqProcessor::new(
-                self.params.channels,
-                sample_rate,
-                Arc::clone(&self.params.eq_params),
-            ))
-            .add(SaturationProcessor::new(
-                self.params.channels,
-                Arc::clone(&self.params.saturation_params),
-            ))
-            .add(CrossfeedProcessor::new(
-                sample_rate,
-                Arc::clone(&self.params.crossfeed_params),
-            ))
-            .add(ConvolverProcessor::new(
-                self.params.convolver_control.clone(),
-            ))
-            .add(DynamicLoudnessProcessor::new(
-                self.params.channels,
-                self.params.source_sample_rate,
-                Arc::clone(&self.params.dynamic_loudness_params),
-                Arc::clone(&self.params.dynamic_loudness_telemetry),
-            ))
-            .add(PeakLimiterProcessor::new(
-                self.params.channels,
-                self.params.source_sample_rate,
-                Arc::clone(&self.params.limiter_params),
-            ))
-            .add(NoiseShaperProcessor::new(
-                self.params.channels,
-                self.params.source_sample_rate,
-                Arc::clone(&self.params.noise_shaper_params),
-            ));
+        let mut chain = DspChain::with_capacity(CALLBACK_STAGE_COUNT, sample_rate_hz);
+        output_stage_manifest!(build_callback_stages, chain, params, sample_rate_hz);
 
         chain.set_sample_rate(sample_rate_hz)?;
         Ok(chain)
     }
 
     /// Build the offline render chain from the canonical offline order.
-    pub fn build_render_chain(&self) -> Result<OutputRenderChain, String> {
+    pub fn build_render_chain(&self) -> Result<OutputRenderChain, ProcessError> {
         OutputRenderChain::new(&self.params, OfflineRenderPolicy::default())
     }
 
@@ -635,8 +891,8 @@ impl OutputChainBuilder {
     pub fn build_render_chain_with_policy(
         &self,
         policy: OfflineRenderPolicy,
-    ) -> Result<OutputRenderChain, String> {
-        policy.validate().map_err(|error| error.to_string())?;
+    ) -> Result<OutputRenderChain, ProcessError> {
+        policy.validate()?;
         OutputRenderChain::new(&self.params, policy)
     }
 }
@@ -692,7 +948,7 @@ impl OutputRenderChain {
     fn new(
         params: &OutputChainParams,
         default_policy: OfflineRenderPolicy,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, ProcessError> {
         let source_sample_rate = params.source_sample_rate as f64;
         let resampler = if params.source_sample_rate == params.output_sample_rate {
             None
@@ -705,11 +961,13 @@ impl OutputRenderChain {
                     PhaseResponse::Linear,
                     ResampleQuality::UltraHigh,
                 )
-                .map_err(|err| {
-                    format!(
-                        "failed to create output-chain resampler {}->{}: {err}",
-                        params.source_sample_rate, params.output_sample_rate
-                    )
+                .map_err(|error| ProcessError::Owned {
+                    processor: "OutputRenderChain",
+                    operation: "create resampler",
+                    message: format!(
+                        "{}->{} Hz: {error}",
+                        params.source_sample_rate, params.output_sample_rate,
+                    ),
                 })?,
             )
         };
@@ -732,7 +990,7 @@ impl OutputRenderChain {
                 source_sample_rate,
                 Arc::clone(&params.crossfeed_params),
             ),
-            convolver: ConvolverProcessor::new(params.convolver_control.clone()),
+            convolver: ConvolverProcessor::new(params.convolver_control.clone())?,
             dynamic_loudness: DynamicLoudnessProcessor::new(
                 params.channels,
                 params.source_sample_rate,
@@ -753,13 +1011,10 @@ impl OutputRenderChain {
             default_policy,
         };
 
-        chain
-            .set_source_sample_rate(params.source_sample_rate)
-            .map_err(|err| format!("failed to configure source-rate DSP stages: {err}"))?;
+        chain.set_source_sample_rate(params.source_sample_rate)?;
         chain
             .noise_shaper
-            .set_sample_rate(params.output_sample_rate)
-            .map_err(|err| format!("failed to configure output noise shaper: {err}"))?;
+            .set_sample_rate(params.output_sample_rate)?;
         Ok(chain)
     }
 
@@ -769,27 +1024,7 @@ impl OutputRenderChain {
     pub fn process_pre_quantize(&mut self, buffer: &mut Vec<f64>) -> Result<(), ProcessError> {
         let reclaimer = ConvolverReclaimer(self.convolver.control());
         reclaimer.reclaim();
-        let _ = process_fixed_stage(&mut self.volume, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.eq, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.saturation, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.crossfeed, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.convolver, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.dynamic_loudness, buffer, self.channels)?;
-        let _ = process_fixed_stage(&mut self.limiter, buffer, self.channels)?;
-
-        if let Some(resampler) = self.resampler.as_mut() {
-            let rendered = drive_offline_stage(
-                resampler,
-                buffer,
-                self.channels,
-                self.source_sample_rate,
-                OfflineRenderPolicy::default(),
-                DEFAULT_OFFLINE_BLOCK_FRAMES,
-            )?;
-            *buffer = rendered.samples;
-        }
-
-        let _ = process_fixed_stage(&mut self.noise_shaper, buffer, self.channels)?;
+        output_stage_manifest!(process_pre_quantize_stages, self, buffer);
         reclaimer.reclaim();
         Ok(())
     }
@@ -841,16 +1076,7 @@ impl OutputRenderChain {
             }};
         }
 
-        render_stage!(&mut self.volume);
-        render_stage!(&mut self.eq);
-        render_stage!(&mut self.saturation);
-        render_stage!(&mut self.crossfeed);
-        render_stage!(&mut self.convolver);
-        render_stage!(&mut self.dynamic_loudness);
-        render_stage!(&mut self.limiter);
-        if let Some(resampler) = self.resampler.as_mut() {
-            render_stage!(resampler);
-        }
+        output_stage_manifest!(render_pre_dither_stages, self, render_stage);
 
         if sample_rate_hz != self.output_sample_rate {
             return Err(ProcessError::SampleRateMismatch {
@@ -882,13 +1108,10 @@ impl OutputRenderChain {
             false
         };
 
-        render_stage!(&mut self.noise_shaper);
+        output_stage_manifest!(render_output_stages, self, render_stage);
         let latency_frames = timing.latency_frames(sample_rate_hz)?;
         let semantic_tail_frames = timing.finite_tail_frames(sample_rate_hz)?;
-
-        for sample in &mut output {
-            *sample = *sample as f32 as f64;
-        }
+        output_stage_manifest!(apply_terminal_stages, output);
 
         if policy.timeline == RenderTimeline::Compensated {
             let trim_frames = latency_frames.min(output.len() / self.channels);
@@ -926,29 +1149,13 @@ impl OutputRenderChain {
             };
         }
 
-        reset_stage!(&mut self.volume);
-        reset_stage!(&mut self.eq);
-        reset_stage!(&mut self.saturation);
-        reset_stage!(&mut self.crossfeed);
-        reset_stage!(&mut self.convolver);
-        reset_stage!(&mut self.dynamic_loudness);
-        reset_stage!(&mut self.limiter);
-        if let Some(resampler) = self.resampler.as_mut() {
-            reset_stage!(resampler);
-        }
-        reset_stage!(&mut self.noise_shaper);
+        output_stage_manifest!(reset_render_stages, self, reset_stage);
 
         first_error.map_or(Ok(()), Err)
     }
 
     fn set_source_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
-        self.volume.set_sample_rate(sample_rate_hz)?;
-        self.eq.set_sample_rate(sample_rate_hz)?;
-        self.saturation.set_sample_rate(sample_rate_hz)?;
-        self.crossfeed.set_sample_rate(sample_rate_hz)?;
-        self.convolver.set_sample_rate(sample_rate_hz)?;
-        self.dynamic_loudness.set_sample_rate(sample_rate_hz)?;
-        self.limiter.set_sample_rate(sample_rate_hz)?;
+        output_stage_manifest!(set_source_rate_stages, self, sample_rate_hz);
         Ok(())
     }
 }
@@ -977,7 +1184,7 @@ mod tests {
         let chain = builder.build_callback_chain().unwrap();
         let shared_offline_stage_names = canonical_output_stage_descriptors()
             .iter()
-            .filter(|stage| stage.offline_stage && stage.callback_stage)
+            .filter(|stage| stage.offline_render_stage && stage.callback_stage)
             .map(|stage| stage.name)
             .collect::<Vec<_>>();
 
@@ -1002,6 +1209,40 @@ mod tests {
     }
 
     #[test]
+    fn convolver_consumer_lease_is_shared_by_direct_callback_and_render_entries() {
+        let builder = test_builder();
+        let direct = ConvolverProcessor::new(builder.convolver_control()).unwrap();
+        assert_consumer_conflict(builder.build_callback_chain());
+        assert_consumer_conflict(builder.build_render_chain());
+
+        drop(direct);
+        let callback = builder.build_callback_chain().unwrap();
+        assert_consumer_conflict(builder.build_render_chain());
+        assert_consumer_conflict(ConvolverProcessor::new(builder.convolver_control()));
+
+        drop(callback);
+        let render = builder.build_render_chain().unwrap();
+        assert_consumer_conflict(builder.build_callback_chain());
+
+        drop(render);
+        assert!(ConvolverProcessor::new(builder.convolver_control()).is_ok());
+    }
+
+    #[test]
+    fn callback_build_failure_releases_convolver_consumer_lease() {
+        let mut params = test_params();
+        params.source_sample_rate = 0;
+        let control = params.convolver_control.clone();
+        let builder = OutputChainBuilder::new(params);
+
+        assert!(matches!(
+            builder.build_callback_chain(),
+            Err(ProcessError::InvalidSampleRate { .. })
+        ));
+        assert!(ConvolverProcessor::new(control).is_ok());
+    }
+
+    #[test]
     fn callback_stage_order_assertion_rejects_reordered_chain() {
         let mut reordered = callback_stage_names();
         reordered.swap(0, 1);
@@ -1017,9 +1258,9 @@ mod tests {
     }
 
     #[test]
-    fn offline_stage_order_preserves_render_only_nodes() {
+    fn offline_render_order_preserves_render_only_nodes() {
         assert_eq!(
-            offline_stage_names(),
+            offline_render_stage_names(),
             vec![
                 "Volume",
                 "Equalizer",
@@ -1031,8 +1272,16 @@ mod tests {
                 "Resampler",
                 "NoiseShaper",
                 "Quantize",
-                "Meter",
             ]
+        );
+        assert_eq!(post_render_analysis_names(), vec!["LoudnessMeterTruePeak"]);
+        assert_eq!(
+            canonical_post_render_analysis_descriptors(),
+            &[PostRenderAnalysisDescriptor {
+                id: PostRenderAnalysisId::LoudnessMeterTruePeak,
+                name: "LoudnessMeterTruePeak",
+                analysis_note: "opt-in EBU R128 true-peak analysis over final rendered samples",
+            }]
         );
     }
 
@@ -1049,9 +1298,8 @@ mod tests {
 
     #[test]
     fn render_chain_matches_callback_chain_pre_quantize_when_no_resampler() {
-        let builder = active_test_builder();
-        let mut callback_chain = builder.build_callback_chain().unwrap();
-        let mut render_chain = builder.build_render_chain().unwrap();
+        let mut callback_chain = active_test_builder().build_callback_chain().unwrap();
+        let mut render_chain = active_test_builder().build_render_chain().unwrap();
 
         let input = fixture_signal(512);
         let mut callback = input.clone();
@@ -1087,9 +1335,8 @@ mod tests {
 
     #[test]
     fn callback_chain_is_equivalent_across_irregular_frame_chunks() {
-        let builder = active_test_builder();
-        let mut whole_chain = builder.build_callback_chain().unwrap();
-        let mut chunked_chain = builder.build_callback_chain().unwrap();
+        let mut whole_chain = active_test_builder().build_callback_chain().unwrap();
+        let mut chunked_chain = active_test_builder().build_callback_chain().unwrap();
         let input = fixture_signal(4_096);
         let mut whole = input.clone();
         let mut chunked = input;
@@ -1124,9 +1371,8 @@ mod tests {
 
     #[test]
     fn callback_chain_reset_isolates_prior_stream_state() {
-        let builder = active_test_builder();
-        let mut reused = builder.build_callback_chain().unwrap();
-        let mut reference = builder.build_callback_chain().unwrap();
+        let mut reused = active_test_builder().build_callback_chain().unwrap();
+        let mut reference = active_test_builder().build_callback_chain().unwrap();
         reused.reset().unwrap();
         reference.reset().unwrap();
 
@@ -1420,6 +1666,16 @@ mod tests {
             callback_stage_names().as_slice(),
             "callback stage order diverged from canonical output chain"
         );
+    }
+
+    fn assert_consumer_conflict<T>(result: Result<T, ProcessError>) {
+        match result {
+            Err(ProcessError::ConsumerAlreadyActive {
+                processor: "Convolver",
+            }) => {}
+            Err(error) => panic!("expected Convolver consumer conflict, got {error}"),
+            Ok(_) => panic!("second Convolver consumer unexpectedly succeeded"),
+        }
     }
 
     fn test_builder() -> OutputChainBuilder {
