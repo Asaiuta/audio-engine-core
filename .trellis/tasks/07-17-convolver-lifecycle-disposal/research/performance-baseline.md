@@ -87,3 +87,31 @@ ns/sample and failed the 10% comparison. A second no-baseline run immediately
 returned 8.976/19.670/49.040, and the subsequent enforced baseline run passed.
 The transient result is retained as measurement variance, not presented as a
 code regression; no FIR or convolution inner-loop source changed in this task.
+
+## External EBU corpus verification
+
+On 2026-07-18 the user supplied a local `libebur128/test` checkout containing
+the EBU Tech 3341/3342 reference vectors. The accompanying
+`ebu-loudness-test-setv05.zip` is 91,631,421 bytes with SHA-256
+`9CC500B4DF83F7C21855C74DCE795EF5209A752BF884253AE57D0CE512EFB062`.
+The corpus remains a local validation input and is excluded from Git.
+
+Both standardized quality modes passed under `--enforce`:
+
+```text
+cargo bench --bench audio_quality_measurements -- --quick --enforce \
+  --ebu-dir libebur128/test \
+  --out target/bench-reports/quality-ebu.json
+cargo bench --bench audio_quality_measurements -- --enforce \
+  --ebu-dir libebur128/test \
+  --out target/bench-reports/quality-ebu-full.json
+```
+
+Quick and full each reported 25/25 gates passed, four report-only metrics, and
+zero skipped metrics. The 55-point loudness corpus had maximum errors of
+`0.029032 LU` global, `0.000432 LU` LRA, `0.006402 LU` momentary, and
+`0.066260 LU` short-term. The nine-point true-peak corpus had a maximum absolute
+expected-value error of `0.181438 dB`; both corpus groups passed their defined
+EBU tolerance gates. The full-output true-peak result remains report-only at
+`-0.610 dBTP`, so corpus success removes the missing-conformance-coverage gap
+without turning that separate metric into a universal output-ceiling claim.

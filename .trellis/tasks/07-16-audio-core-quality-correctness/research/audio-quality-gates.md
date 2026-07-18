@@ -89,3 +89,17 @@ ITU 当前有效版本为 BS.1770-5（2023-11），定义节目响度和 true-pe
 * P1 算法子任务逐项修正 oracle 后再更新相应质量门禁，特别是 crossfeed 与 dynamic loudness。
 * 外部 EBU corpus 单独建立可获取性/许可/哈希方案；在完成前保留显式限制说明。
 
+## 最终外部语料证据（2026-07-18）
+
+用户提供的本地 `libebur128/test` 包含门禁需要的全部 EBU Tech 3341/3342
+测试序列。`ebu-loudness-test-setv05.zip` 大小为 91,631,421 bytes，SHA-256
+为 `9CC500B4DF83F7C21855C74DCE795EF5209A752BF884253AE57D0CE512EFB062`；
+语料只作为本地验证输入，不随 crate 分发。
+
+`audio_quality_measurements` 的 quick/full `--enforce` 均得到 25/25 gates、
+4 个 report-only 指标、0 skipped。55 个响度测试点的最大全局/LRA/瞬时/短时
+误差分别为 `0.029032`、`0.000432`、`0.006402`、`0.066260 LU`；9 个
+true-peak 测试点的最大绝对误差为 `0.181438 dB`，全部处于既定 EBU 容差内。
+因此本轮不再保留“外部 EBU corpus 缺失”的覆盖限制；完整输出 true-peak
+约 `-0.610 dBTP` 仍是独立的 report-only 结果，不能扩张为通用输出上限或
+笼统“最佳音质”结论。
