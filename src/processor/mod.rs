@@ -71,9 +71,11 @@ pub use loudness_db::{
 };
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
-    offline_stage_names, offline_stage_order_csv, OfflineRenderPolicy, OutputChainBuilder,
-    OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId, RenderTimeline,
-    RenderedOutput, UnknownTailPolicy,
+    canonical_post_render_analysis_descriptors, offline_render_stage_names,
+    offline_render_stage_order_csv, post_render_analysis_names, post_render_analysis_order_csv,
+    OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, OutputRenderChain,
+    OutputStageDescriptor, OutputStageId, PostRenderAnalysisDescriptor, PostRenderAnalysisId,
+    RenderTimeline, RenderedOutput, UnknownTailPolicy,
 };
 pub use resampler::{Resampler, ResamplerError, StreamingResampler};
 pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};

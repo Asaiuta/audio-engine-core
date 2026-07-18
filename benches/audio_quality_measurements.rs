@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
-    finish_checked, offline_stage_order_csv, process_checked, AtomicCrossfeedParams,
-    AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqParams,
-    AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams,
-    AudioBlockMut, AudioBlockRef, ConvolverControl, Crossfeed, CrossfeedProcessor, DynamicLoudness,
-    Equalizer, LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
+    finish_checked, offline_render_stage_order_csv, post_render_analysis_order_csv,
+    process_checked, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
+    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
+    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, AudioBlockMut,
+    AudioBlockRef, ConvolverControl, Crossfeed, CrossfeedProcessor, DynamicLoudness, Equalizer,
+    LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
     OutputChainBuilder, OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState,
     RenderTimeline, RenderedOutput, Saturation, SaturationQuality, SaturationType,
     StreamingProcessor, StreamingResampler, EQ_BANDS,
@@ -733,6 +734,7 @@ struct EbuCorpusPoint {
 struct FullOutputTruePeakSection {
     output_sample_rate_hz: u32,
     chain: String,
+    post_render_analysis: String,
     limiter_threshold_dbfs: f64,
     final_noise_shaper_bits: u32,
     points: Vec<FullOutputTruePeakPoint>,
@@ -894,8 +896,9 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
             noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands plus -140 dBFS, silence, overload, and non-finite boundary probes",
             loudness_reference_method: "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
             full_output_true_peak_method: format!(
-                "offline canonical output chain: {} -> LoudnessMeter true-peak analysis",
-                offline_stage_order_csv()
+                "offline render stages: {}; post-render analysis: {}",
+                offline_render_stage_order_csv(),
+                post_render_analysis_order_csv(),
             ),
             render_timeline: render_timeline_name(render_policy.timeline),
             unknown_tail_energy_threshold_dbfs: render_policy
@@ -2460,7 +2463,8 @@ fn measure_full_output_true_peak(
 
     Ok(FullOutputTruePeakSection {
         output_sample_rate_hz: RESAMPLE_TO,
-        chain: offline_stage_order_csv(),
+        chain: offline_render_stage_order_csv(),
+        post_render_analysis: post_render_analysis_order_csv(),
         limiter_threshold_dbfs: FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
         final_noise_shaper_bits: FULL_OUTPUT_CHAIN_BITS,
         points,
@@ -2608,7 +2612,8 @@ fn render_full_output_chain(
         limiter_params,
         noise_shaper_params,
     })
-    .build_render_chain_with_policy(render_policy)?;
+    .build_render_chain_with_policy(render_policy)
+    .map_err(|error| error.to_string())?;
 
     chain
         .render_with_policy(samples, render_policy)
