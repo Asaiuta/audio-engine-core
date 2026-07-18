@@ -552,3 +552,36 @@ Unified convolver control and reclamation across direct, callback, and offline p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Convolver realtime ownership and output-stage hardening
+
+**Date**: 2026-07-18
+**Task**: Convolver realtime ownership and output-stage hardening
+
+### Summary
+
+Replaced ArcSwap kernel ownership with fixed AtomicPtr handoff, enforced a single consumer lease, preserved finish tails across disable, added versioned quiescence checks, unified output-stage traversal, separated Meter analysis, and passed the full quality matrix.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7eefc99` | (see git log) |
+| `994e88b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
