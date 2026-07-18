@@ -57,6 +57,16 @@ OutputRenderChain::render_with_policy(
     samples: &[f64],
     policy: OfflineRenderPolicy,
 ) -> Result<RenderedOutput, ProcessError>
+
+OutputRenderChain::render_with_policy_and_block_frames(
+    &mut self,
+    samples: &[f64],
+    policy: OfflineRenderPolicy,
+    block_frames: usize,
+) -> Result<RenderedOutput, ProcessError>
+
+FFTConvolver::new(ir_data: &[f64], channels: usize)
+    -> Result<FFTConvolver, ProcessError>
 ```
 
 `StreamingProcessor` supplies `process`, `finish`, `reset`, `latency`, `tail`,
@@ -153,6 +163,10 @@ pub struct RenderedOutput {
   finish contract, then pass the combined process + finish output into the next
   stage. This is what carries an upstream last-frame impulse or convolution
   tail through downstream limiter and resampling stages.
+* Offline execution streams bounded typed blocks through the canonical stage
+  order. Fixed stages do not materialize program-sized intermediates;
+  temporary Rust memory excluding final output is bounded by the configured
+  block pool. `block_frames == 0` is rejected before any processor mutates.
 * `Compensated` removes accumulated algorithmic latency exactly once at the
   final output sample rate and retains semantic tails. `RawCausal` retains the
   leading delay and all finalize output. Both report the same timing metadata.
@@ -196,6 +210,8 @@ pub struct RenderedOutput {
 | unknown-tail threshold is non-finite or above 0 dBFS | `ProcessError::InvalidRenderPolicy` |
 | silence hold is zero or exceeds maximum tail | `ProcessError::InvalidRenderPolicy` |
 | finite finish does not terminate inside its declared bound | `ProcessError::Backend` |
+| `FFTConvolver::new` receives zero channels, empty IR, or an incomplete interleaved frame | typed `ProcessError`; never panic |
+| offline block size is zero | `ProcessError::InvalidRenderPolicy` or another named typed validation error before processing |
 | unknown/infinite finish reaches its maximum | successful output with `tail_truncated = true` |
 | hot-path native error | allocation-free `ProcessError::Backend` |
 
@@ -300,8 +316,12 @@ alive. It replaces the former unreachable `disposal_slot()` composition path.
 ### 2. Signatures
 
 ```rust
+FFTConvolver::new(ir_data: &[f64], channels: usize)
+    -> Result<FFTConvolver, ProcessError>
 ConvolverControl::new(enabled: bool) -> ConvolverControl
 ConvolverControl::publish(&self, kernel: FFTConvolver) -> u64
+ConvolverControl::publish_at_rate(&self, kernel: FFTConvolver, sample_rate_hz: u32)
+    -> Result<u64, ProcessError>
 ConvolverControl::reclaim_retired(&self) -> bool
 ConvolverControl::status(&self) -> ConvolverStatus
 ConvolverControl::is_quiescent(&self) -> bool
@@ -323,6 +343,9 @@ OutputChainBuilder::build_render_chain(&self)
   publish/reclaim calls, assigns install-order generations, opportunistically
   drains the retired slot, and is latest-wins until audio withdraws a value.
   The control-only serialization gate is never acquired by audio.
+* Every publication carries a non-zero sample-rate domain. `publish_at_rate`
+  is the explicit API; legacy `publish` stamps the documented default rate.
+  Audio adopts only a kernel whose stamp matches its active stream rate.
 * Publication and retirement use two fixed `AtomicPtr` ownership slots. The
   control side converts `Box` values to/from raw pointers; audio withdraws into
   unique `AudioOwned` values and only performs a fixed exchange/CAS. Audio
@@ -339,6 +362,14 @@ OutputChainBuilder::build_render_chain(&self)
   `ir_length - 1` remaining frames. A later disable records control intent but
   cannot retire that kernel until the promised tail reaches terminal
   `Finished`; repeated terminal finish calls then progress disabled retirement.
+* A sample-rate change immediately stops using and resets old-rate signal
+  history. If no matching publication exists, processing is a dry bypass and
+  telemetry reports `waiting_for_sample_rate_hz`. A later matching kernel is
+  adopted only at a block boundary.
+* Same-rate dry/kernel activation and enable/disable transitions use a
+  complementary smoothstep over `ceil(0.005 * sample_rate_hz)` frames while
+  executing at most one convolution kernel. A rate boundary never runs an
+  old-rate kernel merely to finish a fade.
 * `latest_published_generation` and `audio_drained_generation` form the
   authoritative acknowledgement. `ConvolverStatus` is eventually-consistent
   telemetry only. `ConvolverControl::is_quiescent()` runs under the control
@@ -348,12 +379,18 @@ OutputChainBuilder::build_render_chain(&self)
 * Dynamic convolver timing remains zero algorithmic latency and a finite
   `ir_length - 1` tail in the current sample-rate domain; reset preserves the
   adopted control/kernel configuration while clearing signal history.
+* `ConvolverProcessor` teardown is off-RT. Drop releases all local ownership
+  before acknowledging the drained generation, so a disabled control can
+  reach authoritative quiescence without a stale generation.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required result |
 | --- | --- |
 | More than one live direct/callback/render consumer uses one control | `ProcessError::ConsumerAlreadyActive { processor: "Convolver" }` |
+| IR geometry is empty, zero-channel, or incomplete | `FFTConvolver::new` returns a typed error |
+| `publish_at_rate` receives zero Hz | `ProcessError::InvalidSampleRate` |
+| Published rate differs from active rate | do not process it; retire/defer and report the awaited rate |
 | Control publishes before audio withdraws | older publication is superseded on control and counted |
 | Retirement slot is full | normal processing continues; adoption is deferred and status is backpressured |
 | Control reclaims a retired slot | next block/finish retries the pending hand-off without waiting |
@@ -373,6 +410,8 @@ OutputChainBuilder::build_render_chain(&self)
   while status counters remain bounded and auditable.
 * Good: a partial finish continues through a concurrent disable, then a
   repeated terminal finish retires the locked kernel to the control side.
+* Good: a 48 kHz kernel is retired at a 96 kHz boundary, dry audio continues,
+  and a later 96 kHz publication fades in over exactly 480 frames.
 * Bad: retaining a strong kernel `Arc`, using ArcSwap for the ownership slot,
   or treating `status().audio_idle` as teardown authority can move destruction
   to audio or admit a stale lifecycle decision.
@@ -389,6 +428,12 @@ OutputChainBuilder::build_render_chain(&self)
 * `first_process_on_a_new_audio_thread_is_allocation_free` and
   `terminal_finish_and_retirement_are_allocation_free_on_new_audio_thread`:
   first-use adoption/finish/retirement do not rely on same-thread prewarming.
+* `partitioned_adoption_process_and_finish_are_allocation_free_on_new_audio_thread`:
+  a long-IR kernel is adopted, processed, drained for exactly `ir_length - 1`
+  frames, and reaches stable terminal state without callback allocation.
+* `partitioned_fade_reversal_and_finish_match_direct_convolution_oracle`:
+  long-IR enable reversal, irregular finish chunks, exact length, and every
+  output sample match a direct convolution plus analytic smoothstep oracle.
 * `consumer_lease_rejects_second_direct_consumer_and_releases_on_drop` plus
   output-chain entry tests: direct, callback, and render conflicts return the
   same typed error, and failed construction/drop releases the lease.
@@ -421,7 +466,8 @@ let idle = control.status().audio_idle; // telemetry is not teardown authority
 let builder = OutputChainBuilder::new(params);
 let control = builder.convolver_control();
 let mut chain = builder.build_callback_chain()?;
-control.publish(kernel);            // control thread owns allocation
+let kernel = FFTConvolver::new(&ir, channels)?;
+control.publish_at_rate(kernel, sample_rate_hz)?; // control thread owns allocation
 chain.process(samples, channels)?; // audio thread, fixed ownership hand-off
 control.set_enabled(false);
 // Drive process/repeated finish until ownership is returned.

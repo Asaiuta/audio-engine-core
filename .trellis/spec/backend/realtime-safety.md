@@ -66,10 +66,16 @@ The following are **forbidden** inside the hot path:
   Dynamic kernel ownership crosses through one published and one retired
   `AtomicPtr` slot. The control side creates and destroys `Box` values; audio
   only performs a bounded exchange/CAS and moves unique local ownership.
-- `ArcSwap` remains valid for small immutable parameter snapshots whose guards
-  never become the last owner of a heavy object. It is forbidden for dynamic
-  Convolver kernel ownership: its first-use debt node, writer traversal, and
-  last-`Arc` destruction do not satisfy the hard realtime bound.
+- `ArcSwap` remains a control-side convenience for immutable parameter reads.
+  Callback adapters register a `RealtimeSnapshotReader<T>` during setup and
+  copy `Copy` snapshots through its preallocated hazard slot. Registration may
+  allocate and lock; callback reads only perform bounded atomic loads/stores.
+  Replaced `Box<T>` storage is reclaimed by a later control-side publication,
+  never by the reader that copied it. Dropping the reader/processor is also a
+  non-realtime teardown operation because its final `Arc` may deallocate.
+- `ArcSwap` is forbidden for dynamic Convolver kernel ownership: its first-use
+  debt node, writer traversal, and last-`Arc` destruction do not satisfy the
+  hard realtime bound.
 - Decode-side allocation: the decoder is not on the audio callback. Even so,
   `decode_next_into` reuses its `sample_buf` and is allocation-free in steady
   state.
@@ -80,10 +86,13 @@ The following are **forbidden** inside the hot path:
 
 Tunable parameters are pushed into the callback without locks via the atomic
 snapshot types in `src/processor/lockfree_params.rs` (`AtomicEqParams`,
-`AtomicVolumeParams`, `AtomicPeakLimiterParams`, etc.). The callback reads a
-generation-stamped snapshot once per buffer (~7 ns; see
-`audio_lockfree_params_perf`). New tunables must reuse this mechanism rather
-than introducing a lock or an allocation.
+`AtomicVolumeParams`, `AtomicPeakLimiterParams`, etc.). Each callback adapter
+calls `subscribe_realtime` during setup and then
+`load_realtime_if_changed_since` once per buffer. The measured hazard read is
+about 13 ns on the recorded Windows/x86_64 environment and materially faster
+than rebuilding a split-atomic snapshot; see `audio_lockfree_params_perf`.
+Control/reporting code may retain the `ArcSwap` `load` APIs. New callback
+tunables must use the realtime reader rather than acquiring an ArcSwap guard.
 
 ## Verifying
 
@@ -96,6 +105,11 @@ Variable-I/O processors additionally pre-size every deinterleave/interleave and
 native output scratch buffer for their documented maximum step. Their tests must
 cover both ordinary process and finish/drain because a grow-on-finish path is
 still an audio-thread allocation defect.
+
+Realtime snapshot tests must publish concurrently while a reader performs at
+least thousands of copies inside `assert_no_alloc`. Run the reader on a newly
+created OS thread so Arc/TLS initialization is not hidden by control-thread
+prewarming, and assert every observed snapshot is one complete generation.
 
 Dynamic heavy-kernel publication additionally requires a destructor-thread
 probe and a no-allocation assertion around adoption, retirement, backpressure,

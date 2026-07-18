@@ -33,6 +33,10 @@ AtomicLoudnessState::set_normalization_mode(&self, mode: NormalizationMode)
 DynamicLoudness::set_sample_rate(&mut self, sample_rate: f64)
 StreamingProcessor::set_sample_rate(&mut self, sample_rate_hz: u32)
     -> Result<(), ProcessError>
+
+// Fixed callback adapters (EQ, Crossfeed, Volume, NoiseShaper,
+// DynamicLoudness, and Saturation) reset their shared finish lifecycle when
+// entering a new sample-rate domain.
 ```
 
 `copy_coefficients_from` deliberately retains the destination `z1/z2`. It is
@@ -89,6 +93,15 @@ them, rebuild geometry, and immediately restore coefficients from each
 preserved current smoother gain. An adapter must delegate to this in-place
 update instead of assigning `DynamicLoudness::new(...)`.
 
+Every fixed 1:1 adapter applies the same boundary rule: validate the new rate,
+rebuild/reset rate-dependent signal state, clear any partial finish counter,
+and re-arm ordinary `process` before returning. A rate update must not leave
+the adapter terminal merely because the previous stream had finished.
+
+Crossfeed additionally treats mono and non-stereo layouts as a deliberate
+transparent state with `TailSpec::None`; its finish path returns
+`Finished(0)` without manufacturing IIR tail samples.
+
 All process-path transition completion remains allocation-, lock-, log-, I/O-,
 and panic-free.
 
@@ -103,6 +116,8 @@ and panic-free.
 | Shelf coefficient contains another `sin(w0)` factor | Reject in review; RBJ coefficient/response tests must fail |
 | Adapter sample rate is zero | `ProcessError::InvalidSampleRate` before mutation |
 | Valid dynamic-loudness sample-rate change | Controls/smoothers preserved; filter history zeroed; coefficients rebuilt |
+| Fixed adapter rate change after terminal finish | Lifecycle is reset and the next block is accepted |
+| Crossfeed block has channels other than two | Exact bypass and no finish tail |
 | Transition completion allocates on the callback | Test failure; implementation is not realtime-safe |
 
 ## 5. Good / Base / Bad Cases

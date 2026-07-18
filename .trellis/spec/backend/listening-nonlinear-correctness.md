@@ -29,10 +29,24 @@ Saturation::set_threshold(&mut self, threshold: f64)
 Saturation::set_output_gain(&mut self, gain_db: f64)
 Saturation::set_quality(&mut self, quality: SaturationQuality)
 Saturation::process_with_channels(&mut self, samples: &mut [f64], channels: usize)
+Saturation::process_with_channels_mix(
+    &mut self,
+    samples: &mut [f64],
+    channels: usize,
+    effect_weight: f64,
+)
+SaturationProcessor::process_with_events(
+    &mut self,
+    samples: &mut [f64],
+    channels: usize,
+    events: &[SaturationEvent],
+) -> Result<ProcessProgress, ProcessError>
+AtomicSaturationParams::set_armed(&self, armed: bool)
 
 NoiseShaper::set_bits(&mut self, bits: u32)
 NoiseShaper::set_curve(&mut self, curve: NoiseShaperCurve)
 NoiseShaper::process_sample(&mut self, sample: f64, ch: usize) -> f64
+NoiseShaperCurve::quantization_error_bound(self, bits: u32) -> f64
 
 Crossfeed::set_mix(&mut self, mix: f64)
 Crossfeed::set_cutoff(&mut self, cutoff_hz: f64)
@@ -44,6 +58,8 @@ AtomicCrossfeedParams::set_mix(&self, mix: f64)
 AtomicCrossfeedParams::set_cutoff(&self, hz: f64)
 AtomicNoiseShaperParams::set_bits(&self, bits: u32)
 AtomicNoiseShaperParams::set_curve(&self, curve: NoiseShaperCurve)
+PeakLimiterProcessor::new_with_output_guard(...)
+PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
 ```
 
 ## 3. Contracts
@@ -66,16 +82,25 @@ Because `w(0) = 0` and `w'(0) = 0`, the transfer is value- and
 first-derivative-continuous at both positive and negative thresholds. Do not
 put a different threshold branch into an oversampled or exciter path.
 
-For an enabled processor, input gain forms `dry`; saturation forms `wet`; then
-the final order is:
+For a hard-bypassed processor, output is the bit-exact current input with zero
+latency and no state work. An armed processor keeps a four-source-frame
+timeline in every quality mode. Let `d` be delayed raw input, `g` delayed
+input-gain output, and `r` the filtered nonlinear residual. The final order is:
 
 ```text
-output = (dry + mix * (wet - dry)) * output_gain
+processed = (g + mix * r) * output_gain
+output = d + effect_weight * (processed - d)
 ```
 
-Output gain therefore applies below and above threshold and at every mix value.
-Disabled saturation is an exact bypass and applies neither input nor output
-gain. Per-channel filter/oversampling state is sized during setup.
+For Oversampled2x/4x, `r` is the decimated FIR of
+`waveshaped(interpolated) - interpolated`; FIR history advances at every
+oversampled phase, but the dot product is evaluated once per source frame.
+Below threshold with unity gains the enabled output is bit-exact delayed dry
+for every mix and chunking. Runtime effect-enable and quality automation uses
+complementary smoothstep weights over 32 source frames, with sparse sorted
+events borrowed for one process call. Output gain therefore applies below and
+above threshold and at every mix value. Per-channel state is sized during
+setup; hard bypass applies neither gain nor state work.
 
 ### Noise shaping and signed quantization
 
@@ -94,6 +119,20 @@ The callback adapter compares snapshots field by field. Enabled/bit-depth
 updates do not clear curve history. It calls `set_curve` only when the curve
 actually changes, because a real curve transition deliberately starts with
 clean feedback history.
+
+The final floating-point limiter runs once in the output-rate domain. Its
+internal threshold is derived from bounded downstream error rather than a
+fixed audio-sized margin:
+
+```text
+guarded_linear = target_linear
+    - (curve.quantization_error_bound(bits) + 0.5 * f32::EPSILON)
+      * true_peak_reconstruction_l1_bound()
+```
+
+The derived guard is finite, positive, and monotonic (less headroom at higher
+bit depth) for every supported noise-shaper curve and 8--32 bit setting. The
+terminal noise shaper/quantizer follows that one limiter exactly once.
 
 ### Bauer crossfeed topology and state
 
@@ -127,7 +166,10 @@ unbounded-work-free in steady-state callback processing.
 | --- | --- |
 | Saturation `abs(x) <= threshold` while enabled | Identity transfer before final dry/wet output gain |
 | Saturation crosses either threshold | No value jump; left/right first derivative agrees within the deterministic gate |
-| Saturation disabled | Bit-exact input; no gain or stateful processing |
+| Saturation hard bypass | Bit-exact current input; zero latency and no stateful processing |
+| Armed saturation effect disabled at runtime | Four-frame delayed timeline remains; only bounded delay/history work runs after the 32-frame fade |
+| Saturation quality event | Starts at the exact block-relative frame; duplicate offsets apply in slice order |
+| Unsorted/out-of-range saturation events | Typed `ProcessError::InvalidAutomation`; no DSP mutation |
 | Saturation channel state undersized | Setup defect is detected; hot path does not resize |
 | Finite noise-shaper input, including zero/-140 dBFS | TPDF/quantization remains active |
 | Positive signed full scale | At most `1.0 - LSB`, never `+1.0` |
@@ -136,13 +178,16 @@ unbounded-work-free in steady-state callback processing.
 | Adapter updates only enabled or bits | Preserve existing curve history |
 | Crossfeed mix is zero | Exact stereo bypass |
 | Crossfeed channels are not two | Exact bypass |
+| Non-stereo Crossfeed finish | `TailSpec::None` and immediate `Finished(0)` |
 | Crossfeed mix/cutoff update | Preserve history and ramp to the target |
 | Crossfeed sample-rate update or reset | Clear prior-stream/rate history and snap/finish parameter state |
+| Final limiter guard | Derived from quantizer/dither/reconstruction bounds; never arbitrary audio headroom |
 
 ## 5. Good / Base / Bad Cases
 
 * Good: Tape, Tube, and Transistor all use the shared smoothstep knee in direct,
-  oversampled, and exciter processing, then apply output gain once.
+  oversampled, and exciter processing; oversampled modes filter only the
+  nonlinear residual and apply output gain once.
 * Base: TPDF-only quantizes digital silence; individual output samples may be
   zero, but the stream is not bypassed by amplitude.
 * Good: a cutoff update continues from the existing Bauer filter state while
@@ -161,7 +206,11 @@ unbounded-work-free in steady-state callback processing.
   no steady-state allocation.
 * Quality gates include `saturation_threshold_transfer_jump`,
   `saturation_threshold_first_derivative_mismatch`, and the existing
-  `saturation_oversampled4x_alias_reduction`.
+  `saturation_oversampled4x_alias_reduction` plus the wanted-signal
+  `saturation_oversampled4x_fundamental_delta` gate.
+* Saturation adapter tests cover exact event-frame starts, 32-frame smoothstep
+  continuity, overlapping three-mode weights, hard-bypass setup/reset, and
+  finite delay/FIR drain.
 * Noise-shaper tests cover exact silence, -140 dBFS, signed full-scale and
   overload inputs, every curve, NaN/infinity, channel-local recovery, quantizer
   grid/bounds, unchanged-curve adapter updates, and no steady-state allocation.
@@ -197,6 +246,7 @@ let output = quantized.clamp(-scale, scale - 1.0) / scale;
 
 crossfeed.set_cutoff(new_cutoff); // ramp coefficients; retain signal history
 
-let wet = shared_smooth_knee_transfer(dry, threshold, drive);
-let output = (dry + mix * (wet - dry)) * output_gain;
+let residual = decimate(waveshaped(interpolated) - interpolated);
+let processed = (delayed_dry + mix * residual) * output_gain;
+let output = delayed_raw + effect_weight * (processed - delayed_raw);
 ```

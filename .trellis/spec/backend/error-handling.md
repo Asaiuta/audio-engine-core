@@ -66,6 +66,9 @@ ProcessError::ConsumerAlreadyActive { processor: "Convolver" }
 ConvolverProcessor::new(control) -> Result<ConvolverProcessor, ProcessError>
 OutputChainBuilder::build_callback_chain(&self) -> Result<DspChain, ProcessError>
 OutputChainBuilder::build_render_chain(&self) -> Result<OutputRenderChain, ProcessError>
+FFTConvolver::new(ir_data, channels) -> Result<FFTConvolver, ProcessError>
+FFTConvolver::process_into(&mut self, input, output) -> Result<(), ProcessError>
+FFTConvolver::process_inplace(&mut self, buffer) -> Result<(), ProcessError>
 ```
 
 The consumer lease is private; callers cannot forge or mismatch it. A build
@@ -73,6 +76,10 @@ that fails after acquiring the lease must release it through normal drop so a
 later construction can succeed. String conversion is allowed only at an
 external reporting boundary such as a custom benchmark whose enclosing return
 type is already `Result<_, String>`.
+Malformed interleaved IR geometry (zero channels, empty data, or an incomplete
+frame) returns `ProcessError::InvalidBlock`/`InvalidGeometry` from the fallible
+constructor. No public constructor retains an `expect`/panic compatibility
+path, including code used during callback setup.
 
 ## No Panics On The Hot Path
 

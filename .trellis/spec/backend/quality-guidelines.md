@@ -81,11 +81,20 @@ Contracts to preserve when changing or extending this path:
   `Saturation::set_channel_count(...)` during setup. Do not resize, allocate,
   log, or lock inside `process_with_channels`, `process_fullband_oversampled`,
   or high-pass processing.
+- Armed Direct/2x/4x modes share a four-source-frame timeline. Oversampled
+  paths filter only `waveshaped - interpolated` and add that residual to the
+  delayed dry signal. Every oversampled phase advances FIR history, but only
+  one 17-/33-tap dot product is evaluated per source output.
+- Setup/reset-time hard bypass is zero-latency. Runtime effect enable and
+  quality changes retain the four-frame timeline and use a 32-source-frame
+  complementary smoothstep. Sparse automation is caller-borrowed, sorted by
+  block-relative frame offset, and never owned or allocated by the callback.
 - Quality-mode claims need objective evidence in
-  `audio_quality_measurements.rs`. The current gate is
-  `saturation_oversampled4x_alias_reduction`, which compares folded harmonic
-  alias energy from the Direct and Oversampled4x Tube paths at equivalent
-  drive/mix settings.
+  `audio_quality_measurements.rs`. Gates include
+  `saturation_oversampled4x_alias_reduction` and
+  `saturation_oversampled4x_fundamental_delta`: folded alias energy must
+  improve by at least 6 dB and the wanted fundamental may not fall more than
+  0.5 dB versus Direct at equivalent drive/mix settings.
 - Callback-budget changes need `audio_callback_chain_perf`; the active DSP
   scenario intentionally enables `SaturationQualityValue::Oversampled4x` so the
   measured 512-frame callback cost includes the upgraded path.
@@ -97,12 +106,16 @@ Tests required for this contract:
   finite and bounded.
 - A no-steady-state-allocation assertion covers the oversampled processing path
   after setup.
+- Below-threshold all-mix identity, partial-mix affine behavior, high-pass
+  topology/selectivity, harmonic spectrum, exact finite support, irregular
+  chunks, event offsets, retargeting, and finish-near-transition have
+  independent numerical oracles.
 
 ## FFT Convolution Routing
 
-`FFTConvolver::new(...)` owns both convolution strategies: the overlap-save
-engine for short/medium FIRs and the uniform partitioned engine for long impulse
-responses. Keep the public constructor as the routing point so callers,
+`FFTConvolver::new(...) -> Result<FFTConvolver, ProcessError>` owns both
+convolution strategies: the overlap-save engine for short/medium FIRs and the
+uniform partitioned engine for long impulse responses. Keep the public constructor as the routing point so callers,
 adapters, FIR EQ, and benches do not need to duplicate IR-length logic.
 
 Contracts to preserve when changing this path:
@@ -118,14 +131,17 @@ Contracts to preserve when changing this path:
   and in-place scratch buffers during construction. `process_into` and
   `process_inplace` must not allocate, lock, log, perform I/O, or do unbounded
   work after setup.
+- Constructor and processing entries reject empty/zero-channel/incomplete
+  interleaved geometry with typed errors. Public realtime-capable wrappers do
+  not retain a panicking compatibility path.
 - Correctness tests must compare the partitioned output against the overlap-save
   reference within a fixed tolerance for stereo and at least one mono/surround
   channel count, and cover cross-buffer continuity, reset, and in-place paths.
 
 ## Testing Requirements
 
-- `cargo test --lib` must pass. The crate already carries ~150 unit tests; new
-  behavior must add tests, not rely on existing ones.
+- Both `cargo test --lib` and `cargo test --lib --no-default-features` must
+  pass; new behavior must add focused regressions, not rely on test count.
 - Cover continuity across buffers, reset behavior, silence, and edge inputs
   (non-finite samples, sample-rate changes) where the processor is stateful.
 - Offline finalize changes must cover last-frame impulse survival,
@@ -184,6 +200,11 @@ cargo bench --bench audio_callback_chain_perf -- \
   [--baseline <baseline.json>] \
   [--max-median-regression-pct <non-negative-finite-pct>]
 
+cargo bench --bench audio_output_render_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+
 cargo bench --bench audio_resampler_streaming_perf -- \
   [--quick|--heavy] [--enforce] [--out <candidate.json>] \
   [--baseline <baseline.json>] \
@@ -196,7 +217,7 @@ cargo bench --bench audio_fir_eq_perf -- \
 ```
 
 Omitting `--quick` / `--heavy` selects full mode. Quality supports quick/full;
-the three performance probes additionally support heavy. Environment overrides
+the four performance probes additionally support heavy. Environment overrides
 are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 `AUDIO_BENCH_RUSTC_VERBOSE`, `AUDIO_BENCH_TARGET`, `AUDIO_BENCH_CPU`, and
 `AUDIO_BENCH_PROFILE`; `GITHUB_SHA` is a revision fallback.
@@ -224,7 +245,17 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - The default median regression limit is 10%: exactly +10% passes and any
   greater regression fails under `--enforce`. Without `--baseline`, absolute
   timing is report-only; `--enforce` still validates work and report integrity.
-- Shared CI runners run all four quick reports and upload JSON, but never use
+- Task-critical callback acceptance is stricter than the generic gate: both
+  512-frame active-chain medians may regress by at most 3%, their relative p95
+  deadline utilization by at most 5%, and every isolated Saturation 4x block
+  size must have a strictly lower median than a compatible baseline.
+- Output-render reports execute transparent, isolated IIR, isolated Saturation
+  4x, finite Convolver, complete equal-rate, and complete resampled cases at
+  64 and 4096 frame blocks. They record peak temporary bytes excluding final
+  output capacity and require candidate temporary memory to be no larger than
+  a compatible baseline. Fixed-stage temporary memory must remain bounded as
+  duration grows.
+- Shared CI runners run all five quick reports and upload JSON, but never use
   a cross-run absolute nanosecond gate without an explicitly supplied
   compatible baseline.
 
@@ -240,6 +271,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | Required environment mismatch or `unknown` | comparison rejected with each incompatible field |
 | Candidate median exactly 10% slower | comparison passes |
 | Candidate median more than 10% slower | enforced failure names case, baseline, candidate, regression, and threshold |
+| 512-frame active callback median exceeds +3% or p95 utilization exceeds +5% | task acceptance failure even when generic +10% would pass |
+| Any isolated Saturation 4x candidate median is not lower | strict-improvement failure |
+| Render temporary bytes grow with duration for a fixed scenario/block | memory scaling gate failure |
 | No baseline on a shared runner | timing remains report-only; work/report gates still run |
 | EBU vectors absent | `skipped` with missing-file count, never pass/conformance |
 
@@ -253,6 +287,10 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   call a source-buffer resampler percentage a device callback utilization.
 - Bad: cite min/best-of-N as representative performance or turn a missing EBU
   corpus into a successful conformance claim.
+- Good: port the exact benchmark workload into a detached old-code worktree,
+  expose an existing private block-size hook only for measurement, and compare
+  that report with the candidate. Never generate a baseline from candidate
+  code or silently compare incompatible case matrices.
 
 ### 6. Tests Required
 
@@ -266,6 +304,10 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   finite timing, and complete work. Callback/resampler additionally assert
   consumed/produced work and output bounds; FIR asserts IR length/finite
   samples, finite changed apply output, and overlap-save routing.
+- Callback acceptance checks require two 512-frame active cases and four
+  isolated Saturation 4x cases. Output-render checks require every
+  scenario/duration/block tuple, active-work evidence, exact finite tails,
+  unknown-tail early stop, and duration-independent temporary memory.
 - Quality quick `--enforce --out` must deserialize and expose environment,
   skipped count, rendered frames, latency, semantic tail, and truncation.
 - Before release, run callback/resampler/FIR quick/full/heavy, quality
