@@ -17,14 +17,17 @@ use audio_engine_core::processor::{
     callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, ConvolverControl,
-    DspChain, FFTConvolver, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
-    SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
+    DspChain, FFTConvolver, NoiseShaperCurve, OutputChainBuilder, OutputChainParams, Saturation,
+    SaturationQuality, SaturationQualityValue, SaturationType, SaturationTypeValue, EQ_BANDS,
 };
 
 const CHANNELS: usize = 2;
 const SAMPLE_RATE: f64 = 48_000.0;
 const BUFFER_FRAMES: [usize; 4] = [64, 128, 256, 512];
 const WARMUP_BUFFERS: usize = 256;
+const PRIMARY_ACTIVE_FRAMES: usize = 512;
+const PRIMARY_MEDIAN_MAX_REGRESSION_PCT: f64 = 3.0;
+const PRIMARY_P95_DEADLINE_MAX_REGRESSION_PCT: f64 = 5.0;
 
 #[derive(Clone, Copy)]
 enum Scenario {
@@ -131,6 +134,18 @@ struct BaselineReference {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+struct AcceptanceComparison {
+    case_key: String,
+    metric: String,
+    baseline_value: f64,
+    candidate_value: f64,
+    regression_pct: f64,
+    threshold_pct: f64,
+    strict_improvement: bool,
+    passed: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct CallbackReport {
     schema_version: u32,
     probe: String,
@@ -141,6 +156,8 @@ struct CallbackReport {
     cases: Vec<CallbackCase>,
     baseline: Option<BaselineReference>,
     comparisons: Vec<RegressionComparison>,
+    #[serde(default)]
+    acceptance_comparisons: Vec<AcceptanceComparison>,
 }
 
 fn main() -> Result<(), String> {
@@ -158,7 +175,7 @@ fn main() -> Result<(), String> {
         channels: CHANNELS,
         nodes: node_order,
         copy_input: true,
-        coverage: "dsp_chain_only".to_string(),
+        coverage: "dsp_chain_plus_isolated_saturation".to_string(),
         excludes: [
             "cpal_device_write",
             "decoder",
@@ -180,6 +197,9 @@ fn main() -> Result<(), String> {
             cases.push(benchmark_scenario(scenario, frames, iterations, trials)?);
         }
     }
+    for &frames in &BUFFER_FRAMES {
+        cases.push(benchmark_isolated_saturation(frames, iterations, trials)?);
+    }
 
     let mut report = CallbackReport {
         schema_version: REPORT_SCHEMA_VERSION,
@@ -191,12 +211,14 @@ fn main() -> Result<(), String> {
         cases,
         baseline: None,
         comparisons: Vec::new(),
+        acceptance_comparisons: Vec::new(),
     };
 
     if let Some(path) = &args.baseline {
         let baseline: CallbackReport = read_json(path, "callback baseline report")?;
         report.comparisons =
             compare_with_baseline(&report, &baseline, args.max_median_regression_pct)?;
+        report.acceptance_comparisons = compare_acceptance_cases(&report, &baseline)?;
         report.baseline = Some(BaselineReference {
             path: path.display().to_string(),
             revision: baseline.environment.revision,
@@ -219,9 +241,9 @@ fn main() -> Result<(), String> {
 
 fn workload(mode: BenchMode) -> (usize, usize) {
     match mode {
-        BenchMode::Quick => (100, 7),
-        BenchMode::Full => (750, 9),
-        BenchMode::Heavy => (3_000, 15),
+        BenchMode::Quick => (1_000, 7),
+        BenchMode::Full => (7_500, 9),
+        BenchMode::Heavy => (30_000, 15),
     }
 }
 
@@ -230,17 +252,19 @@ fn print_help() {
         "Usage: cargo bench --bench audio_callback_chain_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
          \n\
          Reports trial min/median/p95/max and callback deadline utilization.\n\
-         Timing is report-only unless a compatible same-machine baseline is supplied."
+         With a compatible baseline, 512-frame active median/p95 gates are fixed at 3%/5%.\n\
+         Every isolated Saturation 4x median must strictly improve."
     );
 }
 
 fn print_report(report: &CallbackReport) -> Result<(), String> {
     println!(
-        "audio_callback_chain_perf mode={} sample_rate={} channels={} nodes={} copy_input=true coverage=dsp_chain_only iterations={} trials={}",
+        "audio_callback_chain_perf mode={} sample_rate={} channels={} nodes={} copy_input=true coverage={} iterations={} trials={}",
         report.mode.as_str(),
         report.conditions.sample_rate_hz,
         report.conditions.channels,
         report.conditions.nodes,
+        report.conditions.coverage,
         report.conditions.iterations_per_trial,
         report.conditions.trials
     );
@@ -279,6 +303,19 @@ fn print_report(report: &CallbackReport) -> Result<(), String> {
             comparison.regression_pct,
             comparison.threshold_pct,
             comparison.passed
+        );
+    }
+    for comparison in &report.acceptance_comparisons {
+        println!(
+            "callback_chain_acceptance case={} metric={} baseline={:.6} candidate={:.6} regression_pct={:.3} threshold_pct={:.3} strict_improvement={} passed={}",
+            comparison.case_key,
+            comparison.metric,
+            comparison.baseline_value,
+            comparison.candidate_value,
+            comparison.regression_pct,
+            comparison.threshold_pct,
+            comparison.strict_improvement,
+            comparison.passed,
         );
     }
     Ok(())
@@ -320,6 +357,106 @@ fn compare_with_baseline(
     )
 }
 
+fn compare_acceptance_cases(
+    candidate: &CallbackReport,
+    baseline: &CallbackReport,
+) -> Result<Vec<AcceptanceComparison>, String> {
+    fn compare(
+        case_key: &str,
+        metric: &str,
+        baseline_value: f64,
+        candidate_value: f64,
+        threshold_pct: f64,
+        strict_improvement: bool,
+    ) -> Result<AcceptanceComparison, String> {
+        if !baseline_value.is_finite()
+            || baseline_value <= 0.0
+            || !candidate_value.is_finite()
+            || candidate_value <= 0.0
+        {
+            return Err(format!(
+                "callback acceptance comparison '{case_key}' metric '{metric}' requires positive finite values; baseline={baseline_value}, candidate={candidate_value}"
+            ));
+        }
+        let regression_pct = (candidate_value / baseline_value - 1.0) * 100.0;
+        let passed = if strict_improvement {
+            candidate_value < baseline_value
+        } else {
+            regression_pct <= threshold_pct
+        };
+        Ok(AcceptanceComparison {
+            case_key: case_key.to_string(),
+            metric: metric.to_string(),
+            baseline_value,
+            candidate_value,
+            regression_pct,
+            threshold_pct,
+            strict_improvement,
+            passed,
+        })
+    }
+
+    let mut comparisons = Vec::new();
+    let mut primary_active_cases = 0usize;
+    let mut isolated_cases = 0usize;
+    for candidate_case in &candidate.cases {
+        let baseline_case = baseline
+            .cases
+            .iter()
+            .find(|case| case.case_key == candidate_case.case_key)
+            .ok_or_else(|| {
+                format!(
+                    "missing callback acceptance baseline case '{}'",
+                    candidate_case.case_key
+                )
+            })?;
+
+        if candidate_case.frames == PRIMARY_ACTIVE_FRAMES
+            && matches!(
+                candidate_case.scenario.as_str(),
+                "active_dsp_no_convolver" | "active_dsp_with_convolver"
+            )
+        {
+            primary_active_cases += 1;
+            comparisons.push(compare(
+                &candidate_case.case_key,
+                "median_ns_per_sample",
+                baseline_case.ns_per_sample.median,
+                candidate_case.ns_per_sample.median,
+                PRIMARY_MEDIAN_MAX_REGRESSION_PCT,
+                false,
+            )?);
+            comparisons.push(compare(
+                &candidate_case.case_key,
+                "p95_deadline_utilization_pct",
+                baseline_case.p95_deadline_utilization_pct,
+                candidate_case.p95_deadline_utilization_pct,
+                PRIMARY_P95_DEADLINE_MAX_REGRESSION_PCT,
+                false,
+            )?);
+        }
+
+        if candidate_case.scenario == "isolated_saturation_4x" {
+            isolated_cases += 1;
+            comparisons.push(compare(
+                &candidate_case.case_key,
+                "median_ns_per_sample",
+                baseline_case.ns_per_sample.median,
+                candidate_case.ns_per_sample.median,
+                0.0,
+                true,
+            )?);
+        }
+    }
+
+    if primary_active_cases != 2 || isolated_cases != BUFFER_FRAMES.len() {
+        return Err(format!(
+            "callback acceptance case matrix incomplete: primary_active_512={primary_active_cases}, isolated_saturation_4x={isolated_cases}"
+        ));
+    }
+    Ok(comparisons)
+}
+
 fn enforce_report(report: &CallbackReport) -> Result<(), String> {
     let invalid_cases = report
         .cases
@@ -343,6 +480,29 @@ fn enforce_report(report: &CallbackReport) -> Result<(), String> {
         "ns/sample",
     ) {
         return Err(error);
+    }
+    let acceptance_failures = report
+        .acceptance_comparisons
+        .iter()
+        .filter(|comparison| !comparison.passed)
+        .map(|comparison| {
+            format!(
+                "{} {}: baseline {:.6}, candidate {:.6}, regression {:.3}%, threshold {:.3}%, strict_improvement={}",
+                comparison.case_key,
+                comparison.metric,
+                comparison.baseline_value,
+                comparison.candidate_value,
+                comparison.regression_pct,
+                comparison.threshold_pct,
+                comparison.strict_improvement,
+            )
+        })
+        .collect::<Vec<_>>();
+    if !acceptance_failures.is_empty() {
+        return Err(format!(
+            "callback task acceptance gate failed: {}",
+            acceptance_failures.join("; ")
+        ));
     }
     Ok(())
 }
@@ -389,6 +549,46 @@ fn benchmark_scenario(
     })
 }
 
+fn benchmark_isolated_saturation(
+    frames: usize,
+    iterations: usize,
+    trials: usize,
+) -> Result<CallbackCase, String> {
+    let corpus = synthetic_buffer(frames, CHANNELS);
+    let work_validation = validate_isolated_saturation_work(frames, &corpus);
+    let mut ns_per_sample = Vec::with_capacity(trials);
+    let mut ns_per_buffer = Vec::with_capacity(trials);
+
+    for _ in 0..trials {
+        let mut saturation = build_isolated_saturation();
+        warm_isolated_saturation(&mut saturation, &corpus);
+        let measurement = measure_isolated_saturation(&mut saturation, &corpus, frames, iterations);
+        ns_per_sample.push(measurement.ns_per_sample);
+        ns_per_buffer.push(measurement.ns_per_buffer);
+    }
+
+    let ns_per_sample = summarize_trials(ns_per_sample)?;
+    let ns_per_buffer = summarize_trials(ns_per_buffer)?;
+    let buffer_duration_ns = frames as f64 / SAMPLE_RATE * 1.0e9;
+    Ok(CallbackCase {
+        case_key: format!(
+            "scenario=isolated_saturation_4x;frames={frames};config=isolated_tube_oversampled4x_fullband"
+        ),
+        scenario: "isolated_saturation_4x".to_string(),
+        scenario_config:
+            "direct Saturation; Tube; Oversampled4x; full-band nonlinear residual; driven input"
+                .to_string(),
+        frames,
+        samples: frames * CHANNELS,
+        median_deadline_utilization_pct: ns_per_buffer.median / buffer_duration_ns * 100.0,
+        p95_deadline_utilization_pct: ns_per_buffer.p95 / buffer_duration_ns * 100.0,
+        ns_per_sample,
+        ns_per_buffer,
+        buffer_duration_ns,
+        work_validation,
+    })
+}
+
 fn validate_work(scenario: Scenario, frames: usize, corpus: &[f64]) -> WorkValidation {
     let mut bundle = build_chain_bundle(scenario);
     warm_chain(&mut bundle, scenario, corpus);
@@ -420,6 +620,27 @@ fn validate_work(scenario: Scenario, frames: usize, corpus: &[f64]) -> WorkValid
     }
 }
 
+fn validate_isolated_saturation_work(frames: usize, corpus: &[f64]) -> WorkValidation {
+    let mut saturation = build_isolated_saturation();
+    warm_isolated_saturation(&mut saturation, corpus);
+    let mut scratch = corpus.to_vec();
+    saturation.process_with_channels(&mut scratch, CHANNELS);
+    let all_samples_finite = scratch.iter().all(|sample| sample.is_finite());
+    let output_changed = scratch
+        .iter()
+        .zip(corpus)
+        .any(|(output, input)| output.to_bits() != input.to_bits());
+    WorkValidation {
+        valid: all_samples_finite && output_changed,
+        all_samples_finite,
+        output_changed,
+        expected_output_changed: true,
+        bypassed: false,
+        consumed_frames: frames,
+        produced_frames: frames,
+    }
+}
+
 // Rebuilds the callback-safe output chain from the crate's canonical builder.
 // The timings here track realtime DSP cost and exclude decoder, upstream
 // playback resampling, spectrum packing, and the OS device write.
@@ -448,7 +669,13 @@ fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
 
     if matches!(scenario, Scenario::ActiveDspWithConvolver) {
         convolver_control.set_enabled(true);
-        convolver_control.publish(FFTConvolver::new(&synthetic_ir(256, CHANNELS), CHANNELS));
+        convolver_control
+            .publish_at_rate(
+                FFTConvolver::new(&synthetic_ir(256, CHANNELS), CHANNELS)
+                    .expect("benchmark IR geometry is valid"),
+                SAMPLE_RATE as u32,
+            )
+            .expect("benchmark sample rate is valid");
     }
 
     let chain = OutputChainBuilder::new(OutputChainParams {
@@ -486,6 +713,7 @@ fn configure_params(
         Scenario::BypassDefault => {
             eq_params.write(&[0.0; EQ_BANDS], false);
             saturation_params.set_enabled(false);
+            saturation_params.set_armed(false);
             crossfeed_params.set_enabled(false);
             limiter_params.set_enabled(false);
             volume_params.set_volume(1.0);
@@ -499,6 +727,7 @@ fn configure_params(
                 true,
             );
             saturation_params.set_enabled(true);
+            saturation_params.set_armed(true);
             saturation_params.set_drive(0.85);
             saturation_params.set_threshold(0.82);
             saturation_params.set_mix(0.35);
@@ -548,6 +777,31 @@ fn warm_chain(bundle: &mut ChainBundle, _scenario: Scenario, corpus: &[f64]) {
     }
 }
 
+fn build_isolated_saturation() -> Saturation {
+    let mut saturation = Saturation::new();
+    saturation.set_sample_rate(SAMPLE_RATE);
+    saturation.set_channel_count(CHANNELS);
+    saturation.set_type(SaturationType::Tube);
+    saturation.set_quality(SaturationQuality::Oversampled4x);
+    saturation.set_drive(0.92);
+    saturation.set_threshold(0.30);
+    saturation.set_mix(0.75);
+    saturation.set_input_gain(0.0);
+    saturation.set_output_gain(0.0);
+    saturation.set_highpass_mode(false);
+    saturation.set_enabled(true);
+    saturation
+}
+
+fn warm_isolated_saturation(saturation: &mut Saturation, corpus: &[f64]) {
+    let mut scratch = corpus.to_vec();
+
+    for _ in 0..WARMUP_BUFFERS {
+        scratch.copy_from_slice(corpus);
+        saturation.process_with_channels(black_box(&mut scratch), CHANNELS);
+    }
+}
+
 fn measure_chain(
     chain: &mut DspChain,
     corpus: &[f64],
@@ -562,6 +816,31 @@ fn measure_chain(
         let _ = chain
             .process(black_box(&mut scratch), CHANNELS)
             .expect("benchmark callback processing must succeed");
+        black_box(&scratch);
+    }
+
+    let elapsed = start.elapsed();
+    let ns_per_buffer = elapsed.as_nanos() as f64 / iterations as f64;
+    let ns_per_sample = ns_per_buffer / (frames * CHANNELS) as f64;
+
+    TrialMeasurement {
+        ns_per_sample,
+        ns_per_buffer,
+    }
+}
+
+fn measure_isolated_saturation(
+    saturation: &mut Saturation,
+    corpus: &[f64],
+    frames: usize,
+    iterations: usize,
+) -> TrialMeasurement {
+    let mut scratch = vec![0.0; corpus.len()];
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        scratch.copy_from_slice(black_box(corpus));
+        saturation.process_with_channels(black_box(&mut scratch), CHANNELS);
         black_box(&scratch);
     }
 

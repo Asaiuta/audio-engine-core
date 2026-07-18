@@ -7,7 +7,8 @@ use audio_engine_core::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, CrossfeedParamsSnapshot,
     DynamicLoudnessParamsSnapshot, EqParamsSnapshot, NoiseShaperParamsSnapshot,
-    PeakLimiterParamsSnapshot, SaturationParamsSnapshot, VolumeParamsSnapshot, EQ_BANDS,
+    PeakLimiterParamsSnapshot, RealtimeSnapshotReader, SaturationParamsSnapshot,
+    VolumeParamsSnapshot, EQ_BANDS,
 };
 
 const LOUDNESS_BANDS: usize = 7;
@@ -24,18 +25,27 @@ fn main() {
     );
 
     let steady = benchmark_steady_state(iterations);
-    print_report("lockfree_params_generation_steady_state", &steady);
+    print_report("lockfree_params_realtime_hazard_steady_state", &steady);
 
     let occasional = benchmark_occasional_update(iterations, update_interval);
-    print_report("lockfree_params_generation_occasional_update", &occasional);
+    print_report(
+        "lockfree_params_realtime_hazard_occasional_update",
+        &occasional,
+    );
 
     let arc_guard = benchmark_arc_guard_steady_state(iterations);
-    print_pair_report("lockfree_params_arc_guard_steady_state", &arc_guard);
+    print_pair_report("lockfree_params_control_arc_guard_steady_state", &arc_guard);
+
+    let realtime_vs_control = benchmark_realtime_vs_control(iterations);
+    print_pair_report(
+        "lockfree_params_realtime_hazard_vs_control_generation",
+        &realtime_vs_control,
+    );
 
     if enforce {
         assert!(
             steady.improvement_percent >= 3.0,
-            "steady-state lockfree param read improvement below 3%: {:.2}%",
+            "steady-state realtime hazard param read improvement below 3%: {:.2}%",
             steady.improvement_percent
         );
     }
@@ -65,6 +75,30 @@ struct CurrentCache {
     volume: Arc<VolumeParamsSnapshot>,
     noise: Arc<NoiseShaperParamsSnapshot>,
     dynamic: Arc<DynamicLoudnessParamsSnapshot>,
+    generation_eq: u64,
+    generation_saturation: u64,
+    generation_crossfeed: u64,
+    generation_limiter: u64,
+    generation_volume: u64,
+    generation_noise: u64,
+    generation_dynamic: u64,
+}
+
+struct RealtimeCache {
+    eq_reader: RealtimeSnapshotReader<EqParamsSnapshot>,
+    saturation_reader: RealtimeSnapshotReader<SaturationParamsSnapshot>,
+    crossfeed_reader: RealtimeSnapshotReader<CrossfeedParamsSnapshot>,
+    limiter_reader: RealtimeSnapshotReader<PeakLimiterParamsSnapshot>,
+    volume_reader: RealtimeSnapshotReader<VolumeParamsSnapshot>,
+    noise_reader: RealtimeSnapshotReader<NoiseShaperParamsSnapshot>,
+    dynamic_reader: RealtimeSnapshotReader<DynamicLoudnessParamsSnapshot>,
+    eq: EqParamsSnapshot,
+    saturation: SaturationParamsSnapshot,
+    crossfeed: CrossfeedParamsSnapshot,
+    limiter: PeakLimiterParamsSnapshot,
+    volume: VolumeParamsSnapshot,
+    noise: NoiseShaperParamsSnapshot,
+    dynamic: DynamicLoudnessParamsSnapshot,
     generation_eq: u64,
     generation_saturation: u64,
     generation_crossfeed: u64,
@@ -111,6 +145,41 @@ impl CurrentParams {
         let (noise, generation_noise) = self.noise.load_with_generation();
         let (dynamic, generation_dynamic) = self.dynamic.load_with_generation();
         CurrentCache {
+            eq,
+            saturation,
+            crossfeed,
+            limiter,
+            volume,
+            noise,
+            dynamic,
+            generation_eq,
+            generation_saturation,
+            generation_crossfeed,
+            generation_limiter,
+            generation_volume,
+            generation_noise,
+            generation_dynamic,
+        }
+    }
+
+    fn realtime_cache(&self) -> RealtimeCache {
+        let (eq_reader, eq, generation_eq) = self.eq.subscribe_realtime();
+        let (saturation_reader, saturation, generation_saturation) =
+            self.saturation.subscribe_realtime();
+        let (crossfeed_reader, crossfeed, generation_crossfeed) =
+            self.crossfeed.subscribe_realtime();
+        let (limiter_reader, limiter, generation_limiter) = self.limiter.subscribe_realtime();
+        let (volume_reader, volume, generation_volume) = self.volume.subscribe_realtime();
+        let (noise_reader, noise, generation_noise) = self.noise.subscribe_realtime();
+        let (dynamic_reader, dynamic, generation_dynamic) = self.dynamic.subscribe_realtime();
+        RealtimeCache {
+            eq_reader,
+            saturation_reader,
+            crossfeed_reader,
+            limiter_reader,
+            volume_reader,
+            noise_reader,
+            dynamic_reader,
             eq,
             saturation,
             crossfeed,
@@ -208,33 +277,120 @@ impl CurrentParams {
 
         current_cache_sum(cache)
     }
+
+    fn sync_realtime_cached(&self, cache: &mut RealtimeCache) -> f64 {
+        if let Some((next, generation)) = self
+            .eq
+            .load_realtime_if_changed_since(&cache.eq_reader, cache.generation_eq)
+        {
+            cache.eq = next;
+            cache.generation_eq = generation;
+        }
+        if let Some((next, generation)) = self
+            .saturation
+            .load_realtime_if_changed_since(&cache.saturation_reader, cache.generation_saturation)
+        {
+            cache.saturation = next;
+            cache.generation_saturation = generation;
+        }
+        if let Some((next, generation)) = self
+            .crossfeed
+            .load_realtime_if_changed_since(&cache.crossfeed_reader, cache.generation_crossfeed)
+        {
+            cache.crossfeed = next;
+            cache.generation_crossfeed = generation;
+        }
+        if let Some((next, generation)) = self
+            .limiter
+            .load_realtime_if_changed_since(&cache.limiter_reader, cache.generation_limiter)
+        {
+            cache.limiter = next;
+            cache.generation_limiter = generation;
+        }
+        if let Some((next, generation)) = self
+            .volume
+            .load_realtime_if_changed_since(&cache.volume_reader, cache.generation_volume)
+        {
+            cache.volume = next;
+            cache.generation_volume = generation;
+        }
+        if let Some((next, generation)) = self
+            .noise
+            .load_realtime_if_changed_since(&cache.noise_reader, cache.generation_noise)
+        {
+            cache.noise = next;
+            cache.generation_noise = generation;
+        }
+        if let Some((next, generation)) = self
+            .dynamic
+            .load_realtime_if_changed_since(&cache.dynamic_reader, cache.generation_dynamic)
+        {
+            cache.dynamic = next;
+            cache.generation_dynamic = generation;
+        }
+
+        realtime_cache_sum(cache)
+    }
 }
 
 fn current_cache_sum(cache: &CurrentCache) -> f64 {
-    let eq_sum: f64 = cache.eq.gains.iter().sum();
+    snapshot_sum(
+        &cache.eq,
+        &cache.saturation,
+        &cache.crossfeed,
+        &cache.limiter,
+        &cache.volume,
+        &cache.noise,
+        &cache.dynamic,
+    )
+}
+
+fn realtime_cache_sum(cache: &RealtimeCache) -> f64 {
+    snapshot_sum(
+        &cache.eq,
+        &cache.saturation,
+        &cache.crossfeed,
+        &cache.limiter,
+        &cache.volume,
+        &cache.noise,
+        &cache.dynamic,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn snapshot_sum(
+    eq: &EqParamsSnapshot,
+    saturation: &SaturationParamsSnapshot,
+    crossfeed: &CrossfeedParamsSnapshot,
+    limiter: &PeakLimiterParamsSnapshot,
+    volume: &VolumeParamsSnapshot,
+    noise: &NoiseShaperParamsSnapshot,
+    dynamic: &DynamicLoudnessParamsSnapshot,
+) -> f64 {
+    let eq_sum: f64 = eq.gains.iter().sum();
     eq_sum
-        + cache.saturation.drive
-        + cache.saturation.threshold
-        + cache.saturation.mix
-        + cache.saturation.quality as u8 as f64
-        + cache.saturation.input_gain_db
-        + cache.saturation.output_gain_db
-        + cache.saturation.highpass_cutoff
-        + cache.crossfeed.mix
-        + cache.crossfeed.cutoff_hz
-        + cache.limiter.threshold_db
-        + cache.limiter.release_ms
-        + cache.volume.volume
-        + cache.noise.bits as f64
-        + cache.dynamic.volume
-        + cache.dynamic.strength
-        + bool_value(cache.eq.enabled)
-        + bool_value(cache.saturation.enabled)
-        + bool_value(cache.crossfeed.enabled)
-        + bool_value(cache.limiter.enabled)
-        + bool_value(cache.volume.muted)
-        + bool_value(cache.noise.enabled)
-        + bool_value(cache.dynamic.enabled)
+        + saturation.drive
+        + saturation.threshold
+        + saturation.mix
+        + saturation.quality as u8 as f64
+        + saturation.input_gain_db
+        + saturation.output_gain_db
+        + saturation.highpass_cutoff
+        + crossfeed.mix
+        + crossfeed.cutoff_hz
+        + limiter.threshold_db
+        + limiter.release_ms
+        + volume.volume
+        + noise.bits as f64
+        + dynamic.volume
+        + dynamic.strength
+        + bool_value(eq.enabled)
+        + bool_value(saturation.enabled)
+        + bool_value(crossfeed.enabled)
+        + bool_value(limiter.enabled)
+        + bool_value(volume.muted)
+        + bool_value(noise.enabled)
+        + bool_value(dynamic.enabled)
 }
 
 struct LegacyParams {
@@ -385,14 +541,14 @@ impl LegacyParams {
 
 fn benchmark_steady_state(iterations: usize) -> BenchReport {
     let current = CurrentParams::new();
-    let mut current_cache = current.cache();
+    let mut current_cache = current.realtime_cache();
     let legacy = LegacyParams::new();
 
     let current_duration = measure(
         || {
             let mut sum = 0.0;
             for _ in 0..iterations {
-                sum += current.sync_cached(black_box(&mut current_cache));
+                sum += current.sync_realtime_cached(black_box(&mut current_cache));
             }
             black_box(sum)
         },
@@ -449,9 +605,44 @@ fn benchmark_arc_guard_steady_state(iterations: usize) -> PairReport {
     }
 }
 
+fn benchmark_realtime_vs_control(iterations: usize) -> PairReport {
+    let current = CurrentParams::new();
+    let mut realtime_cache = current.realtime_cache();
+    let mut control_cache = current.cache();
+
+    let realtime_duration = measure(
+        || {
+            let mut sum = 0.0;
+            for _ in 0..iterations {
+                sum += current.sync_realtime_cached(black_box(&mut realtime_cache));
+            }
+            black_box(sum)
+        },
+        1,
+    );
+    let control_duration = measure(
+        || {
+            let mut sum = 0.0;
+            for _ in 0..iterations {
+                sum += current.sync_cached(black_box(&mut control_cache));
+            }
+            black_box(sum)
+        },
+        1,
+    );
+
+    let realtime_ns = nanos_per_unit(realtime_duration, iterations);
+    let control_ns = nanos_per_unit(control_duration, iterations);
+    PairReport {
+        current_ns_per_read: realtime_ns,
+        baseline_ns_per_read: control_ns,
+        improvement_percent: (control_ns - realtime_ns) / control_ns * 100.0,
+    }
+}
+
 fn benchmark_occasional_update(iterations: usize, update_interval: usize) -> BenchReport {
     let current = CurrentParams::new();
-    let mut current_cache = current.cache();
+    let mut current_cache = current.realtime_cache();
     let legacy = LegacyParams::new();
 
     let current_duration = measure(
@@ -461,7 +652,7 @@ fn benchmark_occasional_update(iterations: usize, update_interval: usize) -> Ben
                 if i % update_interval == 0 {
                     current.publish_update(i);
                 }
-                sum += current.sync_cached(black_box(&mut current_cache));
+                sum += current.sync_realtime_cached(black_box(&mut current_cache));
             }
             black_box(sum)
         },
@@ -531,7 +722,7 @@ fn print_report(name: &str, report: &BenchReport) {
 
 fn print_pair_report(name: &str, report: &PairReport) {
     println!(
-        "{name} generation={:.3} ns/read arc_guard={:.3} ns/read improvement={:.2}%",
+        "{name} current={:.3} ns/read baseline={:.3} ns/read improvement={:.2}%",
         report.current_ns_per_read, report.baseline_ns_per_read, report.improvement_percent
     );
 }

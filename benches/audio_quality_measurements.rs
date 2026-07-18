@@ -44,6 +44,7 @@ const LOUDNESS_SINE_DURATION_SECS: f64 = 10.0;
 const LOUDNESS_STEPPED_DURATION_SECS: f64 = 12.0;
 const DEFAULT_EBU_CORPUS_DIR: &str = "libebur128/test";
 const FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP: f64 = -1.0;
+const FULL_OUTPUT_TRUE_PEAK_GATE_TOLERANCE_DB: f64 = 0.001;
 const FULL_OUTPUT_CHAIN_BITS: u32 = 24;
 const EBU_LOUDNESS_TOLERANCE_LU: f64 = 0.1;
 const EBU_LRA_TOLERANCE_LU: f64 = 1.0;
@@ -78,6 +79,7 @@ const GATE_RESAMPLER_THDN_MAX_DB: f64 = -100.0; // observed ~-187 dB
 const GATE_PASSBAND_DEVIATION_MAX_DB: f64 = 0.10; // observed ~0.0013 dB
 const GATE_ALIAS_ATTENUATION_MAX_DB: f64 = -100.0; // observed ~-295 dB (more negative is better)
 const GATE_SATURATION_ALIAS_REDUCTION_MIN_DB: f64 = 6.0;
+const GATE_SATURATION_FUNDAMENTAL_DELTA_MIN_DB: f64 = -0.5;
 const GATE_SATURATION_THRESHOLD_JUMP_MAX: f64 = 2.0e-6;
 const GATE_SATURATION_SLOPE_MISMATCH_MAX: f64 = 1.0e-3;
 const GATE_EQ_TARGET_ERROR_MAX_DB: f64 = 0.50;
@@ -552,6 +554,7 @@ struct SaturationAliasingSection {
     mix: f64,
     direct_fundamental_dbfs: f64,
     upgraded_fundamental_dbfs: f64,
+    fundamental_delta_db: f64,
     direct_alias_energy_dbfs: f64,
     upgraded_alias_energy_dbfs: f64,
     alias_reduction_db: f64,
@@ -986,6 +989,13 @@ fn build_metrics(
             "dB",
         ),
         MetricResult::gate(
+            "saturation_oversampled4x_fundamental_delta",
+            Comparison::AtLeast,
+            saturation_aliasing.fundamental_delta_db,
+            GATE_SATURATION_FUNDAMENTAL_DELTA_MIN_DB,
+            "dB",
+        ),
+        MetricResult::gate(
             "listening_eq_target_gain_accuracy",
             Comparison::AtMost,
             listening_dsp.eq.max_abs_target_error_db,
@@ -1104,6 +1114,13 @@ fn build_metrics(
             GATE_LOUDNESS_PARITY_MAX_LU,
             "LU",
         ),
+        MetricResult::gate(
+            "full_output_chain_worst_true_peak",
+            Comparison::AtMost,
+            full_output_true_peak.worst_output_true_peak_dbtp,
+            FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP + FULL_OUTPUT_TRUE_PEAK_GATE_TOLERANCE_DB,
+            "dBTP",
+        ),
         // --- Report-only synthetic evidence (printed/serialized, never fails) ---
         MetricResult::report(
             "limiter_below_threshold_thdn",
@@ -1125,13 +1142,6 @@ fn build_metrics(
             loudness_reference.max_true_peak_delta_db,
             0.1,
             "dB",
-        ),
-        MetricResult::report(
-            "full_output_chain_worst_true_peak",
-            Comparison::AtMost,
-            full_output_true_peak.worst_output_true_peak_dbtp,
-            FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP,
-            "dBTP",
         ),
     ];
 
@@ -1488,9 +1498,10 @@ fn saturation_transfer_sample(saturation_type: SaturationType, input: f64) -> f6
     saturation.set_drive(SATURATION_CONTINUITY_DRIVE);
     saturation.set_mix(1.0);
     saturation.set_output_gain(SATURATION_CONTINUITY_OUTPUT_GAIN_DB);
-    let mut sample = [input];
-    saturation.process_with_channels(&mut sample, 1);
-    sample[0]
+    let latency_frames = saturation.latency_frames();
+    let mut samples = vec![input; latency_frames + 1];
+    saturation.process_with_channels(&mut samples, 1);
+    samples[latency_frames]
 }
 
 fn saturation_type_name(saturation_type: SaturationType) -> &'static str {
@@ -1563,6 +1574,9 @@ fn measure_saturation_aliasing(frames: usize) -> Result<SaturationAliasingSectio
     let direct_alias_energy = direct_alias_power.sqrt();
     let upgraded_alias_energy = upgraded_alias_power.sqrt();
 
+    let direct_fundamental_dbfs = dbfs(direct_fundamental.amplitude);
+    let upgraded_fundamental_dbfs = dbfs(upgraded_fundamental.amplitude);
+
     Ok(SaturationAliasingSection {
         sample_rate_hz: SAMPLE_RATE,
         saturation_type: "Tube",
@@ -1571,8 +1585,9 @@ fn measure_saturation_aliasing(frames: usize) -> Result<SaturationAliasingSectio
         input_amplitude_dbfs: SATURATION_ALIAS_AMPLITUDE_DBFS,
         drive: SATURATION_ALIAS_DRIVE,
         mix: SATURATION_ALIAS_MIX,
-        direct_fundamental_dbfs: dbfs(direct_fundamental.amplitude),
-        upgraded_fundamental_dbfs: dbfs(upgraded_fundamental.amplitude),
+        direct_fundamental_dbfs,
+        upgraded_fundamental_dbfs,
+        fundamental_delta_db: upgraded_fundamental_dbfs - direct_fundamental_dbfs,
         direct_alias_energy_dbfs: dbfs(direct_alias_energy),
         upgraded_alias_energy_dbfs: dbfs(upgraded_alias_energy),
         alias_reduction_db: positive_db_ratio(direct_alias_energy, upgraded_alias_energy),
@@ -2587,6 +2602,7 @@ fn render_full_output_chain(
 
     eq_params.write(&[0.0; EQ_BANDS], false);
     saturation_params.set_enabled(false);
+    saturation_params.set_armed(false);
     crossfeed_params.set_enabled(false);
     limiter_params.set_threshold(FULL_OUTPUT_TRUE_PEAK_LIMIT_DBTP);
     limiter_params.set_release(LIMITER_RELEASE_MS);
@@ -3339,7 +3355,7 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
         );
     }
     println!(
-        "quality_saturation_aliasing type={} quality={} stress_frequency_hz={:.1} direct_alias_energy_dbfs={:.2} upgraded_alias_energy_dbfs={:.2} alias_reduction_db={:.2} direct_fundamental_dbfs={:.2} upgraded_fundamental_dbfs={:.2}",
+        "quality_saturation_aliasing type={} quality={} stress_frequency_hz={:.1} direct_alias_energy_dbfs={:.2} upgraded_alias_energy_dbfs={:.2} alias_reduction_db={:.2} direct_fundamental_dbfs={:.2} upgraded_fundamental_dbfs={:.2} fundamental_delta_db={:.2}",
         report.saturation_aliasing.saturation_type,
         report.saturation_aliasing.upgraded_quality,
         report.saturation_aliasing.stress_frequency_hz,
@@ -3347,7 +3363,8 @@ fn print_report(report: &QualityReport) -> Result<(), String> {
         report.saturation_aliasing.upgraded_alias_energy_dbfs,
         report.saturation_aliasing.alias_reduction_db,
         report.saturation_aliasing.direct_fundamental_dbfs,
-        report.saturation_aliasing.upgraded_fundamental_dbfs
+        report.saturation_aliasing.upgraded_fundamental_dbfs,
+        report.saturation_aliasing.fundamental_delta_db
     );
     for point in &report.saturation_aliasing.points {
         println!(
