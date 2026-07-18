@@ -1,9 +1,7 @@
 use std::hint::black_box;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arc_swap::ArcSwapOption;
 use serde::{Deserialize, Serialize};
 
 pub mod support;
@@ -18,9 +16,9 @@ use support::{
 use audio_engine_core::processor::{
     callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
-    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, DspChain, FFTConvolver,
-    NoiseShaperCurve, OutputChainBuilder, OutputChainParams, SaturationQualityValue,
-    SaturationTypeValue, EQ_BANDS,
+    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, ConvolverControl,
+    DspChain, FFTConvolver, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
+    SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
 };
 
 const CHANNELS: usize = 2;
@@ -446,15 +444,11 @@ fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
         &dynamic_loudness_params,
     );
 
-    let convolver_swap = Arc::new(ArcSwapOption::empty());
-    let convolver_enabled = Arc::new(AtomicBool::new(false));
+    let convolver_control = ConvolverControl::default();
 
     if matches!(scenario, Scenario::ActiveDspWithConvolver) {
-        convolver_enabled.store(true, Ordering::Release);
-        convolver_swap.store(Some(Arc::new(FFTConvolver::new(
-            &synthetic_ir(256, CHANNELS),
-            CHANNELS,
-        ))));
+        convolver_control.set_enabled(true);
+        convolver_control.publish(FFTConvolver::new(&synthetic_ir(256, CHANNELS), CHANNELS));
     }
 
     let chain = OutputChainBuilder::new(OutputChainParams {
@@ -464,8 +458,7 @@ fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
         eq_params,
         saturation_params,
         crossfeed_params,
-        convolver_swap,
-        convolver_enabled,
+        convolver_control,
         volume_params,
         dynamic_loudness_params,
         dynamic_loudness_telemetry,

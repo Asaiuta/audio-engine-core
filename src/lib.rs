@@ -74,14 +74,15 @@ pub use processor::{
     canonical_output_stage_descriptors, finish_checked, offline_stage_names,
     offline_stage_order_csv, process_checked, AtomicLoudnessState, AudioBlockError, AudioBlockMut,
     AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions, AutomixKeyStatus,
-    ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
-    FrameDuration, FrameRounding, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter,
-    LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams,
-    OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter, ProcessBufferMode,
-    ProcessBufferParts, ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress,
-    ProcessState, RenderTimeline, RenderedOutput, Resampler, SpectrumAnalyzer, StreamingProcessor,
-    StreamingResampler, TailSpec, TimingError, TruePeakDetector, UnknownTailPolicy,
-    VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+    ConvolutionStrategy, ConvolverControl, ConvolverStatus, DownmixCoefficients, DownmixError,
+    Downmixer, Equalizer, FFTConvolver, FrameDuration, FrameRounding, GainRamp, LimiterMode,
+    LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy,
+    OutputChainBuilder, OutputChainParams, OutputRenderChain, OutputStageDescriptor, OutputStageId,
+    PeakLimiter, ProcessBufferMode, ProcessBufferParts, ProcessBuffers, ProcessCapacity,
+    ProcessError, ProcessProgress, ProcessState, RenderTimeline, RenderedOutput, Resampler,
+    SpectrumAnalyzer, StreamingProcessor, StreamingResampler, TailSpec, TimingError,
+    TruePeakDetector, UnknownTailPolicy, VolumeController, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+    PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).

@@ -3,17 +3,14 @@
 //! Setup code may allocate while it materializes processors. The realtime
 //! invariant applies to the returned [`DspChain::process`] path.
 
-use std::sync::{atomic::AtomicBool, Arc};
-
-use arc_swap::ArcSwapOption;
+use std::sync::Arc;
 
 use crate::config::{PhaseResponse, ResampleQuality};
 
 use super::adapters::{
-    ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor, EqProcessor,
-    NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
+    ConvolverControl, ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor,
+    EqProcessor, NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
 };
-use super::convolver::FFTConvolver;
 use super::dsp_chain::DspChain;
 use super::lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
@@ -545,6 +542,10 @@ pub fn offline_stage_order_csv() -> String {
 }
 
 /// All parameter and control handles required to materialize an output chain.
+///
+/// Cloning this value clones its control handles. Each simultaneously live
+/// callback or render chain must nevertheless receive a distinct
+/// [`ConvolverControl`], because that control has exactly one audio consumer.
 #[derive(Clone)]
 pub struct OutputChainParams {
     pub channels: usize,
@@ -553,8 +554,7 @@ pub struct OutputChainParams {
     pub eq_params: Arc<AtomicEqParams>,
     pub saturation_params: Arc<AtomicSaturationParams>,
     pub crossfeed_params: Arc<AtomicCrossfeedParams>,
-    pub convolver_swap: Arc<ArcSwapOption<FFTConvolver>>,
-    pub convolver_enabled: Arc<AtomicBool>,
+    pub convolver_control: ConvolverControl,
     pub volume_params: Arc<AtomicVolumeParams>,
     pub dynamic_loudness_params: Arc<AtomicDynamicLoudnessParams>,
     pub dynamic_loudness_telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
@@ -571,6 +571,14 @@ pub struct OutputChainBuilder {
 impl OutputChainBuilder {
     pub fn new(params: OutputChainParams) -> Self {
         Self { params }
+    }
+
+    /// Return the control-plane handle retained across processor type erasure.
+    ///
+    /// A control may have multiple control-thread clones, but callers must not
+    /// keep more than one callback/render chain built from it alive at once.
+    pub fn convolver_control(&self) -> ConvolverControl {
+        self.params.convolver_control.clone()
     }
 
     /// Build the callback-safe DSP chain from the canonical callback order.
@@ -595,8 +603,7 @@ impl OutputChainBuilder {
                 Arc::clone(&self.params.crossfeed_params),
             ))
             .add(ConvolverProcessor::new(
-                Arc::clone(&self.params.convolver_swap),
-                Arc::clone(&self.params.convolver_enabled),
+                self.params.convolver_control.clone(),
             ))
             .add(DynamicLoudnessProcessor::new(
                 self.params.channels,
@@ -646,6 +653,20 @@ pub struct RenderedOutput {
     pub semantic_tail_frames: usize,
     /// True only when an unknown/infinite tail hit its configured safety limit.
     pub tail_truncated: bool,
+}
+
+struct ConvolverReclaimer(ConvolverControl);
+
+impl ConvolverReclaimer {
+    fn reclaim(&self) {
+        let _ = self.0.reclaim_retired();
+    }
+}
+
+impl Drop for ConvolverReclaimer {
+    fn drop(&mut self) {
+        self.reclaim();
+    }
 }
 
 /// Offline output renderer. It shares the canonical stage order with the
@@ -711,10 +732,7 @@ impl OutputRenderChain {
                 source_sample_rate,
                 Arc::clone(&params.crossfeed_params),
             ),
-            convolver: ConvolverProcessor::new(
-                Arc::clone(&params.convolver_swap),
-                Arc::clone(&params.convolver_enabled),
-            ),
+            convolver: ConvolverProcessor::new(params.convolver_control.clone()),
             dynamic_loudness: DynamicLoudnessProcessor::new(
                 params.channels,
                 params.source_sample_rate,
@@ -749,6 +767,8 @@ impl OutputRenderChain {
     /// quantization. This is useful for parity tests against the callback chain
     /// when `source_sample_rate == output_sample_rate`.
     pub fn process_pre_quantize(&mut self, buffer: &mut Vec<f64>) -> Result<(), ProcessError> {
+        let reclaimer = ConvolverReclaimer(self.convolver.control());
+        reclaimer.reclaim();
         let _ = process_fixed_stage(&mut self.volume, buffer, self.channels)?;
         let _ = process_fixed_stage(&mut self.eq, buffer, self.channels)?;
         let _ = process_fixed_stage(&mut self.saturation, buffer, self.channels)?;
@@ -770,6 +790,7 @@ impl OutputRenderChain {
         }
 
         let _ = process_fixed_stage(&mut self.noise_shaper, buffer, self.channels)?;
+        reclaimer.reclaim();
         Ok(())
     }
 
@@ -794,6 +815,8 @@ impl OutputRenderChain {
         policy: OfflineRenderPolicy,
         block_frames: usize,
     ) -> Result<RenderedOutput, ProcessError> {
+        let reclaimer = ConvolverReclaimer(self.convolver.control());
+        reclaimer.reclaim();
         let policy = policy.validate()?;
         let source_block = AudioBlockRef::new(samples, self.channels)?;
         self.reset_for_render()?;
@@ -875,6 +898,7 @@ impl OutputRenderChain {
         }
 
         let rendered_frames = output.len() / self.channels;
+        reclaimer.reclaim();
 
         Ok(RenderedOutput {
             samples: output,
@@ -931,11 +955,9 @@ impl OutputRenderChain {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
-
     use super::*;
     use crate::processor::{
-        NoiseShaperCurve, SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
+        FFTConvolver, NoiseShaperCurve, SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
     };
 
     const CHANNELS: usize = 2;
@@ -960,6 +982,23 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(chain.processor_names(), shared_offline_stage_names);
+    }
+
+    #[test]
+    fn callback_builder_retains_convolver_control_after_type_erasure() {
+        let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+        let builder = OutputChainBuilder::new(params);
+        let control = builder.convolver_control();
+        let mut chain = builder.build_callback_chain().unwrap();
+
+        control.set_enabled(true);
+        let generation = control.publish(FFTConvolver::new(&[0.5, 0.5], CHANNELS));
+        let mut samples = [1.0, -1.0, 0.5, -0.5];
+        let progress = chain.process(&mut samples, CHANNELS).unwrap();
+
+        assert_eq!(samples, [0.5, -0.5, 0.25, -0.25]);
+        assert_eq!(progress.produced_frames(), 2);
+        assert_eq!(control.status().latest_adopted_generation, generation);
     }
 
     #[test]
@@ -1146,14 +1185,13 @@ mod tests {
     fn convolver_tail_flows_through_limiter_and_resampler_independent_of_block_size() {
         let params = transparent_render_params(48_000, 96_000);
         params.limiter_params.set_enabled(true);
-        params
-            .convolver_enabled
-            .store(true, std::sync::atomic::Ordering::Release);
-        params.convolver_swap.store(Some(Arc::new(FFTConvolver::new(
+        let builder = OutputChainBuilder::new(params);
+        let control = builder.convolver_control();
+        control.set_enabled(true);
+        control.publish(FFTConvolver::new(
             &[1.0, 1.0, 0.5, 0.5, 0.25, 0.25],
             CHANNELS,
-        ))));
-        let builder = OutputChainBuilder::new(params);
+        ));
         let mut chain = builder.build_render_chain().unwrap();
         let mut input = vec![0.0; 64 * CHANNELS];
         let input_len = input.len();
@@ -1423,8 +1461,7 @@ mod tests {
             eq_params: Arc::new(AtomicEqParams::new()),
             saturation_params: Arc::new(AtomicSaturationParams::new()),
             crossfeed_params: Arc::new(AtomicCrossfeedParams::new()),
-            convolver_swap: Arc::new(ArcSwapOption::empty()),
-            convolver_enabled: Arc::new(AtomicBool::new(false)),
+            convolver_control: ConvolverControl::default(),
             volume_params: Arc::new(AtomicVolumeParams::new()),
             dynamic_loudness_params: Arc::new(AtomicDynamicLoudnessParams::new()),
             dynamic_loudness_telemetry: Arc::new(AtomicDynamicLoudnessTelemetry::new()),
