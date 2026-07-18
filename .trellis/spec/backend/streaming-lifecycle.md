@@ -288,3 +288,105 @@ while generated < max_tail_frames {
     }
 }
 ```
+
+## Scenario: Dynamic Convolver Publication And Reclamation
+
+### 1. Scope / Trigger
+
+Apply this scenario when an impulse response can change while a
+`StreamingProcessor`, `DspChain`, callback chain, or offline render chain is
+alive. It replaces the former unreachable `disposal_slot()` composition path.
+
+### 2. Signatures
+
+```rust
+ConvolverControl::new(enabled: bool) -> ConvolverControl
+ConvolverControl::publish(&self, kernel: FFTConvolver) -> u64
+ConvolverControl::reclaim_retired(&self) -> bool
+ConvolverControl::status(&self) -> ConvolverStatus
+ConvolverProcessor::new(control: ConvolverControl) -> ConvolverProcessor
+OutputChainBuilder::convolver_control(&self) -> ConvolverControl
+```
+
+### 3. Contracts
+
+* A control handle is cloneable for control-side callers but has exactly one
+  live audio consumer. Separate callback/render consumers require separate
+  handles.
+* `publish` accepts the kernel by value. It serializes concurrent control-side
+  publish/reclaim calls, assigns install-order generations, opportunistically
+  drains the retired slot, and is latest-wins until audio withdraws a value.
+  The control-only serialization gate is never acquired by audio.
+* Audio ownership is fixed and bounded: `owned`, `incoming`,
+  `pending_retire`, and one `retired` hand-off slot. Audio may withdraw,
+  adopt, or hand off ownership, but never drops or deep-clones a heavy kernel.
+* A full retirement path keeps the current kernel processing, leaves the new
+  adoption pending, and reports `backpressured` plus
+  `pending_reclamations` through the allocation-free status snapshot.
+* `set_enabled(false)` followed by process or repeated finish calls drains
+  disabled ownership staging. After control-side `reclaim_retired()` consumes
+  every hand-off, `status().is_quiescent()` is the only condition that permits
+  destroying an audio-owned processor from a non-realtime thread. Publishers
+  must be stopped before taking that shutdown snapshot and remain stopped.
+* Dynamic convolver timing remains zero algorithmic latency and a finite
+  `ir_length - 1` tail in the current sample-rate domain; reset preserves the
+  adopted control/kernel configuration while clearing signal history.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| More than one live audio consumer uses one control | documented misuse; use distinct controls |
+| Control publishes before audio withdraws | older publication is superseded on control and counted |
+| Retirement slot is full | normal processing continues; adoption is deferred and status is backpressured |
+| Control reclaims a retired slot | next block/finish retries the pending hand-off without waiting |
+| Disabled terminal processor still owns a kernel | repeated `finish` calls advance retirement; no `NeedInput` is returned |
+| Owned kernel loses unique ownership | allocation-free `ProcessError::Backend`, never an audio-side clone |
+| `reclaim_retired` called with no retired value | returns `false`, no state change |
+
+### 5. Good / Base / Bad Cases
+
+* Good: a builder caller retains `builder.convolver_control()`, publishes by
+  value after callback chain type erasure, and periodically reclaims retired
+  kernels off the callback thread.
+* Base: a burst of publications coalesces to the latest withdrawn generation
+  while status counters remain bounded and auditable.
+* Bad: retaining a strong kernel `Arc` in the producer, or exposing an
+  internal retirement slot only before type erasure, prevents unique adoption
+  or makes reclamation unreachable.
+
+### 6. Tests Required
+
+* `convolver_control_stress_remains_bounded_and_adopts_latest_generation`:
+  10,000 updates, burst coalescing, saturation/recovery, disable/reenable,
+  final generation and counter invariants.
+* `convolver_control_serializes_concurrent_publishers`: ordered generations
+  and latest install under concurrent control clones.
+* `convolver_kernels_are_destroyed_by_control_not_audio_thread`: replaced and
+  retired destructor probes never fire on the audio thread.
+* `convolver_processor_kernel_swap_is_allocation_free_on_audio_side` and
+  `convolver_terminal_finish_can_retire_to_control_quiescence`: adoption,
+  retirement, backpressure, finish, and recovery under `assert_no_alloc`.
+* Direct nested-loop oracle tests cover mono/stereo, overlap-save/partitioned,
+  irregular chunks, exact tail, stable `Finished(0)`, and reset isolation.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let swap = ArcSwapOption::empty();
+let chain = OutputChainBuilder::new(params).build_callback_chain()?;
+// The erased processor's retirement slot has no reachable control owner.
+```
+
+#### Correct
+
+```rust
+let builder = OutputChainBuilder::new(params);
+let control = builder.convolver_control();
+let mut chain = builder.build_callback_chain()?;
+control.publish(kernel);       // control thread
+chain.process(samples, channels)?; // audio thread, fixed ownership hand-off
+control.reclaim_retired();     // control/offline thread
+```

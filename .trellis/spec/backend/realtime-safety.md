@@ -59,6 +59,10 @@ The following are **forbidden** inside the hot path:
 - Allocation, locking, logging, and I/O during **setup/configuration** before
   the processor enters the realtime path (construction, `set_*`, coefficient
   (re)design on parameter change).
+- `ConvolverControl::publish`, `reclaim_retired`, and `status` are
+  control/offline operations. Publication/reclamation may allocate or take the
+  control-only serialization gate; `ConvolverProcessor::process` and `finish`
+  never acquire that gate and only perform fixed atomic/ownership-stage work.
 - Decode-side allocation: the decoder is not on the audio callback. Even so,
   `decode_next_into` reuses its `sample_buf` and is allocation-free in steady
   state.
@@ -85,3 +89,9 @@ Variable-I/O processors additionally pre-size every deinterleave/interleave and
 native output scratch buffer for their documented maximum step. Their tests must
 cover both ordinary process and finish/drain because a grow-on-finish path is
 still an audio-thread allocation defect.
+
+Dynamic heavy-kernel publication additionally requires a destructor-thread
+probe and a no-allocation assertion around adoption, retirement, backpressure,
+recovery, and terminal finish. A control snapshot must expose enough monotonic
+counters to distinguish a publication waiting for the next block from a
+retirement slot that the control side has stopped consuming.

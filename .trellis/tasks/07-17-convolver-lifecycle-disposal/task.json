@@ -3,7 +3,7 @@
   "name": "convolver-lifecycle-disposal",
   "title": "修复 Convolver 生命周期与资源回收",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "backend",
   "package": null,
