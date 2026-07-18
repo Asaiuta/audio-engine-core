@@ -585,3 +585,54 @@ Replaced ArcSwap kernel ownership with fixed AtomicPtr handoff, enforced a singl
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: DSP lifecycle performance and correctness
+
+**Date**: 2026-07-19
+**Task**: DSP lifecycle performance and correctness
+
+### Summary
+
+Unified realtime DSP lifecycle and Convolver ownership, fixed saturation/tail/rate-domain correctness, bounded offline rendering, added performance and true-peak gates, updated backend specs, and archived the task. Verification: 344/344 and 336/336 tests, strict Clippy, rustdoc, four build matrices, and offline package verification passed.
+
+### Main Changes
+
+- Unified fixed-stage streaming lifecycle, latency/tail composition, bounded
+  finish driving, and callback/offline stage ordering.
+- Replaced realtime Convolver `Arc` ownership with fixed atomic hand-off,
+  enforced one live consumer, preserved locked finish tails, and added
+  sample-rate-stamped kernel adoption plus off-RT reclamation.
+- Corrected Saturation residual oversampling, fixed four-frame timing, sparse
+  automation, final output-domain limiting, and bounded energy-based tail stop.
+- Added callback/output-render CPU and memory baselines, true-peak and
+  fundamental-preservation gates, CI quick reports, and executable backend
+  specs.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c973de3` | fix(processor): enforce DSP lifecycle and realtime ownership |
+| `d3ea3c8` | perf(bench): add lifecycle CPU memory and quality gates |
+| `d341514` | docs(task): record DSP lifecycle correctness and performance evidence |
+
+### Testing
+
+- [OK] `cargo test --lib`: 344 passed; no-default-features: 336 passed.
+- [OK] Strict Clippy feature matrices, `cargo check --all-targets`, rustfmt,
+  rustdoc warnings, and four release build configurations passed.
+- [OK] Quick/full audio quality: 27/27 gates, 55 EBU loudness files, and 9 EBU
+  true-peak files passed; final output remained at or below `-1.0 dBTP`.
+- [OK] Callback and offline performance comparisons passed; offline temporary
+  memory fell by 96.6% to over 99.6% in measured long-render cases.
+- [OK] `cargo package --allow-dirty --offline` packaged and compiled 253 files;
+  the online index attempt was blocked only by Schannel credentials.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
