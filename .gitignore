@@ -16,3 +16,8 @@ Cargo.lock
 .codex/
 .snow/
 AGENTS.md
+
+# Optional local EBU Tech 3341/3342 reference corpus. The quality benchmark
+# discovers this checkout at libebur128/test, but the corpus is not distributed
+# with this crate.
+/libebur128/
