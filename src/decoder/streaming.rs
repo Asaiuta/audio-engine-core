@@ -1,12 +1,15 @@
 use std::path::Path;
 
-use symphonia::core::audio::{Channels, SampleBuffer, SignalSpec};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::audio::{Channels, Position};
+use symphonia::core::codecs::audio::well_known::{CODEC_ID_MP3, CODEC_ID_VORBIS};
+use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
+use symphonia::core::codecs::CodecParameters;
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::meta::MetadataOptions;
+use symphonia::core::units::{Time, TimeBase, Timestamp};
 
 use super::error::{DecodeCancelToken, DecoderError};
-use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
+use super::metadata::{extract_metadata, AudioInfo};
 use super::source::{
     bytes_to_mib, configured_decode_memory_limit, HttpCredentials, OpenedMediaSource,
     F64_SAMPLE_BYTES,
@@ -23,12 +26,20 @@ use crate::channel_layout::{ChannelLayout, ChannelPosition};
 /// post-seek position has bounded inaccuracy. Callers must treat the realized
 /// position as "within roughly one packet of the target" rather than
 /// sample-exact (see [`StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`]).
+///
+/// Gapless trimming has exactly one owner per codec. Symphonia owns MP3 and
+/// Vorbis packet trim/reset behavior; codecs that do not consume its gapless
+/// option retain the crate's Track-level delay/padding fallback.
 pub struct StreamingDecoder {
-    format_reader: Box<dyn symphonia::core::formats::FormatReader>,
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    format_reader: Box<dyn FormatReader + 'static>,
+    decoder: Box<dyn AudioDecoder>,
     track_id: u32,
+    track_time_base: Option<TimeBase>,
+    track_start_ts: Timestamp,
     pub info: AudioInfo,
-    sample_buf: Option<SampleBuffer<f64>>,
+    sample_buf: Option<Vec<f64>>,
+    raw_total_frames: Option<u64>,
+    gapless_owner: GaplessOwner,
     samples_output: u64,
     finished: bool,
     /// True only while the decoder is positioned at the true start of the
@@ -42,18 +53,56 @@ pub struct StreamingDecoder {
 
 const DEFAULT_MAX_DECODED_PACKET_FRAMES: u64 = 65_536;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GaplessOwner {
+    NativeDecoder,
+    TrackFallback,
+}
+
+impl GaplessOwner {
+    fn for_codec(codec: AudioCodecId) -> Self {
+        // Symphonia 0.6 currently reads AudioDecoderOptions::gapless only in
+        // the MPEG Layer III and Vorbis decoders. Keep this as an allowlist so
+        // an upstream codec that ignores the option cannot silently disable
+        // the Track-level fallback.
+        if matches!(codec, CODEC_ID_MP3 | CODEC_ID_VORBIS) {
+            Self::NativeDecoder
+        } else {
+            Self::TrackFallback
+        }
+    }
+
+    fn uses_native_decoder(self) -> bool {
+        self == Self::NativeDecoder
+    }
+
+    fn uses_track_fallback(self) -> bool {
+        self == Self::TrackFallback
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NativeDecoder => "native-decoder",
+            Self::TrackFallback => "track-fallback",
+        }
+    }
+}
+
 /// Probed streaming source awaiting fixed decoder-staging allocation.
 pub struct StreamingDecoderBuilder {
-    format_reader: Box<dyn symphonia::core::formats::FormatReader>,
+    format_reader: Box<dyn FormatReader + 'static>,
     track_id: u32,
+    track_time_base: Option<TimeBase>,
+    track_start_ts: Timestamp,
     pub info: AudioInfo,
+    raw_total_frames: Option<u64>,
+    gapless_owner: GaplessOwner,
     staging_frames: u64,
-    signal_spec: SignalSpec,
     cancel_token: Option<DecodeCancelToken>,
 }
 
 impl StreamingDecoderBuilder {
-    /// Exact fixed `SampleBuffer<f64>` payload allocated by [`Self::build`].
+    /// Exact fixed interleaved `f64` staging payload allocated by [`Self::build`].
     pub fn staging_buffer_bytes(&self) -> Result<usize, DecoderError> {
         usize::try_from(self.staging_frames)
             .ok()
@@ -76,20 +125,35 @@ impl StreamingDecoderBuilder {
             .iter()
             .find(|track| track.id == self.track_id)
             .ok_or(DecoderError::NoAudioTrack)?;
+        let codec_params = track
+            .codec_params
+            .as_ref()
+            .and_then(CodecParameters::audio)
+            .ok_or(DecoderError::NoAudioTrack)?;
+        let decoder_options =
+            AudioDecoderOptions::default().gapless(self.gapless_owner.uses_native_decoder());
         let decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())
+            .make_audio_decoder(codec_params, &decoder_options)
             .map_err(|error| DecoderError::Decoder(error.to_string()))?;
-        let sample_buf = SampleBuffer::new(self.staging_frames, self.signal_spec);
+        let staging_samples = usize::try_from(self.staging_frames)
+            .ok()
+            .and_then(|frames| frames.checked_mul(self.info.channels))
+            .ok_or_else(|| DecoderError::Decoder("decoder staging size overflow".to_string()))?;
+        let sample_buf = vec![0.0; staging_samples];
 
         Ok(StreamingDecoder {
             format_reader: self.format_reader,
             decoder,
             track_id: self.track_id,
+            track_time_base: self.track_time_base,
+            track_start_ts: self.track_start_ts,
             info: self.info,
             sample_buf: Some(sample_buf),
+            raw_total_frames: self.raw_total_frames,
+            gapless_owner: self.gapless_owner,
             samples_output: 0,
             finished: false,
-            at_stream_start: true,
+            at_stream_start: self.gapless_owner.uses_track_fallback(),
             cancel_token: self.cancel_token,
         })
     }
@@ -146,40 +210,57 @@ impl StreamingDecoder {
 
         let format_opts = FormatOptions::default();
         let metadata_opts = MetadataOptions::default();
-        let mut probed = symphonia::default::get_probe()
-            .format(&hint, stream, &format_opts, &metadata_opts)
+        let mut format_reader = symphonia::default::get_probe()
+            .probe(&hint, stream, format_opts, metadata_opts)
             .map_err(map_probe_error)?;
 
-        let mut metadata = extract_metadata(&mut probed);
-
-        let mut format_reader = probed.format;
-        if let Some(revision) = format_reader.metadata().current() {
-            merge_metadata_revision(&mut metadata, revision);
-        }
+        let metadata = extract_metadata(&mut *format_reader);
 
         let track = format_reader
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .default_track(TrackType::Audio)
             .ok_or(DecoderError::NoAudioTrack)?;
 
         let track_id = track.id;
-        let codec_params = &track.codec_params;
+        let track_time_base = track.time_base;
+        let track_start_ts = track.start_ts;
+        let codec_params = track
+            .codec_params
+            .as_ref()
+            .and_then(CodecParameters::audio)
+            .ok_or(DecoderError::NoAudioTrack)?;
+        let gapless_owner = GaplessOwner::for_codec(codec_params.codec);
         let sample_rate = codec_params.sample_rate.unwrap_or(44100);
-        let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
-        let signal_channels = codec_params
+        let channels = codec_params
             .channels
-            .unwrap_or(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
-        let channel_layout = layout_from_codec(codec_params.channels, channels);
+            .as_ref()
+            .map(Channels::count)
+            .unwrap_or(2);
+        let channel_layout = layout_from_codec(codec_params.channels.as_ref(), channels);
         let bits_per_sample = codec_params.bits_per_sample;
-        let total_frames = codec_params.n_frames;
-        let duration_secs = total_frames.map(|f| f as f64 / sample_rate as f64);
-        let encoder_delay = codec_params.delay.unwrap_or(0);
-        let end_padding = codec_params.padding.unwrap_or(0);
+        let total_frames = track.num_frames;
+        let duration_secs = track
+            .duration
+            .and_then(|duration| {
+                track.time_base.and_then(|time_base| {
+                    Timestamp::try_from(duration.get())
+                        .ok()
+                        .and_then(|timestamp| time_base.calc_time(timestamp))
+                })
+            })
+            .map(|time| time.as_secs_f64())
+            .or_else(|| total_frames.map(|frames| frames as f64 / sample_rate as f64));
+        let encoder_delay = track.delay.unwrap_or(0);
+        let end_padding = track.padding.unwrap_or(0);
+        let raw_total_frames = total_frames.map(|frames| {
+            frames
+                .saturating_add(u64::from(encoder_delay))
+                .saturating_add(u64::from(end_padding))
+        });
 
         if encoder_delay > 0 || end_padding > 0 {
             log::debug!(
-                "Codec delay compensation: delay={}, padding={} samples",
+                "Codec delay compensation: owner={}, delay={}, padding={} samples",
+                gapless_owner.as_str(),
                 encoder_delay,
                 end_padding
             );
@@ -213,9 +294,12 @@ impl StreamingDecoder {
         Ok(StreamingDecoderBuilder {
             format_reader,
             track_id,
+            track_time_base,
+            track_start_ts,
             info,
+            raw_total_frames,
+            gapless_owner,
             staging_frames,
-            signal_spec: SignalSpec::new(sample_rate, signal_channels),
             cancel_token,
         })
     }
@@ -258,22 +342,20 @@ impl StreamingDecoder {
                 return Err(DecoderError::Canceled);
             }
             let packet = match self.format_reader.next_packet() {
-                Ok(p) => p,
-                Err(symphonia::core::errors::Error::IoError(e))
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                {
+                Ok(Some(packet)) => packet,
+                Ok(None) => {
                     self.finished = true;
                     return Ok(None);
                 }
-                Err(symphonia::core::errors::Error::IoError(e))
-                    if e.kind() == std::io::ErrorKind::Interrupted =>
-                {
-                    return Err(DecoderError::Canceled);
+                Err(symphonia::core::errors::Error::ResetRequired) => {
+                    return Err(DecoderError::Decoder(
+                        "format reader reset required after track change".to_string(),
+                    ));
                 }
                 Err(e) => return Err(DecoderError::Decoder(e.to_string())),
             };
 
-            if packet.track_id() != self.track_id {
+            if packet.track_id != self.track_id {
                 continue;
             }
 
@@ -283,13 +365,26 @@ impl StreamingDecoder {
                 Err(e) => return Err(DecoderError::Decoder(e.to_string())),
             };
 
-            let duration = decoded.capacity();
+            let duration = decoded.frames();
+            let decoded_channels = decoded.num_planes();
+            if decoded_channels != self.info.channels {
+                return Err(DecoderError::Decoder(format!(
+                    "decoded channel count changed from {} to {}",
+                    self.info.channels, decoded_channels
+                )));
+            }
             let Some(sample_buf) = self.sample_buf.as_mut() else {
                 return Err(DecoderError::Decoder(
                     "Failed to allocate decoder sample buffer".to_string(),
                 ));
             };
-            let required_samples = duration.saturating_mul(decoded.spec().channels.count());
+            let required_samples = duration.saturating_mul(decoded_channels);
+            if required_samples == 0 {
+                // Stateful native gapless decoders may intentionally discard
+                // a preroll/reset packet. Do not expose an empty Some(&[]) to
+                // callers; continue until audio or EOF is available.
+                continue;
+            }
             if required_samples > sample_buf.capacity() {
                 return Err(DecoderError::Decoder(format!(
                     "decoded packet exceeds fixed staging capacity: required {} samples, reserved {}",
@@ -297,19 +392,18 @@ impl StreamingDecoder {
                     sample_buf.capacity()
                 )));
             }
-            sample_buf.copy_interleaved_ref(decoded);
+            decoded.copy_to_slice_interleaved(&mut sample_buf[..required_samples]);
 
-            let samples = sample_buf.samples();
             let channels = self.info.channels;
             let mut start = 0;
-            let mut end = samples.len();
+            let mut end = required_samples;
 
             // Encoder-delay trimming applies ONLY at the true start of the
             // stream. `at_stream_start` is cleared once the leading delay is
             // fully consumed and is never re-armed by `seek()`, so a seek to a
             // non-zero position does not re-trim `encoder_delay` from the
             // post-seek stream.
-            if self.at_stream_start {
+            if self.gapless_owner.uses_track_fallback() && self.at_stream_start {
                 let delay_frames = self.info.encoder_delay as u64;
                 let delay_samples = delay_frames * channels as u64;
                 if self.samples_output < delay_samples {
@@ -326,19 +420,21 @@ impl StreamingDecoder {
                 self.at_stream_start = false;
             }
 
-            let total_frames = self.info.total_frames.unwrap_or(u64::MAX);
-            let padding_frames = self.info.end_padding as u64;
-            let effective_total = total_frames.saturating_sub(padding_frames);
-            let current_frame = self.samples_output / channels as u64;
-            let frames_in_chunk = (end - start) / channels;
+            if self.gapless_owner.uses_track_fallback() {
+                let total_frames = self.raw_total_frames.unwrap_or(u64::MAX);
+                let padding_frames = self.info.end_padding as u64;
+                let effective_total = total_frames.saturating_sub(padding_frames);
+                let current_frame = self.samples_output / channels as u64;
+                let frames_in_chunk = (end - start) / channels;
 
-            if current_frame + frames_in_chunk as u64 > effective_total {
-                let frames_to_keep = effective_total.saturating_sub(current_frame) as usize;
-                if frames_to_keep == 0 {
-                    self.finished = true;
-                    return Ok(None);
+                if current_frame + frames_in_chunk as u64 > effective_total {
+                    let frames_to_keep = effective_total.saturating_sub(current_frame) as usize;
+                    if frames_to_keep == 0 {
+                        self.finished = true;
+                        return Ok(None);
+                    }
+                    end = start + frames_to_keep * channels;
                 }
-                end = start + frames_to_keep * channels;
             }
 
             let appended = end - start;
@@ -359,7 +455,7 @@ impl StreamingDecoder {
         let sample_buf = self.sample_buf.as_ref().ok_or_else(|| {
             DecoderError::Decoder("Decoded packet did not retain sample storage".to_string())
         })?;
-        Ok(Some(&sample_buf.samples()[start..end]))
+        Ok(Some(&sample_buf[start..end]))
     }
 
     pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
@@ -382,7 +478,7 @@ impl StreamingDecoder {
     pub fn decode_all(&mut self) -> Result<Vec<f64>, DecoderError> {
         let (max_memory_mb, max_memory_bytes) = configured_decode_memory_limit();
 
-        let initial_capacity = if let Some(total_frames) = self.info.total_frames {
+        let initial_capacity = if let Some(total_frames) = self.raw_total_frames {
             let estimated_bytes = total_frames as usize * self.info.channels * F64_SAMPLE_BYTES;
             if estimated_bytes > max_memory_bytes {
                 let estimated_mb = bytes_to_mib(estimated_bytes);
@@ -422,8 +518,9 @@ impl StreamingDecoder {
 
         if delay_trimmed > 0 || padding_trimmed > 0 {
             log::info!(
-                "Decoded {} samples (trimmed {} delay + {} padding for gapless)",
+                "Decoded {} samples (gapless owner={}, delay={}, padding={})",
                 all_samples.len(),
+                self.gapless_owner.as_str(),
                 delay_trimmed,
                 padding_trimmed
             );
@@ -441,16 +538,16 @@ impl StreamingDecoder {
     /// position has bounded inaccuracy (see [`Self::SEEK_COARSE_TOLERANCE_FRAMES`]).
     /// A sample-exact (`Accurate`) mode is intentionally not offered.
     ///
-    /// `samples_output` is reset so end-padding accounting tracks the new
-    /// position, but encoder-delay trimming is **not** re-armed: the leading
-    /// `encoder_delay` is only trimmed at the true start of the stream, never
-    /// after a seek to a non-zero position.
+    /// `samples_output` is reset so fallback end-padding accounting tracks the
+    /// new position. Track-level encoder-delay trimming is **not** re-armed;
+    /// native MP3/Vorbis decoders instead consume packet-local trim and reset
+    /// preroll according to their codec state.
     pub fn seek(&mut self, time_secs: f64) -> Result<(), DecoderError> {
         use symphonia::core::formats::SeekTo;
-        use symphonia::core::units::Time;
-
+        let time = Time::try_from_secs_f64(time_secs)
+            .ok_or_else(|| DecoderError::Decoder("invalid seek time".to_string()))?;
         let seek_to = SeekTo::Time {
-            time: Time::from(time_secs),
+            time,
             track_id: Some(self.track_id),
         };
 
@@ -465,12 +562,24 @@ impl StreamingDecoder {
         // stays correct relative to the stream. Crucially, `at_stream_start`
         // is NOT reset to true here, so the post-seek stream is not re-trimmed
         // for encoder delay.
-        self.samples_output = seeked_to
-            .actual_ts
-            .saturating_mul(self.info.channels as u64);
+        let frame_offset = self
+            .timestamp_to_frame_offset(seeked_to.actual_ts)
+            .ok_or_else(|| {
+                DecoderError::Decoder("seek timestamp overflows frame position".to_string())
+            })?;
+        self.samples_output = frame_offset.saturating_mul(self.info.channels as u64);
         self.at_stream_start = false;
 
         Ok(())
+    }
+
+    fn timestamp_to_frame_offset(&self, timestamp: Timestamp) -> Option<u64> {
+        timestamp_to_frame_offset(
+            timestamp,
+            self.track_start_ts,
+            self.track_time_base,
+            self.info.sample_rate,
+        )
     }
 
     /// Realized first-decoded-frame position after the most recent seek, in
@@ -510,30 +619,30 @@ fn map_probe_error(e: symphonia::core::errors::Error) -> DecoderError {
 /// that order. If the mask contains channels we do not classify (e.g. height
 /// channels) the derived count would be shorter than the actual interleave, so
 /// we fall back to a count-based layout to stay consistent with the buffer.
-fn layout_from_codec(channels: Option<Channels>, count: usize) -> ChannelLayout {
-    let Some(channels) = channels else {
+fn layout_from_codec(channels: Option<&Channels>, count: usize) -> ChannelLayout {
+    let Some(Channels::Positioned(channels)) = channels else {
         return ChannelLayout::from_count(count);
     };
 
     // Ascending channel-mask bit order == Symphonia's interleave order.
     let ordered = [
-        (Channels::FRONT_LEFT, ChannelPosition::FrontLeft),
-        (Channels::FRONT_RIGHT, ChannelPosition::FrontRight),
-        (Channels::FRONT_CENTRE, ChannelPosition::FrontCenter),
-        (Channels::LFE1, ChannelPosition::LowFrequency),
-        (Channels::REAR_LEFT, ChannelPosition::RearLeft),
-        (Channels::REAR_RIGHT, ChannelPosition::RearRight),
+        (Position::FRONT_LEFT, ChannelPosition::FrontLeft),
+        (Position::FRONT_RIGHT, ChannelPosition::FrontRight),
+        (Position::FRONT_CENTER, ChannelPosition::FrontCenter),
+        (Position::LFE1, ChannelPosition::LowFrequency),
+        (Position::REAR_LEFT, ChannelPosition::RearLeft),
+        (Position::REAR_RIGHT, ChannelPosition::RearRight),
         (
-            Channels::FRONT_LEFT_CENTRE,
+            Position::FRONT_LEFT_CENTER,
             ChannelPosition::FrontLeftCenter,
         ),
         (
-            Channels::FRONT_RIGHT_CENTRE,
+            Position::FRONT_RIGHT_CENTER,
             ChannelPosition::FrontRightCenter,
         ),
-        (Channels::REAR_CENTRE, ChannelPosition::RearCenter),
-        (Channels::SIDE_LEFT, ChannelPosition::SideLeft),
-        (Channels::SIDE_RIGHT, ChannelPosition::SideRight),
+        (Position::REAR_CENTER, ChannelPosition::RearCenter),
+        (Position::SIDE_LEFT, ChannelPosition::SideLeft),
+        (Position::SIDE_RIGHT, ChannelPosition::SideRight),
     ];
 
     let mut positions = Vec::with_capacity(count);
@@ -560,5 +669,80 @@ fn map_seek_error(e: symphonia::core::errors::Error) -> DecoderError {
     match e {
         Error::Unsupported(_) => DecoderError::UnsupportedFormat,
         other => DecoderError::Decoder(other.to_string()),
+    }
+}
+
+fn timestamp_to_frame_offset(
+    timestamp: Timestamp,
+    start_ts: Timestamp,
+    time_base: Option<TimeBase>,
+    sample_rate: u32,
+) -> Option<u64> {
+    let relative_ts = timestamp.get().checked_sub(start_ts.get())?;
+    if relative_ts <= 0 {
+        return Some(0);
+    }
+
+    let Some(time_base) = time_base else {
+        return u64::try_from(relative_ts).ok();
+    };
+
+    let frame_numerator = i128::from(relative_ts)
+        .checked_mul(i128::from(time_base.numer.get()))?
+        .checked_mul(i128::from(sample_rate))?;
+    let frame_count = frame_numerator / i128::from(time_base.denom.get());
+    u64::try_from(frame_count).ok()
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::{timestamp_to_frame_offset, GaplessOwner};
+    use symphonia::core::codecs::audio::well_known::{
+        CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_PCM_S16LE,
+        CODEC_ID_VORBIS,
+    };
+    use symphonia::core::units::{TimeBase, Timestamp};
+
+    #[test]
+    fn seek_timestamp_uses_track_timebase_and_start_offset() {
+        let time_base = TimeBase::try_new(1, 1_000).expect("valid timebase");
+
+        assert_eq!(
+            timestamp_to_frame_offset(
+                Timestamp::new(975),
+                Timestamp::new(-25),
+                Some(time_base),
+                48_000,
+            ),
+            Some(48_000)
+        );
+    }
+
+    #[test]
+    fn gapless_owner_is_native_only_for_decoders_that_consume_the_option() {
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_MP3),
+            GaplessOwner::NativeDecoder
+        );
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_VORBIS),
+            GaplessOwner::NativeDecoder
+        );
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_AAC),
+            GaplessOwner::TrackFallback
+        );
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_FLAC),
+            GaplessOwner::TrackFallback
+        );
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_ALAC),
+            GaplessOwner::TrackFallback
+        );
+        assert_eq!(
+            GaplessOwner::for_codec(CODEC_ID_PCM_S16LE),
+            GaplessOwner::TrackFallback
+        );
     }
 }
