@@ -156,6 +156,47 @@ Contracts to preserve when changing this path:
   behavior.
 - Run `cargo clippy --all-targets -- -D warnings` clean.
 
+## Decoder Upgrade Evidence
+
+When changing the Symphonia version or decoder staging path, a decoder
+performance claim requires a same-machine before/after comparison rather than
+an upstream release-note citation alone.
+
+- Compare the real crate configuration in release mode. Record the compiler,
+  target, CPU, base revisions, dirty state, crate feature set, and the exact
+  Symphonia feature sets; 0.6's default `opt-simd` means `all` is not a feature
+  parity claim with 0.5.
+- Prefer one comparator process that links distinct old/new package identities
+  and alternates versions in ABBA order after untimed warmups. If Cargo rejects
+  two same-name path packages in one lockfile, a temporary baseline package
+  rename is acceptable when decoder source and build configuration are
+  otherwise unchanged.
+- Time `StreamingDecoder::open`/probe separately from borrowed streaming decode
+  (`decode_next_borrowed`). Keep `decode_all` allocation timing separate; do not
+  merge it into the realtime-oriented streaming number.
+- Retain raw trial samples and report min/median/p95/max. Validate every input
+  before timing with sample rate, channel count, frame count, finite samples,
+  and a full output hash or pointwise delta. If output frame counts differ,
+  timing comparisons are invalid; if lossy codec floats differ, report the
+  maximum and RMS deltas explicitly.
+- Use multiple codec/channel workloads and state cache temperature and corpus
+  provenance. A decoder-only result is not evidence of end-to-end playback or
+  callback latency, and missing codec/cold-disk/network coverage must remain a
+  visible limitation.
+- When comparing Symphonia native gapless with the crate-owned manual path,
+  validate both uninterrupted output and a post-seek chunk. Classify the
+  native/manual comparison as report-only until real fixtures cover every
+  stateful codec in scope; an Ogg/Vorbis reset mismatch must remain visible and
+  must not be hidden by widening a sample-delta threshold. Keep missing MP3,
+  CAF, or other format fixtures explicitly `skipped` in the JSON report.
+- The production owner policy is an explicit codec allowlist, not a container
+  extension check: MP3 and Vorbis use native decoder trimming; other codecs use
+  Track fallback. An owner-policy change requires source inspection proving the
+  decoder consumes `AudioDecoderOptions::gapless`, a focused allowlist test,
+  and an enforced real-codec comparison of sequential output and post-seek
+  output. A native reset packet that decodes to zero frames is internal control
+  flow and must not surface as a successful empty streaming chunk.
+
 ## Benchmark Gate Convention
 
 The quality benches (`benches/`, custom-main `harness = false`) follow a
@@ -499,6 +540,8 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 
 - Build default, no-default, and each optional feature independently.
 - Run all-features tests and no-default-features tests before publishing.
+- When changing dependencies, run `cargo rustc --lib -- -D unused-crate-dependencies`
+  so dead direct dependencies fail the check instead of remaining in the manifest.
 - Run examples listed in the README.
 - Run `cargo package --allow-dirty` or `cargo publish --dry-run`.
 

@@ -1,0 +1,832 @@
+{
+  "schema_version": 1,
+  "probe": "decoder_gapless_owner_comparison",
+  "generated_unix_ms": 1784443702459,
+  "mode": "quick",
+  "environment": {
+    "revision": "77de739b41aea87d9f0a30a3bb00a25b659100b2",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db"
+    ]
+  },
+  "conditions": {
+    "fixture_env": "target/decoder-bench-corpus/*.ogg;target/decoder-bench-corpus/*.flac",
+    "warmups_per_mode": 2,
+    "timed_trials_per_mode": 5,
+    "trial_order": "ABBA across consecutive rounds; project_manual is A and native_gapless is B",
+    "process_priority": "inherited",
+    "timing_units": "milliseconds; open/probe and borrowed streaming decode measured separately",
+    "project_path": "StreamingDecoder (gapless(false) + Track delay/padding)",
+    "native_path": "Symphonia AudioDecoderOptions::gapless(true)",
+    "correctness_scope": [
+      "full sequential output frame count and finite samples",
+      "FNV-1a output hash plus max/RMS sample delta",
+      "coarse seek first chunk against the full native reference"
+    ],
+    "excludes": [
+      "MP3/LAME and CAF fixtures unless explicitly supplied",
+      "audio-device callback and end-to-end playback",
+      "decode_all allocation timing"
+    ]
+  },
+  "validations": [
+    {
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.flac",
+      "extension": "flac",
+      "status": "pass",
+      "project_sample_rate_hz": 48000,
+      "native_sample_rate_hz": 48000,
+      "project_channels": 2,
+      "native_channels": 2,
+      "project_frames": 3840000,
+      "native_frames": 3840000,
+      "project_hash": "dae87f0dab11e325",
+      "native_hash": "dae87f0dab11e325",
+      "max_abs_delta": 0.0,
+      "rms_delta": 0.0,
+      "full_output_equivalent": true,
+      "seek_target_secs": 1.0,
+      "project_seek_frame": 45056,
+      "native_seek_frame": 45056,
+      "project_seek_chunk_frames": 4096,
+      "native_seek_chunk_frames": 4096,
+      "project_seek_nearest_reference_frame": 36896,
+      "native_seek_nearest_reference_frame": 36896,
+      "project_seek_nearest_rms": 0.0,
+      "native_seek_nearest_rms": 0.0,
+      "seek_chunk_max_abs_delta": 0.0,
+      "seek_chunk_rms_delta": 0.0,
+      "seek_chunks_equivalent": true,
+      "seek_reference_equivalent": true,
+      "notes": []
+    },
+    {
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg",
+      "extension": "ogg",
+      "status": "mismatch",
+      "project_sample_rate_hz": 48000,
+      "native_sample_rate_hz": 48000,
+      "project_channels": 2,
+      "native_channels": 2,
+      "project_frames": 3840000,
+      "native_frames": 3840000,
+      "project_hash": "a0f647faab11e325",
+      "native_hash": "a0f647faab11e325",
+      "max_abs_delta": 0.0,
+      "rms_delta": 0.0,
+      "full_output_equivalent": true,
+      "seek_target_secs": 1.0,
+      "project_seek_frame": 46784,
+      "native_seek_frame": 46784,
+      "project_seek_chunk_frames": 1024,
+      "native_seek_chunk_frames": 1024,
+      "project_seek_nearest_reference_frame": 41611,
+      "native_seek_nearest_reference_frame": 41536,
+      "project_seek_nearest_rms": 0.010842333534928174,
+      "native_seek_nearest_rms": 0.0,
+      "seek_chunk_max_abs_delta": 0.02779128309339285,
+      "seek_chunk_rms_delta": 0.016671987754557246,
+      "seek_chunks_equivalent": false,
+      "seek_reference_equivalent": false,
+      "notes": [
+        "at least one post-seek chunk did not match the full native reference within 1e-4 RMS"
+      ]
+    },
+    {
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_20s.flac",
+      "extension": "flac",
+      "status": "pass",
+      "project_sample_rate_hz": 48000,
+      "native_sample_rate_hz": 48000,
+      "project_channels": 6,
+      "native_channels": 6,
+      "project_frames": 960000,
+      "native_frames": 960000,
+      "project_hash": "45497dc49dd5f325",
+      "native_hash": "45497dc49dd5f325",
+      "max_abs_delta": 0.0,
+      "rms_delta": 0.0,
+      "full_output_equivalent": true,
+      "seek_target_secs": 1.0,
+      "project_seek_frame": 45056,
+      "native_seek_frame": 45056,
+      "project_seek_chunk_frames": 4096,
+      "native_seek_chunk_frames": 4096,
+      "project_seek_nearest_reference_frame": 36896,
+      "native_seek_nearest_reference_frame": 36896,
+      "project_seek_nearest_rms": 0.0,
+      "native_seek_nearest_rms": 0.0,
+      "seek_chunk_max_abs_delta": 0.0,
+      "seek_chunk_rms_delta": 0.0,
+      "seek_chunks_equivalent": true,
+      "seek_reference_equivalent": true,
+      "notes": []
+    },
+    {
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_80s.flac",
+      "extension": "flac",
+      "status": "pass",
+      "project_sample_rate_hz": 48000,
+      "native_sample_rate_hz": 48000,
+      "project_channels": 6,
+      "native_channels": 6,
+      "project_frames": 3840000,
+      "native_frames": 3840000,
+      "project_hash": "0859263868f16325",
+      "native_hash": "0859263868f16325",
+      "max_abs_delta": 0.0,
+      "rms_delta": 0.0,
+      "full_output_equivalent": true,
+      "seek_target_secs": 1.0,
+      "project_seek_frame": 45056,
+      "native_seek_frame": 45056,
+      "project_seek_chunk_frames": 4096,
+      "native_seek_chunk_frames": 4096,
+      "project_seek_nearest_reference_frame": 36896,
+      "native_seek_nearest_reference_frame": 36896,
+      "project_seek_nearest_rms": 0.0,
+      "native_seek_nearest_rms": 0.0,
+      "seek_chunk_max_abs_delta": 0.0,
+      "seek_chunk_rms_delta": 0.0,
+      "seek_chunks_equivalent": true,
+      "seek_reference_equivalent": true,
+      "notes": []
+    }
+  ],
+  "cases": [
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.flac;mode=project_manual",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.flac",
+      "mode": "project_manual",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.3443,
+          0.2514,
+          0.285,
+          0.2455,
+          0.3569
+        ],
+        "min": 0.2455,
+        "median": 0.285,
+        "p95": 0.3569,
+        "max": 0.3569
+      },
+      "decode_ms": {
+        "samples": [
+          38.8422,
+          35.6664,
+          38.1214,
+          36.156800000000004,
+          37.2098
+        ],
+        "min": 35.6664,
+        "median": 37.2098,
+        "p95": 38.8422,
+        "max": 38.8422
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.flac;mode=native_gapless",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.flac",
+      "mode": "native_gapless",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325",
+        "dae87f0dab11e325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.3762,
+          0.4359,
+          0.31139999999999995,
+          0.2372,
+          0.2664
+        ],
+        "min": 0.2372,
+        "median": 0.31139999999999995,
+        "p95": 0.4359,
+        "max": 0.4359
+      },
+      "decode_ms": {
+        "samples": [
+          39.5571,
+          35.5822,
+          37.282500000000006,
+          40.0469,
+          38.2198
+        ],
+        "min": 35.5822,
+        "median": 38.2198,
+        "p95": 40.0469,
+        "max": 40.0469
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg;mode=project_manual",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg",
+      "mode": "project_manual",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325"
+      ],
+      "open_ms": {
+        "samples": [
+          1.4266999999999999,
+          1.9844,
+          2.2149,
+          1.5338,
+          1.5403
+        ],
+        "min": 1.4266999999999999,
+        "median": 1.5403,
+        "p95": 2.2149,
+        "max": 2.2149
+      },
+      "decode_ms": {
+        "samples": [
+          55.262100000000004,
+          61.5145,
+          60.337599999999995,
+          53.027699999999996,
+          51.0631
+        ],
+        "min": 51.0631,
+        "median": 55.262100000000004,
+        "p95": 61.5145,
+        "max": 61.5145
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg;mode=native_gapless",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg",
+      "mode": "native_gapless",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325",
+        "a0f647faab11e325"
+      ],
+      "open_ms": {
+        "samples": [
+          2.1101,
+          1.914,
+          1.9567999999999999,
+          1.6159,
+          1.8374000000000001
+        ],
+        "min": 1.6159,
+        "median": 1.914,
+        "p95": 2.1101,
+        "max": 2.1101
+      },
+      "decode_ms": {
+        "samples": [
+          49.004,
+          52.0433,
+          52.7378,
+          48.995799999999996,
+          54.4839
+        ],
+        "min": 48.995799999999996,
+        "median": 52.0433,
+        "p95": 54.4839,
+        "max": 54.4839
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_20s.flac;mode=project_manual",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_20s.flac",
+      "mode": "project_manual",
+      "decode_frames_per_trial": [
+        960000,
+        960000,
+        960000,
+        960000,
+        960000
+      ],
+      "decode_hashes_per_trial": [
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.2448,
+          0.219,
+          0.2473,
+          0.25930000000000003,
+          0.2112
+        ],
+        "min": 0.2112,
+        "median": 0.2448,
+        "p95": 0.25930000000000003,
+        "max": 0.25930000000000003
+      },
+      "decode_ms": {
+        "samples": [
+          40.040600000000005,
+          35.145500000000006,
+          35.4893,
+          33.4898,
+          33.9411
+        ],
+        "min": 33.4898,
+        "median": 35.145500000000006,
+        "p95": 40.040600000000005,
+        "max": 40.040600000000005
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_20s.flac;mode=native_gapless",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_20s.flac",
+      "mode": "native_gapless",
+      "decode_frames_per_trial": [
+        960000,
+        960000,
+        960000,
+        960000,
+        960000
+      ],
+      "decode_hashes_per_trial": [
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325",
+        "45497dc49dd5f325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.2455,
+          0.2255,
+          0.2206,
+          0.2336,
+          0.2342
+        ],
+        "min": 0.2206,
+        "median": 0.2336,
+        "p95": 0.2455,
+        "max": 0.2455
+      },
+      "decode_ms": {
+        "samples": [
+          37.3802,
+          37.0509,
+          34.7079,
+          33.5272,
+          32.7828
+        ],
+        "min": 32.7828,
+        "median": 34.7079,
+        "p95": 37.3802,
+        "max": 37.3802
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_80s.flac;mode=project_manual",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_80s.flac",
+      "mode": "project_manual",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.34709999999999996,
+          0.4296,
+          0.4333,
+          0.2475,
+          0.3094
+        ],
+        "min": 0.2475,
+        "median": 0.34709999999999996,
+        "p95": 0.4333,
+        "max": 0.4333
+      },
+      "decode_ms": {
+        "samples": [
+          284.6495,
+          310.7559,
+          283.49170000000004,
+          173.3643,
+          243.6689
+        ],
+        "min": 173.3643,
+        "median": 283.49170000000004,
+        "p95": 310.7559,
+        "max": 310.7559
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_80s.flac;mode=native_gapless",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_80s.flac",
+      "mode": "native_gapless",
+      "decode_frames_per_trial": [
+        3840000,
+        3840000,
+        3840000,
+        3840000,
+        3840000
+      ],
+      "decode_hashes_per_trial": [
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325",
+        "0859263868f16325"
+      ],
+      "open_ms": {
+        "samples": [
+          0.37560000000000004,
+          0.3726,
+          0.28459999999999996,
+          0.31,
+          0.3352
+        ],
+        "min": 0.28459999999999996,
+        "median": 0.3352,
+        "p95": 0.37560000000000004,
+        "max": 0.37560000000000004
+      },
+      "decode_ms": {
+        "samples": [
+          310.7969,
+          364.2011,
+          259.5068,
+          181.8234,
+          249.5085
+        ],
+        "min": 181.8234,
+        "median": 259.5068,
+        "p95": 364.2011,
+        "max": 364.2011
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.flac;comparison=native_to_project",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.flac",
+      "paired_trials": [
+        {
+          "round": 0,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 38.8422,
+          "native_ms": 39.5571,
+          "native_to_project_ratio": 1.0184052396620171
+        },
+        {
+          "round": 1,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 35.6664,
+          "native_ms": 35.5822,
+          "native_to_project_ratio": 0.9976392346858667
+        },
+        {
+          "round": 2,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 38.1214,
+          "native_ms": 37.282500000000006,
+          "native_to_project_ratio": 0.9779939876289959
+        },
+        {
+          "round": 3,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 36.156800000000004,
+          "native_ms": 40.0469,
+          "native_to_project_ratio": 1.1075897203292326
+        },
+        {
+          "round": 4,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 37.2098,
+          "native_ms": 38.2198,
+          "native_to_project_ratio": 1.0271433869571993
+        }
+      ],
+      "native_to_project_decode_ratio": {
+        "samples": [
+          1.0184052396620171,
+          0.9976392346858667,
+          0.9779939876289959,
+          1.1075897203292326,
+          1.0271433869571993
+        ],
+        "min": 0.9779939876289959,
+        "median": 1.0184052396620171,
+        "p95": 1.1075897203292326,
+        "max": 1.1075897203292326
+      },
+      "project_first_decode_ratio": {
+        "samples": [
+          1.0184052396620171,
+          0.9779939876289959,
+          1.0271433869571993
+        ],
+        "min": 0.9779939876289959,
+        "median": 1.0184052396620171,
+        "p95": 1.0271433869571993,
+        "max": 1.0271433869571993
+      },
+      "native_first_decode_ratio": {
+        "samples": [
+          0.9976392346858667,
+          1.1075897203292326
+        ],
+        "min": 0.9976392346858667,
+        "median": 1.0526144775075497,
+        "p95": 1.1075897203292326,
+        "max": 1.1075897203292326
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg;comparison=native_to_project",
+      "path": "target/decoder-bench-corpus\\stereo_s16_48k_80s.ogg",
+      "paired_trials": [
+        {
+          "round": 0,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 55.262100000000004,
+          "native_ms": 49.004,
+          "native_to_project_ratio": 0.8867560226629099
+        },
+        {
+          "round": 1,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 61.5145,
+          "native_ms": 52.0433,
+          "native_to_project_ratio": 0.8460330491185005
+        },
+        {
+          "round": 2,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 60.337599999999995,
+          "native_ms": 52.7378,
+          "native_to_project_ratio": 0.8740453713770518
+        },
+        {
+          "round": 3,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 53.027699999999996,
+          "native_ms": 48.995799999999996,
+          "native_to_project_ratio": 0.9239661535386222
+        },
+        {
+          "round": 4,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 51.0631,
+          "native_ms": 54.4839,
+          "native_to_project_ratio": 1.0669916240886277
+        }
+      ],
+      "native_to_project_decode_ratio": {
+        "samples": [
+          0.8867560226629099,
+          0.8460330491185005,
+          0.8740453713770518,
+          0.9239661535386222,
+          1.0669916240886277
+        ],
+        "min": 0.8460330491185005,
+        "median": 0.8867560226629099,
+        "p95": 1.0669916240886277,
+        "max": 1.0669916240886277
+      },
+      "project_first_decode_ratio": {
+        "samples": [
+          0.8867560226629099,
+          0.8740453713770518,
+          1.0669916240886277
+        ],
+        "min": 0.8740453713770518,
+        "median": 0.8867560226629099,
+        "p95": 1.0669916240886277,
+        "max": 1.0669916240886277
+      },
+      "native_first_decode_ratio": {
+        "samples": [
+          0.8460330491185005,
+          0.9239661535386222
+        ],
+        "min": 0.8460330491185005,
+        "median": 0.8849996013285614,
+        "p95": 0.9239661535386222,
+        "max": 0.9239661535386222
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_20s.flac;comparison=native_to_project",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_20s.flac",
+      "paired_trials": [
+        {
+          "round": 0,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 40.040600000000005,
+          "native_ms": 37.3802,
+          "native_to_project_ratio": 0.9335574391992127
+        },
+        {
+          "round": 1,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 35.145500000000006,
+          "native_ms": 37.0509,
+          "native_to_project_ratio": 1.0542146220711042
+        },
+        {
+          "round": 2,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 35.4893,
+          "native_ms": 34.7079,
+          "native_to_project_ratio": 0.9779820960120374
+        },
+        {
+          "round": 3,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 33.4898,
+          "native_ms": 33.5272,
+          "native_to_project_ratio": 1.0011167579382378
+        },
+        {
+          "round": 4,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 33.9411,
+          "native_ms": 32.7828,
+          "native_to_project_ratio": 0.9658732333365744
+        }
+      ],
+      "native_to_project_decode_ratio": {
+        "samples": [
+          0.9335574391992127,
+          1.0542146220711042,
+          0.9779820960120374,
+          1.0011167579382378,
+          0.9658732333365744
+        ],
+        "min": 0.9335574391992127,
+        "median": 0.9779820960120374,
+        "p95": 1.0542146220711042,
+        "max": 1.0542146220711042
+      },
+      "project_first_decode_ratio": {
+        "samples": [
+          0.9335574391992127,
+          0.9779820960120374,
+          0.9658732333365744
+        ],
+        "min": 0.9335574391992127,
+        "median": 0.9658732333365744,
+        "p95": 0.9779820960120374,
+        "max": 0.9779820960120374
+      },
+      "native_first_decode_ratio": {
+        "samples": [
+          1.0542146220711042,
+          1.0011167579382378
+        ],
+        "min": 1.0011167579382378,
+        "median": 1.027665690004671,
+        "p95": 1.0542146220711042,
+        "max": 1.0542146220711042
+      }
+    },
+    {
+      "case_key": "path=target/decoder-bench-corpus\\surround_s16_48k_80s.flac;comparison=native_to_project",
+      "path": "target/decoder-bench-corpus\\surround_s16_48k_80s.flac",
+      "paired_trials": [
+        {
+          "round": 0,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 284.6495,
+          "native_ms": 310.7969,
+          "native_to_project_ratio": 1.0918582326685977
+        },
+        {
+          "round": 1,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 310.7559,
+          "native_ms": 364.2011,
+          "native_to_project_ratio": 1.171984506167059
+        },
+        {
+          "round": 2,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 283.49170000000004,
+          "native_ms": 259.5068,
+          "native_to_project_ratio": 0.9153947011499807
+        },
+        {
+          "round": 3,
+          "order": "native_gapless_then_project_manual",
+          "project_ms": 173.3643,
+          "native_ms": 181.8234,
+          "native_to_project_ratio": 1.0487937828030338
+        },
+        {
+          "round": 4,
+          "order": "project_manual_then_native_gapless",
+          "project_ms": 243.6689,
+          "native_ms": 249.5085,
+          "native_to_project_ratio": 1.0239653070211256
+        }
+      ],
+      "native_to_project_decode_ratio": {
+        "samples": [
+          1.0918582326685977,
+          1.171984506167059,
+          0.9153947011499807,
+          1.0487937828030338,
+          1.0239653070211256
+        ],
+        "min": 0.9153947011499807,
+        "median": 1.0487937828030338,
+        "p95": 1.171984506167059,
+        "max": 1.171984506167059
+      },
+      "project_first_decode_ratio": {
+        "samples": [
+          1.0918582326685977,
+          0.9153947011499807,
+          1.0239653070211256
+        ],
+        "min": 0.9153947011499807,
+        "median": 1.0239653070211256,
+        "p95": 1.0918582326685977,
+        "max": 1.0918582326685977
+      },
+      "native_first_decode_ratio": {
+        "samples": [
+          1.171984506167059,
+          1.0487937828030338
+        ],
+        "min": 1.0487937828030338,
+        "median": 1.1103891444850464,
+        "p95": 1.171984506167059,
+        "max": 1.171984506167059
+      }
+    }
+  ],
+  "skipped": [
+    "MP3/LAME gapless fixture absent; include a .mp3 path in AUDIO_GAPLESS_FIXTURES",
+    "CAF gapless fixture absent; include a .caf path in AUDIO_GAPLESS_FIXTURES"
+  ]
+}

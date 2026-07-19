@@ -78,7 +78,23 @@ The following are **forbidden** inside the hot path:
   hard realtime bound.
 - Decode-side allocation: the decoder is not on the audio callback. Even so,
   `decode_next_into` reuses its `sample_buf` and is allocation-free in steady
-  state.
+  state. `StreamingDecoderBuilder::staging_buffer_bytes()` describes the
+  fixed crate-owned interleaved `f64` staging payload; decoding must reject a
+  packet that exceeds that capacity rather than resizing it.
+- Gapless ownership is codec-aware and exclusive. `GaplessOwner::for_codec`
+  enables Symphonia native trimming only for MP3 and Vorbis, the 0.6 decoders
+  that consume `AudioDecoderOptions::gapless`; all other codecs retain the
+  Track-level fallback. The native branch must never run the fallback delay or
+  padding counters. The fallback applies delay only at true stream start and
+  padding only at true stream end; a seek must not re-arm start delay. A native
+  decoder may return an empty buffer while discarding reset preroll, which
+  `decode_next_span` must consume internally rather than expose as `Some(&[])`.
+  Symphonia seek timestamps are track timebase ticks, not guaranteed audio-frame
+  indices: subtract `Track::start_ts` and apply `Track::time_base` before
+  updating frame/sample accounting. Regression tests must cover the codec
+  allowlist, fallback start/end trim, post-seek no-double-trim, non-sample-rate
+  seek timebases, and an enforced real Ogg/Vorbis seek comparison. MP3 may not
+  be claimed corpus-verified until a real LAME fixture is present.
 - Recomputing coefficients on a parameter change — but do it on the control
   thread / on the snapshot swap, not per sample.
 

@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend crate review scope and authoritative contract index."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify decoder changes stay inside the intended module boundary."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify typed decoder and feature-gated error behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Apply the complete Rust, documentation, package, and evidence quality gates."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Review decoder buffer changes for downstream realtime safety regressions."}
+{"file":".trellis/tasks/07-19-upgrade-symphonia-0-6/research/symphonia-0-6-migration.md","reason":"Check implementation against official 0.6 semantic changes and identified risks."}
