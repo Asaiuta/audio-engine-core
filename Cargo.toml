@@ -2,6 +2,7 @@
 name = "audio-engine-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.87"
 description = "Reusable decoder, DSP, loudness, resampling, and streaming pipeline primitives"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Asaiuta/audio-engine-core"
@@ -16,12 +17,10 @@ name = "audio_engine_core"
 path = "src/lib.rs"
 
 [dependencies]
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.6", features = ["all"] }
 soxr = "0.6.0"
 rayon = "1.10"
-parking_lot = "0.12"
 rustfft = "6.2"
-rand = "0.8"
 ebur128 = "0.1"
 atomic_float = "1.0"
 arc-swap = "1.7"
@@ -73,6 +72,10 @@ harness = false
 
 [[bench]]
 name = "audio_fir_eq_perf"
+harness = false
+
+[[bench]]
+name = "audio_gapless_comparison_perf"
 harness = false
 
 [package.metadata.vcpkg]

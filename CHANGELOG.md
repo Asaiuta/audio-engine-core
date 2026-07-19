@@ -45,6 +45,14 @@ SemVer for pre-1.0 releases.
 - Ubuntu CI quick gates that upload all four quality/performance JSON reports.
 
 ### Changed
+- Upgraded the decoder backend from Symphonia 0.5.5 to 0.6.0. The existing
+  `StreamingDecoder` surface, supported codec matrix, source features, typed
+  errors, and seek contract remain intact while the internal
+  decoder/metadata/audio-buffer APIs follow the 0.6 model. Gapless ownership is
+  now codec-aware: Symphonia owns MP3/Vorbis packet trim and reset preroll,
+  while other codecs use the existing Track-level fallback exactly once.
+- Raised the crate MSRV declaration to Rust 1.87. Symphonia 0.6 requires Rust
+  1.85, while existing DSP code in this crate uses APIs stabilized in Rust 1.87.
 - Realtime DSP adapters and `DspChain` now use the object-safe
   `StreamingProcessor` lifecycle with validated zero-copy interleaved blocks,
   explicit consumed/produced progress, backpressure, finish/reset, and typed
@@ -71,6 +79,9 @@ SemVer for pre-1.0 releases.
   supplied.
 
 ### Fixed
+- Ogg/Vorbis coarse seek now uses Symphonia's native gapless reset behavior,
+  eliminating the first post-seek overlap packet previously emitted by the
+  crate-owned Track-only path.
 - AutoMix tempo conversion now uses the spectral analyzer's actual
   `sample_rate / 512` cadence and tempo-derived lag bounds instead of applying
   the 50 Hz envelope cadence to spectral-flux samples.

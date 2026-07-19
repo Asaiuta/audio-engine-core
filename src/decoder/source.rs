@@ -5,8 +5,8 @@ use std::path::Path;
 #[cfg(feature = "http")]
 use std::time::Duration;
 
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::probe::Hint;
 
 #[cfg(feature = "http")]
 use super::error::{network_error_to_decoder_error, with_network_retry, NetworkError};
@@ -40,7 +40,7 @@ pub struct HttpCredentials {
 /// Keeping the Symphonia transport fields private lets callers separate source
 /// opening from decoder construction without depending on Symphonia's API.
 pub struct OpenedMediaSource {
-    pub(super) stream: MediaSourceStream,
+    pub(super) stream: MediaSourceStream<'static>,
     pub(super) hint: Hint,
 }
 
@@ -95,7 +95,7 @@ pub(super) fn open_media_source(
     path: &Path,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<DecodeCancelToken>,
-) -> Result<(MediaSourceStream, Hint), DecoderError> {
+) -> Result<(MediaSourceStream<'static>, Hint), DecoderError> {
     let path_str = path.to_string_lossy();
     if cancel_token
         .as_ref()
@@ -132,7 +132,7 @@ fn open_http_media_source(
     url: &str,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<DecodeCancelToken>,
-) -> Result<(MediaSourceStream, Hint), DecoderError> {
+) -> Result<(MediaSourceStream<'static>, Hint), DecoderError> {
     let owned_creds = credentials.cloned();
     match RangeStream::new(url.to_string(), owned_creds, cancel_token.clone()) {
         Ok(stream) if stream.is_usable_range_stream() => {

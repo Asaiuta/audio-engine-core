@@ -464,3 +464,19 @@ fn start_of_stream_still_trims_encoder_delay() {
         "start-of-stream encoder_delay trimming regressed"
     );
 }
+
+#[test]
+fn end_of_stream_trims_encoder_padding_once() {
+    let sample_rate = 48_000u32;
+    let frames = 5_000u64;
+    let padding = 1_000u32;
+    let bytes = synth_wav(sample_rate, 1, frames, |frame, _| {
+        (frame as f64 / frames as f64) * 2.0 - 1.0
+    });
+    let fixture = TempAudio::new("wav", &bytes);
+    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    decoder.info.end_padding = padding;
+
+    let decoded = decode_all_samples(&mut decoder);
+    assert_eq!(decoded.len() as u64, frames - padding as u64);
+}

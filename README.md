@@ -8,6 +8,9 @@ integration work around high-quality local audio processing, not as a stable
 1.0 SDK yet. The public API is versioned as `0.1.x` and may change while the
 larger player continues to evolve.
 
+The crate requires Rust 1.87 or newer. Symphonia 0.6 itself requires Rust
+1.85; the higher crate MSRV reflects existing DSP code in this repository.
+
 ## What Is Included
 
 - Streaming decode helpers built on Symphonia.
@@ -31,15 +34,20 @@ Those layers remain in the root Lyne application crate.
 
 ## Decoding & Format Support
 
-Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) with all
+Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) 0.6 with all
 of its bundled codecs/containers compiled in. The crate does not add custom
 codecs; instead it makes the support boundary explicit and tested.
+
+`StreamingDecoder` assigns exactly one gapless owner per codec. Symphonia owns
+MP3 and Vorbis packet trim/reset behavior; other codecs retain the crate's
+Track-level delay/padding fallback. The two paths are mutually exclusive, so
+delay or padding cannot be trimmed twice.
 
 - **Supported input** is whatever the bundled Symphonia build can probe and
   decode (e.g. WAV, FLAC, MP3, AAC/MP4, OGG/Vorbis). `StreamingDecoder` exposes
   the decoded sample rate, channel count, and (when known) total frame count and
-  duration via `decoder.info`. Positional channel layout is not yet surfaced;
-  only the channel *count* is reported.
+  duration via `decoder.info`, including the best-effort positional
+  `decoder.info.channel_layout`.
 - **Unsupported / unrecognized input** returns the typed
   `DecoderError::UnsupportedFormat` rather than a generic stringly error. A
   container that probes but has no decodable audio track returns
@@ -56,8 +64,9 @@ packet/frame boundary at or before the requested time, so the realized position
 has bounded inaccuracy — treat it as "within roughly one packet of the target"
 rather than sample-exact. The documented bound is
 `StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`, and the realized position is
-readable via `decoder.current_frame()`. Encoder-delay (gapless) trimming applies
-only at the true start of the stream, never after a seek.
+readable via `decoder.current_frame()`. Track-level encoder delay applies only
+at the true start of the stream, while native MP3/Vorbis decoders consume their
+packet-local trim and reset preroll after a seek.
 
 ## Cargo Features
 
