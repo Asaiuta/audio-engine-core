@@ -46,7 +46,7 @@ These are provided as reusable, measurable, testable components.
 | Area | What you get |
 | --- | --- |
 | Decode | Streaming decode built on Symphonia 0.6, a typed error policy for unsupported/corrupt input, and per-codec gapless ownership |
-| Resampling | SoX VHQ resampler with a streaming (`process_checked`) interface |
+| Resampling | SoX VHQ streaming resampler (native SoXR backend, default) or a pure-Rust rubato sinc backend, behind one `process_checked` interface |
 | Loudness | EBU R128 integrated loudness + true-peak measurement, offline analysis plus realtime atomic gain application |
 | DSP | 10-band IIR biquad `Equalizer`, linear- and minimum-phase `FirEq` (applied via `FFTConvolver`), Bauer crossfeed, saturation with oversampled antialiasing, FFT convolution with partitioned routing for long IRs, dynamic loudness compensation, volume smoothing, true-peak limiter, noise shaping |
 | Realtime control | Lock-free generation-based parameter snapshots for pushing changes into the audio callback |
@@ -167,7 +167,7 @@ Representative results from a single machine and configuration (reproduce with
 `cargo bench`; values differ by CPU, compiler, and load):
 
 - `LoudnessMeter` integrated loudness parity vs direct `ebur128`: **0.000000 LU**
-- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB**
+- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB** (default SoXR backend; the pure-Rust rubato backend measures -216.2 dB, see [docs/quality.md](docs/quality.md))
 - Worst fitted alias attenuation, 96 kHz to 48 kHz: **-290.2 dB** (near the analyzer's own numeric floor)
 - True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
 - Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
@@ -184,8 +184,8 @@ tables, and complete measurement tables live in [docs/quality.md](docs/quality.m
 
 ## Installation & Feature Flags
 
-Both Cargo features are enabled by default; disable them with
-`default-features = false` to drop the corresponding dependency:
+All four Cargo features below are independent; the first three are enabled by
+default:
 
 - `http` (default): HTTP/HTTPS streaming decode via `reqwest`, including Range
   streaming and full-download fallback. With this off, `StreamingDecoder` only
@@ -195,14 +195,21 @@ Both Cargo features are enabled by default; disable them with
   (`LoudnessDatabase`, `TrackLoudness`, `DatabaseStats`) via `rusqlite`. With
   this off, the EBU R128 helpers (`LoudnessMeter`, `LoudnessNormalizer`,
   `TruePeakDetector`) still work; only the on-disk cache is removed.
+- `soxr` (default): native SoXR resampler backend (SoX VHQ). Requires the
+  libsoxr native library at build/link time; libsoxr is LGPL-2.1 (see
+  [License](#license)).
+- `rubato`: pure-Rust windowed-sinc resampler backend. No native dependency;
+  linear phase only. Exactly one resampler backend must be enabled — enabling
+  neither is a compile error, and when both are enabled, `soxr` wins.
 
-DSP-only consumers can drop the network and SQLite dependency trees with
-`audio-engine-core = { version = "0.1", default-features = false }`.
+A fully pure-Rust, DSP-only build with no native dependency:
 
-The resampler links the native SoXR library (libsoxr), which is required even
-with default features disabled and is LGPL-2.1 licensed (see
-[License](#license)). Windows (vcpkg or MSYS2) and Unix setup instructions are
-in [docs/installation.md](docs/installation.md).
+```toml
+audio-engine-core = { version = "0.1", default-features = false, features = ["rubato"] }
+```
+
+Windows (vcpkg or MSYS2) and Unix setup instructions for the default SoXR
+backend are in [docs/installation.md](docs/installation.md).
 
 ## Scope
 
@@ -278,8 +285,9 @@ dual licensed as above, without any additional terms or conditions.
 
 ### Native dependency licensing
 
-This crate links the SoXR native library (libsoxr), which is distributed under
-the LGPL-2.1. SoXR is currently required even with default features disabled.
-The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically
-link libsoxr carry LGPL-2.1 relinking obligations. See [NOTICE](NOTICE) for
-details.
+With the default `soxr` feature, this crate links the SoXR native library
+(libsoxr), which is distributed under the LGPL-2.1. The Rust source in this
+crate is MIT OR Apache-2.0, but binaries that statically link libsoxr carry
+LGPL-2.1 relinking obligations. Building with `default-features = false` and
+the pure-Rust `rubato` backend does not link libsoxr and carries no LGPL
+obligation. See [NOTICE](NOTICE) for details.

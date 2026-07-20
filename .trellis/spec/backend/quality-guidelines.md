@@ -508,10 +508,14 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 - `http` controls the optional `reqwest` dependency and network error surface.
 - `loudness-db` controls the optional `rusqlite` dependency and SQLite cache
   types.
-- SoXR is a required native dependency today because `src/processor/resampler.rs`
-  is part of the core crate and `soxr` is not optional in `Cargo.toml`.
-  Therefore `default-features = false` removes HTTP and SQLite, but it does not
-  remove libsoxr or the resampler API.
+- The resampler backend is feature-selected: `soxr` (default) links native
+  libsoxr (LGPL-2.1), while `rubato` compiles a pure-Rust windowed-sinc
+  backend under `src/processor/resampler/rubato_backend.rs`. Enabling neither
+  backend is a compile error; when both are enabled, `soxr` wins. A
+  `default-features = false, features = ["rubato"]` build has no native
+  dependency. Both backends must satisfy the same mono streaming contract
+  (arbitrary input granularity, duration-aligned drain, `clear` restoring
+  initial state) enforced by the shared resampler test suite.
 - README quality/performance numbers must name the benchmark or test family that
   produced them and must preserve explicit limitation notes for report-only
   probes.

@@ -17,6 +17,12 @@ pub fn run_build_script() {
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
 
+    // The native SoXR probe only applies to the `soxr` backend feature; a
+    // pure-Rust (`rubato`) build must not require libsoxr at build time.
+    if env::var_os("CARGO_FEATURE_SOXR").is_none() {
+        return;
+    }
+
     if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() != "windows" {
         return;
     }

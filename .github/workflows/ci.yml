@@ -38,8 +38,8 @@ jobs:
       - name: clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: clippy (no default features)
-        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - name: clippy (pure-Rust rubato backend)
+        run: cargo clippy --all-targets --no-default-features --features rubato -- -D warnings
 
       # Mirror the docs.rs build. libsoxr-sys skips its pkg-config probe when
       # DOCS_RS is set and ships pregenerated FFI bindings, so doc builds need
@@ -103,8 +103,28 @@ jobs:
       - name: Test (all features)
         run: cargo test --all-features
 
-      - name: Test (no default features)
-        run: cargo test --no-default-features
+      - name: Test (no default features, rubato backend)
+        run: cargo test --no-default-features --features rubato
+
+  # Prove the pure-Rust build path on a runner with no libsoxr installed:
+  # `default-features = false` plus the `rubato` feature must need no native
+  # library at build, link, or test time.
+  pure-rust:
+    name: test (pure Rust, no libsoxr)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (no native dependencies)
+        run: cargo build --no-default-features --features rubato
+
+      - name: Test (no native dependencies)
+        run: cargo test --no-default-features --features rubato
 
   # Deterministic quality gates plus machine-readable realtime evidence. The
   # shared runner does not enforce an absolute timing budget; a compatible

@@ -1,12 +1,36 @@
-//! High-quality resampling using SoX VHQ Polyphase implementation
+//! High-quality streaming resampling with a pluggable compile-time backend.
+//!
+//! Two backends implement the same mono-channel streaming contract (arbitrary
+//! input granularity, duration-aligned drain, `clear` restoring initial
+//! state): the native SoXR / SoX VHQ backend (`soxr` feature, default) and
+//! the pure-Rust rubato sinc backend (`rubato` feature). When both features
+//! are enabled, SoXR wins. The public `Resampler` / `StreamingResampler` API
+//! is identical for both.
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use rayon::prelude::*;
-use soxr::{
-    format::Mono,
-    params::{QualityFlags, QualityRecipe, QualitySpec, Rolloff, RuntimeSpec},
-    Soxr,
-};
+
+#[cfg(not(any(feature = "soxr", feature = "rubato")))]
+compile_error!(
+    "audio-engine-core requires a resampler backend: enable the default `soxr` feature \
+     (native SoX VHQ, links LGPL-2.1 libsoxr) or the pure-Rust `rubato` feature."
+);
+
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod rubato_backend;
+#[cfg(feature = "soxr")]
+mod soxr_backend;
+
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+use rubato_backend::{MonoBackend, BACKEND_NAME};
+#[cfg(feature = "soxr")]
+use soxr_backend::{MonoBackend, BACKEND_NAME};
+
+/// Per-call progress reported by a mono backend stream.
+struct BackendProgress {
+    input_frames: usize,
+    output_frames: usize,
+}
 
 use super::traits::{
     AudioBlockMut, AudioBlockRef, FrameDuration, ProcessBufferMode, ProcessBufferParts,
@@ -16,7 +40,7 @@ use super::traits::{
 /// Error type for resampler operations
 #[derive(Debug, Clone)]
 pub enum ResamplerError {
-    /// Soxr initialization failed (e.g., invalid sample rate combination)
+    /// Backend initialization failed (e.g., invalid sample rate combination)
     InitializationFailed(String),
     /// Processing failed
     ProcessFailed(String),
@@ -26,7 +50,7 @@ impl std::fmt::Display for ResamplerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResamplerError::InitializationFailed(msg) => {
-                write!(f, "Soxr initialization failed: {}", msg)
+                write!(f, "Resampler backend initialization failed: {}", msg)
             }
             ResamplerError::ProcessFailed(msg) => write!(f, "Resampling process failed: {}", msg),
         }
@@ -35,29 +59,11 @@ impl std::fmt::Display for ResamplerError {
 
 impl std::error::Error for ResamplerError {}
 
-/// High-quality resampler using SoX (VHQ Polyphase implementation)
+/// High-quality resampler driving one backend stream per channel.
 pub struct Resampler {
     channels: usize,
     from_rate: u32,
     to_rate: u32,
-}
-
-/// Convert ResampleQuality enum to SoX QualityRecipe
-/// FIX for Defect 30: Actually use different quality levels
-/// Note: QualityRecipe has Low variant, plus high() and very_high() constructor functions
-fn quality_to_recipe(quality: ResampleQuality) -> QualityRecipe {
-    match quality {
-        ResampleQuality::Low => QualityRecipe::Low, // Fast, lower quality (enum variant)
-        ResampleQuality::Standard => QualityRecipe::high(), // High quality (constructor)
-        ResampleQuality::High => QualityRecipe::high(), // High quality (constructor)
-        ResampleQuality::UltraHigh => QualityRecipe::very_high(), // VHQ, slowest (constructor)
-    }
-}
-
-/// Create a QualitySpec with the given recipe and phase response
-fn make_quality_spec(recipe: QualityRecipe, phase: PhaseResponse) -> QualitySpec {
-    QualitySpec::configure(recipe, Rolloff::default(), QualityFlags::HighPrecisionClock)
-        .with_phase_response(phase.to_soxr_value())
 }
 
 fn deinterleave_frame_major(
@@ -164,7 +170,8 @@ impl Resampler {
         }
     }
 
-    /// Resample audio data using SoX VHQ polyphase filter.
+    /// Resample audio data using the configured backend (SoX VHQ polyphase
+    /// with the `soxr` feature, rubato windowed sinc with `rubato`).
     ///
     /// Input and output are interleaved f64 samples for Hi-Fi transparency.
     ///
@@ -175,7 +182,7 @@ impl Resampler {
     ///
     /// This avoids phase discontinuities from time-chunking while maintaining high performance.
     ///
-    /// Returns Err if Soxr initialization fails (e.g., invalid sample rate combination).
+    /// Returns Err if backend initialization fails (e.g., invalid sample rate combination).
     pub fn resample_parallel(
         &self,
         input: &[f64],
@@ -211,21 +218,15 @@ impl Resampler {
             .into_par_iter()
             .enumerate()
             .map(|(ch_idx, channel_data)| {
-                // Configure SoX for this channel with phase response and quality
-                // FIX for Defect 30: Use quality parameter instead of hardcoded very_high
-                let quality_spec = make_quality_spec(quality_to_recipe(quality), phase);
-
-                let runtime_spec = RuntimeSpec::new(1); // 1 channel per thread
-
-                let mut soxr = Soxr::<Mono<f64>>::new_with_params(
-                    self.from_rate as f64,
-                    self.to_rate as f64,
-                    quality_spec,
-                    runtime_spec,
-                )
-                .map_err(|e| {
-                    ResamplerError::InitializationFailed(format!("Channel {}: {:?}", ch_idx, e))
-                })?;
+                // One backend stream per channel with the requested phase
+                // response and quality level.
+                let mut backend = MonoBackend::new(self.from_rate, self.to_rate, phase, quality)
+                    .map_err(|e| {
+                        ResamplerError::InitializationFailed(format!(
+                            "{BACKEND_NAME} channel {}: {}",
+                            ch_idx, e
+                        ))
+                    })?;
 
                 // Output estimation
                 let expected_frames = (channel_data.len() as f64 * self.to_rate as f64
@@ -241,8 +242,9 @@ impl Resampler {
                 // Upsampling ratios above 1.5 (e.g. 44.1->96k = 2.18, 44.1->192k
                 // = 4.35) produce more output than input per chunk; the old 1.5x
                 // buffer silently truncated the surplus on every chunk. A margin
-                // above the nominal ratio absorbs soxr's per-call batching, and
-                // the flush below drains any residual backlog in a loop.
+                // above the nominal ratio absorbs the backend's per-call
+                // batching, and the flush below drains any residual backlog in
+                // a loop.
                 let ratio = self.to_rate as f64 / self.from_rate as f64;
                 let scratch_frames = (inner_chunk_size as f64 * ratio).ceil() as usize + 64;
                 let mut output_scratch = vec![0.0; scratch_frames];
@@ -261,14 +263,14 @@ impl Resampler {
                 for (i, chunk) in channel_data.chunks(inner_chunk_size).enumerate() {
                     let mut input_offset = 0;
                     while input_offset < chunk.len() {
-                        let processed = soxr
+                        let processed = backend
                             .process(&chunk[input_offset..], &mut output_scratch)
                             .map_err(|e| {
-                            ResamplerError::ProcessFailed(format!(
-                                "Channel {} chunk {}: {:?}",
-                                ch_idx, i, e
-                            ))
-                        })?;
+                                ResamplerError::ProcessFailed(format!(
+                                    "Channel {} chunk {}: {}",
+                                    ch_idx, i, e
+                                ))
+                            })?;
 
                         if processed.input_frames > chunk.len() - input_offset
                             || processed.output_frames > output_scratch.len()
@@ -297,9 +299,10 @@ impl Resampler {
                 }
 
                 // Native drain is the only end-of-stream operation guaranteed
-                // by Soxr. Keep calling it until it reports terminal zero.
+                // by the backend. Keep calling it until it reports terminal
+                // zero.
                 loop {
-                    match soxr.drain(&mut output_scratch) {
+                    match backend.drain(&mut output_scratch) {
                         Ok(output_frames) if output_frames > 0 => {
                             if output_frames > output_scratch.len() {
                                 return Err(ResamplerError::ProcessFailed(format!(
@@ -312,7 +315,7 @@ impl Resampler {
                         Ok(_) => break,
                         Err(e) => {
                             return Err(ResamplerError::ProcessFailed(format!(
-                                "Channel {} drain: {:?}",
+                                "Channel {} drain: {}",
                                 ch_idx, e
                             )));
                         }
@@ -337,12 +340,13 @@ impl Resampler {
     }
 }
 
-/// Stateful streaming resampler that maintains SoX instances across chunks.
-/// This is used by AudioPipeline for memory-efficient streaming resampling.
+/// Stateful streaming resampler that maintains one backend stream per channel
+/// across chunks. This is used by AudioPipeline for memory-efficient streaming
+/// resampling.
 ///
 /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {
-    soxr_instances: Vec<Soxr<Mono<f64>>>,
+    backends: Vec<MonoBackend>,
     channels: usize,
     from_rate: u32,
     to_rate: u32,
@@ -450,7 +454,7 @@ impl StreamingResampler {
 
     /// Create a new streaming resampler with specified phase response (High quality)
     ///
-    /// Returns Err if Soxr initialization fails (e.g., invalid sample rates like 0 Hz)
+    /// Returns Err if backend initialization fails (e.g., invalid sample rates like 0 Hz)
     pub fn with_phase(
         channels: usize,
         from_rate: u32,
@@ -465,7 +469,7 @@ impl StreamingResampler {
     /// FIX for Defect 30: Allow quality configuration
     /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
     ///
-    /// Returns Err if Soxr initialization fails (e.g., invalid sample rates like 0 Hz)
+    /// Returns Err if backend initialization fails (e.g., invalid sample rates like 0 Hz)
     pub fn with_quality(
         channels: usize,
         from_rate: u32,
@@ -473,7 +477,7 @@ impl StreamingResampler {
         phase: PhaseResponse,
         quality: ResampleQuality,
     ) -> Result<Self, ResamplerError> {
-        // Validate sample rates before creating Soxr instances
+        // Validate sample rates before creating backend streams
         if from_rate == 0 || to_rate == 0 {
             return Err(ResamplerError::InitializationFailed(format!(
                 "Invalid sample rate: from_rate={}, to_rate={}",
@@ -488,23 +492,13 @@ impl StreamingResampler {
             ));
         }
 
-        let mut soxr_instances = Vec::with_capacity(channels);
+        let mut backends = Vec::with_capacity(channels);
         for ch_idx in 0..channels {
-            // Create params for each channel with phase response and quality
-            // FIX for Defect 30: Use quality parameter
-            let quality_spec = make_quality_spec(quality_to_recipe(quality), phase);
-            let runtime_spec = RuntimeSpec::new(1);
-
-            match Soxr::<Mono<f64>>::new_with_params(
-                from_rate as f64,
-                to_rate as f64,
-                quality_spec,
-                runtime_spec,
-            ) {
-                Ok(soxr) => soxr_instances.push(soxr),
+            match MonoBackend::new(from_rate, to_rate, phase, quality) {
+                Ok(backend) => backends.push(backend),
                 Err(e) => {
                     return Err(ResamplerError::InitializationFailed(format!(
-                        "Soxr failed for channel {}: {:?} (from={}Hz, to={}Hz)",
+                        "{BACKEND_NAME} failed for channel {}: {} (from={}Hz, to={}Hz)",
                         ch_idx, e, from_rate, to_rate
                     )));
                 }
@@ -524,7 +518,7 @@ impl StreamingResampler {
             .map(|_| Vec::with_capacity(max_output_per_channel))
             .collect();
         Ok(Self {
-            soxr_instances,
+            backends,
             channels,
             from_rate,
             to_rate,
@@ -611,15 +605,15 @@ impl StreamingResampler {
 
             let mut shared_progress = None;
             for channel in 0..channels {
-                let processed = self.soxr_instances[channel]
+                let processed = self.backends[channel]
                     .process(
                         &self.channel_inputs[channel],
                         &mut self.output_scratch[..output_step_capacity],
                     )
-                    .map_err(|_| ProcessError::Backend {
+                    .map_err(|message| ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "process",
-                        message: "soxr process failed",
+                        message,
                     })?;
 
                 if processed.input_frames > input_step_frames
@@ -628,7 +622,7 @@ impl StreamingResampler {
                     return Err(ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "process",
-                        message: "soxr returned out-of-bounds progress",
+                        message: "backend returned out-of-bounds progress",
                     });
                 }
 
@@ -642,7 +636,7 @@ impl StreamingResampler {
                         return Err(ProcessError::Backend {
                             processor: "StreamingResampler",
                             operation: "process",
-                            message: "soxr channel progress diverged",
+                            message: "backend channel progress diverged",
                         });
                     }
                     Some(_) => {}
@@ -656,14 +650,14 @@ impl StreamingResampler {
                 return Err(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "process",
-                    message: "soxr channel set was empty",
+                    message: "backend channel set was empty",
                 });
             };
             if step_consumed == 0 && step_produced == 0 {
                 return Err(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "process",
-                    message: "soxr made no progress",
+                    message: "backend made no progress",
                 });
             }
 
@@ -678,7 +672,7 @@ impl StreamingResampler {
                 return Err(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "process",
-                    message: "failed to interleave complete soxr output",
+                    message: "failed to interleave complete backend output",
                 });
             }
 
@@ -694,7 +688,7 @@ impl StreamingResampler {
             return Err(ProcessError::Backend {
                 processor: "StreamingResampler",
                 operation: "process",
-                message: "soxr stopped before reaching an input/output boundary",
+                message: "backend stopped before reaching an input/output boundary",
             });
         };
         Ok(ProcessProgress::new(
@@ -730,18 +724,18 @@ impl StreamingResampler {
 
             let mut shared_output_frames = None;
             for channel in 0..channels {
-                let channel_frames = self.soxr_instances[channel]
+                let channel_frames = self.backends[channel]
                     .drain(&mut self.output_scratch[..output_step_capacity])
-                    .map_err(|_| ProcessError::Backend {
+                    .map_err(|message| ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "finish",
-                        message: "soxr drain failed",
+                        message,
                     })?;
                 if channel_frames > output_step_capacity {
                     return Err(ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "finish",
-                        message: "soxr drain returned out-of-bounds progress",
+                        message: "backend drain returned out-of-bounds progress",
                     });
                 }
                 match shared_output_frames {
@@ -750,7 +744,7 @@ impl StreamingResampler {
                         return Err(ProcessError::Backend {
                             processor: "StreamingResampler",
                             operation: "finish",
-                            message: "soxr channel drain diverged",
+                            message: "backend channel drain diverged",
                         });
                     }
                     Some(_) => {}
@@ -763,7 +757,7 @@ impl StreamingResampler {
                 return Err(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "finish",
-                    message: "soxr channel set was empty",
+                    message: "backend channel set was empty",
                 });
             };
             if step_produced == 0 {
@@ -782,7 +776,7 @@ impl StreamingResampler {
                 return Err(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "finish",
-                    message: "failed to interleave complete soxr drain output",
+                    message: "failed to interleave complete backend drain output",
                 });
             }
             produced_frames += step_produced;
@@ -832,12 +826,12 @@ impl StreamingProcessor for StreamingResampler {
 
     fn reset(&mut self) -> Result<(), ProcessError> {
         let mut first_error = None;
-        for soxr in &mut self.soxr_instances {
-            if soxr.clear().is_err() && first_error.is_none() {
+        for backend in &mut self.backends {
+            if backend.clear().is_err() && first_error.is_none() {
                 first_error = Some(ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "reset",
-                    message: "soxr clear failed",
+                    message: "backend clear failed",
                 });
             }
         }
@@ -848,9 +842,9 @@ impl StreamingProcessor for StreamingResampler {
     }
 
     fn latency(&self) -> FrameDuration {
-        // Soxr with native drain returns a duration-aligned sample sequence;
-        // its internal scheduling delay does not add leading frames to that
-        // sequence and therefore requires no offline timeline crop.
+        // Both backends deliver a duration-aligned sample sequence with no
+        // leading delay frames (SoXR natively; rubato via delay-skip in the
+        // backend adapter), so no offline timeline crop is required.
         FrameDuration::ZERO
     }
 
