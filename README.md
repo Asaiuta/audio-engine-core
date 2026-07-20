@@ -168,15 +168,16 @@ Representative results from a single machine and configuration (reproduce with
 
 - `LoudnessMeter` integrated loudness parity vs direct `ebur128`: **0.000000 LU**
 - Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB**
-- Worst fitted alias attenuation, 96 kHz to 48 kHz: **-297.0 dB**
+- Worst fitted alias attenuation, 96 kHz to 48 kHz: **-290.2 dB** (near the analyzer's own numeric floor)
 - True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
 - Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
 
-One known limitation is kept visible: the limiter runs at source rate, so the
-full output-chain true-peak probe is report-only — resampling plus final
-quantization downstream can re-introduce intersample peaks. In the current
-quick run the worst full-chain output true peak is -0.610 dBTP, 0.390 dB above
-the -1 dBTP limiter target: evidence to watch, not a conformance gate.
+One structural caveat is kept visible: the limiter runs at source rate, so
+resampling plus final quantization downstream can in principle re-introduce
+intersample peaks, and the full output-chain true-peak probe stays report-only
+rather than a conformance gate. In the current quick run the probe meets the
+target — worst full-chain output true peak -1.000 dBTP with zero over-limit
+points — and it is retained as regression evidence.
 
 The full benchmark commands, JSON report/baseline machinery, processing-budget
 tables, and complete measurement tables live in [docs/quality.md](docs/quality.md).
