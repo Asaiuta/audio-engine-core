@@ -1,14 +1,17 @@
 # Installation: Native SoXR Dependency
 
 This page covers the native library setup required to build
-`audio-engine-core`. For the Cargo feature flags (`http`, `loudness-db`), see
-the [README](../README.md#installation--feature-flags).
+`audio-engine-core` with the default `soxr` resampler backend. For the Cargo
+feature flags (`http`, `loudness-db`, `soxr`, `rubato`), see the
+[README](../README.md#installation--feature-flags).
 
-## SoXR is required
+## When SoXR is required
 
-The resampler depends on `soxr`, which requires the SoXR native library during
-build/link. SoXR is part of the core crate today, so
-`default-features = false` does **not** remove this native dependency.
+The default `soxr` feature selects the native SoXR (SoX VHQ) resampler
+backend, which requires the SoXR native library during build/link. Builds that
+disable it and enable the pure-Rust backend instead —
+`default-features = false, features = ["rubato"]` — need **none** of the setup
+on this page.
 
 Note that SoXR (libsoxr) is distributed under the LGPL-2.1; see the
 [README license section](../README.md#license) and [NOTICE](../NOTICE) for the

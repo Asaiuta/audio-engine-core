@@ -12,6 +12,17 @@ SemVer for pre-1.0 releases.
 ## [Unreleased]
 
 ### Added
+- Pluggable resampler backends behind unchanged public APIs: the new `soxr`
+  feature (default) selects the native SoXR / SoX VHQ backend, and the new
+  pure-Rust `rubato` feature selects a windowed-sinc backend with no native
+  dependency. Enabling neither is a compile error; when both are enabled,
+  `soxr` wins. `default-features = false, features = ["rubato"]` now produces
+  a fully pure-Rust build that does not link LGPL-2.1 libsoxr, and both
+  backends satisfy the same streaming contract (arbitrary input granularity,
+  duration-aligned drain, reset clearing history) and pass the same resampler
+  test suite and 27 quick-run quality gates. The rubato backend is linear
+  phase only. A dedicated CI job builds and tests the pure-Rust path on a
+  runner with no libsoxr installed.
 - Dual licensing under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`).
 - `NOTICE` file documenting the SoXR (libsoxr, LGPL-2.1) native dependency.
 - Optional feature flags: `http` (network/streaming decode via `reqwest`) and

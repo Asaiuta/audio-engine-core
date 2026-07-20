@@ -68,7 +68,7 @@ in-crate processing.
 | --- | ---: | ---: | --- |
 | DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.9 ns | 119.7 us | seven-trial quick median; p95 callback utilization 1.16% |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 124.4 ns | 127.4 us | seven-trial quick median; p95 callback utilization 1.35% |
-| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
 
@@ -141,6 +141,25 @@ replace listening tests.
 | Crossfeed mix-change continuity delta | 0.000e0 (vs 5.762e-3 for a reset simulation) |
 | Noise-shaper -140 dBFS changed fraction / non-finite stress outputs | 1.000 / 0 |
 | Dynamic loudness low-volume compensation | +8.41 dB at 40 Hz, +2.83 dB at 3 kHz |
+
+### Resampler backends
+
+The resampler rows above measure the default native SoXR (SoX VHQ) backend.
+The pure-Rust rubato backend (`default-features = false,
+features = ["rubato"]`) passes the same 27 quick-run quality gates on this
+machine; representative same-machine deltas:
+
+| Metric | SoXR (default) | rubato |
+| --- | ---: | ---: |
+| Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB | -216.2 dB |
+| Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB | 0.0000 dB |
+| 20 kHz resampler gain | -0.0062 dB | -0.0017 dB |
+| Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -208.1 dB |
+
+The rubato backend is linear-phase only: the `PhaseResponse` parameter is
+accepted but not applied. Both backends share the same streaming contract
+(consumed/produced cursors, duration-aligned drain, reset clearing history),
+which the resampler test suite runs against whichever backend is compiled in.
 
 The saturation threshold uses a 0.05-full-scale C1 soft knee shared by the
 direct, oversampled, and high-pass-exciter paths. The alias probe drives an

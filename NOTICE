@@ -22,10 +22,10 @@ For LGPL-2.1 compliance options (dynamic linking, providing object files, or
 otherwise enabling relinking), see the libsoxr project:
   https://sourceforge.net/projects/soxr/
 
-SoXR-backed resampling is part of the core crate today. No Cargo feature
-currently disables the `soxr` dependency, so building the crate links libsoxr
-even when default features are disabled. See README.md for current feature and
-native dependency details.
+SoXR-backed resampling is selected by the `soxr` Cargo feature, which is
+enabled by default. Building with `default-features = false` and the `rubato`
+feature selects the pure-Rust resampler backend instead and does not link
+libsoxr. See README.md for current feature and native dependency details.
 
 -------------------------------------------------------------------------------
 Crossfeed topology reference: libbs2b
