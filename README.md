@@ -1,126 +1,66 @@
 # audio-engine-core
 
-Reusable decoder, DSP, loudness, resampling, and streaming pipeline primitives
-extracted from the Lyne audio engine.
+[![CI](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml)
 
-This crate is the app-agnostic core layer. It is intended for experiments and
-integration work around high-quality local audio processing, not as a stable
-1.0 SDK yet. The public API is versioned as `0.1.x` and may change while the
-larger player continues to evolve.
+> A realtime-safe Rust audio processing core for building high-quality music players.
 
-The crate requires Rust 1.87 or newer. Symphonia 0.6 itself requires Rust
-1.85; the higher crate MSRV reflects existing DSP code in this repository.
+`audio-engine-core` provides decoding, resampling, loudness normalization, DSP
+processing, and streaming pipeline primitives — without owning the audio
+device, the UI, or the application runtime. Extracted from the Lyne audio
+engine as its app-agnostic core layer, it leaves playback, device output, and
+library management to your application.
 
-## What Is Included
+> ⚠️ Status: 0.1.x — actively evolving; the API may change before 1.0. Requires Rust 1.87+.
 
-- Streaming decode helpers built on Symphonia.
-- SoX VHQ resampling wrappers and streaming resampler utilities.
-- DSP processors such as EQ, crossfeed, saturation, FFT convolution, dynamic
-  loudness, volume smoothing, noise shaping, and spectrum analysis.
-- EBU R128 loudness and true-peak measurement helpers.
-- Lock-free DSP parameter snapshots and processor adapters for realtime audio
-  callback integration.
-- A small streaming pipeline/ring-buffer primitive.
+```text
+┌──────────────────────────────────────────────────────────┐
+│        Your Application  (UI · playback · library)       │
+└─────────────────────────────┬────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────┐
+│                     audio-engine-core                    │
+│   Decode → Resample → Loudness → DSP → Analyze → Stream  │
+└─────────────────────────────┬────────────────────────────┘
+                              │  (not owned by this crate)
+┌─────────────────────────────▼────────────────────────────┐
+│      Audio Device Layer  (CPAL / WASAPI / CoreAudio)     │
+└──────────────────────────────────────────────────────────┘
+```
 
-## What Is Not Included
+## Why audio-engine-core?
 
-- Audio device ownership or CPAL/WASAPI output stream management.
-- HTTP/WebSocket server routes.
-- Desktop UI, Tauri integration, media-library scanning, playback queue logic,
-  WebDAV, NetEase integration, or application runtime directories.
-- A stable compatibility layer for every internal Lyne use case.
+Building a serious music player runs into engineering problems that have
+little to do with UI or playlists:
 
-Those layers remain in the root Lyne application crate.
+- **Audio callbacks that cannot block or allocate** — a missed deadline is an audible glitch.
+- **Parameter changes racing audio processing** — torn, cross-version parameter reads.
+- **Resampling without unacceptable artifacts** when source and device rates differ.
+- **Loudness normalization across masters**, so albums mastered decades apart play at comparable levels.
+- **Intersample peaks surviving processing** even when every stored sample is below full scale.
+- **Gapless and streaming boundaries**, where codec delay/padding and seek behavior must be handled exactly once.
 
-## Decoding & Format Support
+These are provided as reusable, measurable, testable components.
 
-Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) 0.6 with all
-of its bundled codecs/containers compiled in. The crate does not add custom
-codecs; instead it makes the support boundary explicit and tested.
+## Capabilities
 
-`StreamingDecoder` assigns exactly one gapless owner per codec. Symphonia owns
-MP3 and Vorbis packet trim/reset behavior; other codecs retain the crate's
-Track-level delay/padding fallback. The two paths are mutually exclusive, so
-delay or padding cannot be trimmed twice.
+| Area | What you get |
+| --- | --- |
+| Decode | Streaming decode built on Symphonia 0.6, a typed error policy for unsupported/corrupt input, and per-codec gapless ownership |
+| Resampling | SoX VHQ resampler with a streaming (`process_checked`) interface |
+| Loudness | EBU R128 integrated loudness + true-peak measurement, offline analysis plus realtime atomic gain application |
+| DSP | 10-band IIR biquad `Equalizer`, linear- and minimum-phase `FirEq` (applied via `FFTConvolver`), Bauer crossfeed, saturation with oversampled antialiasing, FFT convolution with partitioned routing for long IRs, dynamic loudness compensation, volume smoothing, true-peak limiter, noise shaping |
+| Realtime control | Lock-free generation-based parameter snapshots for pushing changes into the audio callback |
+| Streaming | Ring-buffer and pipeline primitives |
+| Analysis | Spectrum analyzer, AutoMix analysis, objective quality measurement benches |
 
-- **Supported input** is whatever the bundled Symphonia build can probe and
-  decode (e.g. WAV, FLAC, MP3, AAC/MP4, OGG/Vorbis). `StreamingDecoder` exposes
-  the decoded sample rate, channel count, and (when known) total frame count and
-  duration via `decoder.info`, including the best-effort positional
-  `decoder.info.channel_layout`.
-- **Unsupported / unrecognized input** returns the typed
-  `DecoderError::UnsupportedFormat` rather than a generic stringly error. A
-  container that probes but has no decodable audio track returns
-  `DecoderError::NoAudioTrack`.
-- **Corrupt or truncated input** has a defined policy: the decoder either
-  returns a typed error or yields the partial samples it could recover. It never
-  panics and never silently reports a full successful decode of missing data.
-
-### Seeking
-
-`StreamingDecoder::seek` uses Symphonia's `SeekMode::Coarse` only; a sample-exact
-(`Accurate`) mode is intentionally not exposed. A coarse seek lands on a
-packet/frame boundary at or before the requested time, so the realized position
-has bounded inaccuracy — treat it as "within roughly one packet of the target"
-rather than sample-exact. The documented bound is
-`StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`, and the realized position is
-readable via `decoder.current_frame()`. Track-level encoder delay applies only
-at the true start of the stream, while native MP3/Vorbis decoders consume their
-packet-local trim and reset preroll after a seek.
-
-## Cargo Features
-
-Both features below are enabled by default. Disable them with
-`default-features = false` to drop the corresponding dependency.
-
-- `http` (default): HTTP/HTTPS streaming decode via `reqwest`, including Range
-  streaming and full-download fallback. With this off, `StreamingDecoder` only
-  opens local files; passing an `http(s)://` path returns a decoder error, and
-  the `reqwest` dependency and `NetworkError` type are not compiled.
-- `loudness-db` (default): SQLite-backed loudness metadata persistence
-  (`LoudnessDatabase`, `TrackLoudness`, `DatabaseStats`) via `rusqlite`. With
-  this off, the EBU R128 measurement helpers (`LoudnessMeter`,
-  `LoudnessNormalizer`, `TruePeakDetector`) still work; only the on-disk cache
-  is removed.
-
-DSP-only consumers can drop the network and SQLite dependency trees:
+## Quick Start
 
 ```toml
 [dependencies]
-audio-engine-core = { version = "0.1", default-features = false }
+audio-engine-core = "0.1"
 ```
 
-## Native Dependency: SoXR
-
-The resampler depends on `soxr`, which requires the SoXR native library during
-build/link. SoXR is part of the core crate today, so
-`default-features = false` does **not** remove this native dependency.
-
-On Windows, either install SoXR through vcpkg:
-
-```powershell
-git clone https://github.com/microsoft/vcpkg.git
-cd vcpkg
-.\bootstrap-vcpkg.bat
-.\vcpkg install soxr:x64-windows-static-md
-```
-
-or through MSYS2/MinGW64, which is also the CI path:
-
-```bash
-pacman -S mingw-w64-x86_64-libsoxr mingw-w64-x86_64-pkgconf mingw-w64-x86_64-tools
-```
-
-For an MSVC Cargo build backed by the MSYS2 package, `build.rs` generates the
-import library and deploys `libsoxr.dll` together with its matching MinGW
-runtime DLLs beside Cargo binaries, tests, examples, and benchmarks. Direct
-`cargo test`, `cargo run --example ...`, and `cargo bench ...` commands therefore
-do not need a separate runtime `PATH` workaround after a successful build.
-
-On Unix-like systems, install SoXR through your system package manager and make
-sure `pkg-config` can locate it.
-
-## Quick Example
+Measure the integrated loudness of a file:
 
 ```rust
 use audio_engine_core::{LoudnessMeter, StreamingDecoder};
@@ -137,14 +77,10 @@ fn analyze_file(path: &str) -> Result<f64, Box<dyn std::error::Error>> {
 }
 ```
 
-## Runnable Examples
-
-The `examples/` directory contains self-contained programs that need no audio
-files and no optional features:
+Two runnable examples need no audio files and no optional features:
 
 - `resample_sine` — streams a synthetic 48 kHz sine through the SoX VHQ
-  resampler down to 44.1 kHz, demonstrating exact consumed/produced cursor
-  advancement followed by `finish_checked`.
+  resampler to 44.1 kHz (exact cursor advancement, then `finish_checked`).
 - `equalizer_curve` — runs a stereo buffer through the 10-band `Equalizer`.
 
 ```bash
@@ -152,21 +88,30 @@ cargo run --example resample_sine
 cargo run --example equalizer_curve
 ```
 
-## Realtime Notes
+## Realtime-Safe by Design
 
-The crate exposes lock-free parameter containers and processor adapters used by
-Lyne's realtime callback path. Keep allocations, locks, file I/O, logging, and
-network I/O out of an audio callback. Allocate and configure processors before
-entering the realtime path, then update parameters through the provided atomic
-snapshot types.
+The processing path is built around one invariant: no allocations, locks, file
+I/O, logging, or network I/O in the audio callback. Allocate and configure
+processors up front, then update parameters through atomic snapshot types:
 
-### Streaming processor migration
+```text
+Control thread (UI, config)             Audio callback (once per buffer)
+      │ set_* / publish                        │ snapshot read
+      ▼                                        ▼
+┌──────────────────── lock-free atomic snapshot ───────────────────┐
+│  AtomicEqParams, AtomicVolumeParams, ...  (no locks, no allocs)  │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-The former `AudioProcessor` / `ProcessResult` API has been removed. Adapters now
-implement the object-safe `StreamingProcessor` lifecycle directly. Wrap
-caller-owned interleaved `f64` storage in an `AudioBlockMut`, then drive the
-processor through `process_checked` so consumed/produced counts and in-place
-1:1 progress are validated centrally:
+Reading the full set of cached parameters once per callback costs about
+**7 ns** with the generation-based snapshot path, versus ~50 ns for a naive
+split-atomic field-by-field read and ~83 ns for an unconditional `ArcSwap`
+guard load (`audio_lockfree_params_perf`; single-machine evidence).
+
+Processors implement the object-safe `StreamingProcessor` lifecycle. Wrap
+caller-owned interleaved `f64` storage in an `AudioBlockMut` and drive it
+through `process_checked`, which centrally validates consumed/produced counts
+and in-place 1:1 progress:
 
 ```rust
 use audio_engine_core::processor::traits::{
@@ -184,202 +129,136 @@ fn process_callback_block(
 }
 ```
 
-`DspChain::process`, `DspChain::reset`, and `DspChain::set_sample_rate` now
-return typed results; callback integrations must handle failures without
-logging or panicking on the audio thread. Fixed processors retain the zero-copy
-in-place fast path. Out-of-place calls use caller-provided output and report
-`NeedInput` / `NeedOutput` backpressure explicitly.
+### Migration notes
 
-`StreamingResampler` uses that same out-of-place contract. Callers must advance
-both cursors from `ProcessProgress`; end of stream is native SoXR `drain()`
-through `finish_checked`, and `reset()` clears the native SoXR history. The old
-`process_chunk_*` and `flush_*` convenience methods were removed because their
-return values could not represent partially consumed input.
+The former `AudioProcessor` / `ProcessResult` API was removed; adapters
+implement `StreamingProcessor` directly. `DspChain::process` / `reset` /
+`set_sample_rate` return typed results, and callback integrations must handle
+failures without logging or panicking on the audio thread. Fixed processors
+keep the zero-copy in-place fast path; out-of-place calls use caller-provided
+output and report `NeedInput` / `NeedOutput` backpressure explicitly.
+`StreamingResampler` follows the same out-of-place contract: advance both
+cursors from `ProcessProgress`, end the stream with native SoXR `drain()` via
+`finish_checked`, and use `reset()` to clear the native history (the old
+`process_chunk_*` / `flush_*` helpers could not represent partially consumed
+input). Offline `OutputRenderChain::render` defaults to a compensated
+timeline — accumulated algorithmic latency is removed once at the final output
+rate while finite semantic effect tails are retained; `OfflineRenderPolicy::raw_causal()`
+keeps the leading delay and all finalize output. Unknown/infinite tails use a
+configurable pre-dither RMS threshold, continuous silence hold, and hard
+maximum, with `RenderedOutput::tail_truncated` set when that maximum is hit.
 
-Offline `OutputRenderChain::render` defaults to a compensated timeline: it
-removes accumulated algorithmic latency once at the final output rate while
-retaining finite semantic effect tails. `OfflineRenderPolicy::raw_causal()`
-retains the leading delay and all finalize output. Unknown/infinite tails use a
-configurable pre-dither RMS threshold, continuous silence hold, and hard maximum;
-`RenderedOutput::tail_truncated` is set when that maximum is reached.
+## Quality & Validation
 
-## Performance And Audio Quality
+This project treats audio quality as something to measure, not only listen to.
+The benches in `benches/` run against the public API and analyze rendered `f64` buffers:
 
-These numbers come from the benchmarks in `benches/`, which run entirely against
-this crate's public API. They are evidence for one machine and one configuration,
-not a universal claim. Reproduce them with `cargo bench`; the exact values will
-differ by CPU, compiler version, and load.
+| Domain | What is measured |
+| --- | --- |
+| Loudness | EBU R128 parity against a reference implementation |
+| True peak | Oversampled intersample-peak detection |
+| Resampling | Passband deviation, alias attenuation, THD+N |
+| EQ | Target response accuracy |
+| Saturation | Folded alias energy |
+| Convolution | IR correctness vs an overlap-save reference |
+| Realtime control | Parameter-change continuity |
 
-```bash
-cargo bench --bench audio_callback_chain_perf -- --quick
-cargo bench --bench audio_output_render_perf -- --quick
-cargo bench --bench audio_resampler_streaming_perf -- --quick
-cargo bench --bench audio_convolver_perf -- --quick
-cargo bench --bench audio_lockfree_params_perf -- --quick
-cargo bench --bench audio_fir_eq_perf -- --quick
-cargo bench --bench audio_quality_measurements -- --quick
-```
+Representative results from a single machine and configuration (reproduce with
+`cargo bench`; values differ by CPU, compiler, and load):
 
-The standardized evidence entry points can also write versioned JSON reports:
+- `LoudnessMeter` integrated loudness parity vs direct `ebur128`: **0.000000 LU**
+- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB**
+- Worst fitted alias attenuation, 96 kHz to 48 kHz: **-297.0 dB**
+- True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
+- Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
 
-```bash
-cargo bench --bench audio_quality_measurements -- --quick --enforce --out target/bench-reports/quality.json
-cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
-cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
-cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
-cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
-```
+One known limitation is kept visible: the limiter runs at source rate, so the
+full output-chain true-peak probe is report-only — resampling plus final
+quantization downstream can re-introduce intersample peaks. In the current
+quick run the worst full-chain output true peak is -0.610 dBTP, 0.390 dB above
+the -1 dBTP limiter target: evidence to watch, not a conformance gate.
 
-Quality `--enforce` applies deterministic objective gates while keeping
-report-only metrics and missing optional corpora distinct. Performance
-`--enforce` always validates finite timing, complete work, stable case keys, and
-report integrity. Timing remains report-only unless a compatible same-machine
-baseline is supplied; the default gate allows exactly 10% median regression and
-fails above it:
+The full benchmark commands, JSON report/baseline machinery, processing-budget
+tables, and complete measurement tables live in [docs/quality.md](docs/quality.md).
 
-```bash
-cargo bench --bench audio_callback_chain_perf -- --quick --enforce \
-  --baseline target/bench-reports/callback-baseline.json \
-  --out target/bench-reports/callback-candidate.json
-```
+## Installation & Feature Flags
 
-Baseline comparison rejects mismatched schema, probe, Rust target/compiler,
-OS/architecture, CPU, Cargo profile, feature set, mode, conditions, or case set;
-an unavailable required environment field is also rejected. Revision and dirty
-state are recorded but may differ. Reports retain every trial plus
-min/median/nearest-rank p95/max and the complete build environment.
-Omit `--quick` for the full workload or pass `--heavy` to the four performance
-benches for stress runs. The quality bench uses quick/full only. GitHub shared
-runners generate and upload the five quick JSON artifacts without imposing a
-cross-machine absolute nanosecond threshold.
+Both Cargo features are enabled by default; disable them with
+`default-features = false` to drop the corresponding dependency:
 
-The table below records representative local runs; rows should be regenerated
-after changing the relevant processing path.
+- `http` (default): HTTP/HTTPS streaming decode via `reqwest`, including Range
+  streaming and full-download fallback. With this off, `StreamingDecoder` only
+  opens local files, an `http(s)://` path returns a decoder error, and `reqwest`
+  and the `NetworkError` type are not compiled.
+- `loudness-db` (default): SQLite-backed loudness metadata persistence
+  (`LoudnessDatabase`, `TrackLoudness`, `DatabaseStats`) via `rusqlite`. With
+  this off, the EBU R128 helpers (`LoudnessMeter`, `LoudnessNormalizer`,
+  `TruePeakDetector`) still work; only the on-disk cache is removed.
 
-### Realtime processing budget
+DSP-only consumers can drop the network and SQLite dependency trees with
+`audio-engine-core = { version = "0.1", default-features = false }`.
 
-Per-sample/per-buffer cost of the DSP and resampler paths at a 512-frame buffer.
-These exclude the decoder and the OS audio device write; they measure only the
-in-crate processing.
+The resampler links the native SoXR library (libsoxr), which is required even
+with default features disabled and is LGPL-2.1 licensed (see
+[License](#license)). Windows (vcpkg or MSYS2) and Unix setup instructions are
+in [docs/installation.md](docs/installation.md).
 
-| Path | Per sample | Per 512-frame buffer | Bench |
-| --- | ---: | ---: | --- |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.9 ns | 119.7 us | seven-trial quick median; p95 callback utilization 1.16% |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 124.4 ns | 127.4 us | seven-trial quick median; p95 callback utilization 1.35% |
-| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
-| `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
-| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
+## Scope
 
-For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
-chain measured here uses well under one callback period.
+This crate owns the audio processing layer. It deliberately does not own
+device management (CPAL/WASAPI output streams), desktop UI or Tauri
+integration, playback queue logic, media-library scanning, HTTP/WebSocket
+server routes, WebDAV or NetEase integration, or application runtime
+directories — those stay in the Lyne application crate, with no stable
+compatibility layer for every internal Lyne use case. This separation lets the
+core be embedded under different applications and output backends.
 
-### Lock-free parameter reads
+## Who Is This For
 
-The atomic parameter snapshots (`AtomicEqParams`, `AtomicVolumeParams`, and the
-rest) are the mechanism for pushing parameter changes into the audio callback
-without locks. Reading the full set of cached parameters once per callback costs
-about **7 ns** with the generation-based snapshot path, versus ~50 ns for a
-naive split-atomic field-by-field read and ~83 ns for an unconditional
-`ArcSwap` guard load — an ~86% to ~92% improvement (`audio_lockfree_params_perf`).
+Good fit if you are:
 
-### FIR EQ IR generation
+- building a Rust music player and want a processing core under it,
+- assembling a custom realtime audio pipeline,
+- experimenting with high-quality DSP (EQ, crossfeed, saturation, convolution),
+- writing offline loudness-analysis tooling.
 
-`FirEq` designs a linear- or minimum-phase impulse response from 10 band gains;
-the IR is then convolved (typically with `FFTConvolver`) to apply the EQ.
-Generation is an offline/control-thread cost, not a per-sample one. On this
-machine a 511-tap linear-phase design has a seven-trial quick median of ~33 us;
-minimum-phase is ~105 us because of the extra cepstral phase shaping, and cost
-scales with tap count (`audio_fir_eq_perf`). The generated response preserves
-absolute band gain: a uniform +6 dB curve remains +6 dB. A one-tap design is
-explicitly a pure scalar at the 1 kHz reference (flat 0 dB is `[1.0]`).
+May not fit if you need: a complete player, a high-level playback API, an audio
+device abstraction, or a stable 1.0 API today.
 
-### AutoMix analysis contract
+## Decoding & Format Support
 
-AutoMix analysis schema version 2 converts spectral-flux lag using the actual
-`sample_rate / 512` observation cadence and derives lag bounds from the
-supported tempo range. Musical-key detection is not implemented or claimed:
-`AutomixKeyStatus::Unsupported` is serialized as `key_status: "unsupported"`,
-and the reserved root/mode/confidence/Camelot fields remain null until a future
-detector is validated against an independently labeled music corpus.
+Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) 0.6
+with all of its bundled codecs/containers compiled in (e.g. WAV, FLAC, MP3,
+AAC/MP4, OGG/Vorbis); the crate adds no custom codecs and makes the support
+boundary explicit and tested. `StreamingDecoder` exposes the decoded sample
+rate, channel count, and (when known) total frame count and duration via
+`decoder.info`, including the best-effort positional `decoder.info.channel_layout`.
 
-### FFT convolution routing
+- **Unsupported / unrecognized input** returns the typed
+  `DecoderError::UnsupportedFormat`; a container that probes but has no
+  decodable audio track returns `DecoderError::NoAudioTrack`.
+- **Corrupt or truncated input** has a defined policy: the decoder either
+  returns a typed error or yields the partial samples it could recover — it
+  never panics and never silently reports a full decode of missing data.
+- **Gapless ownership** is an explicit per-codec split: Symphonia owns MP3 and
+  Vorbis packet trim/reset behavior; other codecs retain the crate's Track-level
+  delay/padding fallback. The two paths are mutually exclusive, so delay or
+  padding cannot be trimmed twice.
+- **Seeking** uses Symphonia's `SeekMode::Coarse` only; a sample-exact
+  (`Accurate`) mode is intentionally not exposed. A coarse seek lands on a
+  packet/frame boundary at or before the requested time — bounded inaccuracy
+  documented as `StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES`, with the
+  realized position readable via `decoder.current_frame()`. Track-level encoder
+  delay applies only at the true start of the stream; native MP3/Vorbis decoders
+  consume their packet-local trim and reset preroll after a seek.
 
-`FFTConvolver` keeps the existing overlap-save path for impulse responses up to
-4096 taps per channel, which covers the current FIR EQ tap counts. Longer IRs
-route to a uniform 1024-frame partitioned tail with an overlap-save head so
-room/reverb-length responses avoid one very large callback FFT. The routing and
-partition size are exposed as `PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
-`PARTITIONED_CONVOLUTION_PARTITION_SIZE`; use `audio_convolver_perf` and
-`audio_fir_eq_perf` before changing either value.
+## Project Status
 
-### Objective audio-quality measurements
-
-`audio_quality_measurements` generates synthetic f64 signals, runs them through
-this crate's processor modules, and analyzes the rendered buffers numerically.
-This is native-rendered-buffer evidence, not analog output capture: no audio
-device, OS mixer, DAC/ADC loopback, or microphone is involved, and it does not
-replace listening tests.
-
-| Metric | Result |
-| --- | ---: |
-| Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB |
-| Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB |
-| 20 kHz resampler gain | -0.0062 dB |
-| Worst fitted alias attenuation, 96 kHz to 48 kHz | -297.0 dB |
-| Saturation threshold max jump / first-derivative mismatch | 1.416e-6 / 3.610e-4 |
-| Saturation alias-energy reduction, Direct vs `Oversampled4x` Tube stress | +16.3 dB |
-| Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
-| Limiter below-threshold THD+N | -253.9 dB |
-| True-peak mode, intersample-stress output (input +0.10 dBTP / -3.01 dBFS) | -1.00 dBTP |
-| Sample-peak mode, same input (never engages) | +0.10 dBTP |
-| `LoudnessMeter` integrated parity vs direct `ebur128` | 0.000000 LU |
-| 10-band EQ +6 dB target response error (62 Hz, 1 kHz, 8 kHz) | 0.0000 dB max |
-| Bauer crossfeed low/high levels (80 Hz / 2 kHz) | -17.73 / -27.27 dB |
-| Bauer crossfeed low-minus-high separation | +9.54 dB |
-| Crossfeed mix-change continuity delta | 0.000e0 (vs 5.762e-3 for a reset simulation) |
-| Noise-shaper -140 dBFS changed fraction / non-finite stress outputs | 1.000 / 0 |
-| Dynamic loudness low-volume compensation | +8.41 dB at 40 Hz, +2.83 dB at 3 kHz |
-
-The saturation threshold uses a 0.05-full-scale C1 soft knee shared by the
-direct, oversampled, and high-pass-exciter paths. The alias probe drives an
-11 kHz Tube waveshaper and fits folded above-Nyquist harmonics. In the current
-quick run, `Oversampled4x` reduced the aggregate fitted alias energy from
--15.10 dBFS to -31.42 dBFS at equivalent drive/mix settings.
-
-The crossfeed follows the libbs2b-style low-pass/high-boost Bauer topology with
-overload-prevention gain. `mix` is a dry-to-reference strength, and mix/cutoff
-updates ramp over about 10 ms without clearing filter history. The listening-DSP
-rows are synthetic probes after settling; they validate target response/effect
-size and parameter-change continuity, not external listening-test or analog
-output evidence.
-
-The noise shapers (`NoiseShaper`) continuously dither every finite input,
-including exact digital silence, and clamp to the signed target-bit range;
-NaN/Inf clears only the affected channel history and returns zero. Shaping
-redistributes quantization error rather than lowering broadband noise: the
-curves strongly reduce the 2-6 kHz band while pushing energy into 14-18 kHz,
-for up to a +34.8 dB ear-band advantage over flat TPDF dither.
-
-The benchmark also includes an optional EBU Tech 3341/3342 expected-value corpus
-check. It is skipped unless the `libebur128/test` reference vectors are present
-(they are not bundled with this crate); the deterministic `LoudnessMeter` parity
-fixtures above always run. Text and JSON summaries report the skipped count
-explicitly. Full-output points also publish authoritative rendered frames,
-algorithmic latency, retained semantic tail, and truncation state from
-`RenderedOutput`; the default compensated timeline uses a -120 dBFS pre-dither
-energy threshold, 250 ms continuous silence hold, and 30 s safety maximum for
-unknown or infinite tails.
-
-`PeakLimiter` defaults to 4x-oversampled intersample (true-peak) detection: on
-an intersample-stress signal whose sample peak sits below the ceiling but whose
-true peak is +0.10 dBTP, true-peak mode pulls the output to -1.00 dBTP while the
-legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. The limiter
-runs at source rate, so one known limitation is kept visible: the full
-output-chain true-peak probe is report-only, and resampling plus final
-quantization downstream of the limiter can re-introduce intersample peaks. In
-the current quick run the worst full-chain output true peak is -0.610 dBTP,
-0.390 dB above the -1 dBTP limiter target, so this is still evidence to watch,
-not a conformance gate.
+Experimental `0.1.x`, actively used as the audio foundation of the Lyne player,
+with an evolving API. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85;
+the higher crate MSRV reflects existing DSP code in this repository). Stable
+enough for experimentation, personal applications, and integration testing —
+not yet for 1.0-level API compatibility guarantees.
 
 ## License
 
