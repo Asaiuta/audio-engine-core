@@ -17,6 +17,7 @@ cargo bench --bench audio_convolver_perf -- --quick
 cargo bench --bench audio_lockfree_params_perf -- --quick
 cargo bench --bench audio_fir_eq_perf -- --quick
 cargo bench --bench audio_quality_measurements -- --quick
+cargo bench --bench audio_gapless_comparison_perf -- --quick
 ```
 
 The standardized evidence entry points can also write versioned JSON reports:
@@ -27,6 +28,7 @@ cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/
 cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
 cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
+cargo bench --bench audio_gapless_comparison_perf -- --quick --enforce --out target/bench-reports/gapless.json
 ```
 
 Quality `--enforce` applies deterministic objective gates while keeping
@@ -47,10 +49,11 @@ OS/architecture, CPU, Cargo profile, feature set, mode, conditions, or case set;
 an unavailable required environment field is also rejected. Revision and dirty
 state are recorded but may differ. Reports retain every trial plus
 min/median/nearest-rank p95/max and the complete build environment.
-Omit `--quick` for the full workload or pass `--heavy` to the four performance
+Omit `--quick` for the full workload or pass `--heavy` to the five performance
 benches for stress runs. The quality bench uses quick/full only. GitHub shared
-runners generate and upload the five quick JSON artifacts without imposing a
-cross-machine absolute nanosecond threshold.
+runners generate and upload five quick JSON artifacts (the gapless comparison
+bench is not part of CI) without imposing a cross-machine absolute nanosecond
+threshold.
 
 The table below records representative local runs; rows should be regenerated
 after changing the relevant processing path.
@@ -124,7 +127,7 @@ replace listening tests.
 | Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB |
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB |
 | 20 kHz resampler gain | -0.0062 dB |
-| Worst fitted alias attenuation, 96 kHz to 48 kHz | -297.0 dB |
+| Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB (quick; the full workload measures -297.4 dB, both near the analyzer's -296 dB numeric floor) |
 | Saturation threshold max jump / first-derivative mismatch | 1.416e-6 / 3.610e-4 |
 | Saturation alias-energy reduction, Direct vs `Oversampled4x` Tube stress | +16.3 dB |
 | Limiter output ceiling from a +5.11 dBFS transient | -1.00 dBFS |
@@ -143,7 +146,7 @@ The saturation threshold uses a 0.05-full-scale C1 soft knee shared by the
 direct, oversampled, and high-pass-exciter paths. The alias probe drives an
 11 kHz Tube waveshaper and fits folded above-Nyquist harmonics. In the current
 quick run, `Oversampled4x` reduced the aggregate fitted alias energy from
--15.10 dBFS to -31.42 dBFS at equivalent drive/mix settings.
+-15.09 dBFS to -31.42 dBFS at equivalent drive/mix settings.
 
 The crossfeed follows the libbs2b-style low-pass/high-boost Bauer topology with
 overload-prevention gain. `mix` is a dry-to-reference strength, and mix/cutoff
@@ -173,9 +176,11 @@ unknown or infinite tails.
 an intersample-stress signal whose sample peak sits below the ceiling but whose
 true peak is +0.10 dBTP, true-peak mode pulls the output to -1.00 dBTP while the
 legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. The limiter
-runs at source rate, so one known limitation is kept visible: the full
-output-chain true-peak probe is report-only, and resampling plus final
-quantization downstream of the limiter can re-introduce intersample peaks. In
-the current quick run the worst full-chain output true peak is -0.610 dBTP,
-0.390 dB above the -1 dBTP limiter target, so this is still evidence to watch,
-not a conformance gate.
+runs at source rate, so resampling plus final quantization downstream of the
+limiter can in principle re-introduce intersample peaks; the full output-chain
+true-peak probe therefore stays report-only rather than a conformance gate. In
+the current quick run the probe meets the target: the worst full-chain output
+true peak is -1.000 dBTP with zero over-limit points across the probe corpus.
+Runs before the 2026-07-18 DSP lifecycle fixes measured -0.610 dBTP, 0.390 dB
+above the -1 dBTP target; the probe is retained as regression evidence for
+exactly that failure mode.
