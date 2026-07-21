@@ -14,8 +14,8 @@ SemVer for pre-1.0 releases.
 ### Added
 - Pluggable resampler backends behind unchanged public APIs: the new `soxr`
   feature (default) selects the native SoXR / SoX VHQ backend, and the new
-  pure-Rust `rubato` feature selects a windowed-sinc backend with no native
-  dependency. Enabling neither is a compile error; when both are enabled,
+  pure-Rust `rubato` feature selects quality-aware FFT/sinc routing with no
+  native dependency. Enabling neither is a compile error; when both are enabled,
   `soxr` wins. `default-features = false, features = ["rubato"]` now produces
   a fully pure-Rust build that does not link LGPL-2.1 libsoxr, and both
   backends satisfy the same streaming contract (arbitrary input granularity,
@@ -29,6 +29,19 @@ SemVer for pre-1.0 releases.
   environment `features` field (`resampler-soxr` / `resampler-rubato`) and in
   backend-derived resampler `algorithm` labels, so performance baselines
   recorded before backend labeling are incompatible with new reports.
+- The pure-Rust resampler now uses rubato 4.0 and routes common reduced sample
+  rate ratios through its synchronous FFT engine for Low through High, while
+  UltraHigh and pathological ratios use windowed sinc. The adapter removes
+  each engine's reported leading delay, preserves duration-aligned
+  drain/reset/chunking and allocation-free processing, and distinguishes this
+  quality-aware routing in benchmark labels and case keys. On the recorded
+  2026-07-22 Windows/Alder Lake quick run, 512-frame High `process_checked`
+  cost was 9.86 ns/input sample for 44.1 to 48 kHz and 12.57 for 48 to 96 kHz,
+  versus the old sinc path's 133.59 and 179.59. UltraHigh restored the prior
+  sinc evidence at -216.24 dB THD+N; all 27 quick quality gates passed. The
+  deliberate cost is that Rubato UltraHigh resampled offline rendering is
+  about 2.8x slower than the rejected all-FFT route, while remaining below a
+  3.2% realtime factor in the measured quick scenarios.
 - Dual licensing under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`).
 - `NOTICE` file documenting the SoXR (libsoxr, LGPL-2.1) native dependency.
 - Optional feature flags: `http` (network/streaming decode via `reqwest`) and

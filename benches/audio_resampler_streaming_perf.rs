@@ -22,6 +22,21 @@ const BUFFER_FRAMES: [usize; 3] = [128, 256, 512];
 const WARMUP_BUFFERS: usize = 64;
 const VALIDATION_BUFFERS: usize = 8;
 
+#[cfg(feature = "soxr")]
+const RESAMPLER_ALGORITHM_LABEL: &str = "streaming default quality/phase";
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+const RESAMPLER_ALGORITHM_LABEL: &str =
+    "streaming quality-aware FFT/sinc routing (High FFT, UltraHigh sinc)";
+
+#[cfg(feature = "soxr")]
+const RESAMPLER_ALGORITHM_ID: &str = "streaming_default";
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+const RESAMPLER_ALGORITHM_ID: &str = "streaming_quality_aware_fft_sinc";
+
+fn resampler_algorithm_label() -> String {
+    format!("{RESAMPLER_BACKEND_NAME} {RESAMPLER_ALGORITHM_LABEL}")
+}
+
 #[derive(Clone, Copy)]
 struct Scenario {
     name: &'static str,
@@ -157,7 +172,7 @@ fn main() -> Result<(), String> {
     let environment = BenchEnvironment::capture();
     let conditions = ResamplerConditions {
         channels: CHANNELS,
-        algorithm: format!("{RESAMPLER_BACKEND_NAME} streaming default quality/phase"),
+        algorithm: resampler_algorithm_label(),
         coverage: "streaming_resampler_only".to_string(),
         excludes: [
             "decoder",
@@ -402,7 +417,7 @@ fn benchmark_api(
 
     Ok(ResamplerCase {
         case_key: format!(
-            "scenario={};api={};frames={};from={};to={};algorithm={RESAMPLER_BACKEND_NAME}_streaming_default",
+            "scenario={};api={};frames={};from={};to={};algorithm={RESAMPLER_BACKEND_NAME}_{RESAMPLER_ALGORITHM_ID}",
             scenario.name,
             api.name(),
             frames,
@@ -411,7 +426,7 @@ fn benchmark_api(
         ),
         scenario: scenario.name.to_string(),
         api: api.name().to_string(),
-        algorithm: format!("{RESAMPLER_BACKEND_NAME} streaming default quality/phase"),
+        algorithm: resampler_algorithm_label(),
         frames,
         input_samples: frames * CHANNELS,
         from_rate_hz: scenario.from_rate,

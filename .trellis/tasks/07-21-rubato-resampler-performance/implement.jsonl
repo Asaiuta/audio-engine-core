@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend crate contract and spec routing index."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Evidence policy, versioned benchmark + backend-labeling contracts, release documentation checklist governing the rubato 4.0 bump and FFT evidence refresh."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Allocation-free processing constraints the adapter's FIFO/delay-skip paths must preserve after construction."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Streaming processor contract: progress cursors, duration-aligned drain, idempotent finish, reset restoring initial state."}
+{"file":".trellis/tasks/07-21-rubato-resampler-performance/research/rubato-4-migration.md","reason":"rubato 4.0.0 API mapping (Async::new_sinc / Fft::new_custom), delay semantics change, MSRV/license/alloc-free verification, risk register."}
+{"file":".trellis/tasks/07-19-upgrade-symphonia-0-6/research/rubato-performance-optimization.md","reason":"Probe evidence: FFT-path speed/fidelity targets, delay-skip requirements, sinc fallback policy, rejected alternatives."}

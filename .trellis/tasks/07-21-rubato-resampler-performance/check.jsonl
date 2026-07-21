@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend review scope and authoritative contract index."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify evidence regeneration, backend-aware labels, baseline compatibility handling, docs/CHANGELOG updates per the release checklist."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Review adapter changes (delay-skip, FFT staging buffers) for allocation/lock/log-free processing."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Verify streaming contract invariants: chunking invariance, duration-aligned drain, reset, impulse alignment."}
+{"file":".trellis/tasks/07-21-rubato-resampler-performance/research/rubato-4-migration.md","reason":"Check implementation against the verified 4.0 API mapping and the sinc real-delay behavioral change (measured 138 vs reported 139)."}
+{"file":".trellis/tasks/07-19-upgrade-symphonia-0-6/research/rubato-performance-optimization.md","reason":"Check performance/fidelity outcomes against probe targets and the documented sinc-fallback policy."}

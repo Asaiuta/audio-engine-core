@@ -69,7 +69,7 @@ in-crate processing.
 | DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.9 ns | 119.7 us | seven-trial quick median; p95 callback utilization 1.16% |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 124.4 ns | 127.4 us | seven-trial quick median; p95 callback utilization 1.35% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 8.45 ns/input sample | 8.65 us/input buffer | seven-trial quick median (2026-07-21); p95 source-buffer reference utilization 0.118% |
-| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato backend) | 133.59 ns/input sample | 136.8 us/input buffer | seven-trial quick median (2026-07-21, `--no-default-features --features rubato`); p95 source-buffer reference utilization 1.27% |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato High FFT route) | 9.86 ns/input sample | 10.10 us/input buffer | seven-trial quick median (2026-07-22, `--no-default-features --features rubato`); p95 source-buffer reference utilization 0.091% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
 
@@ -147,8 +147,12 @@ replace listening tests.
 
 The resampler quality rows above measure the default native SoXR (SoX VHQ)
 backend. The pure-Rust rubato backend (`default-features = false,
-features = ["rubato"]`) passes the same 27 quick-run quality gates on this
-machine; representative same-machine deltas:
+features = ["rubato"]`) routes common reduced sample-rate ratios through
+rubato 4.0's synchronous FFT engine for Low, Standard, and High. UltraHigh and
+ratios whose reduced components would create pathological FFT blocks use
+windowed sinc. Both paths remove their leading delay in the adapter, and the
+backend passes the same 27 quick-run quality gates on this machine. The quality
+bench explicitly requests UltraHigh; representative same-machine deltas:
 
 | Metric | SoXR (default) | rubato |
 | --- | ---: | ---: |
@@ -157,22 +161,33 @@ machine; representative same-machine deltas:
 | 20 kHz resampler gain | -0.0062 dB | -0.0017 dB |
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -208.1 dB |
 
-Same-machine streaming cost (2026-07-21 quick runs of
+Same-machine streaming cost (2026-07-22 quick rubato run and 2026-07-21 SoXR
+reference run of
 `audio_resampler_streaming_perf`; 512-frame stereo buffers, `process_checked`,
-seven-trial medians):
+seven-trial medians). This benchmark uses the public default High quality, so
+the rubato rows exercise FFT rather than the UltraHigh sinc path above:
 
-| Case | SoXR (default) | rubato |
+| Case | SoXR (default) | rubato FFT route |
 | --- | ---: | ---: |
-| 44.1 kHz to 48 kHz, ns/input sample (us/input buffer) | 8.45 (8.65 us) | 133.59 (136.8 us) |
-| 48 kHz to 96 kHz, ns/input sample (us/input buffer) | 6.73 (6.89 us) | 179.59 (183.9 us) |
+| 44.1 kHz to 48 kHz, ns/input sample (us/input buffer) | 8.45 (8.65 us) | 9.86 (10.10 us) |
+| 48 kHz to 96 kHz, ns/input sample (us/input buffer) | 6.73 (6.89 us) | 12.57 (12.87 us) |
+
+`OutputRenderChain` deliberately requests UltraHigh, so pure-Rust resampled
+offline rendering uses sinc rather than the High FFT route. In the same
+2026-07-22 quick probe, the active 44.1-to-48 kHz 4096-frame render measured
+353.97 ns/input sample for a one-second input and 266.38 for five seconds
+(3.12% and 2.35% realtime factors). A diagnostic all-FFT reference measured
+126.64 and 93.65 respectively, so preserving UltraHigh sinc evidence costs
+about 2.8x in that offline scenario; both remain comfortably faster than
+realtime.
 
 Benchmark reports now record the compiled backend in the environment
 `features` field (`resampler-soxr` / `resampler-rubato`) and in the
 `algorithm` labels, so performance baselines recorded before backend labeling
 are incompatible with new reports.
 
-The rubato backend is linear-phase only: the `PhaseResponse` parameter is
-accepted but not applied. Both backends share the same streaming contract
+The rubato FFT and sinc paths are linear-phase only: the `PhaseResponse`
+parameter is accepted but not applied. Both backends share the same streaming contract
 (consumed/produced cursors, duration-aligned drain, reset clearing history),
 which the resampler test suite runs against whichever backend is compiled in.
 

@@ -488,6 +488,122 @@ let analyses = post_render_analysis_names();
 // Report the two plans separately; only render_stages transform samples.
 ```
 
+## Scenario: Quality-Aware Rubato FFT Routing With Sinc Fallback
+
+### 1. Scope / Trigger
+
+- Trigger: changing the `rubato` version, fixed chunk size, FFT routing bound,
+  sub-chunk count, delay compensation, quality mapping, or resampler benchmark
+  algorithm labels in `src/processor/resampler/rubato_backend.rs`.
+
+### 2. Signatures
+
+```rust
+should_use_fft(from_rate: u32, to_rate: u32, quality: ResampleQuality) -> bool
+RubatoEngine::new(from_rate: u32, to_rate: u32, quality: ResampleQuality)
+    -> Result<RubatoEngine, String>
+MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
+    -> Result<BackendProgress, &'static str>
+MonoBackend::drain(&mut self, output: &mut [f64]) -> Result<usize, &'static str>
+MonoBackend::clear(&mut self) -> Result<(), &'static str>
+```
+
+Evidence commands:
+
+```text
+cargo bench --bench audio_resampler_streaming_perf --no-default-features --features rubato -- --quick --enforce --out <resampler.json>
+cargo bench --bench audio_quality_measurements --no-default-features --features rubato -- --quick --enforce --out <quality.json>
+```
+
+### 3. Contracts
+
+- Rubato 4 Low, Standard, and High common ratios route through `Fft<f64>` with
+  a 1024-frame fixed input chunk, two FFT sub-chunks, and `BlackmanHarris2`. A
+  rate pair is common only when both components after GCD reduction are at most
+  1024.
+- UltraHigh and ratios outside that bound use `Async<f64>::new_sinc`.
+  `ResampleQuality` selects sinc parameters for those routes. This preserves a
+  distinct highest-quality tier while default High retains FFT throughput.
+  Both engines remain f64 and linear phase, so `PhaseResponse` is accepted but
+  not applied.
+- Keep `FFT_SUB_CHUNKS = 2` unless a same-machine sweep improves both core
+  conversions without weakening quality. The 2026-07-22 512-frame evidence
+  rejected one sub-chunk (35.10 ns/input sample at 44.1 to 48 kHz) and four
+  sub-chunks (14.59 ns/input sample at 48 to 96 kHz) against two sub-chunks
+  (9.86 and 12.57 respectively). Changing the precomputed window does not
+  reduce runtime FFT work and still requires fresh quality evidence.
+- `OutputRenderChain` requests UltraHigh and therefore uses sinc under the
+  rubato feature. A quality-routing change must run
+  `audio_output_render_perf --quick` as well as the focused resampler probe;
+  the 2026-07-22 sinc route was about 2.8x slower than the diagnostic all-FFT
+  render reference but remained below a 3.2% realtime factor.
+- Both engines carry a real leading delay in rubato 4. The adapter discards
+  exactly `output_delay()` produced frames once per stream, then drains or
+  truncates to `round(total_input * to_rate / from_rate)`. Reset restores the
+  engine, FIFOs, duration counters, terminal state, and full delay skip.
+- Audioadapter slice wrappers are stack views. Construction and engine boxing
+  happen only during setup; process, drain, and reset remain allocation-free.
+- The performance report algorithm text and `case_key` identify FFT routing
+  plus sinc fallback. Any algorithm/routing change must change that identifier
+  so an older sinc or differently routed report is baseline-incompatible.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Either sample rate is zero | Public constructor rejects it before engine construction |
+| Quality is Low, Standard, or High and both reduced rate components are <= 1024 | Select FFT |
+| Quality is UltraHigh | Select sinc even for a common ratio |
+| Either reduced rate component is > 1024 | Select sinc; never construct a pathological FFT block |
+| Backend consumes other than the fixed input chunk or over-reports output | Static `ProcessError::Backend` path; never slice or panic |
+| Initial delay spans multiple output calls | Continue discarding until the counter reaches zero |
+| Reset after process or finish | Re-arm the original delay and produce the same output as a fresh instance |
+| Algorithm label differs from a baseline | Reject comparison before computing timing percentages |
+
+### 5. Good / Base / Bad Cases
+
+- Good: 44.1 to 48 kHz reduces to 147:160 and uses FFT at High, while
+  UltraHigh uses sinc; 44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc
+  at every quality.
+- Base: equal-rate streams bypass the backend in `StreamingResampler`.
+- Bad: construct FFT for every non-equal rate, creating a 44,101-frame output
+  block and 22,050-frame delay for 44.1 to 44.101 kHz.
+- Bad: keep a generic `rubato_streaming_default` case key after changing from
+  sinc to FFT, which makes incompatible performance evidence look comparable.
+
+### 6. Tests Required
+
+- Routing tests assert common audio ratios select FFT through High, UltraHigh
+  selects sinc for a common ratio, and a coprime adjacent rate selects sinc.
+- Shared resampler tests cover duration, impulse alignment within one frame,
+  random chunking equivalence, reset isolation, and process/finish no-allocation
+  under the pure-Rust feature matrix.
+- An end-to-end pathological-ratio test must exercise the real sinc fallback,
+  not only the routing predicate.
+- Run all 27 quick quality gates and record THD+N, 20 kHz gain, passband, and
+  stopband values. Run the quick resampler report and record both 512-frame
+  `process_checked` conversions before changing documented claims.
+- When UltraHigh routing changes, run the quick output-render report and record
+  the active resampled scenario's CPU, realtime factor, and setup memory.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let engine = Fft::new_custom(from, to, 1024, 2, 1, window, FixedSync::Input)?;
+out_fifo.extend_from_slice(&out_stage[..written]); // retains leading delay
+```
+
+#### Correct
+
+```rust
+let engine = if should_use_fft(from, to, quality) { fft()? } else { sinc()? };
+let skip = delay_remaining.min(written);
+delay_remaining -= skip;
+out_fifo.extend_from_slice(&out_stage[skip..written]);
+```
+
 ## Code Review Checklist
 
 - [ ] Hot path: no alloc/lock/log/IO/panic/unbounded work.
@@ -528,8 +644,8 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 - `loudness-db` controls the optional `rusqlite` dependency and SQLite cache
   types.
 - The resampler backend is feature-selected: `soxr` (default) links native
-  libsoxr (LGPL-2.1), while `rubato` compiles a pure-Rust windowed-sinc
-  backend under `src/processor/resampler/rubato_backend.rs`. Enabling neither
+  libsoxr (LGPL-2.1), while `rubato` compiles quality-aware pure-Rust FFT/sinc
+  routing under `src/processor/resampler/rubato_backend.rs`. Enabling neither
   backend is a compile error; when both are enabled, `soxr` wins. A
   `default-features = false, features = ["rubato"]` build has no native
   dependency. Both backends must satisfy the same mono streaming contract

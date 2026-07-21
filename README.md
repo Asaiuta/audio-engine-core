@@ -46,7 +46,7 @@ These are provided as reusable, measurable, testable components.
 | Area | What you get |
 | --- | --- |
 | Decode | Streaming decode built on Symphonia 0.6, a typed error policy for unsupported/corrupt input, and per-codec gapless ownership |
-| Resampling | SoX VHQ streaming resampler (native SoXR backend, default) or a pure-Rust rubato sinc backend, behind one `process_checked` interface |
+| Resampling | SoX VHQ streaming resampler (native SoXR backend, default) or quality-aware pure-Rust rubato FFT/sinc routing, behind one `process_checked` interface |
 | Loudness | EBU R128 integrated loudness + true-peak measurement, offline analysis plus realtime atomic gain application |
 | DSP | 10-band IIR biquad `Equalizer`, linear- and minimum-phase `FirEq` (applied via `FFTConvolver`), Bauer crossfeed, saturation with oversampled antialiasing, FFT convolution with partitioned routing for long IRs, dynamic loudness compensation, volume smoothing, true-peak limiter, noise shaping |
 | Realtime control | Lock-free generation-based parameter snapshots for pushing changes into the audio callback |
@@ -167,7 +167,7 @@ Representative results from a single machine and configuration (reproduce with
 `cargo bench`; values differ by CPU, compiler, and load):
 
 - `LoudnessMeter` integrated loudness parity vs direct `ebur128`: **0.000000 LU**
-- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB** (default SoXR backend; the pure-Rust rubato backend measures -216.2 dB, see [docs/quality.md](docs/quality.md))
+- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB** (default SoXR backend; pure-Rust rubato UltraHigh measures -216.2 dB, see [docs/quality.md](docs/quality.md))
 - Worst fitted alias attenuation, 96 kHz to 48 kHz: **-290.2 dB** (near the analyzer's own numeric floor)
 - True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
 - Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
@@ -198,8 +198,10 @@ default:
 - `soxr` (default): native SoXR resampler backend (SoX VHQ). Requires the
   libsoxr native library at build/link time; libsoxr is LGPL-2.1 (see
   [License](#license)).
-- `rubato`: pure-Rust windowed-sinc resampler backend. No native dependency;
-  linear phase only. Exactly one resampler backend must be enabled — enabling
+- `rubato`: quality-aware pure-Rust backend. Common sample-rate ratios use FFT
+  through High quality; UltraHigh and pathological ratios use windowed sinc.
+  No native dependency; both paths are linear phase only. Exactly one
+  resampler backend must be enabled — enabling
   neither is a compile error, and when both are enabled, `soxr` wins.
 
 A fully pure-Rust, DSP-only build with no native dependency:
