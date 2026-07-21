@@ -636,3 +636,36 @@ Unified realtime DSP lifecycle and Convolver ownership, fixed saturation/tail/ra
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Rubato 4 quality-aware resampler routing
+
+**Date**: 2026-07-22
+**Task**: Rubato 4 quality-aware resampler routing
+
+### Summary
+
+Upgraded the pure-Rust Rubato backend to quality-aware routing: common Low-through-High ratios use FFT, UltraHigh and pathological ratios retain sinc. Recorded same-machine performance and quality evidence, validated sub_chunks=2, and passed the full test, lint, docs, packaging, and benchmark gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d550d57` | (see git log) |
+| `90b6dab` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
