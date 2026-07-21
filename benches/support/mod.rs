@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use audio_engine_core::processor::RESAMPLER_BACKEND_NAME;
+
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_MAX_MEDIAN_REGRESSION_PCT: f64 = 10.0;
 
@@ -195,6 +197,10 @@ impl BenchEnvironment {
         if cfg!(feature = "loudness-db") {
             features.push("loudness-db".to_string());
         }
+        // The compiled resampler backend changes the measured code, so record
+        // it like a feature; cross-backend baseline comparisons must fail the
+        // environment compatibility check.
+        features.push(format!("resampler-{RESAMPLER_BACKEND_NAME}"));
 
         Self {
             revision,

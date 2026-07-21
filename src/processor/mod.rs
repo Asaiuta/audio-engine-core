@@ -77,7 +77,7 @@ pub use output_chain::{
     OutputStageDescriptor, OutputStageId, PostRenderAnalysisDescriptor, PostRenderAnalysisId,
     RenderTimeline, RenderedOutput, UnknownTailPolicy,
 };
-pub use resampler::{Resampler, ResamplerError, StreamingResampler};
+pub use resampler::{Resampler, ResamplerError, StreamingResampler, RESAMPLER_BACKEND_NAME};
 pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};
 pub use spectrum::SpectrumAnalyzer;
 

@@ -270,6 +270,18 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - Environment contains revision, nullable dirty state, rustc, target, OS,
   architecture, CPU, Cargo profile, and compiled feature names. Failed probes
   produce `"unknown"` / `null`; they do not abort a report without a baseline.
+- The environment feature list includes the compiled resampler backend as
+  `resampler-{RESAMPLER_BACKEND_NAME}` (pushed by `BenchEnvironment::capture()`),
+  so soxr and rubato reports are never environment-compatible. Reports recorded
+  before backend labeling landed (2026-07-21) are incompatible with new
+  baselines by design.
+- Any report label that names an algorithm or backend (the resampler bench's
+  `conditions.algorithm`, the `case_key` `algorithm=` segment, backend-specific
+  scenario descriptions) must derive from
+  `audio_engine_core::RESAMPLER_BACKEND_NAME`, never a hard-coded backend
+  string. The one schema-stability exception is the render report's
+  `native_soxr_bytes` field name. Documented timing rows (docs/quality.md,
+  README) must name the backend and run date that produced them.
 - Performance cases have unique stable `case_key` values, declared iterations
   and trials, raw trial samples, and min/median/nearest-rank-p95/max. Callback
   utilization uses the device-buffer deadline. Resampler utilization is only a
@@ -310,6 +322,7 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | Corrupt JSON | deserialization error naming the file and report type |
 | Schema/probe/mode/conditions mismatch | comparison rejected before percentages are computed |
 | Required environment mismatch or `unknown` | comparison rejected with each incompatible field |
+| Baseline and candidate compiled with different resampler backends | comparison rejected via differing `resampler-*` feature entries |
 | Candidate median exactly 10% slower | comparison passes |
 | Candidate median more than 10% slower | enforced failure names case, baseline, candidate, regression, and threshold |
 | 512-frame active callback median exceeds +3% or p95 utilization exceeds +5% | task acceptance failure even when generic +10% would pass |
@@ -326,6 +339,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   deterministic quality/work checks are enforced while timing is evidence.
 - Bad: compare two `cpu = "unknown"` reports, compare debug with release, or
   call a source-buffer resampler percentage a device callback utilization.
+- Bad: hard-code "SoXR" into a bench label that also compiles under the rubato
+  backend, or compare a `resampler-soxr` report against a `resampler-rubato`
+  baseline.
 - Bad: cite min/best-of-N as representative performance or turn a missing EBU
   corpus into a successful conformance claim.
 - Good: port the exact benchmark workload into a detached old-code worktree,
@@ -338,6 +354,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - Shared support tests assert odd/even median, nearest-rank p95, raw sample
   retention, invalid samples, CLI modes/paths/thresholds, JSON round trip, and
   environment compatibility including unknown-field rejection.
+- `tests/benchmark_support.rs` asserts the captured environment features
+  contain `resampler-{RESAMPLER_BACKEND_NAME}`; run it under both
+  `--all-features` and `--no-default-features --features rubato`.
 - Regression tests assert exactly +10% passes, greater than +10% fails, and the
   diagnostic contains case, baseline, candidate, measured regression, and
   threshold.

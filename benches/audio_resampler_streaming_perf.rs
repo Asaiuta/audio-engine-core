@@ -14,7 +14,7 @@ use support::{
 
 use audio_engine_core::processor::{
     process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, StreamingProcessor,
-    StreamingResampler,
+    StreamingResampler, RESAMPLER_BACKEND_NAME,
 };
 
 const CHANNELS: usize = 2;
@@ -157,7 +157,7 @@ fn main() -> Result<(), String> {
     let environment = BenchEnvironment::capture();
     let conditions = ResamplerConditions {
         channels: CHANNELS,
-        algorithm: "SoXR streaming default quality/phase".to_string(),
+        algorithm: format!("{RESAMPLER_BACKEND_NAME} streaming default quality/phase"),
         coverage: "streaming_resampler_only".to_string(),
         excludes: [
             "decoder",
@@ -402,7 +402,7 @@ fn benchmark_api(
 
     Ok(ResamplerCase {
         case_key: format!(
-            "scenario={};api={};frames={};from={};to={};algorithm=soxr_streaming_default",
+            "scenario={};api={};frames={};from={};to={};algorithm={RESAMPLER_BACKEND_NAME}_streaming_default",
             scenario.name,
             api.name(),
             frames,
@@ -411,7 +411,7 @@ fn benchmark_api(
         ),
         scenario: scenario.name.to_string(),
         api: api.name().to_string(),
-        algorithm: "SoXR streaming default quality/phase".to_string(),
+        algorithm: format!("{RESAMPLER_BACKEND_NAME} streaming default quality/phase"),
         frames,
         input_samples: frames * CHANNELS,
         from_rate_hz: scenario.from_rate,
@@ -527,9 +527,9 @@ fn measure_resampler(
 }
 
 fn streaming_output_capacity(resampler: &StreamingResampler, input_samples: usize) -> usize {
-    // SoX streaming resamplers can emit delayed output in bursts after internal
-    // buffering. Use a deliberately conservative caller scratch so this bench
-    // measures the API path rather than capacity edge behavior.
+    // Streaming resampler backends can emit delayed output in bursts after
+    // internal buffering. Use a deliberately conservative caller scratch so
+    // this bench measures the API path rather than capacity edge behavior.
     resampler
         .max_output_len_for_input(input_samples)
         .saturating_mul(8)

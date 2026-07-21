@@ -20,7 +20,7 @@ use audio_engine_core::processor::{
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, ConvolverControl, FFTConvolver, NoiseShaperCurve, OfflineRenderPolicy,
     OutputChainBuilder, OutputChainParams, OutputRenderChain, SaturationQualityValue,
-    SaturationTypeValue, StreamingResampler, EQ_BANDS,
+    SaturationTypeValue, StreamingResampler, EQ_BANDS, RESAMPLER_BACKEND_NAME,
 };
 
 const CHANNELS: usize = 2;
@@ -156,26 +156,26 @@ impl Scenario {
         OUTPUT_RATE_HZ
     }
 
-    fn description(self) -> &'static str {
+    fn description(self) -> String {
         match self {
             Self::TransparentEqualRate => {
-                "all optional stages bypassed; equal source/output rate"
+                "all optional stages bypassed; equal source/output rate".to_string()
             }
             Self::ActiveIirEqualRate => {
-                "isolated active EQ + crossfeed + dynamic-loudness IIR path"
+                "isolated active EQ + crossfeed + dynamic-loudness IIR path".to_string()
             }
             Self::ActiveSaturation4xEqualRate => {
-                "isolated active Oversampled4x Tube saturation finite tail"
+                "isolated active Oversampled4x Tube saturation finite tail".to_string()
             }
             Self::ConvolverTailEqualRate => {
-                "isolated active stereo 256-tap Convolver finite tail"
+                "isolated active stereo 256-tap Convolver finite tail".to_string()
             }
             Self::ActiveEqualRate => {
-                "EQ + Oversampled4x Tube saturation + crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper"
+                "EQ + Oversampled4x Tube saturation + crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper".to_string()
             }
-            Self::ActiveResampled => {
-                "active DSP configuration with 44.1 kHz source and 48 kHz output SoXR boundary"
-            }
+            Self::ActiveResampled => format!(
+                "active DSP configuration with 44.1 kHz source and 48 kHz output {RESAMPLER_BACKEND_NAME} boundary"
+            ),
         }
     }
 
@@ -737,7 +737,7 @@ fn benchmark_case(
             scenario.name()
         ),
         scenario: scenario.name().to_string(),
-        scenario_config: scenario.description().to_string(),
+        scenario_config: scenario.description(),
         source_rate_hz,
         output_rate_hz,
         block_frames,

@@ -23,6 +23,12 @@ SemVer for pre-1.0 releases.
   test suite and 27 quick-run quality gates. The rubato backend is linear
   phase only. A dedicated CI job builds and tests the pure-Rust path on a
   runner with no libsoxr installed.
+- Public `RESAMPLER_BACKEND_NAME` constant naming the compile-time selected
+  resampler backend (`"soxr"` or `"rubato"`; `soxr` wins when both features
+  are enabled). Benchmark reports record the compiled backend in the
+  environment `features` field (`resampler-soxr` / `resampler-rubato`) and in
+  backend-derived resampler `algorithm` labels, so performance baselines
+  recorded before backend labeling are incompatible with new reports.
 - Dual licensing under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`).
 - `NOTICE` file documenting the SoXR (libsoxr, LGPL-2.1) native dependency.
 - Optional feature flags: `http` (network/streaming decode via `reqwest`) and

@@ -85,7 +85,7 @@ pub use processor::{
     SaturationEvent, SaturationEventKind, SpectrumAnalyzer, StreamingProcessor, StreamingResampler,
     TailSpec, TimingError, TruePeakDetector, UnknownTailPolicy, VolumeController,
     DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
-    PARTITIONED_CONVOLUTION_PARTITION_SIZE, SATURATION_TRANSITION_FRAMES,
+    PARTITIONED_CONVOLUTION_PARTITION_SIZE, RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).
