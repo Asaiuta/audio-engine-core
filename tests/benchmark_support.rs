@@ -337,6 +337,12 @@ fn environment_capture_and_json_file_helpers_produce_traceable_evidence() {
     assert!(!captured.revision.is_empty());
     assert!(!captured.rustc.is_empty());
     assert!(!captured.target.is_empty());
+    // The compiled resampler backend must be recorded so cross-backend
+    // baseline comparisons fail the feature compatibility check.
+    assert!(captured.features.contains(&format!(
+        "resampler-{}",
+        audio_engine_core::processor::RESAMPLER_BACKEND_NAME
+    )));
     assert!(environment_json(&captured).unwrap().starts_with('{'));
 
     let report = summarize_trials(vec![1.0, 2.0, 3.0]).unwrap();

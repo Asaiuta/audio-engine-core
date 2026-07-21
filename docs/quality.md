@@ -68,7 +68,8 @@ in-crate processing.
 | --- | ---: | ---: | --- |
 | DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 116.9 ns | 119.7 us | seven-trial quick median; p95 callback utilization 1.16% |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 124.4 ns | 127.4 us | seven-trial quick median; p95 callback utilization 1.35% |
-| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 7.90 ns/input sample | 8.08 us/input buffer | seven-trial quick median; p95 source-buffer reference utilization 0.084% |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 8.45 ns/input sample | 8.65 us/input buffer | seven-trial quick median (2026-07-21); p95 source-buffer reference utilization 0.118% |
+| Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato backend) | 133.59 ns/input sample | 136.8 us/input buffer | seven-trial quick median (2026-07-21, `--no-default-features --features rubato`); p95 source-buffer reference utilization 1.27% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
 
@@ -144,8 +145,8 @@ replace listening tests.
 
 ### Resampler backends
 
-The resampler rows above measure the default native SoXR (SoX VHQ) backend.
-The pure-Rust rubato backend (`default-features = false,
+The resampler quality rows above measure the default native SoXR (SoX VHQ)
+backend. The pure-Rust rubato backend (`default-features = false,
 features = ["rubato"]`) passes the same 27 quick-run quality gates on this
 machine; representative same-machine deltas:
 
@@ -155,6 +156,20 @@ machine; representative same-machine deltas:
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB | 0.0000 dB |
 | 20 kHz resampler gain | -0.0062 dB | -0.0017 dB |
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -208.1 dB |
+
+Same-machine streaming cost (2026-07-21 quick runs of
+`audio_resampler_streaming_perf`; 512-frame stereo buffers, `process_checked`,
+seven-trial medians):
+
+| Case | SoXR (default) | rubato |
+| --- | ---: | ---: |
+| 44.1 kHz to 48 kHz, ns/input sample (us/input buffer) | 8.45 (8.65 us) | 133.59 (136.8 us) |
+| 48 kHz to 96 kHz, ns/input sample (us/input buffer) | 6.73 (6.89 us) | 179.59 (183.9 us) |
+
+Benchmark reports now record the compiled backend in the environment
+`features` field (`resampler-soxr` / `resampler-rubato`) and in the
+`algorithm` labels, so performance baselines recorded before backend labeling
+are incompatible with new reports.
 
 The rubato backend is linear-phase only: the `PhaseResponse` parameter is
 accepted but not applied. Both backends share the same streaming contract

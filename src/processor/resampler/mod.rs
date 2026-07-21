@@ -26,6 +26,13 @@ use rubato_backend::{MonoBackend, BACKEND_NAME};
 #[cfg(feature = "soxr")]
 use soxr_backend::{MonoBackend, BACKEND_NAME};
 
+/// Compile-time selected resampler backend name: `"soxr"` (native SoX VHQ,
+/// default) or `"rubato"` (pure Rust). Follows the same precedence as the
+/// backend selection above — SoXR wins when both features are enabled — so
+/// benchmark reports and diagnostics can label the measured backend without
+/// re-deriving feature-precedence logic.
+pub const RESAMPLER_BACKEND_NAME: &str = BACKEND_NAME;
+
 /// Per-call progress reported by a mono backend stream.
 struct BackendProgress {
     input_frames: usize,
