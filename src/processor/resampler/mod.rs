@@ -3,9 +3,11 @@
 //! Two backends implement the same mono-channel streaming contract (arbitrary
 //! input granularity, duration-aligned drain, `clear` restoring initial
 //! state): the native SoXR / SoX VHQ backend (`soxr` feature, default) and
-//! the pure-Rust rubato sinc backend (`rubato` feature). When both features
-//! are enabled, SoXR wins. The public `Resampler` / `StreamingResampler` API
-//! is identical for both.
+//! the pure-Rust rubato backend (`rubato` feature), which routes common sample
+//! rate ratios through FFT resampling up to High quality and uses windowed sinc
+//! for UltraHigh or pathological ratios. When both features are enabled, SoXR
+//! wins. The public `Resampler` / `StreamingResampler` API is identical for
+//! both.
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use rayon::prelude::*;
@@ -178,7 +180,8 @@ impl Resampler {
     }
 
     /// Resample audio data using the configured backend (SoX VHQ polyphase
-    /// with the `soxr` feature, rubato windowed sinc with `rubato`).
+    /// with the `soxr` feature, quality-aware rubato FFT/sinc routing with
+    /// `rubato`).
     ///
     /// Input and output are interleaved f64 samples for Hi-Fi transparency.
     ///
@@ -1098,6 +1101,38 @@ mod tests {
             peak_frame.abs_diff(impulse_frame * 2) <= 1,
             "resampled impulse peak landed at {peak_frame}, expected {}",
             impulse_frame * 2
+        );
+        assert_eq!(resampler.latency(), FrameDuration::ZERO);
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn rubato_sinc_fallback_is_duration_and_impulse_aligned() {
+        let input_frames = 4_096;
+        let impulse_frame = 1_024;
+        let mut input = vec![0.0; input_frames];
+        input[impulse_frame] = 1.0;
+        let mut resampler = StreamingResampler::new(1, 44_100, 44_101).unwrap();
+        let output = render_with_chunks(&mut resampler, &input, &[127, 509], 257).unwrap();
+        let peak_frame = output
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.abs()
+                    .partial_cmp(&right.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(frame, _)| frame)
+            .unwrap();
+        let expected_frames =
+            super::rubato_backend::expected_output_frames(input_frames as u64, 44_100, 44_101);
+        let expected_peak =
+            super::rubato_backend::expected_output_frames(impulse_frame as u64, 44_100, 44_101);
+
+        assert_eq!(output.len() as u64, expected_frames);
+        assert!(
+            (peak_frame as u64).abs_diff(expected_peak) <= 1,
+            "sinc-fallback impulse peak landed at {peak_frame}, expected {expected_peak}"
         );
         assert_eq!(resampler.latency(), FrameDuration::ZERO);
     }
