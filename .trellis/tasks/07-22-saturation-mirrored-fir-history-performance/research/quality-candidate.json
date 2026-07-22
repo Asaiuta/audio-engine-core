@@ -1,0 +1,1648 @@
+{
+  "schema_version": 1,
+  "probe": "audio_quality_measurements",
+  "generated_unix_ms": 1784686341277,
+  "mode": "quick",
+  "environment": {
+    "revision": "f6767d1ef19c6428161752c23f0527a0df9e816b",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "measurement_path": "offline f64 synthetic signal -> Rust processor modules -> numeric analysis",
+    "resampler_phase": "Linear",
+    "resampler_quality": "UltraHigh",
+    "thdn_method": "least-squares sine fit with DC term, THD+N = residual_rms / fitted_sine_rms",
+    "frequency_response_method": "single-tone amplitude fit after 44.1 kHz -> 48 kHz resampling",
+    "stopband_method": "96 kHz -> 48 kHz resampling of above-output-Nyquist tones; alias fit plus broad residual RMS",
+    "saturation_continuity_method": "one-sided finite-difference transfer probe across the soft-knee threshold for Tape/Tube/Transistor with non-unity output gain",
+    "saturation_aliasing_method": "11 kHz driven tube waveshaper; fit folded above-Nyquist harmonics and compare source-rate Direct vs Oversampled4x alias energy",
+    "listening_dsp_method": "single-tone fits through IIR EQ, libbs2b-style low-pass/high-boost Bauer crossfeed, and dynamic-loudness processors after settling; crossfeed also checks the independent 4.5 dB reference DC profile and parameter-ramp continuity",
+    "limiter_method": "PeakLimiter (default 4x-oversampled true-peak detection) in-place processing; reports sample-peak ceiling, below-threshold THD+N, and intersample-peak stress vs legacy sample-peak mode",
+    "noise_shaping_method": "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands plus -140 dBFS, silence, overload, and non-finite boundary probes",
+    "loudness_reference_method": "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
+    "full_output_true_peak_method": "offline render stages: Volume,Equalizer,Saturation,Crossfeed,Convolver,DynamicLoudness,Resampler,PeakLimiter,NoiseShaper,Quantize; post-render analysis: LoudnessMeterTruePeak",
+    "render_timeline": "compensated",
+    "unknown_tail_energy_threshold_dbfs": -120.0,
+    "unknown_tail_silence_hold_ms": 250,
+    "unknown_tail_max_tail_ms": 30000
+  },
+  "thdn": {
+    "analyzer_floor_db": -296.1814406817832,
+    "resampler_44k1_to_48k_db": -187.01307428484682,
+    "limiter_below_threshold_db": -253.92677201236876,
+    "test_frequency_hz": 997.0,
+    "amplitude_dbfs": -6.0
+  },
+  "frequency_response": {
+    "from_rate_hz": 44100,
+    "to_rate_hz": 48000,
+    "points": [
+      {
+        "frequency_hz": 20.0,
+        "gain_db": -7.005164982435341e-9,
+        "output_amplitude_dbfs": -6.000000007005166
+      },
+      {
+        "frequency_hz": 100.0,
+        "gain_db": -5.952988247221664e-9,
+        "output_amplitude_dbfs": -6.000000005952989
+      },
+      {
+        "frequency_hz": 1000.0,
+        "gain_db": -3.896152977439746e-9,
+        "output_amplitude_dbfs": -6.0000000038961545
+      },
+      {
+        "frequency_hz": 5000.0,
+        "gain_db": -2.765939006674125e-9,
+        "output_amplitude_dbfs": -6.00000000276594
+      },
+      {
+        "frequency_hz": 10000.0,
+        "gain_db": 1.1972896959149783e-10,
+        "output_amplitude_dbfs": -5.999999999880272
+      },
+      {
+        "frequency_hz": 16000.0,
+        "gain_db": -0.00020245464129122436,
+        "output_amplitude_dbfs": -6.0002024546412915
+      },
+      {
+        "frequency_hz": 18000.0,
+        "gain_db": -0.0013407854959986473,
+        "output_amplitude_dbfs": -6.001340785495999
+      },
+      {
+        "frequency_hz": 20000.0,
+        "gain_db": -0.006220749689846929,
+        "output_amplitude_dbfs": -6.006220749689848
+      }
+    ],
+    "passband_max_abs_deviation_db_20hz_to_18khz": 0.0013407854959986473
+  },
+  "limiter": {
+    "threshold_dbfs": -1.0,
+    "input_peak_dbfs": 5.105450102066121,
+    "output_peak_dbfs": -0.9999999999999997,
+    "output_margin_to_threshold_db": 3.3306690738754696e-16,
+    "final_gain_reduction_db": -3.9476973199680137,
+    "transparent_sine_thdn_db": -253.92677201236876,
+    "intersample_stress_input_sample_peak_dbfs": -3.010299956542096,
+    "intersample_stress_input_true_peak_dbtp": 0.10352532284896786,
+    "intersample_stress_true_peak_mode_output_dbtp": -0.9999972127229906,
+    "intersample_stress_sample_peak_mode_output_dbtp": 0.10352532284896786
+  },
+  "resampler_stopband": {
+    "from_rate_hz": 96000,
+    "to_rate_hz": 48000,
+    "points": [
+      {
+        "input_frequency_hz": 30000.0,
+        "folded_frequency_hz": 18000.0,
+        "alias_attenuation_db": -295.56461452100217,
+        "residual_rms_attenuation_db": -232.8464038833796,
+        "output_alias_amplitude_dbfs": -296.56461452100217
+      },
+      {
+        "input_frequency_hz": 36000.0,
+        "folded_frequency_hz": 12000.0,
+        "alias_attenuation_db": -290.2385940808335,
+        "residual_rms_attenuation_db": -231.53550984931667,
+        "output_alias_amplitude_dbfs": -291.2385940808335
+      },
+      {
+        "input_frequency_hz": 42000.0,
+        "folded_frequency_hz": 6000.0,
+        "alias_attenuation_db": -296.12725827723966,
+        "residual_rms_attenuation_db": -228.06296725029895,
+        "output_alias_amplitude_dbfs": -297.12725827723966
+      }
+    ],
+    "worst_alias_attenuation_db": -290.2385940808335,
+    "worst_residual_attenuation_db": -228.06296725029895
+  },
+  "saturation_continuity": {
+    "threshold": 0.8,
+    "drive": 1.3,
+    "output_gain_db": -3.0,
+    "epsilon": 1e-6,
+    "points": [
+      {
+        "saturation_type": "Tape",
+        "sign": -1.0,
+        "threshold_jump_linear": 1.4159265537827537e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.707980769433972,
+        "first_derivative_mismatch": 0.00003498512590638381
+      },
+      {
+        "saturation_type": "Tape",
+        "sign": 1.0,
+        "threshold_jump_linear": 1.4159265537827537e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.707980769433972,
+        "first_derivative_mismatch": 0.00003498512590638381
+      },
+      {
+        "saturation_type": "Tube",
+        "sign": -1.0,
+        "threshold_jump_linear": 1.4160196721846319e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.7080738878358476,
+        "first_derivative_mismatch": 0.0001281035277819198
+      },
+      {
+        "saturation_type": "Tube",
+        "sign": 1.0,
+        "threshold_jump_linear": 1.4160196721846319e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.7080738878358476,
+        "first_derivative_mismatch": 0.0001281035277819198
+      },
+      {
+        "saturation_type": "Transistor",
+        "sign": -1.0,
+        "threshold_jump_linear": 1.4155305204655022e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.707584736116732,
+        "first_derivative_mismatch": 0.0003610481913336461
+      },
+      {
+        "saturation_type": "Transistor",
+        "sign": 1.0,
+        "threshold_jump_linear": 1.4155305204655022e-6,
+        "inside_first_derivative": 0.7079457843080657,
+        "outside_first_derivative": 0.707584736116732,
+        "first_derivative_mismatch": 0.0003610481913336461
+      }
+    ],
+    "max_threshold_jump_linear": 1.4160196721846319e-6,
+    "max_first_derivative_mismatch": 0.0003610481913336461
+  },
+  "saturation_aliasing": {
+    "sample_rate_hz": 48000,
+    "saturation_type": "Tube",
+    "upgraded_quality": "Oversampled4x",
+    "stress_frequency_hz": 11000.0,
+    "input_amplitude_dbfs": -2.0,
+    "drive": 1.35,
+    "mix": 1.0,
+    "direct_fundamental_dbfs": 0.7933801456137329,
+    "upgraded_fundamental_dbfs": 1.144611542137146,
+    "fundamental_delta_db": 0.3512313965234132,
+    "direct_alias_energy_dbfs": -15.093962831145245,
+    "upgraded_alias_energy_dbfs": -31.417551547536135,
+    "alias_reduction_db": 16.323588716390887,
+    "points": [
+      {
+        "harmonic": 3,
+        "folded_frequency_hz": 15000.0,
+        "direct_alias_dbfs": -15.289653337644776,
+        "upgraded_alias_dbfs": -31.88210839253926,
+        "reduction_db": 16.592455054894483
+      },
+      {
+        "harmonic": 5,
+        "folded_frequency_hz": 7000.0,
+        "direct_alias_dbfs": -28.860544991932763,
+        "upgraded_alias_dbfs": -41.44147905485485,
+        "reduction_db": 12.580934062922086
+      },
+      {
+        "harmonic": 7,
+        "folded_frequency_hz": 19000.0,
+        "direct_alias_dbfs": -42.16179394526094,
+        "upgraded_alias_dbfs": -59.34646953434217,
+        "reduction_db": 17.184675589081227
+      },
+      {
+        "harmonic": 9,
+        "folded_frequency_hz": 3000.0,
+        "direct_alias_dbfs": -55.74797099106033,
+        "upgraded_alias_dbfs": -65.5729644402949,
+        "reduction_db": 9.824993449234567
+      }
+    ]
+  },
+  "listening_dsp": {
+    "sample_rate_hz": 48000,
+    "eq": {
+      "target_gain_db": 6.0,
+      "points": [
+        {
+          "frequency_hz": 62.0,
+          "measured_gain_db": 5.999999321651655,
+          "target_gain_db": 6.0,
+          "target_error_db": -6.783483446071159e-7
+        },
+        {
+          "frequency_hz": 1000.0,
+          "measured_gain_db": 5.999999999999961,
+          "target_gain_db": 6.0,
+          "target_error_db": -3.907985046680551e-14
+        },
+        {
+          "frequency_hz": 8000.0,
+          "measured_gain_db": 5.999999999999979,
+          "target_gain_db": 6.0,
+          "target_error_db": -2.1316282072803006e-14
+        }
+      ],
+      "max_abs_target_error_db": 6.783483446071159e-7
+    },
+    "crossfeed": {
+      "mix": 0.35,
+      "cutoff_hz": 700.0,
+      "low_frequency_hz": 80.0,
+      "high_frequency_hz": 2000.0,
+      "low_crossfeed_db": -17.73377520335272,
+      "high_crossfeed_db": -27.273151749557382,
+      "low_vs_high_crossfeed_db": 9.539376546204661,
+      "reference_dc_direct_gain": 0.6266990816667322,
+      "reference_dc_cross_gain": 0.3733009183332677,
+      "reference_max_abs_error": 3.3306690738754696e-16,
+      "mix_change_first_frame_delta": 7.741439130536099e-6,
+      "mix_change_preserved_max_delta": 0.0,
+      "mix_change_legacy_reset_max_delta": 0.005762367826949576
+    },
+    "dynamic_loudness": {
+      "reference_volume_db": -15.0,
+      "low_volume_db": -40.0,
+      "strength": 1.0,
+      "bass_probe_hz": 40.0,
+      "presence_probe_hz": 3000.0,
+      "bass_compensation_db": 8.412588920844339,
+      "presence_compensation_db": 2.829626193707454,
+      "reported_loudness_factor": 1.0
+    }
+  },
+  "noise_shaping": {
+    "sample_rate_hz": 48000,
+    "channels": 1,
+    "bits": 16,
+    "stimulus_frequency_hz": 997.0,
+    "stimulus_sine_dbfs": -90.0,
+    "stimulus_dc_offset_dbfs": -84.0,
+    "fft_len": 65536,
+    "points": [
+      {
+        "curve": "TpdfOnly",
+        "total_noise_rms_dbfs": -96.31351835946177,
+        "ear_band_2k_to_6k_rms_dbfs": -104.2908035577183,
+        "mid_band_6k_to_10k_rms_dbfs": -104.00867523333558,
+        "high_band_14k_to_18k_rms_dbfs": -104.03241812973776,
+        "high_minus_ear_band_db": 0.2583854279805422
+      },
+      {
+        "curve": "Lipshitz5",
+        "total_noise_rms_dbfs": -84.09894397509719,
+        "ear_band_2k_to_6k_rms_dbfs": -120.98368553778678,
+        "mid_band_6k_to_10k_rms_dbfs": -106.31631161296367,
+        "high_band_14k_to_18k_rms_dbfs": -95.47364716160615,
+        "high_minus_ear_band_db": 25.51003837618063
+      },
+      {
+        "curve": "FWeighted9",
+        "total_noise_rms_dbfs": -77.86542490672332,
+        "ear_band_2k_to_6k_rms_dbfs": -125.45925974150641,
+        "mid_band_6k_to_10k_rms_dbfs": -108.119172007644,
+        "high_band_14k_to_18k_rms_dbfs": -96.31646583084917,
+        "high_minus_ear_band_db": 29.142793910657247
+      },
+      {
+        "curve": "ModifiedE9",
+        "total_noise_rms_dbfs": -88.74603170760332,
+        "ear_band_2k_to_6k_rms_dbfs": -120.28300030473387,
+        "mid_band_6k_to_10k_rms_dbfs": -109.11799532436373,
+        "high_band_14k_to_18k_rms_dbfs": -96.48201098519893,
+        "high_minus_ear_band_db": 23.80098931953495
+      },
+      {
+        "curve": "ImprovedE9",
+        "total_noise_rms_dbfs": -73.23455346961427,
+        "ear_band_2k_to_6k_rms_dbfs": -127.66606124359534,
+        "mid_band_6k_to_10k_rms_dbfs": -108.8364058574715,
+        "high_band_14k_to_18k_rms_dbfs": -92.61788636209245,
+        "high_minus_ear_band_db": 35.04817488150289
+      }
+    ],
+    "strongest_shaped_high_minus_ear_band_advantage_db": 34.789789453522346,
+    "low_level_input_dbfs": -140.0,
+    "low_level_changed_fraction": 1.0,
+    "silence_non_zero_fraction": 0.24853515625,
+    "stress_max_abs_output": 1.0,
+    "stress_non_finite_outputs": 0
+  },
+  "loudness_reference": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "fixtures": [
+      {
+        "name": "sine_1khz_minus_23_dbfs_10s",
+        "duration_secs": 10.0,
+        "engine_integrated_lufs": -22.95,
+        "reference_integrated_lufs": -22.95,
+        "integrated_delta_lu": 0.0,
+        "engine_momentary_lufs": -22.993295603913364,
+        "reference_momentary_lufs": -22.993295603913364,
+        "momentary_delta_lu": 0.0,
+        "engine_short_term_lufs": -22.993295603913804,
+        "reference_short_term_lufs": -22.993295603913804,
+        "short_term_delta_lu": 0.0,
+        "engine_loudness_range_lu": 0.0,
+        "reference_loudness_range_lu": 0.0,
+        "loudness_range_delta_lu": 0.0,
+        "engine_true_peak_dbtp": -23.0,
+        "reference_true_peak_dbtp": -23.0,
+        "true_peak_delta_db": 0.0
+      },
+      {
+        "name": "stepped_sine_minus_30_to_minus_12_dbfs_12s",
+        "duration_secs": 12.0,
+        "engine_integrated_lufs": -12.556918361550306,
+        "reference_integrated_lufs": -12.556918361550306,
+        "integrated_delta_lu": 0.0,
+        "engine_momentary_lufs": -10.040542835380014,
+        "reference_momentary_lufs": -10.040542835380014,
+        "momentary_delta_lu": 0.0,
+        "engine_short_term_lufs": -10.040542835380323,
+        "reference_short_term_lufs": -10.040542835380323,
+        "short_term_delta_lu": 0.0,
+        "engine_loudness_range_lu": 20.6,
+        "reference_loudness_range_lu": 20.6,
+        "loudness_range_delta_lu": 0.0,
+        "engine_true_peak_dbtp": -11.999333542849666,
+        "reference_true_peak_dbtp": -11.999333520150097,
+        "true_peak_delta_db": 2.2699568447137608e-8
+      }
+    ],
+    "ebu_corpus": {
+      "available": true,
+      "source_dir": "libebur128/test",
+      "source_note": "EBU Tech 3341/3342 files from libebur128 test corpus",
+      "missing_files": [],
+      "global_loudness_points": [
+        {
+          "file_name": "seq-3341-1-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 960000,
+          "expected": -22.953556442089987,
+          "measured": -22.95355485142043,
+          "error": 1.5906695551848316e-6,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-2-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 960000,
+          "expected": -32.959860397340044,
+          "measured": -32.95985890772381,
+          "error": 1.4896162312538763e-6,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-3-16bit-v02.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 3840000,
+          "expected": -22.995899818255047,
+          "measured": -23.014141652728295,
+          "error": -0.018241834473247565,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-4-16bit-v02.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 4800000,
+          "expected": -23.035918615414182,
+          "measured": -23.014141652728345,
+          "error": 0.02177696268583773,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-5-16bit-v02.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 2884800,
+          "expected": -22.949997446096436,
+          "measured": -22.979029141006247,
+          "error": -0.02903169490981128,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-6-5channels-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 5,
+          "frames": 960000,
+          "expected": -23.017157781104373,
+          "measured": -23.017156275006027,
+          "error": 1.5060983464820765e-6,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-6-6channels-WAVEEX-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 6,
+          "frames": 960000,
+          "expected": -23.017157781104373,
+          "measured": -23.017156275006027,
+          "error": 1.5060983464820765e-6,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-7_seq-3342-5-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 1343998,
+          "expected": -22.980242495081757,
+          "measured": -22.98615880494652,
+          "error": -0.005916309864762326,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-2011-8_seq-3342-6-24bit-v02.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 11825152,
+          "expected": -23.009077718930545,
+          "measured": -22.997820241139724,
+          "error": 0.011257477790820758,
+          "passed": true
+        }
+      ],
+      "loudness_range_points": [
+        {
+          "file_name": "seq-3342-1-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 1920000,
+          "expected": 10.001105488329134,
+          "measured": 10.00110548832913,
+          "error": -3.552713678800501e-15,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3342-2-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 1920000,
+          "expected": 4.999373405152218,
+          "measured": 4.999373405152216,
+          "error": -1.7763568394002505e-15,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3342-3-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 1920000,
+          "expected": 19.995064067783115,
+          "measured": 19.995064067783126,
+          "error": 1.0658141036401503e-14,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3342-4-16bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 4800000,
+          "expected": 14.999273937723455,
+          "measured": 14.999273937723455,
+          "error": 0.0,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-7_seq-3342-5-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 1343998,
+          "expected": 4.974758587847372,
+          "measured": 4.974758587847365,
+          "error": -7.105427357601002e-15,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-2011-8_seq-3342-6-24bit-v02.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 11825152,
+          "expected": 14.993650849123316,
+          "measured": 14.993218571417383,
+          "error": -0.00043227770593290415,
+          "passed": true
+        }
+      ],
+      "max_momentary_points": [
+        {
+          "file_name": "seq-3341-13-1-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 67200,
+          "expected": -23.0,
+          "measured": -22.993598509800904,
+          "error": 0.006401490199095861,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-2-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 68160,
+          "expected": -23.0,
+          "measured": -22.993598479380974,
+          "error": 0.006401520619025547,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-3-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 69120,
+          "expected": -23.0,
+          "measured": -22.993598479747497,
+          "error": 0.006401520252502735,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-4-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 70080,
+          "expected": -23.0,
+          "measured": -22.99359847975838,
+          "error": 0.006401520241620773,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-5-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 71040,
+          "expected": -23.0,
+          "measured": -22.99359847975862,
+          "error": 0.006401520241379188,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-6-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 72000,
+          "expected": -23.0,
+          "measured": -22.993598479758678,
+          "error": 0.006401520241322345,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-7-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 72960,
+          "expected": -23.0,
+          "measured": -22.993598479758727,
+          "error": 0.006401520241272607,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-8-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 73920,
+          "expected": -23.0,
+          "measured": -22.99359847975853,
+          "error": 0.006401520241471559,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-9-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 74880,
+          "expected": -23.0,
+          "measured": -22.993598479758553,
+          "error": 0.00640152024144669,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-10-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 75840,
+          "expected": -23.0,
+          "measured": -22.993598479758678,
+          "error": 0.006401520241322345,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-11-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 76800,
+          "expected": -23.0,
+          "measured": -22.99359847975865,
+          "error": 0.006401520241350767,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-12-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 77760,
+          "expected": -23.0,
+          "measured": -22.993598479758358,
+          "error": 0.006401520241642089,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-13-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 78720,
+          "expected": -23.0,
+          "measured": -22.99359847975853,
+          "error": 0.006401520241471559,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-14-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 79680,
+          "expected": -23.0,
+          "measured": -22.993598479758493,
+          "error": 0.006401520241507086,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-15-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 80640,
+          "expected": -23.0,
+          "measured": -22.993598479758358,
+          "error": 0.006401520241642089,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-16-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 81600,
+          "expected": -23.0,
+          "measured": -22.99359847975857,
+          "error": 0.006401520241428926,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-17-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 82560,
+          "expected": -23.0,
+          "measured": -22.993598479758653,
+          "error": 0.006401520241347214,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-18-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 83520,
+          "expected": -23.0,
+          "measured": -22.993598479758692,
+          "error": 0.006401520241308134,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-19-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 84480,
+          "expected": -23.0,
+          "measured": -22.993598479758806,
+          "error": 0.006401520241194447,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-13-20-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 85440,
+          "expected": -23.0,
+          "measured": -22.993598479758692,
+          "error": 0.006401520241308134,
+          "passed": true
+        }
+      ],
+      "max_short_term_points": [
+        {
+          "file_name": "seq-3341-10-1-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 192000,
+          "expected": -23.0,
+          "measured": -22.993338759949832,
+          "error": 0.0066612400501675495,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-2-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 199200,
+          "expected": -23.0,
+          "measured": -23.0662595026938,
+          "error": -0.06625950269379999,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-3-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 206400,
+          "expected": -23.0,
+          "measured": -22.993338755944418,
+          "error": 0.006661244055582216,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-4-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 213600,
+          "expected": -23.0,
+          "measured": -23.066259502693857,
+          "error": -0.06625950269385683,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-5-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 220800,
+          "expected": -23.0,
+          "measured": -22.99333875594441,
+          "error": 0.0066612440555893215,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-6-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 228000,
+          "expected": -23.0,
+          "measured": -23.06625950269386,
+          "error": -0.06625950269386038,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-7-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 235200,
+          "expected": -23.0,
+          "measured": -22.993338755944453,
+          "error": 0.006661244055546689,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-8-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 242400,
+          "expected": -23.0,
+          "measured": -23.06625950269378,
+          "error": -0.06625950269377867,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-9-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 249600,
+          "expected": -23.0,
+          "measured": -22.99333875594446,
+          "error": 0.0066612440555395835,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-10-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 256800,
+          "expected": -23.0,
+          "measured": -23.066259502693892,
+          "error": -0.06625950269389236,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-11-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 264000,
+          "expected": -23.0,
+          "measured": -22.993338755944382,
+          "error": 0.006661244055617743,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-12-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 271200,
+          "expected": -23.0,
+          "measured": -23.066259502693857,
+          "error": -0.06625950269385683,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-13-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 278400,
+          "expected": -23.0,
+          "measured": -22.99333875594457,
+          "error": 0.006661244055429449,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-14-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 285600,
+          "expected": -23.0,
+          "measured": -23.066259502693935,
+          "error": -0.06625950269393499,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-15-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 292800,
+          "expected": -23.0,
+          "measured": -22.99333875594451,
+          "error": 0.0066612440554898456,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-16-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 300000,
+          "expected": -23.0,
+          "measured": -23.066259502693896,
+          "error": -0.06625950269389591,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-17-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 307200,
+          "expected": -23.0,
+          "measured": -22.993338755944556,
+          "error": 0.00666124405544366,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-18-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 314400,
+          "expected": -23.0,
+          "measured": -23.066259502693953,
+          "error": -0.06625950269395275,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-19-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 321600,
+          "expected": -23.0,
+          "measured": -22.99333875594457,
+          "error": 0.006661244055429449,
+          "passed": true
+        },
+        {
+          "file_name": "seq-3341-10-20-24bit.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 328800,
+          "expected": -23.0,
+          "measured": -23.066259502693953,
+          "error": -0.06625950269395275,
+          "passed": true
+        }
+      ],
+      "max_abs_global_error_lu": 0.02903169490981128,
+      "max_abs_loudness_range_error_lu": 0.00043227770593290415,
+      "max_abs_max_momentary_error_lu": 0.006401520619025547,
+      "max_abs_max_short_term_error_lu": 0.06625950269395275
+    },
+    "max_integrated_delta_lu": 0.0,
+    "max_momentary_delta_lu": 0.0,
+    "max_short_term_delta_lu": 0.0,
+    "max_loudness_range_delta_lu": 0.0,
+    "max_true_peak_delta_db": 2.2699568447137608e-8
+  },
+  "full_output_true_peak": {
+    "output_sample_rate_hz": 48000,
+    "chain": "Volume,Equalizer,Saturation,Crossfeed,Convolver,DynamicLoudness,Resampler,PeakLimiter,NoiseShaper,Quantize",
+    "post_render_analysis": "LoudnessMeterTruePeak",
+    "limiter_threshold_dbfs": -1.0,
+    "final_noise_shaper_bits": 24,
+    "points": [
+      {
+        "name": "synthetic_44k1_near_nyquist_resampled",
+        "source_kind": "synthetic",
+        "source_sample_rate_hz": 44100,
+        "source_channels": 2,
+        "source_frames": 65536,
+        "input_sample_peak_dbfs": -1.0500550995180096,
+        "input_true_peak_dbtp": -1.0500550995180096,
+        "output_sample_peak_dbfs": -1.0000380480004825,
+        "output_true_peak_dbtp": -1.0000380480004825,
+        "output_margin_to_limiter_threshold_db": -0.000038048000482460154,
+        "final_limiter_gain_reduction_db": -0.17065149045078287,
+        "output_frames": 71332,
+        "rendered_frames": 71332,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-15-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153600,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -6.000264939117392,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -6.000248410853911,
+        "output_margin_to_limiter_threshold_db": -5.000248410853911,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153600,
+        "rendered_frames": 153600,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-16-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153600,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -6.033363582790018,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -6.033363812612086,
+        "output_margin_to_limiter_threshold_db": -5.033363812612086,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153600,
+        "rendered_frames": 153600,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-17-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153600,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -5.985104338269153,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -5.985103562594537,
+        "output_margin_to_limiter_threshold_db": -4.985103562594537,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153600,
+        "rendered_frames": 153600,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-18-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153600,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -5.998373099615676,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -5.998372322755216,
+        "output_margin_to_limiter_threshold_db": -4.998372322755216,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153600,
+        "rendered_frames": 153600,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-19-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153600,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": 2.9766194949332543,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -1.000034540432842,
+        "output_margin_to_limiter_threshold_db": -0.00003454043284190078,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153600,
+        "rendered_frames": 153600,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-20-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153604,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -0.13018312868045112,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -1.0000380480004825,
+        "output_margin_to_limiter_threshold_db": -0.000038048000482460154,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153604,
+        "rendered_frames": 153604,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-21-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153604,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -0.08592729259538266,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -1.000039603413119,
+        "output_margin_to_limiter_threshold_db": -0.00003960341311892712,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153604,
+        "rendered_frames": 153604,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-22-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153604,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -0.1814381656208276,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -1.0000399182177329,
+        "output_margin_to_limiter_threshold_db": -0.00003991821773285942,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153604,
+        "rendered_frames": 153604,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      },
+      {
+        "name": "ebu_seq-3341-23-24bit.wav.wav",
+        "source_kind": "EBU Tech 3341",
+        "source_sample_rate_hz": 48000,
+        "source_channels": 2,
+        "source_frames": 153604,
+        "input_sample_peak_dbfs": null,
+        "input_true_peak_dbtp": -0.08592625999823922,
+        "output_sample_peak_dbfs": null,
+        "output_true_peak_dbtp": -1.000041540393521,
+        "output_margin_to_limiter_threshold_db": -0.00004154039352100014,
+        "final_limiter_gain_reduction_db": null,
+        "output_frames": 153604,
+        "rendered_frames": 153604,
+        "algorithmic_latency_frames": 493,
+        "semantic_tail_frames": 0,
+        "tail_truncated": false
+      }
+    ],
+    "ebu_true_peak_corpus": {
+      "available": true,
+      "source_dir": "libebur128/test",
+      "missing_files": [],
+      "points": [
+        {
+          "file_name": "seq-3341-15-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153600,
+          "expected_dbtp": -6.0,
+          "measured_input_true_peak_dbtp": -6.000264939117392,
+          "input_error_db": -0.00026493911739233766,
+          "full_output_true_peak_dbtp": -6.000248410853911,
+          "full_output_margin_to_limiter_threshold_db": -5.000248410853911,
+          "output_frames": 153600,
+          "rendered_frames": 153600,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-16-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153600,
+          "expected_dbtp": -6.0,
+          "measured_input_true_peak_dbtp": -6.033363582790018,
+          "input_error_db": -0.03336358279001761,
+          "full_output_true_peak_dbtp": -6.033363812612086,
+          "full_output_margin_to_limiter_threshold_db": -5.033363812612086,
+          "output_frames": 153600,
+          "rendered_frames": 153600,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-17-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153600,
+          "expected_dbtp": -6.0,
+          "measured_input_true_peak_dbtp": -5.985104338269153,
+          "input_error_db": 0.01489566173084711,
+          "full_output_true_peak_dbtp": -5.985103562594537,
+          "full_output_margin_to_limiter_threshold_db": -4.985103562594537,
+          "output_frames": 153600,
+          "rendered_frames": 153600,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-18-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153600,
+          "expected_dbtp": -6.0,
+          "measured_input_true_peak_dbtp": -5.998373099615676,
+          "input_error_db": 0.0016269003843243368,
+          "full_output_true_peak_dbtp": -5.998372322755216,
+          "full_output_margin_to_limiter_threshold_db": -4.998372322755216,
+          "output_frames": 153600,
+          "rendered_frames": 153600,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-19-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153600,
+          "expected_dbtp": 3.0,
+          "measured_input_true_peak_dbtp": 2.9766194949332543,
+          "input_error_db": -0.023380505066745716,
+          "full_output_true_peak_dbtp": -1.000034540432842,
+          "full_output_margin_to_limiter_threshold_db": -0.00003454043284190078,
+          "output_frames": 153600,
+          "rendered_frames": 153600,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-20-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153604,
+          "expected_dbtp": 0.0,
+          "measured_input_true_peak_dbtp": -0.13018312868045112,
+          "input_error_db": -0.13018312868045112,
+          "full_output_true_peak_dbtp": -1.0000380480004825,
+          "full_output_margin_to_limiter_threshold_db": -0.000038048000482460154,
+          "output_frames": 153604,
+          "rendered_frames": 153604,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-21-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153604,
+          "expected_dbtp": 0.0,
+          "measured_input_true_peak_dbtp": -0.08592729259538266,
+          "input_error_db": -0.08592729259538266,
+          "full_output_true_peak_dbtp": -1.000039603413119,
+          "full_output_margin_to_limiter_threshold_db": -0.00003960341311892712,
+          "output_frames": 153604,
+          "rendered_frames": 153604,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-22-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153604,
+          "expected_dbtp": 0.0,
+          "measured_input_true_peak_dbtp": -0.1814381656208276,
+          "input_error_db": -0.1814381656208276,
+          "full_output_true_peak_dbtp": -1.0000399182177329,
+          "full_output_margin_to_limiter_threshold_db": -0.00003991821773285942,
+          "output_frames": 153604,
+          "rendered_frames": 153604,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        },
+        {
+          "file_name": "seq-3341-23-24bit.wav.wav",
+          "sample_rate_hz": 48000,
+          "channels": 2,
+          "frames": 153604,
+          "expected_dbtp": 0.0,
+          "measured_input_true_peak_dbtp": -0.08592625999823922,
+          "input_error_db": -0.08592625999823922,
+          "full_output_true_peak_dbtp": -1.000041540393521,
+          "full_output_margin_to_limiter_threshold_db": -0.00004154039352100014,
+          "output_frames": 153604,
+          "rendered_frames": 153604,
+          "algorithmic_latency_frames": 493,
+          "semantic_tail_frames": 0,
+          "tail_truncated": false,
+          "passed_reference_tolerance": true
+        }
+      ],
+      "max_abs_expected_error_db": 0.1814381656208276
+    },
+    "worst_output_true_peak_dbtp": -1.000034540432842,
+    "worst_margin_to_limiter_threshold_db": -0.00003454043284190078
+  },
+  "metrics": [
+    {
+      "name": "resampler_thdn_44k1_to_48k",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": -187.01307428484682,
+      "threshold": -100.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "resampler_passband_max_deviation_20hz_to_18khz",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0013407854959986473,
+      "threshold": 0.1,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "resampler_worst_alias_attenuation_96k_to_48k",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": -290.2385940808335,
+      "threshold": -100.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "saturation_threshold_transfer_jump",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 1.4160196721846319e-6,
+      "threshold": 2e-6,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "saturation_threshold_first_derivative_mismatch",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0003610481913336461,
+      "threshold": 0.001,
+      "threshold_upper": null,
+      "unit": "linear/linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "saturation_oversampled4x_alias_reduction",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 16.323588716390887,
+      "threshold": 6.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "saturation_oversampled4x_fundamental_delta",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 0.3512313965234132,
+      "threshold": -0.5,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_eq_target_gain_accuracy",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 6.783483446071159e-7,
+      "threshold": 0.5,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_low_band_level",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": -17.73377520335272,
+      "threshold": -20.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_low_vs_high_separation",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 9.539376546204661,
+      "threshold": 7.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_bauer_reference_dc_gain_error",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 3.3306690738754696e-16,
+      "threshold": 1e-9,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_mix_change_first_frame_delta",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 7.741439130536099e-6,
+      "threshold": 0.001,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_mix_change_preserves_history",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 1e-12,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_crossfeed_legacy_reset_delta",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 0.005762367826949576,
+      "threshold": 0.0001,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "listening_dynamic_loudness_bass_compensation",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 8.412588920844339,
+      "threshold": 6.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "limiter_output_margin_to_threshold",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 3.3306690738754696e-16,
+      "threshold": 0.05,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "noise_shaper_strongest_ear_band_advantage",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 34.789789453522346,
+      "threshold": 3.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "noise_shaper_low_level_changed_fraction",
+      "classification": "gate",
+      "comparison": "at_least",
+      "measured": 1.0,
+      "threshold": 0.99,
+      "threshold_upper": null,
+      "unit": "ratio",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "noise_shaper_stress_peak",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 1.0,
+      "threshold": 1.0,
+      "threshold_upper": null,
+      "unit": "linear",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "noise_shaper_stress_non_finite_outputs",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 0.0,
+      "threshold_upper": null,
+      "unit": "samples",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loudness_integrated_parity_vs_ebur128",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 1e-6,
+      "threshold_upper": null,
+      "unit": "LU",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loudness_momentary_parity_vs_ebur128",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 1e-6,
+      "threshold_upper": null,
+      "unit": "LU",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loudness_short_term_parity_vs_ebur128",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 1e-6,
+      "threshold_upper": null,
+      "unit": "LU",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loudness_range_parity_vs_ebur128",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": 0.0,
+      "threshold": 1e-6,
+      "threshold_upper": null,
+      "unit": "LU",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "full_output_chain_worst_true_peak",
+      "classification": "gate",
+      "comparison": "at_most",
+      "measured": -1.000034540432842,
+      "threshold": -0.999,
+      "threshold_upper": null,
+      "unit": "dBTP",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "limiter_below_threshold_thdn",
+      "classification": "report",
+      "comparison": "at_most",
+      "measured": -253.92677201236876,
+      "threshold": -120.0,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "limiter_true_peak_mode_intersample_stress_output",
+      "classification": "report",
+      "comparison": "at_most",
+      "measured": -0.9999972127229906,
+      "threshold": -0.9,
+      "threshold_upper": null,
+      "unit": "dBTP",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loudness_true_peak_parity_vs_ebur128",
+      "classification": "report",
+      "comparison": "at_most",
+      "measured": 2.2699568447137608e-8,
+      "threshold": 0.1,
+      "threshold_upper": null,
+      "unit": "dB",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "ebu_loudness_corpus",
+      "classification": "gate",
+      "comparison": "within",
+      "measured": 0.06625950269395275,
+      "threshold": 0.0,
+      "threshold_upper": 1.0,
+      "unit": "LU",
+      "passed": true,
+      "detail": "55 point(s) all within EBU tolerance"
+    },
+    {
+      "name": "ebu_true_peak_corpus",
+      "classification": "gate",
+      "comparison": "within",
+      "measured": 0.1814381656208276,
+      "threshold": -0.4,
+      "threshold_upper": 0.2,
+      "unit": "dB",
+      "passed": true,
+      "detail": "9 point(s) within EBU tolerance"
+    }
+  ]
+}

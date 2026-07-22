@@ -107,6 +107,10 @@ Contracts to preserve when changing or extending this path:
   that compares output and updated state sample-by-sample (bit-for-bit for
   deterministic f64 arithmetic). A benchmark win without this parity check is
   insufficient evidence for retaining the specialization.
+- A mirrored FIR history must expose a contiguous newest-to-oldest window so
+  the coefficient and accumulator order remains unchanged. Symmetric FIR
+  coefficients do not permit reversing the f64 reduction: mathematical
+  equivalence is weaker than the bit-for-bit oracle required for this path.
 
 Tests required for this contract:
 
@@ -118,6 +122,8 @@ Tests required for this contract:
 - Specialized-vs-dynamic kernel tests cover each oversampled 2x/4x phase/tap
   combination, while the Direct path keeps its direct-saturation oracle;
   high-pass processing is covered where the specialized kernel applies.
+- Mirrored-history changes include an independent legacy circular-ring oracle
+  that crosses multiple wraps and repeats after reset/initialization.
 - Below-threshold all-mix identity, partial-mix affine behavior, high-pass
   topology/selectivity, harmonic spectrum, exact finite support, irregular
   chunks, event offsets, retargeting, and finish-near-transition have
