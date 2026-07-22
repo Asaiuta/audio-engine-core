@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-07-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~737 | Active |
+| `journal-1.md` | ~770 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-07-22 | Long IR convolver RealFFT and layout optimization | `8fbcfb9`, `3fac4c2` | `-` |
 | 19 | 2026-07-22 | Optimize Saturation mirrored FIR history | `f1f3c87`, `287b161` | `-` |
 | 18 | 2026-07-22 | Optimize Oversampled4x saturation performance | `f3b8a88`, `c7f0ba8` | `-` |
 | 17 | 2026-07-22 | Rubato 4 quality-aware resampler routing | `d550d57`, `90b6dab` | `-` |

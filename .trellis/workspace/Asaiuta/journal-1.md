@@ -735,3 +735,36 @@ Replaced circular oversampling FIR traversal with mirrored newest-to-oldest hist
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Long IR convolver RealFFT and layout optimization
+
+**Date**: 2026-07-22
+**Task**: Long IR convolver RealFFT and layout optimization
+
+### Summary
+
+Replaced long-IR complex tail FFTs with realfft half-spectra, flattened IR/history spectra with direct two-range ring traversal, expanded convolver throughput/callback evidence, selected 1024-frame partitions, and verified both feature matrices, convolver/FIR/callback benchmarks, fmt, check, Clippy, and unused-dependency checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8fbcfb9` | (see git log) |
+| `3fac4c2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
