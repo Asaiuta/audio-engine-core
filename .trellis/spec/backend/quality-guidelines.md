@@ -98,6 +98,15 @@ Contracts to preserve when changing or extending this path:
 - Callback-budget changes need `audio_callback_chain_perf`; the active DSP
   scenario intentionally enables `SaturationQualityValue::Oversampled4x` so the
   measured 512-frame callback cost includes the upgraded path.
+- Fixed-ratio or const-generic oversampling kernels may specialize the hot path
+  at the block boundary. The specialization must preserve the transfer
+  function, FIR coefficients, phase order, residual-only topology, latency,
+  and per-channel state-update order; it must not introduce an approximate
+  waveshaper or a runtime allocation/lock/logging path.
+- Every specialized oversampling kernel requires a dynamic-reference oracle
+  that compares output and updated state sample-by-sample (bit-for-bit for
+  deterministic f64 arithmetic). A benchmark win without this parity check is
+  insufficient evidence for retaining the specialization.
 
 Tests required for this contract:
 
@@ -106,6 +115,9 @@ Tests required for this contract:
   finite and bounded.
 - A no-steady-state-allocation assertion covers the oversampled processing path
   after setup.
+- Specialized-vs-dynamic kernel tests cover each oversampled 2x/4x phase/tap
+  combination, while the Direct path keeps its direct-saturation oracle;
+  high-pass processing is covered where the specialized kernel applies.
 - Below-threshold all-mix identity, partial-mix affine behavior, high-pass
   topology/selectivity, harmonic spectrum, exact finite support, irregular
   chunks, event offsets, retargeting, and finish-near-transition have
