@@ -149,6 +149,23 @@ Contracts to preserve when changing this path:
   and in-place scratch buffers during construction. `process_into` and
   `process_inplace` must not allocate, lock, log, perform I/O, or do unbounded
   work after setup.
+- A real-valued partitioned implementation may store only bins `0..=N/2` for
+  real audio. The DC and Nyquist bins remain single real values, and inverse
+  normalization must use the full FFT length. Real-FFT backend failures in the
+  callback path use static `ProcessError::Backend` diagnostics; they must not
+  allocate an error string or panic.
+- Partitioned IR spectra and input-history spectra use row-major contiguous
+  buffers. The history ring is traversed as two bounded reverse row ranges
+  with direct row offsets, preserving the original partition accumulation order
+  while avoiding nested-`Vec` indirection and per-partition modulo. Any layout
+  change must retain the overlap-save/direct oracle tolerance and include a
+  same-machine throughput comparison for both small and large tail rings.
+- The 2026-07-22 same-machine sweep selected the 1024-frame partition for the
+  real-FFT tail. At 8192/65536 taps and six channels, 512 frames measured
+  47.35/304.19 ns/sample, 1024 measured 28.99/130.08, and 2048 measured
+  31.54/179.49. The smaller and larger alternatives also had higher 64-frame
+  callback p99 utilization, so changing this public constant requires a fresh
+  sweep rather than a speculative tuning change.
 - Constructor and processing entries reject empty/zero-channel/incomplete
   interleaved geometry with typed errors. Public realtime-capable wrappers do
   not retain a panicking compatibility path.
@@ -306,6 +323,13 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   source-buffer realtime reference and must be named as such. FIR regeneration
   compares ns/regeneration while FIR apply compares ns/sample; the case key and
   payload must state that primary unit explicitly.
+- Direct convolver throughput trials must run long enough that short overlap-save
+  cases are not dominated by timer quantization; the maintained quick workload
+  uses a 2048-frame buffer and 512 base iterations. Callback distributions keep
+  every raw sample, including scheduler outliers. On Windows, raw max is
+  evidence rather than a deterministic DSP upper bound unless the probe pins
+  the thread or otherwise isolates scheduler preemption; never replace it with
+  a best-of-N value.
 - Quality keeps `gate` / `report` / `skipped` distinct. Full-output points copy
   `RenderedOutput` rendered frames, algorithmic latency, semantic tail, and
   truncation fields directly. Missing external corpus counts remain visible.
