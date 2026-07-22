@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
+- **Total Sessions**: 18
 - **Last Active**: 2026-07-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~671 | Active |
+| `journal-1.md` | ~704 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-07-22 | Optimize Oversampled4x saturation performance | `f3b8a88`, `c7f0ba8` | `-` |
 | 17 | 2026-07-22 | Rubato 4 quality-aware resampler routing | `d550d57`, `90b6dab` | `-` |
 | 16 | 2026-07-19 | DSP lifecycle performance and correctness | `c973de3`, `d3ea3c8`, `d341514` | `-` |
 | 15 | 2026-07-18 | Convolver realtime ownership and output-stage hardening | `7eefc99`, `994e88b` | `-` |

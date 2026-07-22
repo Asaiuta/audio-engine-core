@@ -669,3 +669,36 @@ Upgraded the pure-Rust Rubato backend to quality-aware routing: common Low-throu
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Optimize Oversampled4x saturation performance
+
+**Date**: 2026-07-22
+**Task**: Optimize Oversampled4x saturation performance
+
+### Summary
+
+Specialized saturation oversampling into fixed 2x/4x block kernels, added bit-for-bit parity coverage, and recorded compatible callback, quality, and output-render evidence.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f3b8a88` | (see git log) |
+| `c7f0ba8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
