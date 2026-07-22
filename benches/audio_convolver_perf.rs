@@ -1,287 +1,738 @@
 use std::hint::black_box;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use audio_engine_core::processor::{
     ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
     PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
-use rustfft::{num_complex::Complex, FftPlanner};
+use serde::{Deserialize, Serialize};
+
+pub mod support;
+
+use support::{
+    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
+    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
+    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    REPORT_SCHEMA_VERSION,
+};
 
 const SAMPLE_RATE: f64 = 48_000.0;
-const IR_SCENARIOS: [IrScenario; 3] = [
-    IrScenario {
-        name: "short",
-        frames: 256,
-    },
-    IrScenario {
-        name: "medium",
-        frames: 2_048,
-    },
-    IrScenario {
-        name: "long",
-        frames: 8_192,
-    },
-];
+const CHANNEL_COUNTS: [usize; 2] = [2, 6];
+const THROUGHPUT_IR_FRAMES: [usize; 7] = [256, 2_048, 4_097, 8_192, 16_384, 32_768, 65_536];
+const CALLBACK_IR_FRAMES: [usize; 5] = [4_097, 8_192, 16_384, 32_768, 65_536];
+const CALLBACK_FRAMES: [usize; 4] = [64, 128, 256, 512];
+const WARMUP_ITERATIONS: usize = 4;
 
-#[derive(Clone, Copy)]
-struct IrScenario {
-    name: &'static str,
-    frames: usize,
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct ConvolverConditions {
+    sample_rate_hz: u32,
+    partition_threshold: usize,
+    partition_size: usize,
+    throughput_frames: usize,
+    throughput_ir_frames: Vec<usize>,
+    callback_ir_frames: Vec<usize>,
+    callback_frames: Vec<usize>,
+    channel_counts: Vec<usize>,
+    throughput_base_iterations: usize,
+    callback_partition_cycles: usize,
+    trials: usize,
+    warmup_iterations: usize,
+    coverage: String,
+    excludes: Vec<String>,
 }
 
-impl IrScenario {
-    fn iterations(self, base_iterations: usize) -> usize {
-        match self.name {
-            "short" => base_iterations,
-            "medium" => (base_iterations / 2).max(8),
-            "long" => (base_iterations / 4).max(6),
-            _ => base_iterations,
+#[derive(Debug, Deserialize, Serialize)]
+struct WorkValidation {
+    valid: bool,
+    expected_strategy: String,
+    actual_strategy: String,
+    expected_partition_size: Option<usize>,
+    actual_partition_size: Option<usize>,
+    output_changed: bool,
+    all_output_samples_finite: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct CallbackDistribution {
+    samples: Vec<f64>,
+    min: f64,
+    median: f64,
+    p95: f64,
+    p99: f64,
+    max: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ConvolverCase {
+    Throughput {
+        case_key: String,
+        channels: usize,
+        ir_frames: usize,
+        frames: usize,
+        samples: usize,
+        strategy: String,
+        fft_size: usize,
+        partition_size: Option<usize>,
+        iterations_per_trial: usize,
+        process_into_ns_per_sample: TrialDistribution,
+        process_inplace_ns_per_sample: TrialDistribution,
+        allocating_process_ns_per_sample: TrialDistribution,
+        work_validation: WorkValidation,
+    },
+    CallbackBurst {
+        case_key: String,
+        channels: usize,
+        ir_frames: usize,
+        frames: usize,
+        samples: usize,
+        strategy: String,
+        fft_size: usize,
+        partition_size: usize,
+        calls_per_trial: usize,
+        callback_ns_per_sample: CallbackDistribution,
+        callback_ns_per_buffer: CallbackDistribution,
+        buffer_duration_ns: f64,
+        median_deadline_utilization_pct: f64,
+        p95_deadline_utilization_pct: f64,
+        p99_deadline_utilization_pct: f64,
+        max_deadline_utilization_pct: f64,
+        work_validation: WorkValidation,
+    },
+}
+
+impl ConvolverCase {
+    fn case_key(&self) -> &str {
+        match self {
+            Self::Throughput { case_key, .. } | Self::CallbackBurst { case_key, .. } => case_key,
         }
     }
-}
 
-fn main() {
-    let args = std::env::args().collect::<Vec<_>>();
-    let quick = args.iter().any(|arg| arg == "--quick");
-    let enforce = args.iter().any(|arg| arg == "--enforce");
+    fn primary_median(&self) -> f64 {
+        match self {
+            Self::Throughput {
+                process_into_ns_per_sample,
+                ..
+            } => process_into_ns_per_sample.median,
+            Self::CallbackBurst {
+                callback_ns_per_sample,
+                ..
+            } => callback_ns_per_sample.median,
+        }
+    }
 
-    let base_iterations = if quick { 60 } else { 240 };
-    let frames = if quick { 2_048 } else { 8_192 };
-    let trials = parse_trials(&args).unwrap_or(if quick { 3 } else { 5 });
+    fn has_valid_work(&self) -> bool {
+        match self {
+            Self::Throughput {
+                work_validation, ..
+            }
+            | Self::CallbackBurst {
+                work_validation, ..
+            } => work_validation.valid,
+        }
+    }
 
-    println!(
-        "audio_convolver_perf frames={frames} partition_threshold={} partition_size={} base_iterations={base_iterations} trials={trials}",
-        PARTITIONED_CONVOLUTION_IR_THRESHOLD,
-        PARTITIONED_CONVOLUTION_PARTITION_SIZE,
-    );
-
-    for scenario in IR_SCENARIOS {
-        let iterations = scenario.iterations(base_iterations);
-        for channels in [2, 6] {
-            let report = benchmark_convolver(channels, scenario.frames, frames, iterations, trials);
-            println!(
-                "convolver scenario={} channels={} ir_frames={} strategy={} fft_size={} partition_size={} iterations={} process_into_median={:.3} ns/sample legacy_process_into_median={:.3} ns/sample into_speedup_median={:.2}% process_inplace_median={:.3} ns/sample legacy_process_inplace_median={:.3} ns/sample inplace_speedup_median={:.2}% allocating_process_median={:.3} ns/sample wrapper_overhead_median={:.2}%",
-                scenario.name,
-                channels,
-                scenario.frames,
-                strategy_name(report.strategy),
-                report.fft_size,
-                report.partition_size.unwrap_or(0),
-                iterations,
-                report.process_into_ns_per_sample,
-                report.legacy_process_into_ns_per_sample,
-                report.process_into_speedup_percent,
-                report.process_inplace_ns_per_sample,
-                report.legacy_process_inplace_ns_per_sample,
-                report.process_inplace_speedup_percent,
-                report.allocating_process_ns_per_sample,
-                report.wrapper_overhead_percent,
-            );
-
-            if enforce {
-                assert!(
-                    report.process_inplace_ns_per_sample
-                        <= report.process_into_ns_per_sample * 1.25,
-                    "process_inplace regressed beyond 25% for {} {} channels: process_inplace={:.3}, process_into={:.3}",
-                    scenario.name,
-                    channels,
-                    report.process_inplace_ns_per_sample,
-                    report.process_into_ns_per_sample,
-                );
+    fn has_complete_samples(&self, trials: usize) -> bool {
+        match self {
+            Self::Throughput {
+                process_into_ns_per_sample,
+                process_inplace_ns_per_sample,
+                allocating_process_ns_per_sample,
+                ..
+            } => {
+                process_into_ns_per_sample.samples.len() == trials
+                    && process_inplace_ns_per_sample.samples.len() == trials
+                    && allocating_process_ns_per_sample.samples.len() == trials
+            }
+            Self::CallbackBurst {
+                calls_per_trial,
+                callback_ns_per_sample,
+                callback_ns_per_buffer,
+                ..
+            } => {
+                let expected = trials * calls_per_trial;
+                callback_ns_per_sample.samples.len() == expected
+                    && callback_ns_per_buffer.samples.len() == expected
             }
         }
     }
 }
 
-struct ConvolverReport {
-    strategy: ConvolutionStrategy,
-    fft_size: usize,
-    partition_size: Option<usize>,
-    process_into_ns_per_sample: f64,
-    process_inplace_ns_per_sample: f64,
-    legacy_process_into_ns_per_sample: f64,
-    legacy_process_inplace_ns_per_sample: f64,
-    allocating_process_ns_per_sample: f64,
-    process_into_speedup_percent: f64,
-    process_inplace_speedup_percent: f64,
-    wrapper_overhead_percent: f64,
+#[derive(Debug, Deserialize, Serialize)]
+struct BaselineReference {
+    path: String,
+    revision: String,
+    dirty: Option<bool>,
+    generated_unix_ms: u128,
+    max_median_regression_pct: f64,
 }
 
-fn benchmark_convolver(
+#[derive(Debug, Deserialize, Serialize)]
+struct ConvolverReport {
+    schema_version: u32,
+    probe: String,
+    generated_unix_ms: u128,
+    mode: BenchMode,
+    environment: BenchEnvironment,
+    conditions: ConvolverConditions,
+    cases: Vec<ConvolverCase>,
+    baseline: Option<BaselineReference>,
+    comparisons: Vec<RegressionComparison>,
+}
+
+fn main() -> Result<(), String> {
+    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    if args.help {
+        print_help();
+        return Ok(());
+    }
+
+    let (throughput_frames, throughput_base_iterations, callback_partition_cycles, trials) =
+        workload(args.mode);
+    let conditions = ConvolverConditions {
+        sample_rate_hz: SAMPLE_RATE as u32,
+        partition_threshold: PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+        partition_size: PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+        throughput_frames,
+        throughput_ir_frames: THROUGHPUT_IR_FRAMES.to_vec(),
+        callback_ir_frames: CALLBACK_IR_FRAMES.to_vec(),
+        callback_frames: CALLBACK_FRAMES.to_vec(),
+        channel_counts: CHANNEL_COUNTS.to_vec(),
+        throughput_base_iterations,
+        callback_partition_cycles,
+        trials,
+        warmup_iterations: WARMUP_ITERATIONS,
+        coverage: "steady_state_throughput+long_ir_callback_burst".to_string(),
+        excludes: ["callback_chain", "device_write", "ir_construction"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+    };
+
+    let mut cases = Vec::new();
+    for ir_frames in THROUGHPUT_IR_FRAMES {
+        let iterations = throughput_iterations(throughput_base_iterations, ir_frames);
+        for channels in CHANNEL_COUNTS {
+            cases.push(benchmark_throughput(
+                channels,
+                ir_frames,
+                throughput_frames,
+                iterations,
+                trials,
+            )?);
+        }
+    }
+    for ir_frames in CALLBACK_IR_FRAMES {
+        for channels in CHANNEL_COUNTS {
+            for frames in CALLBACK_FRAMES {
+                cases.push(benchmark_callback_burst(
+                    channels,
+                    ir_frames,
+                    frames,
+                    callback_partition_cycles,
+                    trials,
+                )?);
+            }
+        }
+    }
+
+    let mut report = ConvolverReport {
+        schema_version: REPORT_SCHEMA_VERSION,
+        probe: "audio_convolver_perf".to_string(),
+        generated_unix_ms: generated_unix_ms(),
+        mode: args.mode,
+        environment: BenchEnvironment::capture(),
+        conditions,
+        cases,
+        baseline: None,
+        comparisons: Vec::new(),
+    };
+
+    if let Some(path) = &args.baseline {
+        let baseline: ConvolverReport = read_json(path, "convolver baseline report")?;
+        report.comparisons =
+            compare_with_baseline(&report, &baseline, args.max_median_regression_pct)?;
+        report.baseline = Some(BaselineReference {
+            path: path.display().to_string(),
+            revision: baseline.environment.revision,
+            dirty: baseline.environment.dirty,
+            generated_unix_ms: baseline.generated_unix_ms,
+            max_median_regression_pct: args.max_median_regression_pct,
+        });
+    }
+
+    print_report(&report)?;
+    if let Some(path) = &args.out {
+        write_json(path, &report, "convolver performance report")?;
+    }
+    if args.enforce {
+        enforce_report(&report)?;
+    }
+    Ok(())
+}
+
+fn workload(mode: BenchMode) -> (usize, usize, usize, usize) {
+    match mode {
+        BenchMode::Quick => (2_048, 512, 2, 7),
+        BenchMode::Full => (8_192, 256, 4, 9),
+        BenchMode::Heavy => (16_384, 256, 8, 15),
+    }
+}
+
+fn throughput_iterations(base: usize, ir_frames: usize) -> usize {
+    match ir_frames {
+        0..=256 => base,
+        257..=2_048 => (base / 2).max(8),
+        2_049..=8_192 => (base / 4).max(6),
+        8_193..=16_384 => (base / 8).max(4),
+        16_385..=32_768 => (base / 12).max(3),
+        _ => (base / 16).max(2),
+    }
+}
+
+fn print_help() {
+    println!(
+        "Usage: cargo bench --bench audio_convolver_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+         \n\
+         Reports versioned long-IR throughput and per-callback burst distributions.\n\
+         Timing is report-only unless a compatible same-machine baseline is supplied."
+    );
+}
+
+fn benchmark_throughput(
     channels: usize,
     ir_frames: usize,
     frames: usize,
     iterations: usize,
     trials: usize,
-) -> ConvolverReport {
-    let trials = trials.max(1);
-    let mut process_into = Vec::with_capacity(trials);
-    let mut process_inplace = Vec::with_capacity(trials);
-    let mut legacy_process_into = Vec::with_capacity(trials);
-    let mut legacy_process_inplace = Vec::with_capacity(trials);
-    let mut allocating_process = Vec::with_capacity(trials);
-    let mut strategy = ConvolutionStrategy::OverlapSave;
-    let mut fft_size = 0;
-    let mut partition_size = None;
-
-    for _ in 0..trials {
-        let report = benchmark_convolver_once(channels, ir_frames, frames, iterations);
-        strategy = report.strategy;
-        fft_size = report.fft_size;
-        partition_size = report.partition_size;
-        process_into.push(report.process_into_ns_per_sample);
-        process_inplace.push(report.process_inplace_ns_per_sample);
-        legacy_process_into.push(report.legacy_process_into_ns_per_sample);
-        legacy_process_inplace.push(report.legacy_process_inplace_ns_per_sample);
-        allocating_process.push(report.allocating_process_ns_per_sample);
-    }
-
-    let process_into_ns_per_sample = median(&mut process_into);
-    let process_inplace_ns_per_sample = median(&mut process_inplace);
-    let legacy_process_into_ns_per_sample = median(&mut legacy_process_into);
-    let legacy_process_inplace_ns_per_sample = median(&mut legacy_process_inplace);
-    let allocating_process_ns_per_sample = median(&mut allocating_process);
-
-    ConvolverReport {
-        strategy,
-        fft_size,
-        partition_size,
-        process_into_ns_per_sample,
-        process_inplace_ns_per_sample,
-        legacy_process_into_ns_per_sample,
-        legacy_process_inplace_ns_per_sample,
-        allocating_process_ns_per_sample,
-        process_into_speedup_percent: speedup_percent(
-            legacy_process_into_ns_per_sample,
-            process_into_ns_per_sample,
-        ),
-        process_inplace_speedup_percent: speedup_percent(
-            legacy_process_inplace_ns_per_sample,
-            process_inplace_ns_per_sample,
-        ),
-        wrapper_overhead_percent: (allocating_process_ns_per_sample - process_into_ns_per_sample)
-            / process_into_ns_per_sample
-            * 100.0,
-    }
-}
-
-fn benchmark_convolver_once(
-    channels: usize,
-    ir_frames: usize,
-    frames: usize,
-    iterations: usize,
-) -> ConvolverReport {
+) -> Result<ConvolverCase, String> {
     let ir = synthetic_ir(ir_frames, channels);
     let input = synthetic_input(frames, channels);
-    let mut output = vec![0.0; input.len()];
-    let mut inplace_buffer = input.clone();
-    let mut legacy_output = vec![0.0; input.len()];
-    let mut legacy_inplace_buffer = input.clone();
+    let validation = validate_work(&ir, &input, channels, ir_frames)?;
+    let metadata = convolver_metadata(&ir, channels)?;
+    let mut process_into = Vec::with_capacity(trials);
+    let mut process_inplace = Vec::with_capacity(trials);
+    let mut allocating_process = Vec::with_capacity(trials);
 
-    let mut into_conv = FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
-    let mut inplace_conv =
-        FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
-    let mut allocating_conv =
-        FFTConvolver::new(&ir, channels).expect("benchmark IR geometry is valid");
-    let mut legacy_into_conv = LegacyConvolver::new(&ir, channels);
-    let mut legacy_inplace_conv = LegacyConvolver::new(&ir, channels);
-    let strategy = into_conv.strategy();
-    let fft_size = into_conv.fft_size();
-    let partition_size = into_conv.partition_size();
+    for _ in 0..trials {
+        let mut into_conv = FFTConvolver::new(&ir, channels).map_err(|error| error.to_string())?;
+        let mut inplace_conv =
+            FFTConvolver::new(&ir, channels).map_err(|error| error.to_string())?;
+        let mut allocating_conv =
+            FFTConvolver::new(&ir, channels).map_err(|error| error.to_string())?;
+        let mut output = vec![0.0; input.len()];
+        let mut inplace_buffer = input.clone();
 
-    let into_duration = measure(
-        || {
+        warm_into(&mut into_conv, &input, &mut output)?;
+        warm_inplace(&mut inplace_conv, &input, &mut inplace_buffer)?;
+        warm_allocating(&mut allocating_conv, &input)?;
+
+        let start = Instant::now();
+        for _ in 0..iterations {
             into_conv
                 .process_into(black_box(&input), black_box(&mut output))
-                .expect("benchmark geometry is valid");
-            black_box(output[0])
-        },
-        iterations,
-    );
+                .map_err(|error| error.to_string())?;
+            black_box(output[0]);
+        }
+        process_into.push(ns_per_sample(
+            start.elapsed().as_nanos(),
+            frames,
+            channels,
+            iterations,
+        ));
 
-    let legacy_into_duration = measure(
-        || {
-            legacy_into_conv.process_into(black_box(&input), black_box(&mut legacy_output));
-            black_box(legacy_output[0])
-        },
-        iterations,
-    );
-
-    let inplace_duration = measure(
-        || {
+        let start = Instant::now();
+        for _ in 0..iterations {
             inplace_buffer.copy_from_slice(&input);
             inplace_conv
                 .process_inplace(black_box(&mut inplace_buffer))
-                .expect("benchmark geometry is valid");
-            black_box(inplace_buffer[0])
-        },
-        iterations,
-    );
+                .map_err(|error| error.to_string())?;
+            black_box(inplace_buffer[0]);
+        }
+        process_inplace.push(ns_per_sample(
+            start.elapsed().as_nanos(),
+            frames,
+            channels,
+            iterations,
+        ));
 
-    let legacy_inplace_duration = measure(
-        || {
-            legacy_inplace_buffer.copy_from_slice(&input);
-            legacy_inplace_conv.process_inplace(black_box(&mut legacy_inplace_buffer));
-            black_box(legacy_inplace_buffer[0])
-        },
-        iterations,
-    );
-
-    let allocating_duration = measure(
-        || {
+        let start = Instant::now();
+        for _ in 0..iterations {
             let output = allocating_conv
                 .process(black_box(&input))
-                .expect("benchmark geometry is valid");
-            black_box(output[0])
-        },
-        iterations,
-    );
+                .map_err(|error| error.to_string())?;
+            black_box(output[0]);
+        }
+        allocating_process.push(ns_per_sample(
+            start.elapsed().as_nanos(),
+            frames,
+            channels,
+            iterations,
+        ));
+    }
 
-    let samples = frames * channels * iterations;
-    let process_into_ns_per_sample = nanos_per_unit(into_duration, samples);
-    let process_inplace_ns_per_sample = nanos_per_unit(inplace_duration, samples);
-    let legacy_process_into_ns_per_sample = nanos_per_unit(legacy_into_duration, samples);
-    let legacy_process_inplace_ns_per_sample = nanos_per_unit(legacy_inplace_duration, samples);
-    let allocating_process_ns_per_sample = nanos_per_unit(allocating_duration, samples);
+    Ok(ConvolverCase::Throughput {
+        case_key: format!(
+            "kind=throughput;ir_frames={ir_frames};frames={frames};channels={channels};strategy={}",
+            strategy_name(metadata.strategy)
+        ),
+        channels,
+        ir_frames,
+        frames,
+        samples: frames * channels,
+        strategy: strategy_name(metadata.strategy).to_string(),
+        fft_size: metadata.fft_size,
+        partition_size: metadata.partition_size,
+        iterations_per_trial: iterations,
+        process_into_ns_per_sample: summarize_trials(process_into)?,
+        process_inplace_ns_per_sample: summarize_trials(process_inplace)?,
+        allocating_process_ns_per_sample: summarize_trials(allocating_process)?,
+        work_validation: validation,
+    })
+}
 
-    ConvolverReport {
-        strategy,
-        fft_size,
+fn benchmark_callback_burst(
+    channels: usize,
+    ir_frames: usize,
+    frames: usize,
+    partition_cycles: usize,
+    trials: usize,
+) -> Result<ConvolverCase, String> {
+    let ir = synthetic_ir(ir_frames, channels);
+    let input = synthetic_input(frames, channels);
+    let validation = validate_work(&ir, &input, channels, ir_frames)?;
+    let metadata = convolver_metadata(&ir, channels)?;
+    let partition_size = metadata
+        .partition_size
+        .ok_or_else(|| format!("long IR {ir_frames} did not select partitioned convolution"))?;
+    let calls_per_cycle = partition_size.div_ceil(frames);
+    let calls_per_trial = calls_per_cycle * partition_cycles;
+    let mut ns_per_buffer = Vec::with_capacity(trials * calls_per_trial);
+    let mut ns_per_sample_values = Vec::with_capacity(trials * calls_per_trial);
+
+    for _ in 0..trials {
+        let mut convolver = FFTConvolver::new(&ir, channels).map_err(|error| error.to_string())?;
+        let mut output = vec![0.0; input.len()];
+        warm_into(&mut convolver, &input, &mut output)?;
+        convolver.reset();
+
+        for _ in 0..calls_per_trial {
+            let start = Instant::now();
+            convolver
+                .process_into(black_box(&input), black_box(&mut output))
+                .map_err(|error| error.to_string())?;
+            let elapsed = start.elapsed().as_nanos() as f64;
+            ns_per_buffer.push(elapsed);
+            ns_per_sample_values.push(elapsed / (frames * channels) as f64);
+            black_box(output[0]);
+        }
+    }
+
+    let callback_ns_per_buffer = summarize_callbacks(ns_per_buffer)?;
+    let callback_ns_per_sample = summarize_callbacks(ns_per_sample_values)?;
+    let buffer_duration_ns = frames as f64 / SAMPLE_RATE * 1.0e9;
+    Ok(ConvolverCase::CallbackBurst {
+        case_key: format!(
+            "kind=callback_burst;ir_frames={ir_frames};frames={frames};channels={channels};strategy={}",
+            strategy_name(metadata.strategy)
+        ),
+        channels,
+        ir_frames,
+        frames,
+        samples: frames * channels,
+        strategy: strategy_name(metadata.strategy).to_string(),
+        fft_size: metadata.fft_size,
         partition_size,
-        process_into_ns_per_sample,
-        process_inplace_ns_per_sample,
-        legacy_process_into_ns_per_sample,
-        legacy_process_inplace_ns_per_sample,
-        allocating_process_ns_per_sample,
-        process_into_speedup_percent: speedup_percent(
-            legacy_process_into_ns_per_sample,
-            process_into_ns_per_sample,
-        ),
-        process_inplace_speedup_percent: speedup_percent(
-            legacy_process_inplace_ns_per_sample,
-            process_inplace_ns_per_sample,
-        ),
-        wrapper_overhead_percent: (allocating_process_ns_per_sample - process_into_ns_per_sample)
-            / process_into_ns_per_sample
-            * 100.0,
+        calls_per_trial,
+        median_deadline_utilization_pct: callback_ns_per_buffer.median / buffer_duration_ns * 100.0,
+        p95_deadline_utilization_pct: callback_ns_per_buffer.p95 / buffer_duration_ns * 100.0,
+        p99_deadline_utilization_pct: callback_ns_per_buffer.p99 / buffer_duration_ns * 100.0,
+        max_deadline_utilization_pct: callback_ns_per_buffer.max / buffer_duration_ns * 100.0,
+        callback_ns_per_sample,
+        callback_ns_per_buffer,
+        buffer_duration_ns,
+        work_validation: validation,
+    })
+}
+
+struct ConvolverMetadata {
+    strategy: ConvolutionStrategy,
+    fft_size: usize,
+    partition_size: Option<usize>,
+}
+
+fn convolver_metadata(ir: &[f64], channels: usize) -> Result<ConvolverMetadata, String> {
+    let convolver = FFTConvolver::new(ir, channels).map_err(|error| error.to_string())?;
+    Ok(ConvolverMetadata {
+        strategy: convolver.strategy(),
+        fft_size: convolver.fft_size(),
+        partition_size: convolver.partition_size(),
+    })
+}
+
+fn validate_work(
+    ir: &[f64],
+    input: &[f64],
+    channels: usize,
+    ir_frames: usize,
+) -> Result<WorkValidation, String> {
+    let mut convolver = FFTConvolver::new(ir, channels).map_err(|error| error.to_string())?;
+    let actual_strategy = convolver.strategy();
+    let actual_partition_size = convolver.partition_size();
+    let expected_strategy = if ir_frames > PARTITIONED_CONVOLUTION_IR_THRESHOLD {
+        ConvolutionStrategy::Partitioned
+    } else {
+        ConvolutionStrategy::OverlapSave
+    };
+    let expected_partition_size = (expected_strategy == ConvolutionStrategy::Partitioned)
+        .then_some(PARTITIONED_CONVOLUTION_PARTITION_SIZE);
+    let mut output = vec![0.0; input.len()];
+    convolver
+        .process_into(input, &mut output)
+        .map_err(|error| error.to_string())?;
+    let output_changed = output.iter().any(|sample| *sample != 0.0);
+    let all_output_samples_finite = output.iter().all(|sample| sample.is_finite());
+    Ok(WorkValidation {
+        valid: actual_strategy == expected_strategy
+            && actual_partition_size == expected_partition_size
+            && output_changed
+            && all_output_samples_finite,
+        expected_strategy: strategy_name(expected_strategy).to_string(),
+        actual_strategy: strategy_name(actual_strategy).to_string(),
+        expected_partition_size,
+        actual_partition_size,
+        output_changed,
+        all_output_samples_finite,
+    })
+}
+
+fn warm_into(
+    convolver: &mut FFTConvolver,
+    input: &[f64],
+    output: &mut [f64],
+) -> Result<(), String> {
+    for _ in 0..WARMUP_ITERATIONS {
+        convolver
+            .process_into(input, output)
+            .map_err(|error| error.to_string())?;
     }
+    Ok(())
 }
 
-fn measure<T>(mut run: impl FnMut() -> T, iterations: usize) -> Duration {
-    let start = Instant::now();
-    for _ in 0..iterations {
-        black_box(run());
+fn warm_inplace(
+    convolver: &mut FFTConvolver,
+    input: &[f64],
+    buffer: &mut [f64],
+) -> Result<(), String> {
+    for _ in 0..WARMUP_ITERATIONS {
+        buffer.copy_from_slice(input);
+        convolver
+            .process_inplace(buffer)
+            .map_err(|error| error.to_string())?;
     }
-    start.elapsed()
+    Ok(())
 }
 
-fn nanos_per_unit(duration: Duration, units: usize) -> f64 {
-    duration.as_nanos() as f64 / units as f64
+fn warm_allocating(convolver: &mut FFTConvolver, input: &[f64]) -> Result<(), String> {
+    for _ in 0..WARMUP_ITERATIONS {
+        black_box(
+            convolver
+                .process(input)
+                .map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(())
 }
 
-fn speedup_percent(legacy: f64, current: f64) -> f64 {
-    (legacy - current) / legacy * 100.0
+fn summarize_callbacks(samples: Vec<f64>) -> Result<CallbackDistribution, String> {
+    if samples.is_empty() {
+        return Err("callback distribution requires at least one sample".to_string());
+    }
+    if let Some((index, value)) = samples
+        .iter()
+        .copied()
+        .enumerate()
+        .find(|(_, value)| !value.is_finite() || *value <= 0.0)
+    {
+        return Err(format!(
+            "callback sample {index} must be finite and positive, got {value}"
+        ));
+    }
+    let mut sorted = samples.clone();
+    sorted.sort_by(f64::total_cmp);
+    let middle = sorted.len() / 2;
+    let median = if sorted.len().is_multiple_of(2) {
+        (sorted[middle - 1] + sorted[middle]) * 0.5
+    } else {
+        sorted[middle]
+    };
+    Ok(CallbackDistribution {
+        min: sorted[0],
+        median,
+        p95: nearest_rank(&sorted, 0.95),
+        p99: nearest_rank(&sorted, 0.99),
+        max: sorted[sorted.len() - 1],
+        samples,
+    })
+}
+
+fn nearest_rank(sorted: &[f64], percentile: f64) -> f64 {
+    let rank = ((sorted.len() as f64 * percentile).ceil() as usize).max(1);
+    sorted[rank - 1]
+}
+
+fn ns_per_sample(elapsed_ns: u128, frames: usize, channels: usize, iterations: usize) -> f64 {
+    elapsed_ns as f64 / (frames * channels * iterations) as f64
+}
+
+fn compare_with_baseline(
+    candidate: &ConvolverReport,
+    baseline: &ConvolverReport,
+    threshold_pct: f64,
+) -> Result<Vec<RegressionComparison>, String> {
+    validate_performance_baseline(
+        "convolver",
+        PerformanceReportIdentity {
+            schema_version: candidate.schema_version,
+            probe: &candidate.probe,
+            mode: candidate.mode,
+            environment: &candidate.environment,
+            conditions: &candidate.conditions,
+        },
+        PerformanceReportIdentity {
+            schema_version: baseline.schema_version,
+            probe: &baseline.probe,
+            mode: baseline.mode,
+            environment: &baseline.environment,
+            conditions: &baseline.conditions,
+        },
+    )?;
+    compare_case_medians(
+        candidate
+            .cases
+            .iter()
+            .filter(|case| matches!(case, ConvolverCase::Throughput { .. }))
+            .map(|case| (case.case_key().to_string(), case.primary_median())),
+        baseline
+            .cases
+            .iter()
+            .filter(|case| matches!(case, ConvolverCase::Throughput { .. }))
+            .map(|case| (case.case_key().to_string(), case.primary_median())),
+        threshold_pct,
+    )
+}
+
+fn enforce_report(report: &ConvolverReport) -> Result<(), String> {
+    let invalid = report
+        .cases
+        .iter()
+        .filter(|case| {
+            !case.has_valid_work() || !case.has_complete_samples(report.conditions.trials)
+        })
+        .map(ConvolverCase::case_key)
+        .collect::<Vec<_>>();
+    if !invalid.is_empty() {
+        return Err(format!(
+            "convolver report validity gate failed for cases: {}",
+            invalid.join(", ")
+        ));
+    }
+    if let Some(error) = regression_gate_error(
+        &report.comparisons,
+        "convolver median regression gate failed",
+        "ns/sample",
+    ) {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn print_report(report: &ConvolverReport) -> Result<(), String> {
+    println!(
+        "audio_convolver_perf mode={} threshold={} partition_size={} throughput_frames={} trials={} callback_cycles={}",
+        report.mode.as_str(),
+        report.conditions.partition_threshold,
+        report.conditions.partition_size,
+        report.conditions.throughput_frames,
+        report.conditions.trials,
+        report.conditions.callback_partition_cycles,
+    );
+    println!(
+        "audio_convolver_environment {}",
+        environment_json(&report.environment)?
+    );
+    for case in &report.cases {
+        match case {
+            ConvolverCase::Throughput {
+                case_key,
+                channels,
+                ir_frames,
+                frames,
+                strategy,
+                fft_size,
+                partition_size,
+                iterations_per_trial,
+                process_into_ns_per_sample,
+                process_inplace_ns_per_sample,
+                allocating_process_ns_per_sample,
+                ..
+            } => println!(
+                "convolver_throughput case={} channels={} ir_frames={} frames={} strategy={} fft_size={} partition_size={} iterations={} into_median={:.3} into_p95={:.3} inplace_median={:.3} inplace_p95={:.3} allocating_median={:.3}",
+                case_key,
+                channels,
+                ir_frames,
+                frames,
+                strategy,
+                fft_size,
+                partition_size.unwrap_or(0),
+                iterations_per_trial,
+                process_into_ns_per_sample.median,
+                process_into_ns_per_sample.p95,
+                process_inplace_ns_per_sample.median,
+                process_inplace_ns_per_sample.p95,
+                allocating_process_ns_per_sample.median,
+            ),
+            ConvolverCase::CallbackBurst {
+                case_key,
+                channels,
+                ir_frames,
+                frames,
+                partition_size,
+                calls_per_trial,
+                callback_ns_per_sample,
+                callback_ns_per_buffer,
+                p99_deadline_utilization_pct,
+                max_deadline_utilization_pct,
+                ..
+            } => println!(
+                "convolver_callback case={} channels={} ir_frames={} frames={} partition_size={} calls_per_trial={} ns_per_sample_median={:.3} ns_per_buffer_p95={:.3} ns_per_buffer_p99={:.3} ns_per_buffer_max={:.3} p99_deadline_utilization_pct={:.4} max_deadline_utilization_pct={:.4}",
+                case_key,
+                channels,
+                ir_frames,
+                frames,
+                partition_size,
+                calls_per_trial,
+                callback_ns_per_sample.median,
+                callback_ns_per_buffer.p95,
+                callback_ns_per_buffer.p99,
+                callback_ns_per_buffer.max,
+                p99_deadline_utilization_pct,
+                max_deadline_utilization_pct,
+            ),
+        }
+    }
+    for comparison in &report.comparisons {
+        println!(
+            "convolver_baseline case={} baseline_median={:.3} candidate_median={:.3} regression_pct={:.3} threshold_pct={:.3} passed={}",
+            comparison.case_key,
+            comparison.baseline_median,
+            comparison.candidate_median,
+            comparison.regression_pct,
+            comparison.threshold_pct,
+            comparison.passed,
+        );
+    }
+    Ok(())
 }
 
 fn strategy_name(strategy: ConvolutionStrategy) -> &'static str {
@@ -291,25 +742,15 @@ fn strategy_name(strategy: ConvolutionStrategy) -> &'static str {
     }
 }
 
-fn parse_trials(args: &[String]) -> Option<usize> {
-    args.iter()
-        .find_map(|arg| arg.strip_prefix("--trials="))
-        .and_then(|value| value.parse::<usize>().ok())
-}
-
-fn median(values: &mut [f64]) -> f64 {
-    values.sort_by(|left, right| left.total_cmp(right));
-    values[values.len() / 2]
-}
-
 fn synthetic_ir(frames: usize, channels: usize) -> Vec<f64> {
     let mut ir = Vec::with_capacity(frames * channels);
     for frame in 0..frames {
-        let decay = (-(frame as f64) / 64.0).exp();
-        for ch in 0..channels {
-            let phase = (ch + 1) as f64 * 0.11;
-            let tap = ((frame as f64 + 1.0) * phase).sin() * decay * 0.08;
-            ir.push(if frame == 0 { 1.0 } else { tap });
+        let decay = (-(frame as f64) / (frames as f64 * 0.18).max(64.0)).exp();
+        for channel in 0..channels {
+            let impulse = if frame == 0 { 0.72 } else { 0.0 };
+            let early = if frame == 17 + channel * 3 { 0.12 } else { 0.0 };
+            let tail = ((frame + channel * 11) as f64 * 0.37).sin() * 0.025 * decay;
+            ir.push(impulse + early + tail);
         }
     }
     ir
@@ -318,200 +759,14 @@ fn synthetic_ir(frames: usize, channels: usize) -> Vec<f64> {
 fn synthetic_input(frames: usize, channels: usize) -> Vec<f64> {
     let mut seed = 0x0BAD_5EED_u64;
     let mut out = Vec::with_capacity(frames * channels);
-
     for frame in 0..frames {
-        let t = frame as f64 / SAMPLE_RATE;
-        let sine = (2.0 * std::f64::consts::PI * 997.0 * t).sin() * 0.25;
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let time = frame as f64 / SAMPLE_RATE;
+        let sine = (std::f64::consts::TAU * 997.0 * time).sin() * 0.25;
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
         let noise = (((seed >> 33) as f64 / u32::MAX as f64) * 2.0 - 1.0) * 0.03;
-        for ch in 0..channels {
-            out.push((sine + noise) * (1.0 - ch as f64 * 0.015));
+        for channel in 0..channels {
+            out.push((sine + noise) * (1.0 - channel as f64 * 0.015));
         }
     }
-
     out
-}
-
-/// Bench-local copy of the pre-hotpath-refactor implementation.
-///
-/// Keep this type private to the harness so production code stays on the current
-/// implementation while the perf task retains a stable legacy baseline.
-struct LegacyConvolver {
-    fft_size: usize,
-    impulse_response_fft: Vec<Vec<Complex<f64>>>,
-    overlap_buffers: Vec<Vec<f64>>,
-    channels: usize,
-    ir_len: usize,
-    fft_forward: Arc<dyn rustfft::Fft<f64>>,
-    fft_inverse: Arc<dyn rustfft::Fft<f64>>,
-    scratch_complex: Vec<Complex<f64>>,
-}
-
-impl LegacyConvolver {
-    fn new(ir_data: &[f64], channels: usize) -> Self {
-        let ir_len_total = ir_data.len();
-        let ir_len_per_ch = ir_len_total / channels;
-
-        let mut fft_size = 1;
-        while fft_size < (ir_len_per_ch * 2) {
-            fft_size <<= 1;
-        }
-
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(fft_size);
-        let fft_forward = planner.plan_fft_forward(fft_size);
-        let fft_inverse = planner.plan_fft_inverse(fft_size);
-
-        let mut ir_ffts = Vec::with_capacity(channels);
-        let mut overlap_bufs = Vec::with_capacity(channels);
-
-        for ch in 0..channels {
-            let mut buffer = vec![Complex::new(0.0, 0.0); fft_size];
-            for i in 0..ir_len_per_ch {
-                buffer[i] = Complex::new(ir_data[i * channels + ch], 0.0);
-            }
-            fft.process(&mut buffer);
-            ir_ffts.push(buffer);
-            overlap_bufs.push(vec![0.0; ir_len_per_ch - 1]);
-        }
-
-        Self {
-            fft_size,
-            impulse_response_fft: ir_ffts,
-            overlap_buffers: overlap_bufs,
-            channels,
-            ir_len: ir_len_per_ch,
-            fft_forward,
-            fft_inverse,
-            scratch_complex: vec![Complex::new(0.0, 0.0); fft_size],
-        }
-    }
-
-    #[allow(clippy::needless_range_loop)]
-    fn process_into(&mut self, input: &[f64], output: &mut [f64]) {
-        debug_assert_eq!(input.len(), output.len());
-
-        let channels = self.channels;
-        let total_frames = input.len() / channels;
-        let fft_size = self.fft_size;
-        let ir_len = self.ir_len;
-        let step_size = fft_size - ir_len + 1;
-        let inv_n = 1.0 / fft_size as f64;
-
-        output.fill(0.0);
-
-        for ch in 0..channels {
-            let mut processed_frames = 0;
-
-            while processed_frames < total_frames {
-                let chunk_len = std::cmp::min(step_size, total_frames - processed_frames);
-                let scratch = &mut self.scratch_complex;
-                scratch.fill(Complex::new(0.0, 0.0));
-
-                for i in 0..ir_len - 1 {
-                    scratch[i] = Complex::new(self.overlap_buffers[ch][i], 0.0);
-                }
-
-                for i in 0..chunk_len {
-                    scratch[i + ir_len - 1] =
-                        Complex::new(input[(processed_frames + i) * channels + ch], 0.0);
-                }
-
-                self.fft_forward.process(scratch);
-
-                let ir_fft = &self.impulse_response_fft[ch];
-                for i in 0..fft_size {
-                    scratch[i] *= ir_fft[i];
-                }
-
-                self.fft_inverse.process(scratch);
-
-                for i in 0..chunk_len {
-                    output[(processed_frames + i) * channels + ch] =
-                        scratch[i + ir_len - 1].re * inv_n;
-                }
-
-                let overlap = &mut self.overlap_buffers[ch];
-                if chunk_len >= ir_len - 1 {
-                    for i in 0..ir_len - 1 {
-                        overlap[i] = input
-                            [(processed_frames + chunk_len - (ir_len - 1) + i) * channels + ch];
-                    }
-                } else {
-                    let shift = chunk_len;
-                    let keep = ir_len - 1 - shift;
-                    for i in 0..keep {
-                        overlap[i] = overlap[i + shift];
-                    }
-                    for i in 0..shift {
-                        overlap[keep + i] = input[(processed_frames + i) * channels + ch];
-                    }
-                }
-
-                processed_frames += chunk_len;
-            }
-        }
-    }
-
-    #[allow(clippy::needless_range_loop)]
-    fn process_inplace(&mut self, buf: &mut [f64]) {
-        let channels = self.channels;
-        let total_frames = buf.len() / channels;
-        let fft_size = self.fft_size;
-        let ir_len = self.ir_len;
-        let step_size = fft_size - ir_len + 1;
-        let inv_n = 1.0 / fft_size as f64;
-
-        for ch in 0..channels {
-            let mut processed_frames = 0;
-
-            while processed_frames < total_frames {
-                let chunk_len = std::cmp::min(step_size, total_frames - processed_frames);
-                let scratch = &mut self.scratch_complex;
-                scratch.fill(Complex::new(0.0, 0.0));
-
-                for i in 0..ir_len - 1 {
-                    scratch[i] = Complex::new(self.overlap_buffers[ch][i], 0.0);
-                }
-
-                for i in 0..chunk_len {
-                    scratch[i + ir_len - 1] =
-                        Complex::new(buf[(processed_frames + i) * channels + ch], 0.0);
-                }
-
-                self.fft_forward.process(scratch);
-
-                let ir_fft = &self.impulse_response_fft[ch];
-                for i in 0..fft_size {
-                    scratch[i] *= ir_fft[i];
-                }
-
-                self.fft_inverse.process(scratch);
-
-                let overlap = &mut self.overlap_buffers[ch];
-                if chunk_len >= ir_len - 1 {
-                    for i in 0..ir_len - 1 {
-                        overlap[i] =
-                            buf[(processed_frames + chunk_len - (ir_len - 1) + i) * channels + ch];
-                    }
-                } else {
-                    let shift = chunk_len;
-                    let keep = ir_len - 1 - shift;
-                    for i in 0..keep {
-                        overlap[i] = overlap[i + shift];
-                    }
-                    for i in 0..shift {
-                        overlap[keep + i] = buf[(processed_frames + i) * channels + ch];
-                    }
-                }
-
-                for i in 0..chunk_len {
-                    buf[(processed_frames + i) * channels + ch] =
-                        scratch[i + ir_len - 1].re * inv_n;
-                }
-
-                processed_frames += chunk_len;
-            }
-        }
-    }
 }
