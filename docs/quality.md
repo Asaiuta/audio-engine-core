@@ -66,9 +66,9 @@ in-crate processing.
 
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
-| Isolated `SaturationQuality::Oversampled4x` Tube saturation | 30.1 ns | 30.9 us | seven-trial quick median at 512 frames; 18.4% below the compatible 36.9 ns baseline |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 54.9 ns | 56.2 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.54% |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 63.7 ns | 65.3 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.63% |
+| Isolated `SaturationQuality::Oversampled4x` Tube saturation | 22.9 ns | 23.4 us | seven-trial quick median at 512 frames (2026-07-22); 24.0% below the compatible 30.1 ns fixed-dispatch baseline |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 50.3 ns | 51.5 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.50% |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 60.9 ns | 62.4 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.61% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 8.45 ns/input sample | 8.65 us/input buffer | seven-trial quick median (2026-07-21); p95 source-buffer reference utilization 0.118% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato High FFT route) | 9.86 ns/input sample | 10.10 us/input buffer | seven-trial quick median (2026-07-22, `--no-default-features --features rubato`); p95 source-buffer reference utilization 0.091% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
