@@ -4,6 +4,7 @@
 //! impulse responses route to a uniform partitioned engine so callback work is
 //! spread across fixed-size FFT blocks instead of one very large FFT.
 
+use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
 
@@ -57,17 +58,21 @@ impl FFTConvolver {
                 message: "impulse response must contain at least one complete frame",
             });
         }
-        Ok(Self::from_validated_ir(ir_data, channels, block.frames()))
+        Self::from_validated_ir(ir_data, channels, block.frames())
     }
 
-    fn from_validated_ir(ir_data: &[f64], channels: usize, ir_len_per_ch: usize) -> Self {
+    fn from_validated_ir(
+        ir_data: &[f64],
+        channels: usize,
+        ir_len_per_ch: usize,
+    ) -> Result<Self, ProcessError> {
         let engine = if ir_len_per_ch > PARTITIONED_CONVOLUTION_IR_THRESHOLD {
-            ConvolverEngine::Partitioned(Box::new(PartitionedConvolver::new(ir_data, channels)))
+            ConvolverEngine::Partitioned(Box::new(PartitionedConvolver::new(ir_data, channels)?))
         } else {
             ConvolverEngine::OverlapSave(OverlapSaveConvolver::new(ir_data, channels))
         };
 
-        Self { engine }
+        Ok(Self { engine })
     }
 
     /// Get the IR length per channel.
@@ -132,9 +137,16 @@ impl FFTConvolver {
     }
 
     #[inline]
-    fn process_into_validated(&mut self, input: &[f64], output: &mut [f64]) {
+    fn process_into_validated(
+        &mut self,
+        input: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ProcessError> {
         match &mut self.engine {
-            ConvolverEngine::OverlapSave(engine) => engine.process_into(input, output),
+            ConvolverEngine::OverlapSave(engine) => {
+                engine.process_into(input, output);
+                Ok(())
+            }
             ConvolverEngine::Partitioned(engine) => engine.process_into(input, output),
         }
     }
@@ -154,8 +166,7 @@ impl FFTConvolver {
                 message: "input and output must contain the same number of complete frames",
             });
         }
-        self.process_into_validated(input, output);
-        Ok(())
+        self.process_into_validated(input, output)
     }
 
     /// Process audio block, returning a new Vec (convenience wrapper).
@@ -176,9 +187,12 @@ impl FFTConvolver {
     }
 
     #[inline]
-    fn process_inplace_validated(&mut self, buf: &mut [f64]) {
+    fn process_inplace_validated(&mut self, buf: &mut [f64]) -> Result<(), ProcessError> {
         match &mut self.engine {
-            ConvolverEngine::OverlapSave(engine) => engine.process_inplace(buf),
+            ConvolverEngine::OverlapSave(engine) => {
+                engine.process_inplace(buf);
+                Ok(())
+            }
             ConvolverEngine::Partitioned(engine) => engine.process_inplace(buf),
         }
     }
@@ -238,8 +252,7 @@ impl FFTConvolver {
             total_frames,
             start_wet,
             target_wet,
-        );
-        Ok(())
+        )
     }
 
     #[inline]
@@ -250,19 +263,21 @@ impl FFTConvolver {
         total_frames: usize,
         start_wet: f64,
         target_wet: f64,
-    ) {
+    ) -> Result<(), ProcessError> {
         if total_frames == 0 {
-            self.process_inplace_validated(buf);
-            return;
+            return self.process_inplace_validated(buf);
         }
         match &mut self.engine {
-            ConvolverEngine::OverlapSave(engine) => engine.process_inplace_with_wet_transition(
-                buf,
-                start_frame,
-                total_frames,
-                start_wet,
-                target_wet,
-            ),
+            ConvolverEngine::OverlapSave(engine) => {
+                engine.process_inplace_with_wet_transition(
+                    buf,
+                    start_frame,
+                    total_frames,
+                    start_wet,
+                    target_wet,
+                );
+                Ok(())
+            }
             ConvolverEngine::Partitioned(engine) => engine.process_inplace_with_wet_transition(
                 buf,
                 start_frame,
@@ -276,8 +291,7 @@ impl FFTConvolver {
     /// Checked in-place processing entry point.
     pub fn try_process_inplace(&mut self, buf: &mut [f64]) -> Result<(), ProcessError> {
         AudioBlockRef::new(buf, self.channels())?;
-        self.process_inplace_validated(buf);
-        Ok(())
+        self.process_inplace_validated(buf)
     }
 }
 
@@ -635,10 +649,11 @@ struct PartitionedConvolver {
     tail_partitions: usize,
     head: OverlapSaveConvolver,
     channel_states: Vec<PartitionedChannelState>,
-    fft_forward: Arc<dyn rustfft::Fft<f64>>,
-    fft_inverse: Arc<dyn rustfft::Fft<f64>>,
-    scratch_complex: Vec<Complex<f64>>,
-    // Workspace for `Fft::process_with_scratch` (plain `process` allocates per call).
+    fft_forward: Arc<dyn RealToComplex<f64>>,
+    fft_inverse: Arc<dyn ComplexToReal<f64>>,
+    scratch_real: Vec<f64>,
+    scratch_spectrum: Vec<Complex<f64>>,
+    // Workspace for real FFT processing; plain `process` allocates per call.
     fft_scratch: Vec<Complex<f64>>,
     block_pos: usize,
     history_cursor: usize,
@@ -648,15 +663,15 @@ struct PartitionedConvolver {
 
 #[derive(Clone)]
 struct PartitionedChannelState {
-    tail_ir_ffts: Vec<Vec<Complex<f64>>>,
-    input_history_ffts: Vec<Vec<Complex<f64>>>,
+    tail_ir_ffts: Vec<Complex<f64>>,
+    input_history_ffts: Vec<Complex<f64>>,
     input_block: Vec<f64>,
     tail_output_block: Vec<f64>,
     tail_overlap: Vec<f64>,
 }
 
 impl PartitionedConvolver {
-    fn new(ir_data: &[f64], channels: usize) -> Self {
+    fn new(ir_data: &[f64], channels: usize) -> Result<Self, ProcessError> {
         let ir_len = ir_data.len() / channels;
         let partition_size = PARTITIONED_CONVOLUTION_PARTITION_SIZE;
         let fft_size = partition_size * 2;
@@ -664,41 +679,48 @@ impl PartitionedConvolver {
             .saturating_sub(partition_size)
             .div_ceil(partition_size);
 
-        let mut planner = FftPlanner::new();
+        let mut planner = RealFftPlanner::<f64>::new();
         let fft_forward = planner.plan_fft_forward(fft_size);
         let fft_inverse = planner.plan_fft_inverse(fft_size);
+        let spectrum_size = fft_forward.complex_len();
 
         let head_ir = interleaved_ir_head(ir_data, channels, partition_size);
         let head = OverlapSaveConvolver::new(&head_ir, channels);
         let mut channel_states = Vec::with_capacity(channels);
 
         for channel in 0..channels {
-            let mut tail_ir_ffts = Vec::with_capacity(tail_partitions);
+            let mut tail_ir_ffts = vec![Complex::new(0.0, 0.0); tail_partitions * spectrum_size];
 
             for partition in 0..tail_partitions {
                 let start_frame = partition_size * (partition + 1);
                 let frames = ir_len.saturating_sub(start_frame).min(partition_size);
-                let mut spectrum = vec![Complex::new(0.0, 0.0); fft_size];
+                let mut input = vec![0.0; fft_size];
+                let spectrum_start = partition * spectrum_size;
+                let spectrum_end = spectrum_start + spectrum_size;
 
                 for frame in 0..frames {
-                    spectrum[frame] =
-                        Complex::new(ir_data[(start_frame + frame) * channels + channel], 0.0);
+                    input[frame] = ir_data[(start_frame + frame) * channels + channel];
                 }
 
-                fft_forward.process(&mut spectrum);
-                tail_ir_ffts.push(spectrum);
+                fft_forward
+                    .process(&mut input, &mut tail_ir_ffts[spectrum_start..spectrum_end])
+                    .map_err(|_| ProcessError::Backend {
+                        processor: "FFTConvolver",
+                        operation: "construct partition spectra",
+                        message: "real FFT buffer invariant failed",
+                    })?;
             }
 
             channel_states.push(PartitionedChannelState {
                 tail_ir_ffts,
-                input_history_ffts: vec![vec![Complex::new(0.0, 0.0); fft_size]; tail_partitions],
+                input_history_ffts: vec![Complex::new(0.0, 0.0); tail_partitions * spectrum_size],
                 input_block: vec![0.0; partition_size],
                 tail_output_block: vec![0.0; partition_size],
                 tail_overlap: vec![0.0; partition_size],
             });
         }
 
-        Self {
+        Ok(Self {
             channels,
             ir_len,
             partition_size,
@@ -706,12 +728,13 @@ impl PartitionedConvolver {
             tail_partitions,
             head,
             channel_states,
-            scratch_complex: vec![Complex::new(0.0, 0.0); fft_size],
+            scratch_real: vec![0.0; fft_size],
+            scratch_spectrum: vec![Complex::new(0.0, 0.0); spectrum_size],
             fft_scratch: vec![
                 Complex::new(0.0, 0.0);
                 fft_forward
-                    .get_inplace_scratch_len()
-                    .max(fft_inverse.get_inplace_scratch_len())
+                    .get_scratch_len()
+                    .max(fft_inverse.get_scratch_len())
             ],
             fft_forward,
             fft_inverse,
@@ -719,7 +742,7 @@ impl PartitionedConvolver {
             history_cursor: 0,
             inv_fft_size: 1.0 / fft_size as f64,
             inplace_scratch: vec![0.0; partition_size * channels],
-        }
+        })
     }
 
     fn ir_length(&self) -> usize {
@@ -738,12 +761,11 @@ impl PartitionedConvolver {
         self.head.reset();
         self.block_pos = 0;
         self.history_cursor = 0;
-        self.scratch_complex.fill(Complex::new(0.0, 0.0));
+        self.scratch_real.fill(0.0);
+        self.scratch_spectrum.fill(Complex::new(0.0, 0.0));
 
         for state in &mut self.channel_states {
-            for history in &mut state.input_history_ffts {
-                history.fill(Complex::new(0.0, 0.0));
-            }
+            state.input_history_ffts.fill(Complex::new(0.0, 0.0));
             state.input_block.fill(0.0);
             state.tail_output_block.fill(0.0);
             state.tail_overlap.fill(0.0);
@@ -751,15 +773,15 @@ impl PartitionedConvolver {
     }
 
     #[inline]
-    fn process_into(&mut self, input: &[f64], output: &mut [f64]) {
+    fn process_into(&mut self, input: &[f64], output: &mut [f64]) -> Result<(), ProcessError> {
         debug_assert_eq!(input.len(), output.len());
 
         self.head.process_into(input, output);
-        self.add_partitioned_tail(input, output);
+        self.add_partitioned_tail(input, output)
     }
 
     #[inline]
-    fn process_inplace(&mut self, buf: &mut [f64]) {
+    fn process_inplace(&mut self, buf: &mut [f64]) -> Result<(), ProcessError> {
         let total_frames = buf.len() / self.channels;
         let mut processed_frames = 0;
 
@@ -772,10 +794,11 @@ impl PartitionedConvolver {
             self.inplace_scratch[..chunk_samples].copy_from_slice(&buf[start..end]);
             self.head
                 .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end]);
-            self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end]);
+            self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end])?;
 
             processed_frames += chunk_frames;
         }
+        Ok(())
     }
 
     #[inline]
@@ -786,7 +809,7 @@ impl PartitionedConvolver {
         total_frames: usize,
         start_wet: f64,
         target_wet: f64,
-    ) {
+    ) -> Result<(), ProcessError> {
         let total_frames_in_block = buf.len() / self.channels;
         let mut processed_frames = 0;
         while processed_frames < total_frames_in_block {
@@ -797,7 +820,7 @@ impl PartitionedConvolver {
             self.inplace_scratch[..chunk_samples].copy_from_slice(&buf[start..end]);
             self.head
                 .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end]);
-            self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end]);
+            self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end])?;
             for sample in 0..chunk_samples {
                 let frame = start_frame.saturating_add(processed_frames + sample / self.channels);
                 let wet = transition_weight(frame, total_frames, start_wet, target_wet);
@@ -806,15 +829,20 @@ impl PartitionedConvolver {
             }
             processed_frames += chunk_frames;
         }
+        Ok(())
     }
 
     #[inline]
-    fn add_partitioned_tail(&mut self, input: &[f64], output: &mut [f64]) {
+    fn add_partitioned_tail(
+        &mut self,
+        input: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ProcessError> {
         let total_frames = input.len() / self.channels;
 
         for frame in 0..total_frames {
             if self.block_pos == 0 {
-                self.prepare_tail_output_block();
+                self.prepare_tail_output_block()?;
             }
 
             let block_pos = self.block_pos;
@@ -825,17 +853,22 @@ impl PartitionedConvolver {
                 state.input_block[block_pos] = input[sample_index];
             }
 
-            self.advance_partition_block();
+            self.advance_partition_block()?;
         }
+        Ok(())
     }
 
     #[inline]
-    fn add_partitioned_tail_from_scratch(&mut self, input_samples: usize, output: &mut [f64]) {
+    fn add_partitioned_tail_from_scratch(
+        &mut self,
+        input_samples: usize,
+        output: &mut [f64],
+    ) -> Result<(), ProcessError> {
         let total_frames = input_samples / self.channels;
 
         for frame in 0..total_frames {
             if self.block_pos == 0 {
-                self.prepare_tail_output_block();
+                self.prepare_tail_output_block()?;
             }
 
             let block_pos = self.block_pos;
@@ -846,74 +879,114 @@ impl PartitionedConvolver {
                 state.input_block[block_pos] = self.inplace_scratch[sample_index];
             }
 
-            self.advance_partition_block();
+            self.advance_partition_block()?;
         }
+        Ok(())
     }
 
     #[inline]
-    fn advance_partition_block(&mut self) {
+    fn advance_partition_block(&mut self) -> Result<(), ProcessError> {
         self.block_pos += 1;
         if self.block_pos == self.partition_size {
-            self.commit_input_block();
+            self.commit_input_block()?;
             self.block_pos = 0;
         }
+        Ok(())
     }
 
-    fn prepare_tail_output_block(&mut self) {
+    fn prepare_tail_output_block(&mut self) -> Result<(), ProcessError> {
         let history_cursor = self.history_cursor;
         let tail_partitions = self.tail_partitions;
         let partition_size = self.partition_size;
         let inv_fft_size = self.inv_fft_size;
+        let spectrum_size = self.scratch_spectrum.len();
 
         for channel in 0..self.channels {
-            self.scratch_complex.fill(Complex::new(0.0, 0.0));
+            self.scratch_spectrum.fill(Complex::new(0.0, 0.0));
 
             {
                 let state = &self.channel_states[channel];
-                for partition in 0..tail_partitions {
-                    let history_index =
-                        (history_cursor + tail_partitions - 1 - partition) % tail_partitions;
+                // Preserve partition order while walking the circular history
+                // as two contiguous reverse ranges without per-partition modulo.
+                for partition in 0..history_cursor {
+                    let history_slot = history_cursor - 1 - partition;
+                    let history_start = history_slot * spectrum_size;
+                    let ir_start = partition * spectrum_size;
                     accumulate_spectrum_in_place(
-                        &mut self.scratch_complex,
-                        &state.input_history_ffts[history_index],
-                        &state.tail_ir_ffts[partition],
+                        &mut self.scratch_spectrum,
+                        &state.input_history_ffts[history_start..history_start + spectrum_size],
+                        &state.tail_ir_ffts[ir_start..ir_start + spectrum_size],
+                    );
+                }
+                for partition in history_cursor..tail_partitions {
+                    let history_slot = tail_partitions + history_cursor - 1 - partition;
+                    let history_start = history_slot * spectrum_size;
+                    let ir_start = partition * spectrum_size;
+                    accumulate_spectrum_in_place(
+                        &mut self.scratch_spectrum,
+                        &state.input_history_ffts[history_start..history_start + spectrum_size],
+                        &state.tail_ir_ffts[ir_start..ir_start + spectrum_size],
                     );
                 }
             }
 
             self.fft_inverse
-                .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
+                .process_with_scratch(
+                    &mut self.scratch_spectrum,
+                    &mut self.scratch_real,
+                    &mut self.fft_scratch,
+                )
+                .map_err(|_| ProcessError::Backend {
+                    processor: "FFTConvolver",
+                    operation: "inverse partition FFT",
+                    message: "real FFT buffer invariant failed",
+                })?;
 
             let state = &mut self.channel_states[channel];
             for frame in 0..partition_size {
                 state.tail_output_block[frame] =
-                    self.scratch_complex[frame].re * inv_fft_size + state.tail_overlap[frame];
+                    self.scratch_real[frame] * inv_fft_size + state.tail_overlap[frame];
                 state.tail_overlap[frame] =
-                    self.scratch_complex[frame + partition_size].re * inv_fft_size;
+                    self.scratch_real[frame + partition_size] * inv_fft_size;
             }
         }
+        Ok(())
     }
 
-    fn commit_input_block(&mut self) {
+    fn commit_input_block(&mut self) -> Result<(), ProcessError> {
         let history_slot = self.history_cursor;
         let partition_size = self.partition_size;
+        let spectrum_size = self.scratch_spectrum.len();
 
         for channel in 0..self.channels {
-            self.scratch_complex[..partition_size]
-                .iter_mut()
-                .zip(&self.channel_states[channel].input_block)
-                .for_each(|(dst, &sample)| *dst = Complex::new(sample, 0.0));
-            self.scratch_complex[partition_size..].fill(Complex::new(0.0, 0.0));
+            self.scratch_real[..partition_size]
+                .copy_from_slice(&self.channel_states[channel].input_block);
+            self.scratch_real[partition_size..].fill(0.0);
 
             self.fft_forward
-                .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
+                .process_with_scratch(
+                    &mut self.scratch_real,
+                    &mut self.scratch_spectrum,
+                    &mut self.fft_scratch,
+                )
+                .map_err(|_| ProcessError::Backend {
+                    processor: "FFTConvolver",
+                    operation: "forward partition FFT",
+                    message: "real FFT buffer invariant failed",
+                })?;
 
             let state = &mut self.channel_states[channel];
-            state.input_history_ffts[history_slot].copy_from_slice(&self.scratch_complex);
+            let spectrum_start = history_slot * spectrum_size;
+            state.input_history_ffts[spectrum_start..spectrum_start + spectrum_size]
+                .copy_from_slice(&self.scratch_spectrum);
             state.input_block.fill(0.0);
         }
 
-        self.history_cursor = (self.history_cursor + 1) % self.tail_partitions;
+        self.history_cursor += 1;
+        if self.history_cursor == self.tail_partitions {
+            self.history_cursor = 0;
+        }
+        Ok(())
     }
 }
 
