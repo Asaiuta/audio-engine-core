@@ -26,12 +26,12 @@ const VALIDATION_BUFFERS: usize = 8;
 const RESAMPLER_ALGORITHM_LABEL: &str = "streaming default quality/phase";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_LABEL: &str =
-    "streaming quality-aware FFT/sinc routing (High FFT, UltraHigh sinc)";
+    "native-interleaved streaming FFT/sinc routing (High FFT, UltraHigh sinc)";
 
 #[cfg(feature = "soxr")]
 const RESAMPLER_ALGORITHM_ID: &str = "streaming_default";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-const RESAMPLER_ALGORITHM_ID: &str = "streaming_quality_aware_fft_sinc";
+const RESAMPLER_ALGORITHM_ID: &str = "streaming_native_interleaved_fft_sinc";
 
 fn resampler_algorithm_label() -> String {
     format!("{RESAMPLER_BACKEND_NAME} {RESAMPLER_ALGORITHM_LABEL}")
