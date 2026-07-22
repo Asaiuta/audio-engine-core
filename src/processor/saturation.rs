@@ -693,14 +693,41 @@ impl Saturation {
             return;
         }
 
+        match self.quality {
+            SaturationQuality::Oversampled2x => self.process_fullband_oversampled_fixed::<2, 17>(
+                samples,
+                channels,
+                effect_weight,
+                &OVERSAMPLING_2X_FILTER,
+            ),
+            SaturationQuality::Oversampled4x => self
+                .process_fullband_oversampled_fixed::<4, OVERSAMPLING_MAX_FILTER_TAPS>(
+                    samples,
+                    channels,
+                    effect_weight,
+                    &OVERSAMPLING_4X_FILTER,
+                ),
+            SaturationQuality::Direct => {}
+        }
+    }
+
+    #[inline]
+    fn process_fullband_oversampled_fixed<const RATIO: usize, const TAPS: usize>(
+        &mut self,
+        samples: &mut [f64],
+        channels: usize,
+        effect_weight: f64,
+        filter: &[f64; TAPS],
+    ) {
+        debug_assert!(RATIO > 1);
+        debug_assert!(TAPS > 0 && TAPS <= OVERSAMPLING_MAX_FILTER_TAPS);
+
         let input_gain = self.input_gain_linear;
         let output_gain = self.output_gain_linear;
         let threshold = self.threshold;
         let drive_plus1 = 1.0 + self.drive;
         let mix = self.mix;
         let sat_type = self.sat_type;
-        let ratio = self.quality.ratio();
-        let filter = self.quality.decimation_filter();
 
         let frames = samples.len() / channels;
         for frame in 0..frames {
@@ -710,10 +737,9 @@ impl Saturation {
                 let dry = raw * input_gain;
                 let delayed_raw = self.delay_states[ch].push_raw(raw, self.delay_index);
                 let delayed_dry = self.delay_states[ch].push_dry(dry, self.delay_index);
-                let delta = Self::process_oversampled_delta(
+                let delta = Self::process_oversampled_delta_fixed::<RATIO, TAPS>(
                     &mut self.oversampling_states[ch],
                     dry,
-                    ratio,
                     filter,
                     sat_type,
                     threshold,
@@ -732,14 +758,6 @@ impl Saturation {
     /// Only saturates frequencies above the cutoff.
     /// P1-5 fix: Supports arbitrary channel count (was hardcoded to L/R only).
     fn process_highpass(&mut self, samples: &mut [f64], channels: usize, effect_weight: f64) {
-        let input_gain = self.input_gain_linear;
-        let output_gain = self.output_gain_linear;
-        let alpha = self.hpf_coef;
-        let threshold = self.threshold;
-        let drive_plus1 = 1.0 + self.drive;
-        let mix = self.mix;
-        let sat_type = self.sat_type;
-
         // HPF state is sized off the audio thread via `set_channel_count`; never
         // resize here, which would allocate on the realtime audio thread. If this
         // fires, a caller processed more channels than it was set up for.
@@ -762,14 +780,51 @@ impl Saturation {
             return;
         }
 
+        match self.quality {
+            SaturationQuality::Direct => {
+                self.process_highpass_fixed::<1, 0>(samples, channels, effect_weight, &[])
+            }
+            SaturationQuality::Oversampled2x => self.process_highpass_fixed::<2, 17>(
+                samples,
+                channels,
+                effect_weight,
+                &OVERSAMPLING_2X_FILTER,
+            ),
+            SaturationQuality::Oversampled4x => self
+                .process_highpass_fixed::<4, OVERSAMPLING_MAX_FILTER_TAPS>(
+                    samples,
+                    channels,
+                    effect_weight,
+                    &OVERSAMPLING_4X_FILTER,
+                ),
+        }
+    }
+
+    #[inline]
+    fn process_highpass_fixed<const RATIO: usize, const TAPS: usize>(
+        &mut self,
+        samples: &mut [f64],
+        channels: usize,
+        effect_weight: f64,
+        filter: &[f64; TAPS],
+    ) {
+        debug_assert!(
+            (RATIO == 1 && TAPS == 0)
+                || (RATIO > 1 && TAPS > 0 && TAPS <= OVERSAMPLING_MAX_FILTER_TAPS)
+        );
+
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
+        let alpha = self.hpf_coef;
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let sat_type = self.sat_type;
+
         let frames = samples.len() / channels;
         for frame in 0..frames {
             for ch in 0..channels {
                 let idx = frame * channels + ch;
-                if idx >= samples.len() {
-                    break;
-                }
-
                 let raw = samples[idx];
                 let input = raw * input_gain;
 
@@ -790,16 +845,15 @@ impl Saturation {
                 }
 
                 // Apply saturation to high frequencies only.
-                let delta = if self.quality == SaturationQuality::Direct {
+                let delta = if TAPS == 0 {
                     let saturated =
                         Self::apply_thresholded_saturation(sat_type, high, threshold, drive_plus1);
                     self.delay_states[ch].push_delta(saturated - high, self.delay_index)
                 } else {
-                    Self::process_oversampled_delta(
+                    Self::process_oversampled_delta_fixed::<RATIO, TAPS>(
                         &mut self.oversampling_states[ch],
                         high,
-                        self.quality.ratio(),
-                        self.quality.decimation_filter(),
+                        filter,
                         sat_type,
                         threshold,
                         drive_plus1,
@@ -853,30 +907,47 @@ impl Saturation {
         input + (shaped - input) * weight
     }
 
-    #[inline]
-    fn process_oversampled_delta(
+    #[inline(always)]
+    fn process_oversampled_delta_fixed<const RATIO: usize, const TAPS: usize>(
         state: &mut OversamplingChannelState,
         input: f64,
-        ratio: usize,
-        filter: &[f64],
+        filter: &[f64; TAPS],
         sat_type: SaturationType,
         threshold: f64,
         drive_plus1: f64,
     ) -> f64 {
-        let final_delta = Self::advance_oversampled_state(
+        Self::advance_oversampled_state_fixed::<RATIO, TAPS>(
             state,
             input,
-            ratio,
-            filter,
             sat_type,
             threshold,
             drive_plus1,
         );
-        if filter.is_empty() {
-            final_delta
-        } else {
-            state.evaluate(filter)
+        state.evaluate(filter)
+    }
+
+    #[inline(always)]
+    fn advance_oversampled_state_fixed<const RATIO: usize, const TAPS: usize>(
+        state: &mut OversamplingChannelState,
+        input: f64,
+        sat_type: SaturationType,
+        threshold: f64,
+        drive_plus1: f64,
+    ) {
+        if !state.initialized {
+            state.initialize(input);
         }
+
+        let previous = state.previous_input;
+        let delta = input - previous;
+        for phase in 1..=RATIO {
+            let t = phase as f64 / RATIO as f64;
+            let interpolated = previous + delta * t;
+            let shaped =
+                Self::apply_thresholded_saturation(sat_type, interpolated, threshold, drive_plus1);
+            state.push(shaped - interpolated, TAPS);
+        }
+        state.previous_input = input;
     }
 
     #[inline]
@@ -1783,5 +1854,54 @@ mod tests {
                 sat.process_with_channels(&mut samples, 2);
             }
         });
+    }
+
+    fn assert_fixed_oversampling_matches_dynamic<const RATIO: usize, const TAPS: usize>(
+        filter: &[f64; TAPS],
+    ) {
+        let inputs = [0.0, 0.91, -0.83, 0.12, 0.76, -0.38, 0.97, -0.99, 0.44, 0.0];
+
+        for sat_type in [
+            SaturationType::Tape,
+            SaturationType::Tube,
+            SaturationType::Transistor,
+        ] {
+            let mut dynamic = OversamplingChannelState::default();
+            let mut fixed = OversamplingChannelState::default();
+            for input in inputs {
+                Saturation::advance_oversampled_state(
+                    &mut dynamic,
+                    input,
+                    RATIO,
+                    filter,
+                    sat_type,
+                    0.3,
+                    1.92,
+                );
+                Saturation::advance_oversampled_state_fixed::<RATIO, TAPS>(
+                    &mut fixed, input, sat_type, 0.3, 1.92,
+                );
+
+                assert_eq!(
+                    fixed.evaluate(filter).to_bits(),
+                    dynamic.evaluate(filter).to_bits(),
+                    "ratio={RATIO} taps={TAPS} type={sat_type:?} input={input}"
+                );
+                assert_eq!(
+                    fixed.previous_input.to_bits(),
+                    dynamic.previous_input.to_bits()
+                );
+                assert_eq!(fixed.filter_index, dynamic.filter_index);
+                assert_eq!(fixed.filter_history, dynamic.filter_history);
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_oversampling_kernels_match_dynamic_reference_bit_for_bit() {
+        assert_fixed_oversampling_matches_dynamic::<2, 17>(&OVERSAMPLING_2X_FILTER);
+        assert_fixed_oversampling_matches_dynamic::<4, OVERSAMPLING_MAX_FILTER_TAPS>(
+            &OVERSAMPLING_4X_FILTER,
+        );
     }
 }
