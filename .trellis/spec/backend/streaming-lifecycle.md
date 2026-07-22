@@ -305,6 +305,126 @@ while generated < max_tail_frames {
 }
 ```
 
+## Scenario: Feature-Selected Resampler Channel Architecture
+
+### 1. Scope / Trigger
+
+Apply this scenario when changing `StreamingResampler`, a backend adapter,
+Rubato channel construction, reusable resampler memory accounting, or the
+Rubato High/UltraHigh routing policy.
+
+### 2. Signatures
+
+```rust
+StreamingResampler::with_quality(
+    channels: usize,
+    from_rate: u32,
+    to_rate: u32,
+    phase: PhaseResponse,
+    quality: ResampleQuality,
+) -> Result<StreamingResampler, ResamplerError>
+
+StreamingResampler::working_buffer_bytes(
+    channels: usize,
+    from_rate: u32,
+    to_rate: u32,
+) -> Result<usize, ResamplerError>
+
+// Private pure-Rubato adapter boundary.
+MonoBackend::new_interleaved(
+    from_rate: u32,
+    to_rate: u32,
+    phase: PhaseResponse,
+    quality: ResampleQuality,
+    channels: usize,
+) -> Result<MonoBackend, String>
+```
+
+### 3. Contracts
+
+* Feature precedence remains `soxr` first. SoXR constructs one native mono
+  stream per channel and owns the adapter's preallocated deinterleave,
+  per-channel output, and reinterleave scratch.
+* A pure `rubato` build constructs exactly one Rubato engine with the complete
+  configured channel count. `process` and `drain` pass caller-owned interleaved
+  buffers directly to that engine. Do not duplicate the sinc table or FFT plan
+  by constructing one Rubato engine per channel.
+* Rubato's High tier keeps common reduced ratios on the FFT engine; UltraHigh
+  keeps the 256-tap, 512x-oversampled cubic sinc engine. Pathological reduced
+  ratios also use sinc. A performance optimization must not silently reroute
+  UltraHigh through the lower-quality FFT path.
+* `working_buffer_bytes` accounts for reusable adapter-owned PCM scratch, not
+  opaque backend engine allocations. It therefore returns the exact SoXR
+  scratch capacity in bytes and zero for pure Rubato. Output-render setup
+  allocation measurements capture Rubato's internal engine memory.
+* Backend consumed/produced values are frame counts. Interleaved slice lengths
+  must be divisible by the configured channel count before division or
+  slicing, and returned progress must be checked against caller frame
+  capacities.
+* Runtime environment switches must not select production resampler
+  architecture. Temporary A/B switches are removed after measurements, and a
+  changed architecture receives a new benchmark algorithm identifier.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| `channels == 0` or either rate is zero | `ResamplerError::InitializationFailed` before backend processing |
+| Rubato input/output length is not divisible by channels | static backend error; no division, slice overrun, or panic |
+| Backend consumed/produced frames exceed caller capacity | allocation-free `ProcessError::Backend` |
+| Pure-Rubato `working_buffer_bytes` with valid geometry | `Ok(0)` |
+| SoXR `working_buffer_bytes` with valid geometry | exact sum of output scratch plus every channel input/output capacity |
+| UltraHigh at a common audio ratio | sinc engine with the retained Cubic/512 parameters |
+
+### 5. Good / Base / Bad Cases
+
+* Good: stereo Rubato uses one two-channel engine, produces the same duration
+  and channel samples as two independent mono reference engines within the
+  measured floating-point bound, and allocates nothing after setup.
+* Base: SoXR keeps independent native streams because that backend exposes the
+  established mono adapter contract; channel progress must remain identical.
+* Bad: report zero total setup memory because pure Rubato has zero adapter
+  scratch; the engine still allocates internal tables and FIFOs during setup.
+* Bad: retain a hidden environment variable that switches between mono and
+  interleaved production paths, making benchmark identity and runtime behavior
+  non-deterministic.
+
+### 6. Tests Required
+
+* Build and test both backend selections: default/all-features SoXR and
+  `--no-default-features --features rubato`.
+* Compare one native multichannel Rubato engine against independent mono
+  engines for both High FFT and UltraHigh sinc. Assert equal output lengths and
+  a per-sample bound no weaker than `1e-14` for the current `f64` engines.
+* Keep random input chunking, short/long duration, impulse alignment, terminal
+  drain/reset, and process/finish no-allocation coverage.
+* Assert `working_buffer_bytes` equals compiled adapter capacities under SoXR
+  and zero under pure Rubato. Measure total Rubato setup memory in the
+  output-render benchmark instead of adding opaque engine estimates.
+* Run quality, output-render, and streaming benchmarks after a channel
+  architecture change; update the streaming algorithm identifier so stale
+  baselines cannot compare as the same implementation.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Duplicates Rubato's sinc table/FFT plan and adapter channel-copy work.
+let backends = (0..channels)
+    .map(|_| MonoBackend::new(from_rate, to_rate, phase, quality))
+    .collect::<Result<Vec<_>, _>>()?;
+```
+
+#### Correct
+
+```rust
+// One native interleaved engine shares immutable resampling structures.
+let backends = vec![MonoBackend::new_interleaved(
+    from_rate, to_rate, phase, quality, channels,
+)?];
+```
+
 ## Scenario: Dynamic Convolver Publication And Reclamation
 
 ### 1. Scope / Trigger
