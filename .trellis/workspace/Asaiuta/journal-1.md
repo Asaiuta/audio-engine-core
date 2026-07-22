@@ -702,3 +702,36 @@ Specialized saturation oversampling into fixed 2x/4x block kernels, added bit-fo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Optimize Saturation mirrored FIR history
+
+**Date**: 2026-07-22
+**Task**: Optimize Saturation mirrored FIR history
+
+### Summary
+
+Replaced circular oversampling FIR traversal with mirrored newest-to-oldest history, added an independent bit-for-bit legacy oracle, and validated stable callback, quality, output-render, Clippy, rustdoc, and packaging gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f1f3c87` | (see git log) |
+| `287b161` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
