@@ -1,11 +1,11 @@
 //! High-quality streaming resampling with a pluggable compile-time backend.
 //!
-//! Two backends implement the same mono-channel streaming contract (arbitrary
-//! input granularity, duration-aligned drain, `clear` restoring initial
-//! state): the native SoXR / SoX VHQ backend (`soxr` feature, default) and
-//! the pure-Rust rubato backend (`rubato` feature), which routes common sample
-//! rate ratios through FFT resampling up to High quality and uses windowed sinc
-//! for UltraHigh or pathological ratios. When both features are enabled, SoXR
+//! Two backends implement the same streaming contract (arbitrary input
+//! granularity, duration-aligned drain, `clear` restoring initial state): the
+//! native SoXR / SoX VHQ backend (`soxr` feature, default) and the pure-Rust
+//! rubato backend (`rubato` feature), which routes common sample-rate ratios
+//! through FFT resampling up to High quality and uses windowed sinc for
+//! UltraHigh or pathological ratios. When both features are enabled, SoXR
 //! wins. The public `Resampler` / `StreamingResampler` API is identical for
 //! both.
 
@@ -35,7 +35,7 @@ use soxr_backend::{MonoBackend, BACKEND_NAME};
 /// re-deriving feature-precedence logic.
 pub const RESAMPLER_BACKEND_NAME: &str = BACKEND_NAME;
 
-/// Per-call progress reported by a mono backend stream.
+/// Per-call progress reported by a selected backend stream.
 struct BackendProgress {
     input_frames: usize,
     output_frames: usize,
@@ -130,6 +130,7 @@ fn interleave_channel_outputs_to_vec(
     out_frames
 }
 
+#[cfg(feature = "soxr")]
 fn interleave_channel_outputs_to_slice(
     channel_outputs: &[Vec<f64>],
     channels: usize,
@@ -350,9 +351,10 @@ impl Resampler {
     }
 }
 
-/// Stateful streaming resampler that maintains one backend stream per channel
-/// across chunks. This is used by AudioPipeline for memory-efficient streaming
-/// resampling.
+/// Stateful streaming resampler that maintains backend state across chunks.
+/// SoXR uses one mono stream per channel; Rubato uses one native interleaved
+/// stream for the complete block. This is used by AudioPipeline for
+/// memory-efficient streaming resampling.
 ///
 /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {
@@ -360,10 +362,13 @@ pub struct StreamingResampler {
     channels: usize,
     from_rate: u32,
     to_rate: u32,
+    #[cfg(feature = "soxr")]
     /// Pre-allocated output scratch buffer (per channel, reused)
     output_scratch: Vec<f64>,
+    #[cfg(feature = "soxr")]
     /// Pre-allocated channel input buffers (Defect 33 fix)
     channel_inputs: Vec<Vec<f64>>,
+    #[cfg(feature = "soxr")]
     /// Pre-allocated channel output buffers (Defect 33 fix)
     channel_outputs: Vec<Vec<f64>>,
     /// End-of-stream has been signalled, but native drain may still have data.
@@ -393,19 +398,31 @@ fn streaming_buffer_layout(
     }
     let ratio = to_rate as f64 / from_rate as f64;
     let max_output_per_channel = (STREAMING_MAX_INPUT_FRAMES as f64 * ratio).ceil() as usize + 64;
-    let input_samples = channels
-        .checked_mul(STREAMING_MAX_INPUT_FRAMES)
-        .ok_or_else(|| ResamplerError::InitializationFailed("input capacity overflow".into()))?;
-    let channel_output_samples = channels
-        .checked_mul(max_output_per_channel)
-        .ok_or_else(|| ResamplerError::InitializationFailed("output capacity overflow".into()))?;
-    let total_samples = max_output_per_channel
-        .checked_add(input_samples)
-        .and_then(|samples| samples.checked_add(channel_output_samples))
-        .ok_or_else(|| ResamplerError::InitializationFailed("working-set overflow".into()))?;
-    let pcm_bytes = total_samples
-        .checked_mul(std::mem::size_of::<f64>())
-        .ok_or_else(|| ResamplerError::InitializationFailed("working-set byte overflow".into()))?;
+    #[cfg(feature = "soxr")]
+    let pcm_bytes = {
+        let input_samples = channels
+            .checked_mul(STREAMING_MAX_INPUT_FRAMES)
+            .ok_or_else(|| {
+                ResamplerError::InitializationFailed("input capacity overflow".into())
+            })?;
+        let channel_output_samples =
+            channels
+                .checked_mul(max_output_per_channel)
+                .ok_or_else(|| {
+                    ResamplerError::InitializationFailed("output capacity overflow".into())
+                })?;
+        let total_samples = max_output_per_channel
+            .checked_add(input_samples)
+            .and_then(|samples| samples.checked_add(channel_output_samples))
+            .ok_or_else(|| ResamplerError::InitializationFailed("working-set overflow".into()))?;
+        total_samples
+            .checked_mul(std::mem::size_of::<f64>())
+            .ok_or_else(|| {
+                ResamplerError::InitializationFailed("working-set byte overflow".into())
+            })?
+    };
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    let pcm_bytes = 0;
     Ok(StreamingBufferLayout {
         max_output_per_channel,
         pcm_bytes,
@@ -413,8 +430,11 @@ fn streaming_buffer_layout(
 }
 
 impl StreamingResampler {
-    /// Exact `f64` capacity bytes allocated by the reusable streaming buffers.
-    /// Callers can reserve this amount before constructing the resampler.
+    /// Exact `f64` capacity bytes allocated by reusable adapter scratch.
+    ///
+    /// Rubato processes caller-owned interleaved buffers directly, so this is
+    /// zero for the pure-Rust backend; Rubato's own engine storage is part of
+    /// setup allocation rather than adapter scratch.
     pub fn working_buffer_bytes(
         channels: usize,
         from_rate: u32,
@@ -443,9 +463,10 @@ impl StreamingResampler {
         (input_frames as f64 * ratio).ceil() as usize * self.channels + self.channels * 64
     }
 
-    /// Maximum interleaved output produced by one internal Soxr step.
+    /// Maximum interleaved output produced by one internal backend step.
     pub fn max_output_samples_per_chunk(&self) -> usize {
-        self.output_scratch.len() * self.channels
+        streaming_buffer_layout(self.channels, self.from_rate, self.to_rate)
+            .map_or(0, |layout| layout.max_output_per_channel * self.channels)
     }
 
     pub fn input_frames_for_output_frames(&self, output_frames: usize) -> usize {
@@ -502,7 +523,9 @@ impl StreamingResampler {
             ));
         }
 
+        #[cfg(feature = "soxr")]
         let mut backends = Vec::with_capacity(channels);
+        #[cfg(feature = "soxr")]
         for ch_idx in 0..channels {
             match MonoBackend::new(from_rate, to_rate, phase, quality) {
                 Ok(backend) => backends.push(backend),
@@ -514,32 +537,60 @@ impl StreamingResampler {
                 }
             }
         }
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        let backends = vec![
+            MonoBackend::new_interleaved(from_rate, to_rate, phase, quality, channels).map_err(
+                |error| {
+                    ResamplerError::InitializationFailed(format!(
+                        "{BACKEND_NAME} failed: {error} (channels={channels}, from={from_rate}Hz, to={to_rate}Hz)"
+                    ))
+                },
+            )?,
+        ];
 
-        // Pre-allocate all buffers from the same checked layout exposed to
-        // callers for reservation-before-allocation accounting.
+        // Pre-allocate all SoXR buffers from the same checked layout exposed
+        // to callers for reservation-before-allocation accounting.
+        #[cfg(feature = "soxr")]
         let layout = streaming_buffer_layout(channels, from_rate, to_rate)?;
+        #[cfg(feature = "soxr")]
         let max_output_per_channel = layout.max_output_per_channel;
 
         // Pre-allocate channel buffers
-        let channel_inputs: Vec<Vec<f64>> = (0..channels)
-            .map(|_| Vec::with_capacity(STREAMING_MAX_INPUT_FRAMES))
-            .collect();
-        let channel_outputs: Vec<Vec<f64>> = (0..channels)
-            .map(|_| Vec::with_capacity(max_output_per_channel))
-            .collect();
+        #[cfg(feature = "soxr")]
+        let legacy_channel_inputs = || {
+            (0..channels)
+                .map(|_| Vec::with_capacity(STREAMING_MAX_INPUT_FRAMES))
+                .collect::<Vec<Vec<f64>>>()
+        };
+        #[cfg(feature = "soxr")]
+        let legacy_channel_outputs = || {
+            (0..channels)
+                .map(|_| Vec::with_capacity(max_output_per_channel))
+                .collect::<Vec<Vec<f64>>>()
+        };
+        #[cfg(feature = "soxr")]
+        let (channel_inputs, channel_outputs, output_scratch) = (
+            legacy_channel_inputs(),
+            legacy_channel_outputs(),
+            vec![0.0; max_output_per_channel],
+        );
         Ok(Self {
             backends,
             channels,
             from_rate,
             to_rate,
-            output_scratch: vec![0.0; max_output_per_channel],
+            #[cfg(feature = "soxr")]
+            output_scratch,
+            #[cfg(feature = "soxr")]
             channel_inputs,
+            #[cfg(feature = "soxr")]
             channel_outputs,
             finishing: false,
             finished: false,
         })
     }
 
+    #[cfg(feature = "soxr")]
     fn clear_work_buffers(&mut self) {
         for ch_buf in &mut self.channel_inputs {
             ch_buf.clear();
@@ -572,6 +623,18 @@ impl StreamingResampler {
     }
 
     fn process_out_of_place(
+        &mut self,
+        input: AudioBlockRef<'_>,
+        output: AudioBlockMut<'_>,
+    ) -> Result<ProcessProgress, ProcessError> {
+        #[cfg(feature = "soxr")]
+        return self.process_out_of_place_mono(input, output);
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        return self.process_out_of_place_interleaved(input, output);
+    }
+
+    #[cfg(feature = "soxr")]
+    fn process_out_of_place_mono(
         &mut self,
         input: AudioBlockRef<'_>,
         mut output: AudioBlockMut<'_>,
@@ -708,7 +771,77 @@ impl StreamingResampler {
         ))
     }
 
-    fn drain_into(
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    fn process_out_of_place_interleaved(
+        &mut self,
+        input: AudioBlockRef<'_>,
+        mut output: AudioBlockMut<'_>,
+    ) -> Result<ProcessProgress, ProcessError> {
+        let channels = self.channels;
+        let input_frames = input.frames();
+        let output_frames = output.frames();
+
+        if self.from_rate == self.to_rate {
+            let frames = input_frames.min(output_frames);
+            let samples = frames * channels;
+            output.samples_mut()[..samples].copy_from_slice(&input.samples()[..samples]);
+            let state = if frames < input_frames {
+                ProcessState::NeedOutput
+            } else {
+                ProcessState::NeedInput
+            };
+            return Ok(ProcessProgress::new(frames, frames, state).with_bypassed(true));
+        }
+
+        let processed = self.backends[0]
+            .process(input.samples(), output.samples_mut())
+            .map_err(|message| ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "process",
+                message,
+            })?;
+        if processed.input_frames > input_frames || processed.output_frames > output_frames {
+            return Err(ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "process",
+                message: "backend returned out-of-bounds progress",
+            });
+        }
+        if processed.input_frames == 0 && processed.output_frames == 0 {
+            return Err(ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "process",
+                message: "backend made no progress",
+            });
+        }
+
+        let state = if processed.input_frames == input_frames {
+            ProcessState::NeedInput
+        } else if processed.output_frames == output_frames {
+            ProcessState::NeedOutput
+        } else {
+            return Err(ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "process",
+                message: "backend stopped before reaching an input/output boundary",
+            });
+        };
+        Ok(ProcessProgress::new(
+            processed.input_frames,
+            processed.output_frames,
+            state,
+        ))
+    }
+
+    fn drain_into(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
+        #[cfg(feature = "soxr")]
+        return self.drain_into_mono(output);
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        return self.drain_into_interleaved(output);
+    }
+
+    #[cfg(feature = "soxr")]
+    fn drain_into_mono(
         &mut self,
         mut output: AudioBlockMut<'_>,
     ) -> Result<ProcessProgress, ProcessError> {
@@ -798,6 +931,49 @@ impl StreamingResampler {
             ProcessState::NeedOutput,
         ))
     }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    fn drain_into_interleaved(
+        &mut self,
+        mut output: AudioBlockMut<'_>,
+    ) -> Result<ProcessProgress, ProcessError> {
+        if self.finished {
+            return Ok(ProcessProgress::finished(0));
+        }
+        self.finishing = true;
+        if output.frames() == 0 {
+            return Ok(ProcessProgress::new(0, 0, ProcessState::NeedOutput));
+        }
+
+        let output_frames = output.frames();
+        let produced_frames = self.backends[0]
+            .drain(output.samples_mut())
+            .map_err(|message| ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "finish",
+                message,
+            })?;
+        if produced_frames > output_frames {
+            return Err(ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "finish",
+                message: "backend drain returned out-of-bounds progress",
+            });
+        }
+        if produced_frames == 0 {
+            self.finished = true;
+            Ok(ProcessProgress::finished(0))
+        } else if produced_frames == output_frames {
+            Ok(ProcessProgress::new(
+                0,
+                produced_frames,
+                ProcessState::NeedOutput,
+            ))
+        } else {
+            self.finished = true;
+            Ok(ProcessProgress::finished(produced_frames))
+        }
+    }
 }
 
 impl StreamingProcessor for StreamingResampler {
@@ -845,6 +1021,7 @@ impl StreamingProcessor for StreamingResampler {
                 });
             }
         }
+        #[cfg(feature = "soxr")]
         self.clear_work_buffers();
         self.finishing = false;
         self.finished = false;
@@ -974,7 +1151,9 @@ mod tests {
 
     #[test]
     fn working_buffer_bytes_matches_internal_capacities() {
+        #[cfg(feature = "soxr")]
         let resampler = StreamingResampler::new(6, 44_100, 192_000).unwrap();
+        #[cfg(feature = "soxr")]
         let actual_samples = resampler.output_scratch.capacity()
             + resampler
                 .channel_inputs
@@ -986,6 +1165,8 @@ mod tests {
                 .iter()
                 .map(Vec::capacity)
                 .sum::<usize>();
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        let actual_samples = 0usize;
         assert_eq!(
             StreamingResampler::working_buffer_bytes(6, 44_100, 192_000).unwrap(),
             actual_samples * std::mem::size_of::<f64>()
