@@ -132,7 +132,8 @@ impl SaturationQuality {
 struct OversamplingChannelState {
     previous_input: f64,
     initialized: bool,
-    filter_history: [f64; OVERSAMPLING_MAX_FILTER_TAPS],
+    filter_history: [f64; OVERSAMPLING_MAX_FILTER_TAPS * 2],
+    /// Start of the contiguous newest-to-oldest window for the active filter.
     filter_index: usize,
 }
 
@@ -141,7 +142,7 @@ impl Default for OversamplingChannelState {
         Self {
             previous_input: 0.0,
             initialized: false,
-            filter_history: [0.0; OVERSAMPLING_MAX_FILTER_TAPS],
+            filter_history: [0.0; OVERSAMPLING_MAX_FILTER_TAPS * 2],
             filter_index: 0,
         }
     }
@@ -165,33 +166,22 @@ impl OversamplingChannelState {
     #[inline]
     fn push(&mut self, sample: f64, len: usize) {
         debug_assert!(len > 0 && len <= OVERSAMPLING_MAX_FILTER_TAPS);
-        self.filter_history[self.filter_index] = sample;
-        self.filter_index += 1;
-        if self.filter_index == len {
-            self.filter_index = 0;
-        }
-    }
-
-    #[inline]
-    fn evaluate(&self, coefficients: &[f64]) -> f64 {
-        if coefficients.is_empty() {
-            return 0.0;
-        }
-
-        let len = coefficients.len();
-        let mut acc = 0.0;
-        let mut history_index = if self.filter_index == 0 {
+        self.filter_index = if self.filter_index == 0 {
             len - 1
         } else {
             self.filter_index - 1
         };
-        for &coefficient in coefficients {
-            acc += coefficient * self.filter_history[history_index];
-            history_index = if history_index == 0 {
-                len - 1
-            } else {
-                history_index - 1
-            };
+        self.filter_history[self.filter_index] = sample;
+        self.filter_history[self.filter_index + len] = sample;
+    }
+
+    #[inline(always)]
+    fn evaluate<const TAPS: usize>(&self, coefficients: &[f64; TAPS]) -> f64 {
+        debug_assert!(TAPS > 0 && TAPS <= OVERSAMPLING_MAX_FILTER_TAPS);
+        let mut acc = 0.0;
+        let history = &self.filter_history[self.filter_index..self.filter_index + TAPS];
+        for (&coefficient, &sample) in coefficients.iter().zip(history) {
+            acc += coefficient * sample;
         }
 
         acc
@@ -1132,6 +1122,54 @@ use super::dsp::db_to_linear;
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy)]
+    struct LegacyCircularFirHistory {
+        samples: [f64; OVERSAMPLING_MAX_FILTER_TAPS],
+        next_write: usize,
+    }
+
+    impl Default for LegacyCircularFirHistory {
+        fn default() -> Self {
+            Self {
+                samples: [0.0; OVERSAMPLING_MAX_FILTER_TAPS],
+                next_write: 0,
+            }
+        }
+    }
+
+    impl LegacyCircularFirHistory {
+        fn reset(&mut self) {
+            self.samples.fill(0.0);
+            self.next_write = 0;
+        }
+
+        fn push(&mut self, sample: f64, len: usize) {
+            self.samples[self.next_write] = sample;
+            self.next_write += 1;
+            if self.next_write == len {
+                self.next_write = 0;
+            }
+        }
+
+        fn evaluate<const TAPS: usize>(&self, coefficients: &[f64; TAPS]) -> f64 {
+            let mut acc = 0.0;
+            let mut history_index = if self.next_write == 0 {
+                TAPS - 1
+            } else {
+                self.next_write - 1
+            };
+            for &coefficient in coefficients {
+                acc += coefficient * self.samples[history_index];
+                history_index = if history_index == 0 {
+                    TAPS - 1
+                } else {
+                    history_index - 1
+                };
+            }
+            acc
+        }
+    }
+
     #[test]
     fn test_tube_saturation() {
         let mut sat = Saturation::with_type(SaturationType::Tube);
@@ -1901,6 +1939,48 @@ mod tests {
     fn fixed_oversampling_kernels_match_dynamic_reference_bit_for_bit() {
         assert_fixed_oversampling_matches_dynamic::<2, 17>(&OVERSAMPLING_2X_FILTER);
         assert_fixed_oversampling_matches_dynamic::<4, OVERSAMPLING_MAX_FILTER_TAPS>(
+            &OVERSAMPLING_4X_FILTER,
+        );
+    }
+
+    fn assert_mirrored_history_matches_legacy<const TAPS: usize>(coefficients: &[f64; TAPS]) {
+        let mut mirrored = OversamplingChannelState::default();
+        let mut legacy = LegacyCircularFirHistory::default();
+
+        for step in 0..(TAPS * 4 + 3) {
+            let sample = ((step * 17 % 41) as f64 - 20.0) / 19.0;
+            mirrored.push(sample, TAPS);
+            legacy.push(sample, TAPS);
+            assert_eq!(
+                mirrored.evaluate(coefficients).to_bits(),
+                legacy.evaluate(coefficients).to_bits(),
+                "tap count={TAPS} step={step}"
+            );
+        }
+
+        mirrored.reset();
+        legacy.reset();
+        mirrored.initialize(0.125);
+        assert_eq!(
+            mirrored.evaluate(coefficients).to_bits(),
+            legacy.evaluate(coefficients).to_bits()
+        );
+        for step in 0..(TAPS * 2 + 1) {
+            let sample = ((step * 29 % 37) as f64 - 18.0) / 23.0;
+            mirrored.push(sample, TAPS);
+            legacy.push(sample, TAPS);
+            assert_eq!(
+                mirrored.evaluate(coefficients).to_bits(),
+                legacy.evaluate(coefficients).to_bits(),
+                "tap count={TAPS} post-reset step={step}"
+            );
+        }
+    }
+
+    #[test]
+    fn mirrored_fir_history_matches_legacy_circular_reference_bit_for_bit() {
+        assert_mirrored_history_matches_legacy::<17>(&OVERSAMPLING_2X_FILTER);
+        assert_mirrored_history_matches_legacy::<OVERSAMPLING_MAX_FILTER_TAPS>(
             &OVERSAMPLING_4X_FILTER,
         );
     }
