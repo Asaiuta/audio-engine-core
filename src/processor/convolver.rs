@@ -659,6 +659,20 @@ struct PartitionedConvolver {
     history_cursor: usize,
     inv_fft_size: f64,
     inplace_scratch: Vec<f64>,
+    // Time-distributed tail accumulation: partitions 1..tail_partitions for the
+    // upcoming boundary are accumulated incrementally while the current input
+    // block fills, so the boundary callback only carries the newest-partition
+    // pass plus the two FFTs. One quantum = one partition on one channel.
+    spread_quanta_done: usize,
+    spread_quanta_total: usize,
+    // Bresenham accumulator: add `spread_quanta_total` per frame and emit a
+    // quantum whenever the accumulated error reaches `partition_size`.
+    spread_schedule_error: usize,
+    // Direct cursors preserve partition-major quantum order without divisions
+    // or modulo in `run_spread_quantum`.
+    spread_channel: usize,
+    spread_partition: usize,
+    spread_history_slot: usize,
 }
 
 #[derive(Clone)]
@@ -668,6 +682,9 @@ struct PartitionedChannelState {
     input_block: Vec<f64>,
     tail_output_block: Vec<f64>,
     tail_overlap: Vec<f64>,
+    // Persistent spectral accumulator fed by the spread quanta between
+    // partition boundaries and consumed by the boundary inverse FFT.
+    tail_accum_spectrum: Vec<Complex<f64>>,
 }
 
 impl PartitionedConvolver {
@@ -717,8 +734,14 @@ impl PartitionedConvolver {
                 input_block: vec![0.0; partition_size],
                 tail_output_block: vec![0.0; partition_size],
                 tail_overlap: vec![0.0; partition_size],
+                tail_accum_spectrum: vec![Complex::new(0.0, 0.0); spectrum_size],
             });
         }
+
+        // The very first boundary consumes an all-zero accumulator over all-zero
+        // history, so it starts "complete"; every later period must earn its
+        // quanta before the next boundary.
+        let spread_quanta_total = tail_partitions.saturating_sub(1) * channels;
 
         Ok(Self {
             channels,
@@ -742,6 +765,12 @@ impl PartitionedConvolver {
             history_cursor: 0,
             inv_fft_size: 1.0 / fft_size as f64,
             inplace_scratch: vec![0.0; partition_size * channels],
+            spread_quanta_done: spread_quanta_total,
+            spread_quanta_total,
+            spread_schedule_error: 0,
+            spread_channel: 0,
+            spread_partition: 1,
+            spread_history_slot: tail_partitions.saturating_sub(1),
         })
     }
 
@@ -763,12 +792,18 @@ impl PartitionedConvolver {
         self.history_cursor = 0;
         self.scratch_real.fill(0.0);
         self.scratch_spectrum.fill(Complex::new(0.0, 0.0));
+        self.spread_quanta_done = self.spread_quanta_total;
+        self.spread_schedule_error = 0;
+        self.spread_channel = 0;
+        self.spread_partition = 1;
+        self.spread_history_slot = self.tail_partitions.saturating_sub(1);
 
         for state in &mut self.channel_states {
             state.input_history_ffts.fill(Complex::new(0.0, 0.0));
             state.input_block.fill(0.0);
             state.tail_output_block.fill(0.0);
             state.tail_overlap.fill(0.0);
+            state.tail_accum_spectrum.fill(Complex::new(0.0, 0.0));
         }
     }
 
@@ -853,6 +888,7 @@ impl PartitionedConvolver {
                 state.input_block[block_pos] = input[sample_index];
             }
 
+            self.pump_spread_quanta();
             self.advance_partition_block()?;
         }
         Ok(())
@@ -879,9 +915,61 @@ impl PartitionedConvolver {
                 state.input_block[block_pos] = self.inplace_scratch[sample_index];
             }
 
+            self.pump_spread_quanta();
             self.advance_partition_block()?;
         }
         Ok(())
+    }
+
+    /// Advance the current period's spread quanta with a Bresenham schedule.
+    /// This completes exactly at the partition boundary without a per-frame
+    /// division and remains a deterministic function of in-period frame
+    /// position, so callback chunking cannot change the quantum order.
+    #[inline]
+    fn pump_spread_quanta(&mut self) {
+        let total = self.spread_quanta_total;
+        if total == 0 {
+            return;
+        }
+        self.spread_schedule_error += total;
+        while self.spread_schedule_error >= self.partition_size && self.spread_quanta_done < total {
+            self.spread_schedule_error -= self.partition_size;
+            self.run_spread_quantum();
+        }
+    }
+
+    #[inline]
+    fn run_spread_quantum(&mut self) {
+        let channel = self.spread_channel;
+        // Partitions 1..tail_partitions read history committed at least one
+        // full period ago; partition 0 is only available at the boundary.
+        let partition = self.spread_partition;
+        let spectrum_size = self.scratch_spectrum.len();
+        let history_start = self.spread_history_slot * spectrum_size;
+        let ir_start = partition * spectrum_size;
+
+        let PartitionedChannelState {
+            tail_ir_ffts,
+            input_history_ffts,
+            tail_accum_spectrum,
+            ..
+        } = &mut self.channel_states[channel];
+        accumulate_spectrum_in_place(
+            tail_accum_spectrum,
+            &input_history_ffts[history_start..history_start + spectrum_size],
+            &tail_ir_ffts[ir_start..ir_start + spectrum_size],
+        );
+        self.spread_quanta_done += 1;
+        self.spread_channel += 1;
+        if self.spread_channel == self.channels {
+            self.spread_channel = 0;
+            self.spread_partition += 1;
+            self.spread_history_slot = if self.spread_history_slot == 0 {
+                self.tail_partitions - 1
+            } else {
+                self.spread_history_slot - 1
+            };
+        }
     }
 
     #[inline]
@@ -895,61 +983,69 @@ impl PartitionedConvolver {
     }
 
     fn prepare_tail_output_block(&mut self) -> Result<(), ProcessError> {
-        let history_cursor = self.history_cursor;
+        debug_assert_eq!(
+            self.spread_quanta_done, self.spread_quanta_total,
+            "spread schedule must complete before the partition boundary"
+        );
         let tail_partitions = self.tail_partitions;
         let partition_size = self.partition_size;
         let inv_fft_size = self.inv_fft_size;
         let spectrum_size = self.scratch_spectrum.len();
+        // The boundary commit already advanced the cursor, so the newest block
+        // sits one slot behind it.
+        let newest_slot = (self.history_cursor + tail_partitions - 1) % tail_partitions;
 
-        for channel in 0..self.channels {
-            self.scratch_spectrum.fill(Complex::new(0.0, 0.0));
+        let Self {
+            channel_states,
+            fft_inverse,
+            scratch_real,
+            fft_scratch,
+            ..
+        } = self;
 
+        for state in channel_states.iter_mut() {
             {
-                let state = &self.channel_states[channel];
-                // Preserve partition order while walking the circular history
-                // as two contiguous reverse ranges without per-partition modulo.
-                for partition in 0..history_cursor {
-                    let history_slot = history_cursor - 1 - partition;
-                    let history_start = history_slot * spectrum_size;
-                    let ir_start = partition * spectrum_size;
-                    accumulate_spectrum_in_place(
-                        &mut self.scratch_spectrum,
-                        &state.input_history_ffts[history_start..history_start + spectrum_size],
-                        &state.tail_ir_ffts[ir_start..ir_start + spectrum_size],
-                    );
-                }
-                for partition in history_cursor..tail_partitions {
-                    let history_slot = tail_partitions + history_cursor - 1 - partition;
-                    let history_start = history_slot * spectrum_size;
-                    let ir_start = partition * spectrum_size;
-                    accumulate_spectrum_in_place(
-                        &mut self.scratch_spectrum,
-                        &state.input_history_ffts[history_start..history_start + spectrum_size],
-                        &state.tail_ir_ffts[ir_start..ir_start + spectrum_size],
-                    );
-                }
+                let PartitionedChannelState {
+                    tail_ir_ffts,
+                    input_history_ffts,
+                    tail_accum_spectrum,
+                    ..
+                } = state;
+                let history_start = newest_slot * spectrum_size;
+                accumulate_spectrum_in_place(
+                    tail_accum_spectrum,
+                    &input_history_ffts[history_start..history_start + spectrum_size],
+                    &tail_ir_ffts[..spectrum_size],
+                );
             }
 
-            self.fft_inverse
-                .process_with_scratch(
-                    &mut self.scratch_spectrum,
-                    &mut self.scratch_real,
-                    &mut self.fft_scratch,
-                )
+            // The inverse FFT consumes the accumulator; clear it afterwards so
+            // the next period's spread quanta start from zero.
+            fft_inverse
+                .process_with_scratch(&mut state.tail_accum_spectrum, scratch_real, fft_scratch)
                 .map_err(|_| ProcessError::Backend {
                     processor: "FFTConvolver",
                     operation: "inverse partition FFT",
                     message: "real FFT buffer invariant failed",
                 })?;
+            state.tail_accum_spectrum.fill(Complex::new(0.0, 0.0));
 
-            let state = &mut self.channel_states[channel];
             for frame in 0..partition_size {
                 state.tail_output_block[frame] =
-                    self.scratch_real[frame] * inv_fft_size + state.tail_overlap[frame];
-                state.tail_overlap[frame] =
-                    self.scratch_real[frame + partition_size] * inv_fft_size;
+                    scratch_real[frame] * inv_fft_size + state.tail_overlap[frame];
+                state.tail_overlap[frame] = scratch_real[frame + partition_size] * inv_fft_size;
             }
         }
+
+        self.spread_quanta_done = 0;
+        self.spread_schedule_error = 0;
+        self.spread_channel = 0;
+        self.spread_partition = 1;
+        self.spread_history_slot = if self.history_cursor == 0 {
+            self.tail_partitions - 1
+        } else {
+            self.history_cursor - 1
+        };
         Ok(())
     }
 
@@ -1205,6 +1301,58 @@ mod tests {
         }
 
         assert_close(&expected, &actual, 1.0e-8);
+    }
+
+    #[test]
+    fn test_partitioned_tail_is_bitwise_invariant_to_chunking() {
+        // The spread-quanta schedule advances on in-period frame position, not
+        // on callback boundaries, so any chunking of the same input must
+        // produce a bit-identical partitioned tail. (The overlap-save head is
+        // only tolerance-invariant to chunking, so it is excluded here.)
+        let channels = 6;
+        let ir = synthetic_ir(PARTITIONED_CONVOLUTION_IR_THRESHOLD * 4, channels);
+        let input = synthetic_input(9_000, channels);
+        let chunkings: [&[usize]; 6] = [
+            &[64],
+            &[128],
+            &[256],
+            &[512],
+            &[61, 64, 97, 640, 1024, 1500, 31],
+            &[4096],
+        ];
+
+        let mut outputs = Vec::new();
+        for chunking in chunkings {
+            let mut convolver = PartitionedConvolver::new(&ir, channels).unwrap();
+            let mut output = vec![0.0; input.len()];
+            let mut frame = 0;
+            let mut chunk_index = 0;
+
+            while frame < input.len() / channels {
+                let frames =
+                    chunking[chunk_index % chunking.len()].min(input.len() / channels - frame);
+                let start = frame * channels;
+                let end = start + frames * channels;
+                convolver
+                    .add_partitioned_tail(&input[start..end], &mut output[start..end])
+                    .unwrap();
+                frame += frames;
+                chunk_index += 1;
+            }
+            outputs.push(output);
+        }
+
+        for output in &outputs[1..] {
+            for (sample_index, (expected, actual)) in
+                outputs[0].iter().zip(output.iter()).enumerate()
+            {
+                assert_eq!(
+                    expected.to_bits(),
+                    actual.to_bits(),
+                    "chunking changed tail sample {sample_index}"
+                );
+            }
+        }
     }
 
     #[test]

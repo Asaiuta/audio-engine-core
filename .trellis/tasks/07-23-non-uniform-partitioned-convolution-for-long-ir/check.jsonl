@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify enforce runs, baseline compatibility rules, and evidence recording match the spec."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Verify assert_no_alloc proof coverage including first-use-on-new-thread and lock-free hot path."}

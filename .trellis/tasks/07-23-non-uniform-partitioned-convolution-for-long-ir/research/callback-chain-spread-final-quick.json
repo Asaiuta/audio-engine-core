@@ -1,0 +1,828 @@
+{
+  "schema_version": 1,
+  "probe": "audio_callback_chain_perf",
+  "generated_unix_ms": 1784815741619,
+  "mode": "quick",
+  "environment": {
+    "revision": "e0005bd1be273acc7601f2c901310e09ad020459",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "nodes": "Volume,Equalizer,Saturation,Crossfeed,Convolver,DynamicLoudness,PeakLimiter,NoiseShaper",
+    "copy_input": true,
+    "coverage": "dsp_chain_plus_isolated_saturation",
+    "excludes": [
+      "cpal_device_write",
+      "decoder",
+      "resampler",
+      "spectrum",
+      "loudness_normalization_pre_gain",
+      "gapless_state_machine"
+    ],
+    "warmup_buffers": 256,
+    "iterations_per_trial": 1000,
+    "trials": 7
+  },
+  "cases": [
+    {
+      "case_key": "scenario=bypass_default;frames=64;config=bypass_defaults",
+      "scenario": "bypass_default",
+      "scenario_config": "optional stages disabled; volume unity; convolver slot empty",
+      "frames": 64,
+      "samples": 128,
+      "ns_per_sample": {
+        "samples": [
+          1.453125,
+          1.09765625,
+          1.096875,
+          1.09765625,
+          1.0984375,
+          1.1,
+          1.17265625
+        ],
+        "min": 1.096875,
+        "median": 1.0984375,
+        "p95": 1.453125,
+        "max": 1.453125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          186.0,
+          140.5,
+          140.4,
+          140.5,
+          140.6,
+          140.8,
+          150.1
+        ],
+        "min": 140.4,
+        "median": 140.6,
+        "p95": 186.0,
+        "max": 186.0
+      },
+      "buffer_duration_ns": 1333333.3333333333,
+      "median_deadline_utilization_pct": 0.010545,
+      "p95_deadline_utilization_pct": 0.01395,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": false,
+        "expected_output_changed": false,
+        "bypassed": false,
+        "consumed_frames": 64,
+        "produced_frames": 64
+      }
+    },
+    {
+      "case_key": "scenario=bypass_default;frames=128;config=bypass_defaults",
+      "scenario": "bypass_default",
+      "scenario_config": "optional stages disabled; volume unity; convolver slot empty",
+      "frames": 128,
+      "samples": 256,
+      "ns_per_sample": {
+        "samples": [
+          0.565234375,
+          0.8390625,
+          0.581640625,
+          0.56328125,
+          1.200390625,
+          0.565625,
+          0.563671875
+        ],
+        "min": 0.56328125,
+        "median": 0.565625,
+        "p95": 1.200390625,
+        "max": 1.200390625
+      },
+      "ns_per_buffer": {
+        "samples": [
+          144.7,
+          214.8,
+          148.9,
+          144.2,
+          307.3,
+          144.8,
+          144.3
+        ],
+        "min": 144.2,
+        "median": 144.8,
+        "p95": 307.3,
+        "max": 307.3
+      },
+      "buffer_duration_ns": 2666666.6666666665,
+      "median_deadline_utilization_pct": 0.005430000000000001,
+      "p95_deadline_utilization_pct": 0.011523750000000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": false,
+        "expected_output_changed": false,
+        "bypassed": false,
+        "consumed_frames": 128,
+        "produced_frames": 128
+      }
+    },
+    {
+      "case_key": "scenario=bypass_default;frames=256;config=bypass_defaults",
+      "scenario": "bypass_default",
+      "scenario_config": "optional stages disabled; volume unity; convolver slot empty",
+      "frames": 256,
+      "samples": 512,
+      "ns_per_sample": {
+        "samples": [
+          0.3216796875,
+          0.297265625,
+          0.29765625,
+          0.303515625,
+          0.29765625,
+          0.563671875,
+          0.2966796875
+        ],
+        "min": 0.2966796875,
+        "median": 0.29765625,
+        "p95": 0.563671875,
+        "max": 0.563671875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          164.7,
+          152.2,
+          152.4,
+          155.4,
+          152.4,
+          288.6,
+          151.9
+        ],
+        "min": 151.9,
+        "median": 152.4,
+        "p95": 288.6,
+        "max": 288.6
+      },
+      "buffer_duration_ns": 5333333.333333333,
+      "median_deadline_utilization_pct": 0.0028575000000000002,
+      "p95_deadline_utilization_pct": 0.005411250000000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": false,
+        "expected_output_changed": false,
+        "bypassed": false,
+        "consumed_frames": 256,
+        "produced_frames": 256
+      }
+    },
+    {
+      "case_key": "scenario=bypass_default;frames=512;config=bypass_defaults",
+      "scenario": "bypass_default",
+      "scenario_config": "optional stages disabled; volume unity; convolver slot empty",
+      "frames": 512,
+      "samples": 1024,
+      "ns_per_sample": {
+        "samples": [
+          0.18203125,
+          0.1814453125,
+          0.20341796875,
+          0.27939453125,
+          0.2109375,
+          0.17763671875,
+          0.17744140625
+        ],
+        "min": 0.17744140625,
+        "median": 0.18203125,
+        "p95": 0.27939453125,
+        "max": 0.27939453125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          186.4,
+          185.8,
+          208.3,
+          286.1,
+          216.0,
+          181.9,
+          181.7
+        ],
+        "min": 181.7,
+        "median": 186.4,
+        "p95": 286.1,
+        "max": 286.1
+      },
+      "buffer_duration_ns": 10666666.666666666,
+      "median_deadline_utilization_pct": 0.0017475000000000001,
+      "p95_deadline_utilization_pct": 0.0026821875,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": false,
+        "expected_output_changed": false,
+        "bypassed": false,
+        "consumed_frames": 512,
+        "produced_frames": 512
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_no_convolver;frames=64;config=active_oversampled4x_no_convolver",
+      "scenario": "active_dsp_no_convolver",
+      "scenario_config": "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty",
+      "frames": 64,
+      "samples": 128,
+      "ns_per_sample": {
+        "samples": [
+          49.421875,
+          48.6265625,
+          48.88125,
+          53.51015625,
+          55.28203125,
+          52.1859375,
+          52.4625
+        ],
+        "min": 48.6265625,
+        "median": 52.1859375,
+        "p95": 55.28203125,
+        "max": 55.28203125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          6326.0,
+          6224.2,
+          6256.8,
+          6849.3,
+          7076.1,
+          6679.8,
+          6715.2
+        ],
+        "min": 6224.2,
+        "median": 6679.8,
+        "p95": 7076.1,
+        "max": 7076.1
+      },
+      "buffer_duration_ns": 1333333.3333333333,
+      "median_deadline_utilization_pct": 0.500985,
+      "p95_deadline_utilization_pct": 0.5307075,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 64,
+        "produced_frames": 64
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_no_convolver;frames=128;config=active_oversampled4x_no_convolver",
+      "scenario": "active_dsp_no_convolver",
+      "scenario_config": "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty",
+      "frames": 128,
+      "samples": 256,
+      "ns_per_sample": {
+        "samples": [
+          52.554296875,
+          53.7359375,
+          49.588671875,
+          52.637890625,
+          54.176171875,
+          50.150390625,
+          54.41328125
+        ],
+        "min": 49.588671875,
+        "median": 52.637890625,
+        "p95": 54.41328125,
+        "max": 54.41328125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          13453.9,
+          13756.4,
+          12694.7,
+          13475.3,
+          13869.1,
+          12838.5,
+          13929.8
+        ],
+        "min": 12694.7,
+        "median": 13475.3,
+        "p95": 13929.8,
+        "max": 13929.8
+      },
+      "buffer_duration_ns": 2666666.6666666665,
+      "median_deadline_utilization_pct": 0.50532375,
+      "p95_deadline_utilization_pct": 0.5223675,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 128,
+        "produced_frames": 128
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_no_convolver;frames=256;config=active_oversampled4x_no_convolver",
+      "scenario": "active_dsp_no_convolver",
+      "scenario_config": "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty",
+      "frames": 256,
+      "samples": 512,
+      "ns_per_sample": {
+        "samples": [
+          51.318359375,
+          50.6783203125,
+          50.0224609375,
+          50.591796875,
+          50.673046875,
+          51.1388671875,
+          51.289453125
+        ],
+        "min": 50.0224609375,
+        "median": 50.6783203125,
+        "p95": 51.318359375,
+        "max": 51.318359375
+      },
+      "ns_per_buffer": {
+        "samples": [
+          26275.0,
+          25947.3,
+          25611.5,
+          25903.0,
+          25944.6,
+          26183.1,
+          26260.2
+        ],
+        "min": 25611.5,
+        "median": 25947.3,
+        "p95": 26275.0,
+        "max": 26275.0
+      },
+      "buffer_duration_ns": 5333333.333333333,
+      "median_deadline_utilization_pct": 0.48651187500000004,
+      "p95_deadline_utilization_pct": 0.49265625,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 256,
+        "produced_frames": 256
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_no_convolver;frames=512;config=active_oversampled4x_no_convolver",
+      "scenario": "active_dsp_no_convolver",
+      "scenario_config": "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty",
+      "frames": 512,
+      "samples": 1024,
+      "ns_per_sample": {
+        "samples": [
+          49.36630859375,
+          51.20869140625,
+          50.3255859375,
+          49.7048828125,
+          49.58828125,
+          52.84130859375,
+          51.53232421875
+        ],
+        "min": 49.36630859375,
+        "median": 50.3255859375,
+        "p95": 52.84130859375,
+        "max": 52.84130859375
+      },
+      "ns_per_buffer": {
+        "samples": [
+          50551.1,
+          52437.7,
+          51533.4,
+          50897.8,
+          50778.4,
+          54109.5,
+          52769.1
+        ],
+        "min": 50551.1,
+        "median": 51533.4,
+        "p95": 54109.5,
+        "max": 54109.5
+      },
+      "buffer_duration_ns": 10666666.666666666,
+      "median_deadline_utilization_pct": 0.48312562500000006,
+      "p95_deadline_utilization_pct": 0.5072765625000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 512,
+        "produced_frames": 512
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_with_convolver;frames=64;config=active_oversampled4x_ir256",
+      "scenario": "active_dsp_with_convolver",
+      "scenario_config": "active DSP configuration plus a stereo 256-tap synthetic convolver",
+      "frames": 64,
+      "samples": 128,
+      "ns_per_sample": {
+        "samples": [
+          81.209375,
+          83.84296875,
+          93.13125,
+          81.6390625,
+          84.43671875,
+          87.4953125,
+          87.89453125
+        ],
+        "min": 81.209375,
+        "median": 84.43671875,
+        "p95": 93.13125,
+        "max": 93.13125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          10394.8,
+          10731.9,
+          11920.8,
+          10449.8,
+          10807.9,
+          11199.4,
+          11250.5
+        ],
+        "min": 10394.8,
+        "median": 10807.9,
+        "p95": 11920.8,
+        "max": 11920.8
+      },
+      "buffer_duration_ns": 1333333.3333333333,
+      "median_deadline_utilization_pct": 0.8105925,
+      "p95_deadline_utilization_pct": 0.89406,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 64,
+        "produced_frames": 64
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_with_convolver;frames=128;config=active_oversampled4x_ir256",
+      "scenario": "active_dsp_with_convolver",
+      "scenario_config": "active DSP configuration plus a stereo 256-tap synthetic convolver",
+      "frames": 128,
+      "samples": 256,
+      "ns_per_sample": {
+        "samples": [
+          66.701171875,
+          81.014453125,
+          65.90234375,
+          81.568359375,
+          68.71328125,
+          68.763671875,
+          70.859375
+        ],
+        "min": 65.90234375,
+        "median": 68.763671875,
+        "p95": 81.568359375,
+        "max": 81.568359375
+      },
+      "ns_per_buffer": {
+        "samples": [
+          17075.5,
+          20739.7,
+          16871.0,
+          20881.5,
+          17590.6,
+          17603.5,
+          18140.0
+        ],
+        "min": 16871.0,
+        "median": 17603.5,
+        "p95": 20881.5,
+        "max": 20881.5
+      },
+      "buffer_duration_ns": 2666666.6666666665,
+      "median_deadline_utilization_pct": 0.6601312500000001,
+      "p95_deadline_utilization_pct": 0.7830562500000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 128,
+        "produced_frames": 128
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_with_convolver;frames=256;config=active_oversampled4x_ir256",
+      "scenario": "active_dsp_with_convolver",
+      "scenario_config": "active DSP configuration plus a stereo 256-tap synthetic convolver",
+      "frames": 256,
+      "samples": 512,
+      "ns_per_sample": {
+        "samples": [
+          60.01875,
+          63.3326171875,
+          61.186328125,
+          59.809375,
+          71.966015625,
+          59.4888671875,
+          62.253515625
+        ],
+        "min": 59.4888671875,
+        "median": 61.186328125,
+        "p95": 71.966015625,
+        "max": 71.966015625
+      },
+      "ns_per_buffer": {
+        "samples": [
+          30729.6,
+          32426.3,
+          31327.4,
+          30622.4,
+          36846.6,
+          30458.3,
+          31873.8
+        ],
+        "min": 30458.3,
+        "median": 31327.4,
+        "p95": 36846.6,
+        "max": 36846.6
+      },
+      "buffer_duration_ns": 5333333.333333333,
+      "median_deadline_utilization_pct": 0.5873887500000001,
+      "p95_deadline_utilization_pct": 0.6908737500000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 256,
+        "produced_frames": 256
+      }
+    },
+    {
+      "case_key": "scenario=active_dsp_with_convolver;frames=512;config=active_oversampled4x_ir256",
+      "scenario": "active_dsp_with_convolver",
+      "scenario_config": "active DSP configuration plus a stereo 256-tap synthetic convolver",
+      "frames": 512,
+      "samples": 1024,
+      "ns_per_sample": {
+        "samples": [
+          60.01064453125,
+          60.44912109375,
+          59.16552734375,
+          62.9509765625,
+          60.17548828125,
+          60.5490234375,
+          60.65400390625
+        ],
+        "min": 59.16552734375,
+        "median": 60.44912109375,
+        "p95": 62.9509765625,
+        "max": 62.9509765625
+      },
+      "ns_per_buffer": {
+        "samples": [
+          61450.9,
+          61899.9,
+          60585.5,
+          64461.8,
+          61619.7,
+          62002.2,
+          62109.7
+        ],
+        "min": 60585.5,
+        "median": 61899.9,
+        "p95": 64461.8,
+        "max": 64461.8
+      },
+      "buffer_duration_ns": 10666666.666666666,
+      "median_deadline_utilization_pct": 0.5803115625,
+      "p95_deadline_utilization_pct": 0.6043293750000001,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 512,
+        "produced_frames": 512
+      }
+    },
+    {
+      "case_key": "scenario=isolated_saturation_4x;frames=64;config=isolated_tube_oversampled4x_fullband",
+      "scenario": "isolated_saturation_4x",
+      "scenario_config": "direct Saturation; Tube; Oversampled4x; full-band nonlinear residual; driven input",
+      "frames": 64,
+      "samples": 128,
+      "ns_per_sample": {
+        "samples": [
+          25.7328125,
+          23.746875,
+          22.6109375,
+          22.48828125,
+          22.47890625,
+          23.328125,
+          23.72109375
+        ],
+        "min": 22.47890625,
+        "median": 23.328125,
+        "p95": 25.7328125,
+        "max": 25.7328125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          3293.8,
+          3039.6,
+          2894.2,
+          2878.5,
+          2877.3,
+          2986.0,
+          3036.3
+        ],
+        "min": 2877.3,
+        "median": 2986.0,
+        "p95": 3293.8,
+        "max": 3293.8
+      },
+      "buffer_duration_ns": 1333333.3333333333,
+      "median_deadline_utilization_pct": 0.22395,
+      "p95_deadline_utilization_pct": 0.24703500000000006,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 64,
+        "produced_frames": 64
+      }
+    },
+    {
+      "case_key": "scenario=isolated_saturation_4x;frames=128;config=isolated_tube_oversampled4x_fullband",
+      "scenario": "isolated_saturation_4x",
+      "scenario_config": "direct Saturation; Tube; Oversampled4x; full-band nonlinear residual; driven input",
+      "frames": 128,
+      "samples": 256,
+      "ns_per_sample": {
+        "samples": [
+          20.05703125,
+          21.721484375,
+          21.85859375,
+          21.78828125,
+          20.96171875,
+          22.179296875,
+          21.017578125
+        ],
+        "min": 20.05703125,
+        "median": 21.721484375,
+        "p95": 22.179296875,
+        "max": 22.179296875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          5134.6,
+          5560.7,
+          5595.8,
+          5577.8,
+          5366.2,
+          5677.9,
+          5380.5
+        ],
+        "min": 5134.6,
+        "median": 5560.7,
+        "p95": 5677.9,
+        "max": 5677.9
+      },
+      "buffer_duration_ns": 2666666.6666666665,
+      "median_deadline_utilization_pct": 0.20852625000000002,
+      "p95_deadline_utilization_pct": 0.21292124999999998,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 128,
+        "produced_frames": 128
+      }
+    },
+    {
+      "case_key": "scenario=isolated_saturation_4x;frames=256;config=isolated_tube_oversampled4x_fullband",
+      "scenario": "isolated_saturation_4x",
+      "scenario_config": "direct Saturation; Tube; Oversampled4x; full-band nonlinear residual; driven input",
+      "frames": 256,
+      "samples": 512,
+      "ns_per_sample": {
+        "samples": [
+          21.783984375,
+          21.223828125,
+          21.1638671875,
+          22.7419921875,
+          21.2591796875,
+          21.549609375,
+          20.7822265625
+        ],
+        "min": 20.7822265625,
+        "median": 21.2591796875,
+        "p95": 22.7419921875,
+        "max": 22.7419921875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          11153.4,
+          10866.6,
+          10835.9,
+          11643.9,
+          10884.7,
+          11033.4,
+          10640.5
+        ],
+        "min": 10640.5,
+        "median": 10884.7,
+        "p95": 11643.9,
+        "max": 11643.9
+      },
+      "buffer_duration_ns": 5333333.333333333,
+      "median_deadline_utilization_pct": 0.20408812500000004,
+      "p95_deadline_utilization_pct": 0.218323125,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 256,
+        "produced_frames": 256
+      }
+    },
+    {
+      "case_key": "scenario=isolated_saturation_4x;frames=512;config=isolated_tube_oversampled4x_fullband",
+      "scenario": "isolated_saturation_4x",
+      "scenario_config": "direct Saturation; Tube; Oversampled4x; full-band nonlinear residual; driven input",
+      "frames": 512,
+      "samples": 1024,
+      "ns_per_sample": {
+        "samples": [
+          22.2365234375,
+          22.1267578125,
+          21.66171875,
+          22.25380859375,
+          23.36884765625,
+          22.650390625,
+          22.44775390625
+        ],
+        "min": 21.66171875,
+        "median": 22.25380859375,
+        "p95": 23.36884765625,
+        "max": 23.36884765625
+      },
+      "ns_per_buffer": {
+        "samples": [
+          22770.2,
+          22657.8,
+          22181.6,
+          22787.9,
+          23929.7,
+          23194.0,
+          22986.5
+        ],
+        "min": 22181.6,
+        "median": 22787.9,
+        "p95": 23929.7,
+        "max": 23929.7
+      },
+      "buffer_duration_ns": 10666666.666666666,
+      "median_deadline_utilization_pct": 0.21363656250000004,
+      "p95_deadline_utilization_pct": 0.22434093750000003,
+      "work_validation": {
+        "valid": true,
+        "all_samples_finite": true,
+        "output_changed": true,
+        "expected_output_changed": true,
+        "bypassed": false,
+        "consumed_frames": 512,
+        "produced_frames": 512
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": [],
+  "acceptance_comparisons": []
+}

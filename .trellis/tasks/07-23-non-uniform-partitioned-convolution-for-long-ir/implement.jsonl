@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Hard constraints: zero steady-state allocation, no locks/IO/log/panic on the callback hot path; the spreading state machine must comply."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Evidence protocol, 10% median regression gate, convolver routing-constant rules, benchmark JSON requirements."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Static ProcessError::Backend usage for RealFFT failures; no panics in hot path."}
+{"file": ".trellis/tasks/archive/2026-07/07-22-long-ir-convolver-performance/research/convolver-realfft-evidence.md", "reason": "Baseline numbers: partition sweep, callback burst distribution, 1024 selection, p99/max at 64-512 frames."}
+{"file": ".trellis/tasks/archive/2026-07/07-22-long-ir-convolver-performance/research/convolution-options.md", "reason": "Prior options analysis; required measurement list for any partition-policy change."}

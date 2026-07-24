@@ -11,6 +11,83 @@ use audio_engine_core::processor::RESAMPLER_BACKEND_NAME;
 
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_MAX_MEDIAN_REGRESSION_PCT: f64 = 10.0;
+// Core 0 commonly carries kernel/DPC work, while the last logical cores may be
+// efficiency cores on hybrid CPUs. Callers can override this machine default.
+pub const DEFAULT_PINNED_PROBE_CORE: usize = 2;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PinnedProbeArgs {
+    pub enabled: bool,
+    pub core: usize,
+    pub remaining: Vec<String>,
+}
+
+pub fn parse_pinned_probe_args(argv: Vec<String>) -> Result<PinnedProbeArgs, String> {
+    let mut enabled = false;
+    let mut core = DEFAULT_PINNED_PROBE_CORE;
+    let mut core_was_explicit = false;
+    let mut remaining = Vec::with_capacity(argv.len());
+    let mut iter = argv.into_iter();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--pinned" => enabled = true,
+            "--pin-core" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "--pin-core requires a core index".to_string())?;
+                core = parse_core_index(&value)?;
+                core_was_explicit = true;
+            }
+            _ => {
+                if let Some(value) = arg.strip_prefix("--pin-core=") {
+                    core = parse_core_index(value)?;
+                    core_was_explicit = true;
+                } else {
+                    remaining.push(arg);
+                }
+            }
+        }
+    }
+
+    if core_was_explicit && !enabled {
+        return Err("--pin-core requires --pinned".to_string());
+    }
+
+    Ok(PinnedProbeArgs {
+        enabled,
+        core,
+        remaining,
+    })
+}
+
+fn parse_core_index(value: &str) -> Result<usize, String> {
+    value
+        .parse()
+        .map_err(|_| format!("invalid --pin-core value: {value}"))
+}
+
+pub fn enforce_pinned_burst_limits(
+    case_key: &str,
+    p99: f64,
+    max: f64,
+    p99_limit: f64,
+    max_limit: f64,
+) -> Result<(), String> {
+    if p99 > p99_limit {
+        return Err(format!(
+            "pinned burst p99 gate failed for {case_key}: measured {p99:.3}% > \
+             threshold {p99_limit:.1}% of deadline"
+        ));
+    }
+    if max > max_limit {
+        return Err(format!(
+            "pinned burst max gate failed for {case_key}: measured {max:.3}% > \
+             threshold {max_limit:.1}% of deadline"
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

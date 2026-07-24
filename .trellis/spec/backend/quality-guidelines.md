@@ -155,11 +155,22 @@ Contracts to preserve when changing this path:
   callback path use static `ProcessError::Backend` diagnostics; they must not
   allocate an error string or panic.
 - Partitioned IR spectra and input-history spectra use row-major contiguous
-  buffers. The history ring is traversed as two bounded reverse row ranges
-  with direct row offsets, preserving the original partition accumulation order
-  while avoiding nested-`Vec` indirection and per-partition modulo. Any layout
-  change must retain the overlap-save/direct oracle tolerance and include a
-  same-machine throughput comparison for both small and large tail rings.
+  buffers. A time-distributed tail accumulator may consume older partition
+  rows before the newest row is committed, but its quantum order must be
+  deterministic and independent of callback chunking. Direct
+  channel/partition/history cursors avoid nested-`Vec` indirection and
+  per-quantum division/modulo. Any layout or accumulation-order change must
+  retain the overlap-save/direct oracle tolerance, measure the maximum delta
+  against the prior engine, and include a same-machine throughput comparison
+  for both small and large tail rings.
+- Work spreading inside a fixed partition period is driven by frames advanced,
+  never by callback count. Persistent spectra and scheduler cursors are
+  preallocated, cleared after inverse FFT, and cleared together on reset. The
+  older-pass schedule must complete by construction before the boundary; use a
+  debug assertion and fixed 64/128/256/512 plus non-dividing irregular chunk
+  tests rather than a boundary-time fallback loop. The newest history slot is
+  unavailable until the forward commit and therefore stays on the boundary
+  path.
 - The 2026-07-22 same-machine sweep selected the 1024-frame partition for the
   real-FFT tail. At 8192/65536 taps and six channels, 512 frames measured
   47.35/304.19 ns/sample, 1024 measured 28.99/130.08, and 2048 measured
@@ -175,8 +186,11 @@ Contracts to preserve when changing this path:
 
 ## Testing Requirements
 
-- Both `cargo test --lib` and `cargo test --lib --no-default-features` must
-  pass; new behavior must add focused regressions, not rely on test count.
+- Both `cargo test --all-features` and
+  `cargo test --no-default-features --features rubato` must pass; new behavior
+  must add focused regressions, not rely on test count. Bare
+  `--no-default-features` is intentionally unsupported because the crate
+  requires either the `soxr` or `rubato` resampler backend.
 - Cover continuity across buffers, reset behavior, silence, and edge inputs
   (non-finite samples, sample-rate changes) where the processor is stateful.
 - Offline finalize changes must cover last-frame impulse survival,
@@ -189,7 +203,12 @@ Contracts to preserve when changing this path:
   direct processor reference that preserves history, and include a reset
   reference when possible so the test proves it would catch the old click/glitch
   behavior.
-- Run `cargo clippy --all-targets -- -D warnings` clean.
+- Run `cargo clippy --all-targets --all-features -- -D warnings` and
+  the following pure-Rust matrix clean:
+
+  ```bash
+  cargo clippy --all-targets --no-default-features --features rubato -- -D warnings
+  ```
 
 ## Decoder Upgrade Evidence
 
@@ -260,8 +279,8 @@ extended benches must keep it:
 
 - Trigger: changing `audio_quality_measurements`,
   `audio_callback_chain_perf`, `audio_resampler_streaming_perf`, shared
-  `audio_fir_eq_perf`, `benches/support/` code, benchmark CI wiring, or a
-  documented timing claim.
+  `audio_convolver_perf`, `audio_fir_eq_perf`, `benches/support/` code,
+  benchmark CI wiring, or a documented timing claim.
 - These are custom-main benches (`harness = false`). Benchmark plumbing stays
   bench-local; do not expose report helpers as crate public API.
 
@@ -290,10 +309,16 @@ cargo bench --bench audio_fir_eq_perf -- \
   [--quick|--heavy] [--enforce] [--out <candidate.json>] \
   [--baseline <baseline.json>] \
   [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_convolver_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>] \
+  [--pinned] [--pin-core <logical-core>]
 ```
 
 Omitting `--quick` / `--heavy` selects full mode. Quality supports quick/full;
-the four performance probes additionally support heavy. Environment overrides
+the five performance probes additionally support heavy. Environment overrides
 are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 `AUDIO_BENCH_RUSTC_VERBOSE`, `AUDIO_BENCH_TARGET`, `AUDIO_BENCH_CPU`, and
 `AUDIO_BENCH_PROFILE`; `GITHUB_SHA` is a revision fallback.
@@ -326,10 +351,21 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - Direct convolver throughput trials must run long enough that short overlap-save
   cases are not dominated by timer quantization; the maintained quick workload
   uses a 2048-frame buffer and 512 base iterations. Callback distributions keep
-  every raw sample, including scheduler outliers. On Windows, raw max is
-  evidence rather than a deterministic DSP upper bound unless the probe pins
-  the thread or otherwise isolates scheduler preemption; never replace it with
-  a best-of-N value.
+  every raw sample, including scheduler outliers; never replace max with a
+  best-of-N value.
+- The convolver's Windows-only `--pinned` mode sets
+  `HIGH_PRIORITY_CLASS`, pins the benchmark thread to one logical core, and
+  sets `THREAD_PRIORITY_HIGHEST` before collecting samples. Reports add
+  `conditions.pinned` and `conditions.pin_core`, making pinned and unpinned
+  baselines incompatible. `--pin-core` without `--pinned`, a missing/non-numeric
+  core, a core outside the affinity-mask width, or a failed Windows scheduling
+  call is a named error.
+- In pinned `--enforce` mode, the 65536-tap, 6-channel, 64-frame callback case
+  must be present and pass p99 <= 40% and max <= 50% of its deadline. These are
+  machine-local task gates, not portable performance claims. Affinity cannot
+  prevent every interrupt: if unrelated cases simultaneously show
+  multi-millisecond pauses, retain the failed JSON, identify host load, and
+  rerun on a quiet host rather than weakening the gate or deleting outliers.
 - Quality keeps `gate` / `report` / `skipped` distinct. Full-output points copy
   `RenderedOutput` rendered frames, algorithmic latency, semantic tail, and
   truncation fields directly. Missing external corpus counts remain visible.
@@ -359,6 +395,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | Condition | Required result |
 | --- | --- |
 | Unknown CLI option, missing path, negative/non-finite threshold | named argument error |
+| `--pin-core` without `--pinned`, missing value, or non-numeric value | named pinned-probe argument error |
+| Pinned logical core exceeds the platform affinity-mask width | reject before shifting the mask |
+| Windows priority or affinity call fails | abort before collecting pinned evidence |
 | Empty, non-finite, or non-positive trial sample | report construction error |
 | Duplicate/missing case key | baseline comparison rejected with both case sets named |
 | Corrupt JSON | deserialization error naming the file and report type |
@@ -371,6 +410,8 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | Any isolated Saturation 4x candidate median is not lower | strict-improvement failure |
 | Render temporary bytes grow with duration for a fixed scenario/block | memory scaling gate failure |
 | No baseline on a shared runner | timing remains report-only; work/report gates still run |
+| Pinned convolver target case is absent | enforced failure names the required IR/frame/channel tuple |
+| Pinned convolver p99 > 40% or max > 50% | enforced failure names the case, measured value, and threshold |
 | EBU vectors absent | `skipped` with missing-file count, never pass/conformance |
 
 ### 5. Good / Base / Bad Cases
@@ -379,6 +420,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   features, mode, conditions, and case set; allow revisions to differ.
 - Base: generate a quick CI artifact with `--enforce --out` and no baseline;
   deterministic quality/work checks are enforced while timing is evidence.
+- Good: collect a Windows convolver max/p99 gate with `--pinned --enforce`,
+  record the selected core in JSON, and keep a load-contaminated failed report
+  separate from the quiet-host acceptance report.
 - Bad: compare two `cpu = "unknown"` reports, compare debug with release, or
   call a source-buffer resampler percentage a device callback utilization.
 - Bad: hard-code "SoXR" into a bench label that also compiles under the rubato
@@ -386,6 +430,8 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   baseline.
 - Bad: cite min/best-of-N as representative performance or turn a missing EBU
   corpus into a successful conformance claim.
+- Bad: run with `--pin-core 2` but omit `--pinned`, compare a pinned report to
+  an unpinned baseline, or discard a raw max because it missed the gate.
 - Good: port the exact benchmark workload into a detached old-code worktree,
   expose an existing private block-size hook only for measurement, and compare
   that report with the candidate. Never generate a baseline from candidate
@@ -395,7 +441,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 
 - Shared support tests assert odd/even median, nearest-rank p95, raw sample
   retention, invalid samples, CLI modes/paths/thresholds, JSON round trip, and
-  environment compatibility including unknown-field rejection.
+  environment compatibility including unknown-field rejection. Pinned-probe
+  tests additionally cover argument removal/default core/error cases and exact
+  p99/max threshold boundaries.
 - `tests/benchmark_support.rs` asserts the captured environment features
   contain `resampler-{RESAMPLER_BACKEND_NAME}`; run it under both
   `--all-features` and `--no-default-features --features rubato`.
@@ -406,6 +454,10 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   finite timing, and complete work. Callback/resampler additionally assert
   consumed/produced work and output bounds; FIR asserts IR length/finite
   samples, finite changed apply output, and overlap-save routing.
+- A Windows pinned convolver acceptance run must exercise the real scheduling
+  calls, write versioned JSON, contain the 65536/6ch/64 target case, and pass
+  both absolute gates. Unit tests cover pure parsing/gate logic; they do not
+  substitute for this probe.
 - Callback acceptance checks require two 512-frame active cases and four
   isolated Saturation 4x cases. Output-render checks require every
   scenario/duration/block tuple, active-work evidence, exact finite tails,
@@ -423,6 +475,8 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 ```text
 Candidate is 8 ns/sample, therefore this is the fastest implementation.
 GitHub timing regressed, so fail against last run regardless of runner CPU.
+Pinned max missed while the host was saturated, so delete that sample and keep
+rerunning until one report passes.
 ```
 
 #### Correct
@@ -432,6 +486,9 @@ On the recorded compiler/target/CPU/profile/features, the seven-trial quick
 median was 8 ns/input-sample; see the JSON for p95 and raw samples. Enforce a
 timing regression only against an explicitly compatible same-environment
 baseline; shared-runner absolute timing remains report-only.
+For a pinned machine-local max gate, retain every raw sample and failed report;
+rerun on a documented quiet host only when concurrent system load polluted the
+measurement.
 ```
 
 ## Scenario: Canonical Output Stages And Post-Render Analysis

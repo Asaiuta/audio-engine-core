@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 pub mod support;
 
 use support::{
-    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
-    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
-    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    compare_case_medians, enforce_pinned_burst_limits, environment_json, generated_unix_ms,
+    parse_pinned_probe_args, read_json, regression_gate_error, summarize_trials,
+    validate_performance_baseline, write_json, BenchEnvironment, BenchMode, PerfArgs,
+    PerformanceReportIdentity, RegressionComparison, TrialDistribution, DEFAULT_PINNED_PROBE_CORE,
     REPORT_SCHEMA_VERSION,
 };
 
@@ -39,6 +40,13 @@ struct ConvolverConditions {
     warmup_iterations: usize,
     coverage: String,
     excludes: Vec<String>,
+    // Isolated-probe mode: the bench thread is pinned to one core with raised
+    // priority so worst-case (max/p99) callback gates become enforceable on
+    // this machine. Pinned and unpinned reports are baseline-incompatible.
+    #[serde(default)]
+    pinned: bool,
+    #[serde(default)]
+    pin_core: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -181,10 +189,14 @@ struct ConvolverReport {
 }
 
 fn main() -> Result<(), String> {
-    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    let pin_args = parse_pinned_probe_args(std::env::args().skip(1).collect())?;
+    let args = PerfArgs::parse(pin_args.remaining)?;
     if args.help {
         print_help();
         return Ok(());
+    }
+    if pin_args.enabled {
+        pin_current_thread(pin_args.core)?;
     }
 
     let (throughput_frames, throughput_base_iterations, callback_partition_cycles, trials) =
@@ -207,6 +219,8 @@ fn main() -> Result<(), String> {
             .into_iter()
             .map(str::to_string)
             .collect(),
+        pinned: pin_args.enabled,
+        pin_core: pin_args.enabled.then_some(pin_args.core),
     };
 
     let mut cases = Vec::new();
@@ -271,6 +285,55 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
+/// Absolute worst-case gates for the flagship long-IR small-buffer case.
+/// These are machine-specific by design and therefore only enforced in the
+/// isolated `--pinned` probe mode (task 07-23 acceptance criteria).
+const PINNED_GATE_IR_FRAMES: usize = 65_536;
+const PINNED_GATE_FRAMES: usize = 64;
+const PINNED_GATE_CHANNELS: usize = 6;
+const PINNED_GATE_MAX_UTILIZATION_PCT: f64 = 50.0;
+const PINNED_GATE_P99_UTILIZATION_PCT: f64 = 40.0;
+
+#[cfg(windows)]
+fn pin_current_thread(core: usize) -> Result<(), String> {
+    const THREAD_PRIORITY_HIGHEST: i32 = 2;
+    const HIGH_PRIORITY_CLASS: u32 = 0x0000_0080;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn GetCurrentThread() -> isize;
+        fn SetPriorityClass(process: isize, class: u32) -> i32;
+        fn SetThreadAffinityMask(thread: isize, mask: usize) -> usize;
+        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+    }
+
+    if core >= usize::BITS as usize {
+        return Err(format!("--pin-core {core} exceeds the affinity mask width"));
+    }
+    // SAFETY: these calls only adjust scheduling for the current process/thread
+    // and use pseudo handles that require no cleanup. Thread priority is
+    // relative to the process class, so raise both before collecting samples.
+    unsafe {
+        if SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) == 0 {
+            return Err("SetPriorityClass failed".to_string());
+        }
+        let thread = GetCurrentThread();
+        if SetThreadAffinityMask(thread, 1usize << core) == 0 {
+            return Err(format!("SetThreadAffinityMask failed for core {core}"));
+        }
+        if SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST) == 0 {
+            return Err("SetThreadPriority failed".to_string());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn pin_current_thread(_core: usize) -> Result<(), String> {
+    Err("--pinned is only implemented on Windows in this bench".to_string())
+}
+
 fn workload(mode: BenchMode) -> (usize, usize, usize, usize) {
     match mode {
         BenchMode::Quick => (2_048, 512, 2, 7),
@@ -292,10 +355,14 @@ fn throughput_iterations(base: usize, ir_frames: usize) -> usize {
 
 fn print_help() {
     println!(
-        "Usage: cargo bench --bench audio_convolver_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+        "Usage: cargo bench --bench audio_convolver_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>] [--pinned] [--pin-core <n>]\n\
          \n\
          Reports versioned long-IR throughput and per-callback burst distributions.\n\
-         Timing is report-only unless a compatible same-machine baseline is supplied."
+         Timing is report-only unless a compatible same-machine baseline is supplied.\n\
+         --pinned runs the isolated probe (thread pinned to --pin-core, default {}, raised\n\
+         priority); with --enforce it additionally gates worst-case burst utilization\n\
+         for the 65536-tap 6-channel 64-frame case.",
+        DEFAULT_PINNED_PROBE_CORE
     );
 }
 
@@ -644,7 +711,52 @@ fn enforce_report(report: &ConvolverReport) -> Result<(), String> {
     ) {
         return Err(error);
     }
+    if report.conditions.pinned {
+        enforce_pinned_burst_gate(report)?;
+    }
     Ok(())
+}
+
+fn enforce_pinned_burst_gate(report: &ConvolverReport) -> Result<(), String> {
+    let case = report
+        .cases
+        .iter()
+        .find_map(|case| match case {
+            ConvolverCase::CallbackBurst {
+                case_key,
+                channels,
+                ir_frames,
+                frames,
+                p99_deadline_utilization_pct,
+                max_deadline_utilization_pct,
+                ..
+            } if *ir_frames == PINNED_GATE_IR_FRAMES
+                && *frames == PINNED_GATE_FRAMES
+                && *channels == PINNED_GATE_CHANNELS =>
+            {
+                Some((
+                    case_key.as_str(),
+                    *p99_deadline_utilization_pct,
+                    *max_deadline_utilization_pct,
+                ))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| {
+            format!(
+                "pinned burst gate case missing: ir_frames={PINNED_GATE_IR_FRAMES} \
+                 frames={PINNED_GATE_FRAMES} channels={PINNED_GATE_CHANNELS}"
+            )
+        })?;
+
+    let (case_key, p99, max) = case;
+    enforce_pinned_burst_limits(
+        case_key,
+        p99,
+        max,
+        PINNED_GATE_P99_UTILIZATION_PCT,
+        PINNED_GATE_MAX_UTILIZATION_PCT,
+    )
 }
 
 fn print_report(report: &ConvolverReport) -> Result<(), String> {
