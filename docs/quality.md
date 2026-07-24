@@ -27,6 +27,8 @@ cargo bench --bench audio_quality_measurements -- --quick --enforce --out target
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
 cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
+cargo bench --bench audio_convolver_perf -- --quick --enforce --out target/bench-reports/convolver.json
+cargo bench --bench audio_convolver_perf -- --quick --enforce --pinned --out target/bench-reports/convolver-pinned.json
 cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
 cargo bench --bench audio_gapless_comparison_perf -- --quick --enforce --out target/bench-reports/gapless.json
 ```
@@ -36,7 +38,10 @@ report-only metrics and missing optional corpora distinct. Performance
 `--enforce` always validates finite timing, complete work, stable case keys, and
 report integrity. Timing remains report-only unless a compatible same-machine
 baseline is supplied; the default gate allows exactly 10% median regression and
-fails above it:
+fails above it. On Windows, the convolver's opt-in `--pinned` mode records the
+logical core in report conditions and additionally enforces the machine-local
+65536-tap, 6-channel, 64-frame p99/max callback gates. Pinned and unpinned
+reports are baseline-incompatible.
 
 ```bash
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce \
@@ -67,12 +72,12 @@ in-crate processing.
 | Path | Per sample | Per 512-frame buffer | Bench |
 | --- | ---: | ---: | --- |
 | Isolated `SaturationQuality::Oversampled4x` Tube saturation | 22.9 ns | 23.4 us | seven-trial quick median at 512 frames (2026-07-22); 24.0% below the compatible 30.1 ns fixed-dispatch baseline |
-| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 50.3 ns | 51.5 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.50% |
-| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 60.9 ns | 62.4 us | seven-trial quick median (2026-07-22); p95 callback utilization 0.61% |
+| DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 50.3 ns | 51.5 us | seven-trial quick median (2026-07-23); p95 callback utilization 0.51% |
+| DSP chain with convolver and `SaturationQuality::Oversampled4x` | 60.4 ns | 61.9 us | seven-trial quick median (2026-07-23); p95 callback utilization 0.60% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 8.45 ns/input sample | 8.65 us/input buffer | seven-trial quick median (2026-07-21); p95 source-buffer reference utilization 0.118% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato High FFT route) | 9.86 ns/input sample | 10.10 us/input buffer | seven-trial quick median (2026-07-22, `--no-default-features --features rubato`); p95 source-buffer reference utilization 0.091% |
-| `FFTConvolver` alone, 256-tap IR, stereo | 14.7 ns | n/a | `audio_convolver_perf --quick` |
-| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 14.4 ns | 14.7 us | seven-trial quick median; versioned `audio_fir_eq_perf --quick` report |
+| `FFTConvolver` alone, 256-tap IR, stereo | 9.39 ns | n/a | seven-trial pinned quick median (2026-07-23) |
+| FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 10.9 ns | 11.2 us | seven-trial quick median (2026-07-23); versioned `audio_fir_eq_perf --quick` report |
 
 For a 512-frame buffer at 48 kHz (about 10.7 ms of audio), even the heaviest
 chain measured here uses well under one callback period.
@@ -91,8 +96,8 @@ naive split-atomic field-by-field read and ~83 ns for an unconditional
 `FirEq` designs a linear- or minimum-phase impulse response from 10 band gains;
 the IR is then convolved (typically with `FFTConvolver`) to apply the EQ.
 Generation is an offline/control-thread cost, not a per-sample one. On this
-machine a 511-tap linear-phase design has a seven-trial quick median of ~33 us;
-minimum-phase is ~105 us because of the extra cepstral phase shaping, and cost
+machine a 511-tap linear-phase design has a seven-trial quick median of ~37 us;
+minimum-phase is ~114 us because of the extra cepstral phase shaping, and cost
 scales with tap count (`audio_fir_eq_perf`). The generated response preserves
 absolute band gain: a uniform +6 dB curve remains +6 dB. A one-tap design is
 explicitly a pure scalar at the 1 kHz reference (flat 0 dB is `[1.0]`).
@@ -111,8 +116,22 @@ detector is validated against an independently labeled music corpus.
 `FFTConvolver` keeps the existing overlap-save path for impulse responses up to
 4096 taps per channel, which covers the current FIR EQ tap counts. Longer IRs
 route to a uniform 1024-frame partitioned tail with an overlap-save head so
-room/reverb-length responses avoid one very large callback FFT. The routing and
-partition size are exposed as `PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
+room/reverb-length responses avoid one very large callback FFT. Older tail
+spectral passes are accumulated through a deterministic frame-position
+schedule while the partition fills; the newest pass and inverse FFT complete
+the next tail block at the boundary. This keeps the result independent of
+callback chunking and leaves only preallocated, bounded work on the realtime
+path.
+
+On the 2026-07-23 Windows pinned probe (logical core 2, raised process/thread
+priority), the 65536-tap, 6-channel, 64-frame case measured 16.74% p99 and
+21.20% max utilization of its 1.333 ms deadline. The two pinned pre-change
+baselines measured 62.49-71.68% p99 and 78.74-82.73% max. Collect absolute
+max/p99 evidence on a quiet host: externally loaded runs can still contain
+multi-millisecond scheduler pauses even when affinity is fixed.
+
+The routing and partition size remain exposed as
+`PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
 `PARTITIONED_CONVOLUTION_PARTITION_SIZE`; use `audio_convolver_perf` and
 `audio_fir_eq_perf` before changing either value.
 
@@ -187,10 +206,18 @@ Benchmark reports now record the compiled backend in the environment
 `algorithm` labels, so performance baselines recorded before backend labeling
 are incompatible with new reports.
 
-The rubato FFT and sinc paths are linear-phase only: the `PhaseResponse`
-parameter is accepted but not applied. Both backends share the same streaming contract
-(consumed/produced cursors, duration-aligned drain, reset clearing history),
-which the resampler test suite runs against whichever backend is compiled in.
+For `PhaseResponse::Linear`, rubato keeps the FFT/sinc routing described above.
+For `Minimum` and `Maximum`, the pure-Rust backend instead creates a bounded
+rational polyphase FIR during setup from the same low-pass magnitude target:
+real-cepstrum spectral factorization produces the causal minimum-phase kernel,
+and its reversal produces the maximum-phase kernel. The nonlinear bank accepts
+only reduced rate components up to 1024; unsupported geometry returns a typed
+initialization error instead of silently using linear phase. Its reported
+algorithmic latency and finite tail preserve the actual causal response. Tests
+cover phase-energy ordering, magnitude preservation, 20 kHz gain, THD+N,
+alias rejection, arbitrary chunking, reset, drain, and no allocation after
+setup. Both backends otherwise share the streaming cursor and terminal-reset
+contract.
 
 The saturation threshold uses a 0.05-full-scale C1 soft knee shared by the
 direct, oversampled, and high-pass-exciter paths. The alias probe drives an

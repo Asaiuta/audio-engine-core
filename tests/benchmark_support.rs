@@ -2,10 +2,11 @@
 mod support;
 
 use support::{
-    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
-    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
-    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
-    DEFAULT_MAX_MEDIAN_REGRESSION_PCT, REPORT_SCHEMA_VERSION,
+    compare_case_medians, enforce_pinned_burst_limits, environment_json, generated_unix_ms,
+    parse_pinned_probe_args, read_json, regression_gate_error, summarize_trials,
+    validate_performance_baseline, write_json, BenchEnvironment, BenchMode, PerfArgs,
+    PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    DEFAULT_MAX_MEDIAN_REGRESSION_PCT, DEFAULT_PINNED_PROBE_CORE, REPORT_SCHEMA_VERSION,
 };
 
 fn environment(revision: &str) -> BenchEnvironment {
@@ -74,6 +75,39 @@ fn performance_args_parse_modes_paths_thresholds_and_errors() {
     assert!(PerfArgs::parse(vec!["--out".into()]).is_err());
     assert!(PerfArgs::parse(vec!["--max-median-regression-pct=-1".into()]).is_err());
     assert!(PerfArgs::parse(vec!["--unknown".into()]).is_err());
+}
+
+#[test]
+fn pinned_probe_args_are_removed_before_shared_argument_parsing() {
+    let args = parse_pinned_probe_args(vec![
+        "--quick".into(),
+        "--pinned".into(),
+        "--pin-core=5".into(),
+        "--enforce".into(),
+    ])
+    .unwrap();
+    assert!(args.enabled);
+    assert_eq!(args.core, 5);
+    assert_eq!(args.remaining, ["--quick", "--enforce"]);
+    assert!(PerfArgs::parse(args.remaining).unwrap().enforce);
+
+    let defaults = parse_pinned_probe_args(vec!["--pinned".into()]).unwrap();
+    assert_eq!(defaults.core, DEFAULT_PINNED_PROBE_CORE);
+
+    assert!(parse_pinned_probe_args(vec!["--pin-core".into()]).is_err());
+    assert!(parse_pinned_probe_args(vec!["--pin-core".into(), "x".into()]).is_err());
+    assert!(parse_pinned_probe_args(vec!["--pin-core=3".into()]).is_err());
+}
+
+#[test]
+fn pinned_burst_limits_enforce_both_task_critical_thresholds() {
+    assert!(enforce_pinned_burst_limits("case", 40.0, 50.0, 40.0, 50.0).is_ok());
+
+    let p99_error = enforce_pinned_burst_limits("case", 40.001, 10.0, 40.0, 50.0).unwrap_err();
+    assert!(p99_error.contains("p99 gate failed"));
+
+    let max_error = enforce_pinned_burst_limits("case", 10.0, 50.001, 40.0, 50.0).unwrap_err();
+    assert!(max_error.contains("max gate failed"));
 }
 
 #[test]
