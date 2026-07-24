@@ -2,6 +2,26 @@
 
 use rustfft::{num_complex::Complex, FftPlanner};
 
+/// Modified Bessel function of the first kind, order zero.
+///
+/// FIR window design calls this during setup only. The bounded series avoids a
+/// dependency solely for coefficient construction and is shared by the
+/// resampler's Kaiser-windowed designs.
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+pub(crate) fn modified_bessel_i0(value: f64) -> f64 {
+    let mut sum = 1.0;
+    let mut term = 1.0;
+    let half_squared = (value * value) * 0.25;
+    for order in 1..=64 {
+        term *= half_squared / (order as f64 * order as f64);
+        sum += term;
+        if term.abs() <= sum.abs() * 1.0e-16 {
+            break;
+        }
+    }
+    sum
+}
+
 /// Convert a Hermitian log-magnitude spectrum into a causal minimum-phase IR.
 ///
 /// The input contains natural-log magnitude for every FFT bin, with negative

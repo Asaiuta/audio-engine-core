@@ -11,7 +11,7 @@ use std::f64::consts::PI;
 use rustfft::{num_complex::Complex, FftPlanner};
 
 use crate::config::{PhaseResponse, ResampleQuality};
-use crate::processor::fir_design::minimum_phase_from_log_magnitude;
+use crate::processor::fir_design::{minimum_phase_from_log_magnitude, modified_bessel_i0};
 
 const MAX_REDUCED_RATE: usize = 1_024;
 const MAX_POLYPHASE_COEFFICIENTS: usize = 524_288;
@@ -232,7 +232,7 @@ fn design_linear_prototype(
     let center = (length as f64 - 1.0) * 0.5;
     let cutoff = 0.5 * quality_rolloff(quality) / up.max(down) as f64;
     let beta = quality_beta(quality);
-    let denominator = bessel_i0(beta);
+    let denominator = modified_bessel_i0(beta);
     let mut kernel = Vec::with_capacity(length);
 
     for index in 0..length {
@@ -243,8 +243,9 @@ fn design_linear_prototype(
             (2.0 * PI * cutoff * distance).sin() / (PI * distance)
         };
         let window_position = (2.0 * index as f64 / (length - 1) as f64) - 1.0;
-        let window = bessel_i0(beta * (1.0 - window_position * window_position).max(0.0).sqrt())
-            / denominator;
+        let window =
+            modified_bessel_i0(beta * (1.0 - window_position * window_position).max(0.0).sqrt())
+                / denominator;
         kernel.push(sinc * window);
     }
 
@@ -323,20 +324,6 @@ fn phase_peak_latency_frames(kernel: &[f64], down: usize) -> usize {
 
 fn kernel_finish_extension_frames(kernel_len: usize, down: usize) -> usize {
     kernel_len.saturating_sub(1).div_ceil(down)
-}
-
-fn bessel_i0(value: f64) -> f64 {
-    let mut sum = 1.0;
-    let mut term = 1.0;
-    let half_squared = (value * value) * 0.25;
-    for order in 1..=64 {
-        term *= half_squared / (order as f64 * order as f64);
-        sum += term;
-        if term.abs() <= sum.abs() * 1.0e-16 {
-            break;
-        }
-    }
-    sum
 }
 
 #[cfg(test)]

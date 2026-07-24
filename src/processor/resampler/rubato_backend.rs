@@ -22,10 +22,11 @@
 //!   `process`/`drain`/`clear` stay within pre-reserved capacity and rubato's
 //!   `process_into_buffer` is itself allocation-free.
 //!
-//! For [`PhaseResponse::Linear`], common reduced sample-rate ratios use the
-//! much faster rubato FFT engine through High quality; UltraHigh and ratios
-//! that would create pathological FFT blocks use sinc, where the quality mapping
-//! selects sinc length / oversampling rather than a SoX recipe. For
+//! For [`PhaseResponse::Linear`], exact 2:1 High-quality upsampling uses a
+//! dedicated symmetric half-band FIR. Other common reduced sample-rate ratios
+//! use the much faster rubato FFT engine through High quality; UltraHigh and
+//! ratios that would create pathological FFT blocks use sinc, where the quality
+//! mapping selects sinc length / oversampling rather than a SoX recipe. For
 //! [`PhaseResponse::Minimum`] and [`PhaseResponse::Maximum`], the adapter uses
 //! a precomputed real-cepstrum polyphase FIR bank. Nonlinear phase intentionally
 //! rejects reduced rate components above 1024 rather than silently falling back
@@ -37,7 +38,9 @@ use rubato::{
     SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
-use super::{polyphase_backend::PolyphaseResampler, BackendProgress};
+use super::{
+    halfband_backend::Halfband2xResampler, polyphase_backend::PolyphaseResampler, BackendProgress,
+};
 
 pub(super) const BACKEND_NAME: &str = "rubato";
 
@@ -88,6 +91,17 @@ fn should_use_fft(from_rate: u32, to_rate: u32, quality: ResampleQuality) -> boo
     !matches!(quality, ResampleQuality::UltraHigh)
         && from_rate / divisor <= MAX_FFT_REDUCED_RATE
         && to_rate / divisor <= MAX_FFT_REDUCED_RATE
+}
+
+fn should_use_halfband_2x(
+    from_rate: u32,
+    to_rate: u32,
+    phase: PhaseResponse,
+    quality: ResampleQuality,
+) -> bool {
+    matches!(phase, PhaseResponse::Linear)
+        && matches!(quality, ResampleQuality::High)
+        && from_rate.checked_mul(2) == Some(to_rate)
 }
 
 /// Total output frames a stream of `total_input` frames must produce to be
@@ -198,6 +212,7 @@ impl SampleRing {
 }
 
 enum RubatoEngine {
+    Halfband(Halfband2xResampler),
     Sinc(Async<f64>),
     Fft(Box<Fft<f64>>),
     Polyphase(PolyphaseResampler),
@@ -214,6 +229,9 @@ impl RubatoEngine {
         if !matches!(phase, PhaseResponse::Linear) {
             return PolyphaseResampler::new(from_rate, to_rate, phase, quality, channels, CHUNK_IN)
                 .map(Self::Polyphase);
+        }
+        if should_use_halfband_2x(from_rate, to_rate, phase, quality) {
+            return Halfband2xResampler::new(channels, CHUNK_IN).map(Self::Halfband);
         }
         if should_use_fft(from_rate, to_rate, quality) {
             Fft::<f64>::new_custom(
@@ -246,6 +264,7 @@ impl RubatoEngine {
 
     fn output_frames_max(&self) -> usize {
         match self {
+            Self::Halfband(resampler) => resampler.output_frames_max(),
             Self::Sinc(resampler) => resampler.output_frames_max(),
             Self::Fft(resampler) => resampler.output_frames_max(),
             Self::Polyphase(resampler) => resampler.output_frames_max(),
@@ -254,6 +273,7 @@ impl RubatoEngine {
 
     fn output_delay(&self) -> usize {
         match self {
+            Self::Halfband(resampler) => resampler.output_delay(),
             Self::Sinc(resampler) => resampler.output_delay(),
             Self::Fft(resampler) => resampler.output_delay(),
             Self::Polyphase(resampler) => resampler.output_delay(),
@@ -262,14 +282,14 @@ impl RubatoEngine {
 
     fn latency_frames(&self) -> usize {
         match self {
-            Self::Sinc(_) | Self::Fft(_) => 0,
+            Self::Halfband(_) | Self::Sinc(_) | Self::Fft(_) => 0,
             Self::Polyphase(resampler) => resampler.latency_frames(),
         }
     }
 
     fn finish_extension_frames(&self) -> usize {
         match self {
-            Self::Sinc(_) | Self::Fft(_) => 0,
+            Self::Halfband(_) | Self::Sinc(_) | Self::Fft(_) => 0,
             Self::Polyphase(resampler) => resampler.finish_extension_frames(),
         }
     }
@@ -281,6 +301,7 @@ impl RubatoEngine {
         channels: usize,
     ) -> Result<(usize, usize), &'static str> {
         match self {
+            Self::Halfband(resampler) => return resampler.process_chunk(input, output),
             Self::Polyphase(resampler) => return resampler.process_chunk(input, output),
             Self::Sinc(resampler) => {
                 let input_frames = input.len() / channels;
@@ -306,6 +327,7 @@ impl RubatoEngine {
 
     fn reset(&mut self) {
         match self {
+            Self::Halfband(resampler) => resampler.reset(),
             Self::Sinc(resampler) => resampler.reset(),
             Self::Fft(resampler) => resampler.reset(),
             Self::Polyphase(resampler) => resampler.reset(),
@@ -318,7 +340,7 @@ pub(super) struct MonoBackend {
     channels: usize,
     /// Staged caller input; rubato consumes exact CHUNK_IN prefixes of this.
     in_fifo: SampleRing,
-    /// Rubato per-call interleaved output stage.
+    /// Per-engine interleaved output stage.
     out_stage: Vec<f64>,
     /// Produced frames not yet handed to the caller.
     out_fifo: SampleRing,
@@ -658,7 +680,11 @@ mod tests {
         output
     }
 
-    fn assert_interleaved_matches_independent_mono(quality: ResampleQuality) {
+    fn assert_interleaved_matches_independent_mono(
+        from_rate: u32,
+        to_rate: u32,
+        quality: ResampleQuality,
+    ) {
         const CHANNELS: usize = 2;
         const INPUT_FRAMES: usize = 4_097;
         let input: Vec<f64> = (0..INPUT_FRAMES)
@@ -671,9 +697,14 @@ mod tests {
             })
             .collect();
 
-        let mut interleaved =
-            MonoBackend::new_interleaved(44_100, 48_000, PhaseResponse::Linear, quality, CHANNELS)
-                .unwrap();
+        let mut interleaved = MonoBackend::new_interleaved(
+            from_rate,
+            to_rate,
+            PhaseResponse::Linear,
+            quality,
+            CHANNELS,
+        )
+        .unwrap();
         let actual = render_backend(&mut interleaved, &input, CHANNELS);
 
         let mut mono_outputs = Vec::with_capacity(CHANNELS);
@@ -683,7 +714,7 @@ mod tests {
                 .map(|frame| frame[channel])
                 .collect();
             let mut mono =
-                MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, quality).unwrap();
+                MonoBackend::new(from_rate, to_rate, PhaseResponse::Linear, quality).unwrap();
             mono_outputs.push(render_backend(&mut mono, &mono_input, 1));
         }
 
@@ -711,17 +742,63 @@ mod tests {
             ResampleQuality::Standard,
             ResampleQuality::High,
         ] {
-            for (from_rate, to_rate) in [
-                (44_100, 48_000),
-                (48_000, 96_000),
-                (96_000, 44_100),
-                (44_100, 192_000),
-            ] {
+            for (from_rate, to_rate) in [(44_100, 48_000), (96_000, 44_100), (44_100, 192_000)] {
                 assert!(should_use_fft(from_rate, to_rate, quality));
             }
         }
         assert!(!should_use_fft(44_100, 44_101, ResampleQuality::High));
         assert!(!should_use_fft(0, 48_000, ResampleQuality::High));
+    }
+
+    #[test]
+    fn exact_two_x_high_upsampling_routes_to_halfband_without_broadening() {
+        assert!(should_use_halfband_2x(
+            48_000,
+            96_000,
+            PhaseResponse::Linear,
+            ResampleQuality::High
+        ));
+        assert!(should_use_halfband_2x(
+            44_100,
+            88_200,
+            PhaseResponse::Linear,
+            ResampleQuality::High
+        ));
+        for (from_rate, to_rate, phase, quality) in [
+            (
+                48_000,
+                96_000,
+                PhaseResponse::Linear,
+                ResampleQuality::Standard,
+            ),
+            (
+                48_000,
+                96_000,
+                PhaseResponse::Linear,
+                ResampleQuality::UltraHigh,
+            ),
+            (96_000, 48_000, PhaseResponse::Linear, ResampleQuality::High),
+            (
+                48_000,
+                96_000,
+                PhaseResponse::Minimum,
+                ResampleQuality::High,
+            ),
+            (44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High),
+        ] {
+            assert!(!should_use_halfband_2x(from_rate, to_rate, phase, quality));
+        }
+        assert!(matches!(
+            RubatoEngine::new(
+                48_000,
+                96_000,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+                2,
+            )
+            .unwrap(),
+            RubatoEngine::Halfband(_)
+        ));
     }
 
     #[test]
@@ -763,9 +840,9 @@ mod tests {
 
     #[test]
     fn native_interleaved_matches_independent_mono_for_fft_and_sinc() {
-        for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
-            assert_interleaved_matches_independent_mono(quality);
-        }
+        assert_interleaved_matches_independent_mono(44_100, 48_000, ResampleQuality::High);
+        assert_interleaved_matches_independent_mono(44_100, 48_000, ResampleQuality::UltraHigh);
+        assert_interleaved_matches_independent_mono(48_000, 96_000, ResampleQuality::High);
     }
 
     #[test]
@@ -811,6 +888,7 @@ mod tests {
     fn clear_restores_the_selected_engines_leading_delay() {
         for (from_rate, to_rate, quality) in [
             (44_100, 48_000, ResampleQuality::High),
+            (48_000, 96_000, ResampleQuality::High),
             (44_100, 48_000, ResampleQuality::UltraHigh),
             (44_100, 44_101, ResampleQuality::High),
         ] {
