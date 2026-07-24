@@ -41,13 +41,14 @@ http = ["dep:reqwest"]
 # Disable if you only need realtime DSP/decoding and not on-disk loudness storage.
 loudness-db = ["dep:rusqlite"]
 # Native SoXR (libsoxr) resampler backend: SoX VHQ quality, LGPL-2.1 native
-# library required at build/link time. Exactly one resampler backend must be
+# library required at build/link time. At least one resampler backend must be
 # enabled; when both are enabled, soxr wins.
 soxr = ["dep:soxr"]
-# Pure Rust quality-aware FFT/sinc resampler backend (rubato). Common ratios
-# use FFT through High quality; UltraHigh and pathological ratios use sinc. No
-# native dependency; use with `default-features = false, features = ["rubato",
-# ...]` for a fully pure-Rust build. Linear phase only.
+# Pure Rust quality-aware resampler backend. Exact-2x Linear/High upsampling
+# uses a dedicated half-band FIR; other common ratios use FFT through High;
+# UltraHigh/pathological ratios use sinc; Minimum/Maximum use a bounded causal
+# polyphase FIR. No native dependency; use with `default-features = false,
+# features = ["rubato", ...]` for a fully pure-Rust build.
 rubato = ["dep:rubato"]
 
 [dev-dependencies]

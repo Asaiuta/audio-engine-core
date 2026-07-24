@@ -46,7 +46,7 @@ These are provided as reusable, measurable, testable components.
 | Area | What you get |
 | --- | --- |
 | Decode | Streaming decode built on Symphonia 0.6, a typed error policy for unsupported/corrupt input, and per-codec gapless ownership |
-| Resampling | SoX VHQ streaming resampler (native SoXR backend, default) or quality-aware pure-Rust rubato FFT/sinc routing, behind one `process_checked` interface |
+| Resampling | SoX VHQ streaming resampler (native SoXR backend, default) or quality-aware pure-Rust half-band/FFT/sinc/polyphase routing, behind one `process_checked` interface |
 | Loudness | EBU R128 integrated loudness + true-peak measurement, offline analysis plus realtime atomic gain application |
 | DSP | 10-band IIR biquad `Equalizer`, linear- and minimum-phase `FirEq` (applied via `FFTConvolver`), Bauer crossfeed, saturation with oversampled antialiasing, FFT convolution with partitioned routing for long IRs, dynamic loudness compensation, volume smoothing, true-peak limiter, noise shaping |
 | Realtime control | Lock-free generation-based parameter snapshots for pushing changes into the audio callback |
@@ -198,14 +198,15 @@ default:
 - `soxr` (default): native SoXR resampler backend (SoX VHQ). Requires the
   libsoxr native library at build/link time; libsoxr is LGPL-2.1 (see
   [License](#license)).
-- `rubato`: quality-aware pure-Rust backend. `PhaseResponse::Linear` uses FFT
-  for common ratios through High quality, while UltraHigh and pathological
-  ratios use windowed sinc. `Minimum` and `Maximum` use a setup-designed
-  rational polyphase FIR with real-cepstrum spectral factorization; reduced
-  rate components above 1024 are rejected rather than silently treated as
-  linear phase. No native dependency. Exactly one resampler backend must be
-  enabled — enabling neither is a compile error, and when both are enabled,
-  `soxr` wins.
+- `rubato`: quality-aware pure-Rust backend. Exact 2x upsampling at
+  `PhaseResponse::Linear` + High uses a dedicated 127-tap symmetric half-band
+  FIR; other common ratios use FFT through High, while UltraHigh and
+  pathological ratios use windowed sinc. `Minimum` and `Maximum` use a
+  setup-designed rational polyphase FIR with real-cepstrum spectral
+  factorization; reduced rate components above 1024 are rejected rather than
+  silently treated as linear phase. No native dependency. At least one
+  resampler backend must be enabled — enabling neither is a compile error, and
+  when both are enabled, `soxr` wins.
 
 A fully pure-Rust, DSP-only build with no native dependency:
 

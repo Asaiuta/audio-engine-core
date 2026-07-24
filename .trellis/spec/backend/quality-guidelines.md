@@ -623,12 +623,14 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 
 ### 3. Contracts
 
-- `PhaseResponse::Linear` keeps the established Rubato 4 routing: Low,
-  Standard, and High common ratios use `Fft<f64>` with a 1024-frame fixed input
-  chunk, two FFT sub-chunks, and `BlackmanHarris2`. A rate pair is common only
-  when both components after GCD reduction are at most 1024. UltraHigh and
-  larger reduced ratios use `Async<f64>::new_sinc`; quality selects the sinc
-  parameters for those routes.
+- `PhaseResponse::Linear` uses a dedicated 127-tap symmetric half-band FIR when
+  quality is High and `to_rate == 2 * from_rate`. The engine uses the existing
+  1024-frame fixed input chunk, evaluates 32 symmetric coefficient pairs, and
+  emits the companion phase as a delayed direct source sample. Other Low,
+  Standard, and High common ratios use `Fft<f64>` with two FFT sub-chunks and
+  `BlackmanHarris2`. A rate pair is common only when both components after GCD
+  reduction are at most 1024. UltraHigh and larger reduced ratios use
+  `Async<f64>::new_sinc`; quality selects the sinc parameters for those routes.
 - `PhaseResponse::Minimum` and `PhaseResponse::Maximum` use a separate,
   setup-designed causal rational polyphase FIR. A real-cepstrum spectral
   factor of the low-pass prototype produces the minimum-phase kernel; reversing
@@ -665,16 +667,23 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 - Audioadapter slice wrappers are stack views. Rubato construction, FIR design,
   and engine boxing happen only during setup; process, drain, and reset remain
   allocation-free.
-- The performance report algorithm text and `case_key` identify FFT routing
-  plus sinc fallback. Any algorithm/routing change must change that identifier
-  so an older sinc or differently routed report is baseline-incompatible.
+- Half-band coefficients, per-channel history, and block staging are allocated
+  during setup. Construction may select a fixed AVX2+FMA accumulator function
+  pointer after feature detection; callback processing must not repeat feature
+  detection. The scalar fallback and selected vector kernel must be bit-equal
+  for vector and remainder lengths.
+- The performance report algorithm text and `case_key` identify exact-2x
+  half-band routing plus FFT/sinc fallback. Any algorithm/routing change must
+  change that identifier so an older sinc, FFT, or differently routed report
+  is baseline-incompatible.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required result |
 | --- | --- |
 | Either sample rate is zero | Public constructor rejects it before engine construction |
-| Linear + Low, Standard, or High and both reduced rate components are <= 1024 | Select FFT |
+| Linear + High + exact 2x upsampling | Select the dedicated half-band engine |
+| Linear + Low/Standard, or High non-2x, and both reduced rate components are <= 1024 | Select FFT |
 | Linear + UltraHigh | Select sinc even for a common ratio |
 | Linear + either reduced rate component > 1024 | Select sinc; never construct a pathological FFT block |
 | Minimum/Maximum + reduced component > 1024 or oversized coefficient bank | Named initialization error; never silently select FFT/sinc |
@@ -686,8 +695,10 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 
 ### 5. Good / Base / Bad Cases
 
-- Good: 44.1 to 48 kHz reduces to 147:160 and uses FFT at Linear/High, while
-  Linear/UltraHigh uses sinc and Minimum/Maximum use the polyphase bank.
+- Good: 48 to 96 kHz and 44.1 to 88.2 kHz use half-band at Linear/High;
+  Linear/Standard keeps FFT and Linear/UltraHigh keeps sinc. 44.1 to 48 kHz
+  reduces to 147:160 and uses FFT at Linear/High, while Minimum/Maximum use the
+  polyphase bank.
   44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc for Linear at every
   quality but rejects nonlinear phase before processing.
 - Base: equal-rate streams bypass the backend in `StreamingResampler`.
@@ -699,13 +710,20 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   reported latency or output start frame.
 - Bad: keep a generic `rubato_streaming_default` case key after changing from
   sinc to FFT, which makes incompatible performance evidence look comparable.
+- Bad: broaden the half-band predicate to Standard, UltraHigh, downsampling,
+  non-2x ratios, or nonlinear phase because one 48-to-96 benchmark improved.
 - Bad: cite a noisy quick-run minimum as representative evidence, or retain a
   FIFO rewrite that does not improve the adjacent heavy median matrix.
 
 ### 6. Tests Required
 
-- Routing tests assert common audio ratios select FFT through High, UltraHigh
-  selects sinc for a common ratio, and a coprime adjacent rate selects sinc.
+- Routing tests assert exact-2x Linear/High upsampling selects half-band without
+  broadening; other common ratios select FFT through High, UltraHigh selects
+  sinc, and a coprime adjacent rate selects sinc.
+- Half-band tests compare block output with full zero-stuffed convolution,
+  enforce DC gain and representative passband/image bounds, compare native
+  interleaving with independent mono engines, and run process/reset under
+  `assert_no_alloc`.
 - Nonlinear tests assert a minimum-phase energy centroid before the linear
   prototype, maximum after it, distinct non-shift phase envelopes, and the
   same magnitude response within the documented tolerance. They also cover

@@ -14,34 +14,33 @@ SemVer for pre-1.0 releases.
 ### Added
 - Pluggable resampler backends behind unchanged public APIs: the new `soxr`
   feature (default) selects the native SoXR / SoX VHQ backend, and the new
-  pure-Rust `rubato` feature selects quality-aware FFT/sinc routing with no
-  native dependency. Enabling neither is a compile error; when both are enabled,
-  `soxr` wins. `default-features = false, features = ["rubato"]` now produces
+  pure-Rust `rubato` feature selects quality-aware half-band/FFT/sinc/polyphase
+  routing with no native dependency. Enabling neither is a compile error; when
+  both are enabled, `soxr` wins. `default-features = false, features = ["rubato"]` now produces
   a fully pure-Rust build that does not link LGPL-2.1 libsoxr, and both
   backends satisfy the same streaming contract (arbitrary input granularity,
   duration-aligned drain, reset clearing history) and pass the same resampler
-  test suite and 27 quick-run quality gates. The rubato backend is linear
-  phase only. A dedicated CI job builds and tests the pure-Rust path on a
-  runner with no libsoxr installed.
+  test suite and 27 quick-run quality gates. Linear, Minimum, and Maximum phase
+  routes are explicit and independently tested. A dedicated CI job builds and
+  tests the pure-Rust path on a runner with no libsoxr installed.
 - Public `RESAMPLER_BACKEND_NAME` constant naming the compile-time selected
   resampler backend (`"soxr"` or `"rubato"`; `soxr` wins when both features
   are enabled). Benchmark reports record the compiled backend in the
   environment `features` field (`resampler-soxr` / `resampler-rubato`) and in
   backend-derived resampler `algorithm` labels, so performance baselines
   recorded before backend labeling are incompatible with new reports.
-- The pure-Rust resampler now uses rubato 4.0 and routes common reduced sample
-  rate ratios through its synchronous FFT engine for Low through High, while
-  UltraHigh and pathological ratios use windowed sinc. The adapter removes
-  each engine's reported leading delay, preserves duration-aligned
-  drain/reset/chunking and allocation-free processing, and distinguishes this
-  quality-aware routing in benchmark labels and case keys. On the recorded
-  2026-07-22 Windows/Alder Lake quick run, 512-frame High `process_checked`
-  cost was 9.86 ns/input sample for 44.1 to 48 kHz and 12.57 for 48 to 96 kHz,
-  versus the old sinc path's 133.59 and 179.59. UltraHigh restored the prior
-  sinc evidence at -216.24 dB THD+N; all 27 quick quality gates passed. The
-  deliberate cost is that Rubato UltraHigh resampled offline rendering is
-  about 2.8x slower than the rejected all-FFT route, while remaining below a
-  3.2% realtime factor in the measured quick scenarios.
+- The pure-Rust resampler now uses rubato 4.0 plus a dedicated 127-tap
+  symmetric half-band engine for exact 2x `Linear + High` upsampling. Other
+  common Low-through-High ratios use the synchronous FFT engine, while
+  UltraHigh and pathological ratios use windowed sinc. The shared adapter
+  removes each linear engine's leading delay and preserves duration-aligned
+  drain/reset/chunking and allocation-free processing. On the recorded
+  2026-07-24 Windows/Alder Lake same-revision quick matrix, 48-to-96 kHz High
+  `process_checked` cost fell from the retained FFT route's
+  36.104/14.354/17.667 to 5.849/5.807/6.026 ns/input sample at
+  128/256/512-frame blocks. The algorithm label and case key changed so older
+  FFT baselines are rejected automatically. UltraHigh retains -216.24 dB
+  THD+N and all 27 quick quality gates pass.
 - Dual licensing under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`).
 - `NOTICE` file documenting the SoXR (libsoxr, LGPL-2.1) native dependency.
 - Optional feature flags: `http` (network/streaming decode via `reqwest`) and

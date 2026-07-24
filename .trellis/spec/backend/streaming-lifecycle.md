@@ -357,12 +357,13 @@ MonoBackend::new_interleaved(
   contiguous even after wrap. The output ring applies strict backpressure.
   Neither ring may grow, overwrite unread audio, log, or allocate during
   process/drain. Push/pop may use at most two bounded contiguous copies.
-* Linear Rubato High keeps common reduced ratios on the FFT engine; Linear
-  UltraHigh keeps the 256-tap, 512x-oversampled cubic sinc engine. Pathological
-  Linear ratios also use sinc. Minimum/Maximum use the precomputed causal
-  polyphase path and reject reduced geometry beyond its explicit limit; a
-  performance optimization must not silently reroute UltraHigh or nonlinear
-  requests through a lower-quality or different-phase engine.
+* Exact-2x Linear Rubato High upsampling uses one interleaved 127-tap symmetric
+  half-band engine. Other common Linear High ratios keep the FFT engine;
+  Linear UltraHigh keeps the 256-tap, 512x-oversampled cubic sinc engine.
+  Pathological Linear ratios also use sinc. Minimum/Maximum use the precomputed
+  causal polyphase path and reject reduced geometry beyond its explicit limit;
+  a performance optimization must not silently broaden half-band routing or
+  reroute UltraHigh/nonlinear requests through a different engine.
 * `working_buffer_bytes` accounts for reusable adapter-owned PCM scratch, not
   opaque backend engine allocations. It therefore returns the exact SoXR
   scratch capacity in bytes and zero for pure Rubato. Output-render setup
@@ -392,6 +393,7 @@ MonoBackend::new_interleaved(
 | A direct process route returns `N` frames | cumulative caller-visible `emitted` advances by exactly `N`; later drain excludes those frames |
 | Pure-Rubato `working_buffer_bytes` with valid geometry | `Ok(0)` |
 | SoXR `working_buffer_bytes` with valid geometry | exact sum of output scratch plus every channel input/output capacity |
+| Exact-2x Linear High upsampling | one half-band engine; shared delay skip, emitted accounting, and drain lifecycle |
 | UltraHigh at a common audio ratio | sinc engine with the retained Cubic/512 parameters |
 | Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::InitializationFailed`; no linear fallback |
 
@@ -400,6 +402,8 @@ MonoBackend::new_interleaved(
 * Good: stereo linear Rubato uses one two-channel engine, produces the same
   duration and channel samples as two independent mono reference engines within
   the measured floating-point bound, and allocates nothing after setup.
+* Good: 48-to-96 Linear/High uses the half-band engine while 48-to-96
+  Linear/Standard remains FFT and Linear/UltraHigh remains sinc.
 * Good: stereo Minimum/Maximum uses one shared polyphase bank, preserves the
   declared finite tail and causal latency, and allocates nothing after setup.
 * Good: an integer-ratio direct-output process call and an output-constrained
@@ -426,8 +430,12 @@ MonoBackend::new_interleaved(
 * Build and test both backend selections: default/all-features SoXR and
   `--no-default-features --features rubato`.
 * Compare one native multichannel Rubato engine against independent mono
-  engines for both High FFT and UltraHigh sinc. Assert equal output lengths and
-  a per-sample bound no weaker than `1e-14` for the current `f64` engines.
+  engines for High FFT, exact-2x High half-band, and UltraHigh sinc. Assert
+  equal output lengths and a per-sample bound no weaker than `1e-14` for the
+  current `f64` engines.
+* For half-band, compare block output against an independent full zero-stuffed
+  convolution oracle, assert representative passband/image limits, and prove
+  the setup-selected vector accumulator is bit-equal to scalar.
 * Keep random input chunking, short/long duration, impulse alignment, terminal
   drain/reset, and process/finish no-allocation coverage.
 * Ring tests cross wrap boundaries, assert exact sample order, prove every

@@ -7,10 +7,9 @@ its own.
 
 ## Development setup
 
-The crate links the native [libsoxr](https://sourceforge.net/projects/soxr/)
-resampling library. SoXR is required for every build today, including
-`default-features = false`; those Cargo features only remove HTTP and SQLite
-dependencies. Install SoXR before building:
+The default build links the native
+[libsoxr](https://sourceforge.net/projects/soxr/) resampling library. Install
+SoXR when building the default/all-features matrix:
 
 - **Debian/Ubuntu:** `sudo apt-get install libsoxr-dev`
 - **macOS (Homebrew):** `brew install libsoxr`
@@ -24,6 +23,13 @@ dependencies. Install SoXR before building:
   static triplet used by your toolchain; set `VCPKG_ROOT` so the build script
   can find it.
 
+For a fully pure-Rust build with no libsoxr dependency, select the alternate
+backend explicitly:
+
+```bash
+cargo build --no-default-features --features rubato
+```
+
 Then the usual workflow:
 
 ```bash
@@ -35,17 +41,21 @@ cargo test
 
 - `http` (default) — HTTP/HTTPS streaming decode via `reqwest`.
 - `loudness-db` (default) — SQLite-backed loudness metadata persistence.
+- `soxr` (default) — native SoX VHQ resampling; links LGPL-2.1 libsoxr.
+- `rubato` — pure-Rust half-band/FFT/sinc/polyphase resampling. Enabling both
+  backends is allowed for aggregate checks, but `soxr` wins at compile time.
 
-Both are enabled by default for backward compatibility. When making changes,
-verify all three configurations still build and lint cleanly:
+The default optional services and SoXR backend are enabled for backward
+compatibility. At least one resampler backend must be selected; when making
+changes, verify both backend matrices plus optional feature combinations:
 
 ```bash
 cargo clippy --all-targets --all-features -- -D warnings
-cargo clippy --all-targets --no-default-features -- -D warnings
-cargo build --no-default-features --features http
-cargo build --no-default-features --features loudness-db
+cargo clippy --all-targets --no-default-features --features rubato -- -D warnings
+cargo build --no-default-features --features rubato,http
+cargo build --no-default-features --features rubato,loudness-db
 cargo test --all-features
-cargo test --no-default-features
+cargo test --no-default-features --features rubato
 ```
 
 ## Quality and performance evidence

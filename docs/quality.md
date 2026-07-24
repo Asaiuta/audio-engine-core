@@ -76,6 +76,7 @@ in-crate processing.
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 60.4 ns | 61.9 us | seven-trial quick median (2026-07-23); p95 callback utilization 0.60% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, SoXR backend) | 8.45 ns/input sample | 8.65 us/input buffer | seven-trial quick median (2026-07-21); p95 source-buffer reference utilization 0.118% |
 | Streaming resampler, 44.1 kHz to 48 kHz (`process_checked`, rubato High FFT route) | 9.86 ns/input sample | 10.10 us/input buffer | seven-trial quick median (2026-07-22, `--no-default-features --features rubato`); p95 source-buffer reference utilization 0.091% |
+| Streaming resampler, 48 kHz to 96 kHz (`process_checked`, rubato High half-band route) | 6.03 ns/input sample | 6.17 us/input buffer | seven-trial quick median (2026-07-24, `--no-default-features --features rubato`); p95 source-buffer reference utilization 0.082% |
 | `FFTConvolver` alone, 256-tap IR, stereo | 9.39 ns | n/a | seven-trial pinned quick median (2026-07-23) |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 10.9 ns | 11.2 us | seven-trial quick median (2026-07-23); versioned `audio_fir_eq_perf --quick` report |
 
@@ -167,12 +168,15 @@ replace listening tests.
 
 The resampler quality rows above measure the default native SoXR (SoX VHQ)
 backend. The pure-Rust rubato backend (`default-features = false,
-features = ["rubato"]`) routes common reduced sample-rate ratios through
-rubato 4.0's synchronous FFT engine for Low, Standard, and High. UltraHigh and
-ratios whose reduced components would create pathological FFT blocks use
-windowed sinc. Both paths remove their leading delay in the adapter, and the
-backend passes the same 27 quick-run quality gates on this machine. The quality
-bench explicitly requests UltraHigh; representative same-machine deltas:
+features = ["rubato"]`) uses a dedicated 127-tap symmetric half-band FIR for
+exact 2x `Linear + High` upsampling. Other common Low-through-High ratios use
+rubato 4.0's synchronous FFT engine; UltraHigh and ratios whose reduced
+components would create pathological FFT blocks use windowed sinc. The shared
+adapter removes each linear engine's leading delay. The backend passes the
+same 27 quick-run quality gates on this machine; that bench explicitly requests
+UltraHigh, while route-specific tests separately enforce the High half-band's
+20 kHz gain, THD+N, interpolation images, lifecycle, and zero-allocation
+contracts. Representative same-machine UltraHigh deltas:
 
 | Metric | SoXR (default) | rubato |
 | --- | ---: | ---: |
@@ -181,16 +185,20 @@ bench explicitly requests UltraHigh; representative same-machine deltas:
 | 20 kHz resampler gain | -0.0062 dB | -0.0017 dB |
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -208.1 dB |
 
-Same-machine streaming cost (2026-07-22 quick rubato run and 2026-07-21 SoXR
-reference run of
-`audio_resampler_streaming_perf`; 512-frame stereo buffers, `process_checked`,
-seven-trial medians). This benchmark uses the public default High quality, so
-the rubato rows exercise FFT rather than the UltraHigh sinc path above:
+Same-machine streaming cost (`audio_resampler_streaming_perf`; 512-frame stereo
+buffers, `process_checked`, seven-trial medians). The 44.1-to-48 row uses the
+2026-07-22 FFT report and the 2026-07-21 SoXR reference. The 48-to-96 Rubato row
+uses the 2026-07-24 exact-2x half-band report:
 
-| Case | SoXR (default) | rubato FFT route |
+| Case | SoXR (default) | rubato selected route |
 | --- | ---: | ---: |
 | 44.1 kHz to 48 kHz, ns/input sample (us/input buffer) | 8.45 (8.65 us) | 9.86 (10.10 us) |
-| 48 kHz to 96 kHz, ns/input sample (us/input buffer) | 6.73 (6.89 us) | 12.57 (12.87 us) |
+| 48 kHz to 96 kHz, ns/input sample (us/input buffer) | 6.73 (6.89 us) | 6.03 (6.17 us) |
+
+Against a same-revision retained-FFT baseline, the 48-to-96 half-band route
+reduced 128/256/512-frame `process_checked` medians from
+36.104/14.354/17.667 to 5.849/5.807/6.026 ns/input sample (83.8%, 59.5%, and
+65.9%). All cases passed consumed/produced and finite-output work validation.
 
 `OutputRenderChain` deliberately requests UltraHigh, so pure-Rust resampled
 offline rendering uses sinc rather than the High FFT route. In the same
@@ -206,7 +214,8 @@ Benchmark reports now record the compiled backend in the environment
 `algorithm` labels, so performance baselines recorded before backend labeling
 are incompatible with new reports.
 
-For `PhaseResponse::Linear`, rubato keeps the FFT/sinc routing described above.
+For `PhaseResponse::Linear`, rubato keeps the half-band/FFT/sinc routing
+described above.
 For `Minimum` and `Maximum`, the pure-Rust backend instead creates a bounded
 rational polyphase FIR during setup from the same low-pass magnitude target:
 real-cepstrum spectral factorization produces the causal minimum-phase kernel,
