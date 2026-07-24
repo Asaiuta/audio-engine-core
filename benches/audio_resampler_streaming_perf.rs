@@ -26,13 +26,13 @@ const VALIDATION_BUFFERS: usize = 8;
 const RESAMPLER_ALGORITHM_LABEL: &str = "streaming default quality/phase";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_LABEL: &str =
-    "native-interleaved FFT/sinc routing with ring FIFOs and integer-ratio direct output (High FFT, UltraHigh sinc)";
+    "native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio direct output";
 
 #[cfg(feature = "soxr")]
 const RESAMPLER_ALGORITHM_ID: &str = "streaming_default";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_ID: &str =
-    "streaming_native_interleaved_fft_sinc_direct_integer_ratio_ring_fifo";
+    "streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_ratio_ring_fifo";
 
 fn resampler_algorithm_label() -> String {
     format!("{RESAMPLER_BACKEND_NAME} {RESAMPLER_ALGORITHM_LABEL}")

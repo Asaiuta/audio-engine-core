@@ -19,6 +19,8 @@ compile_error!(
 );
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod halfband_backend;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod polyphase_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod rubato_backend;
@@ -1590,6 +1592,91 @@ mod tests {
             .map(|(index, _)| index)
             .unwrap();
         assert!(minimum_peak < maximum_peak);
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn exact_two_x_linear_high_passband_thdn_and_images_are_bounded() {
+        const FROM_RATE: u32 = 48_000;
+        const TO_RATE: u32 = 96_000;
+        const INPUT_FRAMES: usize = 32_768;
+        const ANALYSIS_START: usize = 4_096;
+        // Divisible by the 20/28 kHz 24-sample periods and the 18/30 kHz
+        // 16-sample periods at 96 kHz.
+        const ANALYSIS_FRAMES: usize = 6_144;
+        const AMPLITUDE: f64 = 0.5;
+
+        fn sine(frequency_hz: f64) -> Vec<f64> {
+            (0..INPUT_FRAMES)
+                .map(|frame| {
+                    AMPLITUDE
+                        * (2.0 * std::f64::consts::PI * frequency_hz * frame as f64
+                            / FROM_RATE as f64)
+                            .sin()
+                })
+                .collect()
+        }
+
+        fn fitted_tone(samples: &[f64], frequency_hz: f64) -> (f64, f64) {
+            let samples = &samples[ANALYSIS_START..ANALYSIS_START + ANALYSIS_FRAMES];
+            let mut sin_dot = 0.0;
+            let mut cos_dot = 0.0;
+            for (offset, &sample) in samples.iter().enumerate() {
+                let frame = ANALYSIS_START + offset;
+                let phase =
+                    2.0 * std::f64::consts::PI * frequency_hz * frame as f64 / TO_RATE as f64;
+                sin_dot += sample * phase.sin();
+                cos_dot += sample * phase.cos();
+            }
+            let sin_scale = 2.0 * sin_dot / ANALYSIS_FRAMES as f64;
+            let cos_scale = 2.0 * cos_dot / ANALYSIS_FRAMES as f64;
+            let amplitude = sin_scale.hypot(cos_scale);
+            let mut residual_energy = 0.0;
+            let mut fitted_energy = 0.0;
+            for (offset, &sample) in samples.iter().enumerate() {
+                let frame = ANALYSIS_START + offset;
+                let phase =
+                    2.0 * std::f64::consts::PI * frequency_hz * frame as f64 / TO_RATE as f64;
+                let fitted = sin_scale * phase.sin() + cos_scale * phase.cos();
+                residual_energy += (sample - fitted).powi(2);
+                fitted_energy += fitted.powi(2);
+            }
+            let thdn_db = 10.0 * (residual_energy / fitted_energy.max(1.0e-30)).log10();
+            (amplitude, thdn_db)
+        }
+
+        fn render(frequency_hz: f64) -> Vec<f64> {
+            let mut resampler = StreamingResampler::with_quality(
+                1,
+                FROM_RATE,
+                TO_RATE,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+            )
+            .unwrap();
+            render_with_chunks(&mut resampler, &sine(frequency_hz), &[127, 509], 257).unwrap()
+        }
+
+        let output_20khz = render(20_000.0);
+        let (passband_amplitude, thdn_db) = fitted_tone(&output_20khz, 20_000.0);
+        let gain_db = 20.0 * (passband_amplitude / AMPLITUDE).log10();
+        let (image_28khz_amplitude, _) = fitted_tone(&output_20khz, 28_000.0);
+        let image_28khz_db = 20.0 * (image_28khz_amplitude / AMPLITUDE).max(1.0e-15).log10();
+
+        let output_18khz = render(18_000.0);
+        let (image_30khz_amplitude, _) = fitted_tone(&output_18khz, 30_000.0);
+        let image_30khz_db = 20.0 * (image_30khz_amplitude / AMPLITUDE).max(1.0e-15).log10();
+
+        assert!(gain_db.abs() < 0.01, "20 kHz gain was {gain_db:.6} dB");
+        assert!(thdn_db < -100.0, "20 kHz THD+N was {thdn_db:.3} dB");
+        assert!(
+            image_28khz_db < -120.0,
+            "20 kHz -> 28 kHz image was {image_28khz_db:.3} dB"
+        );
+        assert!(
+            image_30khz_db < -120.0,
+            "18 kHz -> 30 kHz image was {image_30khz_db:.3} dB"
+        );
     }
 
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
