@@ -83,4 +83,12 @@ impl MonoBackend {
             .clear()
             .map_err(|_| "resampler backend clear failed")
     }
+
+    pub(super) fn latency_frames(&self) -> usize {
+        0
+    }
+
+    pub(super) fn finish_extension_frames(&self) -> usize {
+        0
+    }
 }

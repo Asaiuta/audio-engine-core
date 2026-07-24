@@ -4,6 +4,8 @@
 //! The generated IR is used with FFTConvolver for efficient convolution.
 
 use rustfft::{num_complex::Complex, FftPlanner};
+
+use super::fir_design::minimum_phase_from_log_magnitude;
 use std::f64::consts::PI;
 
 /// Standard 10-band EQ frequencies (ISO octave bands)
@@ -239,51 +241,8 @@ impl FirEq {
             }
         }
 
-        // 2. IFFT of log magnitude to get cepstral coefficients
-        let mut spectrum: Vec<Complex<f64>> =
-            log_mag.iter().map(|&lm| Complex::new(lm, 0.0)).collect();
-
-        let mut planner = FftPlanner::new();
-        let ifft = planner.plan_fft_inverse(fft_size);
-        ifft.process(&mut spectrum);
-
-        // FIX for Defect 7: rustfft's IFFT does not apply 1/N normalization.
-        // Without this, cepstral coefficients are amplified by N, which propagates
-        // through FFT→exp→IFFT and distorts the frequency response shape
-        // (gains raised to the N-th power instead of being preserved).
-        let inv_n = 1.0 / fft_size as f64;
-        for s in spectrum.iter_mut() {
-            *s *= inv_n;
-        }
-
-        // 3. Apply cepstral window (keep positive frequencies, double, zero negative)
-        let half = fft_size / 2;
-        for (i, s) in spectrum.iter_mut().enumerate() {
-            if i == 0 || i == half {
-                // Keep DC and Nyquist as-is
-            } else if i < half {
-                *s *= 2.0; // Double positive frequencies
-            } else {
-                *s = Complex::new(0.0, 0.0); // Zero negative frequencies
-            }
-        }
-
-        // 4. FFT back to frequency domain
-        let fft = planner.plan_fft_forward(fft_size);
-        fft.process(&mut spectrum);
-
-        // 5. Exponentiate to get minimum phase frequency response
-        for s in spectrum.iter_mut() {
-            *s = s.exp();
-        }
-
-        // 6. IFFT to get minimum phase IR
-        ifft.process(&mut spectrum);
-
-        // 7. Extract first num_taps samples
-        let mut ir_mono: Vec<f64> = (0..num_taps)
-            .map(|i| spectrum[i].re / fft_size as f64)
-            .collect();
+        // 2-7. Apply the shared real-cepstrum spectral factorization.
+        let mut ir_mono = minimum_phase_from_log_magnitude(&log_mag, num_taps);
 
         // 8. Apply a raised-cosine tail window. The causal half remains at
         // unity, then the tail monotonically fades to zero at the final tap.

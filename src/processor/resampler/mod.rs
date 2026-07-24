@@ -19,6 +19,8 @@ compile_error!(
 );
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod polyphase_backend;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod rubato_backend;
 #[cfg(feature = "soxr")]
 mod soxr_backend;
@@ -362,6 +364,8 @@ pub struct StreamingResampler {
     channels: usize,
     from_rate: u32,
     to_rate: u32,
+    latency: FrameDuration,
+    tail: TailSpec,
     #[cfg(feature = "soxr")]
     /// Pre-allocated output scratch buffer (per channel, reused)
     output_scratch: Vec<f64>,
@@ -548,6 +552,33 @@ impl StreamingResampler {
             )?,
         ];
 
+        let latency_frames = if from_rate == to_rate {
+            0
+        } else {
+            backends.first().map_or(0, MonoBackend::latency_frames)
+        };
+        let finish_extension_frames = if from_rate == to_rate {
+            0
+        } else {
+            backends
+                .first()
+                .map_or(0, MonoBackend::finish_extension_frames)
+        };
+        let latency = if latency_frames == 0 {
+            FrameDuration::ZERO
+        } else {
+            FrameDuration::new(latency_frames, to_rate).map_err(|error| {
+                ResamplerError::InitializationFailed(format!("invalid resampler latency: {error}"))
+            })?
+        };
+        let tail = TailSpec::finite(
+            finish_extension_frames.saturating_sub(latency_frames),
+            to_rate,
+        )
+        .map_err(|error| {
+            ResamplerError::InitializationFailed(format!("invalid resampler tail: {error}"))
+        })?;
+
         // Pre-allocate all SoXR buffers from the same checked layout exposed
         // to callers for reservation-before-allocation accounting.
         #[cfg(feature = "soxr")]
@@ -579,6 +610,8 @@ impl StreamingResampler {
             channels,
             from_rate,
             to_rate,
+            latency,
+            tail,
             #[cfg(feature = "soxr")]
             output_scratch,
             #[cfg(feature = "soxr")]
@@ -1029,14 +1062,11 @@ impl StreamingProcessor for StreamingResampler {
     }
 
     fn latency(&self) -> FrameDuration {
-        // Both backends deliver a duration-aligned sample sequence with no
-        // leading delay frames (SoXR natively; rubato via delay-skip in the
-        // backend adapter), so no offline timeline crop is required.
-        FrameDuration::ZERO
+        self.latency
     }
 
     fn tail(&self) -> TailSpec {
-        TailSpec::None
+        self.tail
     }
 
     fn is_enabled(&self) -> bool {
@@ -1146,6 +1176,22 @@ mod tests {
                 StreamingResampler::new(channels, from_rate, to_rate),
                 Err(ResamplerError::InitializationFailed(_))
             ));
+        }
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn nonlinear_phase_rejects_pathological_geometry_without_linear_fallback() {
+        assert!(StreamingResampler::with_phase(1, 44_100, 44_101, PhaseResponse::Linear,).is_ok());
+
+        for phase in [PhaseResponse::Minimum, PhaseResponse::Maximum] {
+            match StreamingResampler::with_phase(1, 44_100, 44_101, phase) {
+                Err(ResamplerError::InitializationFailed(message)) => {
+                    assert!(message.contains("reduced ratio"), "{message}");
+                }
+                Err(error) => panic!("{phase:?} returned an unexpected error: {error}"),
+                Ok(_) => panic!("{phase:?} unexpectedly selected a linear backend"),
+            }
         }
     }
 
@@ -1401,5 +1447,266 @@ mod tests {
             resampler.output_sample_rate_hz(48_000),
             Err(ProcessError::SampleRateMismatch { .. })
         ));
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn nonlinear_chunking_interleaving_terminal_and_reset_match_references() {
+        const CHANNELS: usize = 2;
+        const INPUT_FRAMES: usize = 4_097;
+        let input = fixture(INPUT_FRAMES, CHANNELS);
+
+        let mut whole =
+            StreamingResampler::with_phase(CHANNELS, 48_000, 96_000, PhaseResponse::Minimum)
+                .unwrap();
+        let expected = render_with_chunks(&mut whole, &input, &[INPUT_FRAMES], 257).unwrap();
+
+        let mut chunked =
+            StreamingResampler::with_phase(CHANNELS, 48_000, 96_000, PhaseResponse::Minimum)
+                .unwrap();
+        let actual =
+            render_with_chunks(&mut chunked, &input, &[1, 17, 3, 251, 64, 5, 1_024, 7], 257)
+                .unwrap();
+        assert_eq!(actual.len(), expected.len());
+        assert!(actual
+            .iter()
+            .zip(&expected)
+            .all(|(left, right)| left.to_bits() == right.to_bits()));
+
+        for channel in 0..CHANNELS {
+            let mono_input: Vec<f64> = input
+                .chunks_exact(CHANNELS)
+                .map(|frame| frame[channel])
+                .collect();
+            let mut mono =
+                StreamingResampler::with_phase(1, 48_000, 96_000, PhaseResponse::Minimum).unwrap();
+            let mono_output = render_with_chunks(
+                &mut mono,
+                &mono_input,
+                &[1, 17, 3, 251, 64, 5, 1_024, 7],
+                257,
+            )
+            .unwrap();
+            assert_eq!(actual.len() / CHANNELS, mono_output.len());
+            assert!(actual
+                .chunks_exact(CHANNELS)
+                .zip(&mono_output)
+                .all(|(frame, sample)| frame[channel].to_bits() == sample.to_bits()));
+        }
+
+        let mut terminal_output = vec![0.0; 64 * CHANNELS];
+        let terminal = finish_checked(
+            &mut chunked,
+            AudioBlockMut::new(&mut terminal_output, CHANNELS).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(terminal, ProcessProgress::finished(0));
+
+        chunked.reset().unwrap();
+        let post_reset_input = fixture(2_049, CHANNELS);
+        let reset_output =
+            render_with_chunks(&mut chunked, &post_reset_input, &[31, 257], 257).unwrap();
+        let mut fresh =
+            StreamingResampler::with_phase(CHANNELS, 48_000, 96_000, PhaseResponse::Minimum)
+                .unwrap();
+        let fresh_output =
+            render_with_chunks(&mut fresh, &post_reset_input, &[31, 257], 257).unwrap();
+        assert_eq!(reset_output.len(), fresh_output.len());
+        assert!(reset_output
+            .iter()
+            .zip(&fresh_output)
+            .all(|(left, right)| left.to_bits() == right.to_bits()));
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn nonlinear_phase_is_real_and_reports_causal_latency() {
+        let input_frames = 4_096;
+        let impulse_frame = 1_024;
+        let mut input = vec![0.0; input_frames];
+        input[impulse_frame] = 1.0;
+
+        let mut linear =
+            StreamingResampler::with_phase(1, 44_100, 48_000, PhaseResponse::Linear).unwrap();
+        let mut minimum =
+            StreamingResampler::with_phase(1, 44_100, 48_000, PhaseResponse::Minimum).unwrap();
+        let mut maximum =
+            StreamingResampler::with_phase(1, 44_100, 48_000, PhaseResponse::Maximum).unwrap();
+
+        let linear_output = render_with_chunks(&mut linear, &input, &[127, 509], 257).unwrap();
+        let minimum_output = render_with_chunks(&mut minimum, &input, &[127, 509], 257).unwrap();
+        let maximum_output = render_with_chunks(&mut maximum, &input, &[127, 509], 257).unwrap();
+
+        let expected_frames =
+            super::rubato_backend::expected_output_frames(input_frames as u64, 44_100, 48_000)
+                as usize;
+        assert_eq!(linear_output.len(), expected_frames);
+        let minimum_tail = minimum.tail().finite_duration().unwrap().frames();
+        let maximum_tail = maximum.tail().finite_duration().unwrap().frames();
+        assert_eq!(
+            minimum_output.len(),
+            expected_frames + minimum.latency().frames() + minimum_tail
+        );
+        assert_eq!(
+            maximum_output.len(),
+            expected_frames + maximum.latency().frames() + maximum_tail
+        );
+        assert_eq!(minimum_output.len(), maximum_output.len());
+        assert!(minimum.latency().frames() < maximum.latency().frames());
+        assert!(minimum_tail > maximum_tail);
+
+        fn energy_centroid(samples: &[f64]) -> f64 {
+            let total = samples.iter().map(|sample| sample * sample).sum::<f64>();
+            samples
+                .iter()
+                .enumerate()
+                .map(|(index, sample)| index as f64 * sample * sample)
+                .sum::<f64>()
+                / total
+        }
+
+        let minimum_centroid = energy_centroid(&minimum_output);
+        let maximum_centroid = energy_centroid(&maximum_output);
+        assert!(minimum_centroid < maximum_centroid);
+
+        let minimum_peak = minimum_output
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.abs()
+                    .partial_cmp(&right.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(index, _)| index)
+            .unwrap();
+        let maximum_peak = maximum_output
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.abs()
+                    .partial_cmp(&right.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(index, _)| index)
+            .unwrap();
+        assert!(minimum_peak < maximum_peak);
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn nonlinear_phase_actual_ratio_passband_alias_and_thdn_are_bounded() {
+        const FROM_RATE: u32 = 96_000;
+        const TO_RATE: u32 = 48_000;
+        const INPUT_FRAMES: usize = 32_768;
+        const ANALYSIS_START: usize = 4_096;
+        // Divisible by both the 20 kHz / 48 kHz 12-sample period and the
+        // 18 kHz / 48 kHz 8-sample period, keeping the fitted-tone basis exact.
+        const ANALYSIS_FRAMES: usize = 6_144;
+        const AMPLITUDE: f64 = 0.5;
+
+        fn sine(frequency_hz: f64) -> Vec<f64> {
+            (0..INPUT_FRAMES)
+                .map(|frame| {
+                    AMPLITUDE
+                        * (2.0 * std::f64::consts::PI * frequency_hz * frame as f64
+                            / FROM_RATE as f64)
+                            .sin()
+                })
+                .collect()
+        }
+
+        fn fitted_tone(samples: &[f64], frequency_hz: f64) -> (f64, f64) {
+            let samples = &samples[ANALYSIS_START..ANALYSIS_START + ANALYSIS_FRAMES];
+            let mut sin_dot = 0.0;
+            let mut cos_dot = 0.0;
+            for (offset, &sample) in samples.iter().enumerate() {
+                let frame = ANALYSIS_START + offset;
+                let phase =
+                    2.0 * std::f64::consts::PI * frequency_hz * frame as f64 / TO_RATE as f64;
+                sin_dot += sample * phase.sin();
+                cos_dot += sample * phase.cos();
+            }
+            let sin_scale = 2.0 * sin_dot / ANALYSIS_FRAMES as f64;
+            let cos_scale = 2.0 * cos_dot / ANALYSIS_FRAMES as f64;
+            let amplitude = sin_scale.hypot(cos_scale);
+            let mut residual_energy = 0.0;
+            let mut fitted_energy = 0.0;
+            for (offset, &sample) in samples.iter().enumerate() {
+                let frame = ANALYSIS_START + offset;
+                let phase =
+                    2.0 * std::f64::consts::PI * frequency_hz * frame as f64 / TO_RATE as f64;
+                let fitted = sin_scale * phase.sin() + cos_scale * phase.cos();
+                residual_energy += (sample - fitted).powi(2);
+                fitted_energy += fitted.powi(2);
+            }
+            let thdn_db = 10.0 * (residual_energy / fitted_energy.max(1.0e-30)).log10();
+            (amplitude, thdn_db)
+        }
+
+        for phase in [PhaseResponse::Minimum, PhaseResponse::Maximum] {
+            let mut passband = StreamingResampler::with_quality(
+                1,
+                FROM_RATE,
+                TO_RATE,
+                phase,
+                ResampleQuality::High,
+            )
+            .unwrap();
+            let passband_output =
+                render_with_chunks(&mut passband, &sine(20_000.0), &[127, 509], 257).unwrap();
+            let (passband_amplitude, thdn_db) = fitted_tone(&passband_output, 20_000.0);
+            let gain_db = 20.0 * (passband_amplitude / AMPLITUDE).log10();
+
+            let mut stopband = StreamingResampler::with_quality(
+                1,
+                FROM_RATE,
+                TO_RATE,
+                phase,
+                ResampleQuality::High,
+            )
+            .unwrap();
+            let stopband_output =
+                render_with_chunks(&mut stopband, &sine(30_000.0), &[127, 509], 257).unwrap();
+            let (alias_amplitude, _) = fitted_tone(&stopband_output, 18_000.0);
+            let alias_db = 20.0 * (alias_amplitude / AMPLITUDE).max(1.0e-15).log10();
+
+            assert!(
+                gain_db.abs() < 0.05,
+                "{phase:?} 20 kHz gain was {gain_db:.6} dB"
+            );
+            assert!(thdn_db < -90.0, "{phase:?} THD+N was {thdn_db:.3} dB");
+            assert!(
+                alias_db < -100.0,
+                "{phase:?} 30 kHz -> 18 kHz alias was {alias_db:.3} dB"
+            );
+        }
+    }
+
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[test]
+    fn nonlinear_phase_streaming_is_allocation_free_after_setup() {
+        let input = fixture(512, 2);
+        let mut output = vec![0.0; 2_048 * 2];
+        let mut resampler =
+            StreamingResampler::with_phase(2, 48_000, 96_000, PhaseResponse::Minimum).unwrap();
+
+        assert_no_alloc::assert_no_alloc(|| {
+            let input_block = AudioBlockRef::new(&input, 2).unwrap();
+            let output_block = AudioBlockMut::new(&mut output, 2).unwrap();
+            let progress = process_checked(
+                &mut resampler,
+                ProcessBuffers::out_of_place(input_block, output_block).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(progress.consumed_frames(), 512);
+
+            loop {
+                let output_block = AudioBlockMut::new(&mut output, 2).unwrap();
+                let progress = finish_checked(&mut resampler, output_block).unwrap();
+                if progress.state() == ProcessState::Finished {
+                    break;
+                }
+            }
+        });
     }
 }

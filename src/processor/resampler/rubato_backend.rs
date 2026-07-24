@@ -7,24 +7,29 @@
 //!   pre-allocated input FIFO; rubato only ever sees exact `CHUNK_IN`-frame
 //!   chunks, so the produced sample sequence is independent of how the caller
 //!   splits its input (chunked and single-feed runs are bitwise identical).
-//! - **No leading delay frames.** Both rubato 4 engines used here carry a real
-//!   leading delay. The adapter discards `output_delay()` produced frames at
-//!   stream start (and again after reset), so callers receive an aligned
-//!   sequence within one frame of the backend's delay rounding.
-//! - **Duration-aligned drain.** At end of stream the total output is padded
-//!   (with zero-fed chunks) or truncated to `round(total_input * to / from)`
-//!   frames, after which `drain` reports the terminal zero.
+//! - **Linear delay compensation.** The rubato FFT and sinc engines used for
+//!   [`PhaseResponse::Linear`] carry a real leading delay. The adapter discards
+//!   `output_delay()` produced frames at stream start (and again after reset),
+//!   so callers receive an aligned duration sequence.
+//! - **Nonlinear causal tails.** [`PhaseResponse::Minimum`] and
+//!   [`PhaseResponse::Maximum`] use a setup-designed rational polyphase FIR
+//!   instead of pretending that a delay shift changes phase. They retain the
+//!   actual causal latency and finite tail through the streaming lifecycle.
+//! - **Bounded drain.** At end of stream the adapter feeds preallocated zeros
+//!   only until the duration sequence (and, for nonlinear phase, its declared
+//!   finite tail) is complete, after which `drain` reports the terminal zero.
 //! - **Allocation-free processing.** All buffers are allocated in `new`;
 //!   `process`/`drain`/`clear` stay within pre-reserved capacity and rubato's
 //!   `process_into_buffer` is itself allocation-free.
 //!
-//! Differences from the SoXR backend that callers should know about:
-//! rubato's FFT and windowed-sinc engines are **linear phase only**, so the
-//! requested [`PhaseResponse`] is accepted but not applied. Common reduced
-//! sample-rate ratios use the much faster FFT engine through High quality;
-//! UltraHigh and ratios that would create pathological FFT blocks use sinc,
-//! where the quality mapping selects sinc length / oversampling rather than a
-//! SoX recipe.
+//! For [`PhaseResponse::Linear`], common reduced sample-rate ratios use the
+//! much faster rubato FFT engine through High quality; UltraHigh and ratios
+//! that would create pathological FFT blocks use sinc, where the quality mapping
+//! selects sinc length / oversampling rather than a SoX recipe. For
+//! [`PhaseResponse::Minimum`] and [`PhaseResponse::Maximum`], the adapter uses
+//! a precomputed real-cepstrum polyphase FIR bank. Nonlinear phase intentionally
+//! rejects reduced rate components above 1024 rather than silently falling back
+//! to the linear Rubato engines.
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use rubato::{
@@ -32,7 +37,7 @@ use rubato::{
     SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
-use super::BackendProgress;
+use super::{polyphase_backend::PolyphaseResampler, BackendProgress};
 
 pub(super) const BACKEND_NAME: &str = "rubato";
 
@@ -49,9 +54,7 @@ const CHUNK_IN: usize = 1024;
 /// quality tier while the default High tier retains FFT throughput.
 const MAX_FFT_REDUCED_RATE: u32 = 1024;
 
-/// FFT sub-chunks selected by the same quality/performance probe that chose
-/// the routing threshold. Two preserves the strongest measured stopband while
-/// keeping common-ratio throughput close to the native backend.
+/// FFT sub-chunks selected by the retained same-machine sweep.
 const FFT_SUB_CHUNKS: usize = 2;
 
 /// Consecutive zero-output flush rounds tolerated during drain before the
@@ -94,18 +97,124 @@ pub(super) fn expected_output_frames(total_input: u64, from_rate: u32, to_rate: 
         as u64
 }
 
+/// Fixed-capacity sample FIFO with bounded two-copy push/pop operations.
+///
+/// Unlike the public pipeline ring, this adapter-local queue never overwrites
+/// unread audio and never logs. Capacity errors remain static hot-path errors.
+struct SampleRing {
+    data: Box<[f64]>,
+    head: usize,
+    len: usize,
+}
+
+impl SampleRing {
+    fn new(capacity: usize) -> Self {
+        Self {
+            data: vec![0.0; capacity].into_boxed_slice(),
+            head: 0,
+            len: 0,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn free(&self) -> usize {
+        self.data.len() - self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn clear(&mut self) {
+        self.head = 0;
+        self.len = 0;
+    }
+
+    fn push(&mut self, source: &[f64]) -> Result<(), &'static str> {
+        if source.len() > self.free() {
+            return Err("resampler backend FIFO capacity exceeded");
+        }
+        if source.is_empty() {
+            return Ok(());
+        }
+
+        let capacity = self.data.len();
+        let tail = (self.head + self.len) % capacity;
+        let first = source.len().min(capacity - tail);
+        self.data[tail..tail + first].copy_from_slice(&source[..first]);
+        let remaining = source.len() - first;
+        if remaining > 0 {
+            self.data[..remaining].copy_from_slice(&source[first..]);
+        }
+        self.len += source.len();
+        Ok(())
+    }
+
+    fn front_contiguous(&self, samples: usize) -> Option<&[f64]> {
+        let end = self.head.checked_add(samples)?;
+        if samples > self.len || end > self.data.len() {
+            return None;
+        }
+        Some(&self.data[self.head..end])
+    }
+
+    fn consume(&mut self, samples: usize) -> Result<(), &'static str> {
+        if samples > self.len {
+            return Err("resampler backend FIFO underflow");
+        }
+        self.len -= samples;
+        if self.len == 0 {
+            self.head = 0;
+        } else {
+            self.head = (self.head + samples) % self.data.len();
+        }
+        Ok(())
+    }
+
+    fn pop_into(&mut self, output: &mut [f64]) -> usize {
+        let samples = output.len().min(self.len);
+        if samples == 0 {
+            return 0;
+        }
+
+        let first = samples.min(self.data.len() - self.head);
+        output[..first].copy_from_slice(&self.data[self.head..self.head + first]);
+        let remaining = samples - first;
+        if remaining > 0 {
+            output[first..samples].copy_from_slice(&self.data[..remaining]);
+        }
+
+        self.len -= samples;
+        if self.len == 0 {
+            self.head = 0;
+        } else {
+            self.head = (self.head + samples) % self.data.len();
+        }
+        samples
+    }
+}
+
 enum RubatoEngine {
     Sinc(Async<f64>),
     Fft(Box<Fft<f64>>),
+    Polyphase(PolyphaseResampler),
 }
 
 impl RubatoEngine {
     fn new(
         from_rate: u32,
         to_rate: u32,
+        phase: PhaseResponse,
         quality: ResampleQuality,
         channels: usize,
     ) -> Result<Self, String> {
+        if !matches!(phase, PhaseResponse::Linear) {
+            return PolyphaseResampler::new(from_rate, to_rate, phase, quality, channels, CHUNK_IN)
+                .map(Self::Polyphase);
+        }
         if should_use_fft(from_rate, to_rate, quality) {
             Fft::<f64>::new_custom(
                 from_rate as usize,
@@ -139,6 +248,7 @@ impl RubatoEngine {
         match self {
             Self::Sinc(resampler) => resampler.output_frames_max(),
             Self::Fft(resampler) => resampler.output_frames_max(),
+            Self::Polyphase(resampler) => resampler.output_frames_max(),
         }
     }
 
@@ -146,17 +256,50 @@ impl RubatoEngine {
         match self {
             Self::Sinc(resampler) => resampler.output_delay(),
             Self::Fft(resampler) => resampler.output_delay(),
+            Self::Polyphase(resampler) => resampler.output_delay(),
         }
     }
 
-    fn process_into_buffer(
+    fn latency_frames(&self) -> usize {
+        match self {
+            Self::Sinc(_) | Self::Fft(_) => 0,
+            Self::Polyphase(resampler) => resampler.latency_frames(),
+        }
+    }
+
+    fn finish_extension_frames(&self) -> usize {
+        match self {
+            Self::Sinc(_) | Self::Fft(_) => 0,
+            Self::Polyphase(resampler) => resampler.finish_extension_frames(),
+        }
+    }
+
+    fn process_chunk(
         &mut self,
-        input: &InterleavedSlice<&[f64]>,
-        output: &mut InterleavedSlice<&mut [f64]>,
+        input: &[f64],
+        output: &mut [f64],
+        channels: usize,
     ) -> Result<(usize, usize), &'static str> {
         match self {
-            Self::Sinc(resampler) => resampler.process_into_buffer(input, output, None),
-            Self::Fft(resampler) => resampler.process_into_buffer(input, output, None),
+            Self::Polyphase(resampler) => return resampler.process_chunk(input, output),
+            Self::Sinc(resampler) => {
+                let input_frames = input.len() / channels;
+                let output_frames = output.len() / channels;
+                let input = InterleavedSlice::new(input, channels, input_frames)
+                    .map_err(|_| "resampler backend input view failed")?;
+                let mut output = InterleavedSlice::new_mut(output, channels, output_frames)
+                    .map_err(|_| "resampler backend output view failed")?;
+                resampler.process_into_buffer(&input, &mut output, None)
+            }
+            Self::Fft(resampler) => {
+                let input_frames = input.len() / channels;
+                let output_frames = output.len() / channels;
+                let input = InterleavedSlice::new(input, channels, input_frames)
+                    .map_err(|_| "resampler backend input view failed")?;
+                let mut output = InterleavedSlice::new_mut(output, channels, output_frames)
+                    .map_err(|_| "resampler backend output view failed")?;
+                resampler.process_into_buffer(&input, &mut output, None)
+            }
         }
         .map_err(|_| "resampler backend process failed")
     }
@@ -165,6 +308,7 @@ impl RubatoEngine {
         match self {
             Self::Sinc(resampler) => resampler.reset(),
             Self::Fft(resampler) => resampler.reset(),
+            Self::Polyphase(resampler) => resampler.reset(),
         }
     }
 }
@@ -173,12 +317,11 @@ pub(super) struct MonoBackend {
     engine: RubatoEngine,
     channels: usize,
     /// Staged caller input; rubato consumes exact CHUNK_IN prefixes of this.
-    in_fifo: Vec<f64>,
+    in_fifo: SampleRing,
     /// Rubato per-call interleaved output stage.
     out_stage: Vec<f64>,
     /// Produced frames not yet handed to the caller.
-    out_fifo: Vec<f64>,
-    out_fifo_capacity: usize,
+    out_fifo: SampleRing,
     /// Zero frames used to pad the final partial chunk and to flush the tail.
     zero_chunk: Vec<f64>,
     /// Frames consumed from the caller (pad zeros are not counted).
@@ -195,6 +338,33 @@ pub(super) struct MonoBackend {
     to_rate: u32,
 }
 
+fn process_fifo_chunk_into(
+    engine: &mut RubatoEngine,
+    in_fifo: &mut SampleRing,
+    output: &mut [f64],
+    channels: usize,
+    delay_remaining: &mut usize,
+) -> Result<usize, &'static str> {
+    let chunk_samples = CHUNK_IN * channels;
+    let input = in_fifo
+        .front_contiguous(chunk_samples)
+        .ok_or("resampler backend input FIFO lost chunk contiguity")?;
+    let (input_used, output_written) = engine.process_chunk(input, output, channels)?;
+    let output_capacity_frames = output.len() / channels;
+    if input_used != CHUNK_IN || output_written > output_capacity_frames {
+        return Err("resampler backend reported out-of-bounds progress");
+    }
+    in_fifo.consume(chunk_samples)?;
+
+    let skip = (*delay_remaining).min(output_written);
+    *delay_remaining -= skip;
+    let emitted = output_written - skip;
+    if skip > 0 && emitted > 0 {
+        output.copy_within(skip * channels..output_written * channels, 0);
+    }
+    Ok(emitted)
+}
+
 impl MonoBackend {
     pub(super) fn new(
         from_rate: u32,
@@ -208,24 +378,23 @@ impl MonoBackend {
     pub(super) fn new_interleaved(
         from_rate: u32,
         to_rate: u32,
-        _phase: PhaseResponse,
+        phase: PhaseResponse,
         quality: ResampleQuality,
         channels: usize,
     ) -> Result<Self, String> {
         if channels == 0 {
             return Err("channel count must be >= 1".to_string());
         }
-        let engine = RubatoEngine::new(from_rate, to_rate, quality, channels)?;
+        let engine = RubatoEngine::new(from_rate, to_rate, phase, quality, channels)?;
         let out_max = engine.output_frames_max();
         let initial_delay = engine.output_delay();
         let out_fifo_capacity = out_max * 2 * channels;
         Ok(Self {
             engine,
             channels,
-            in_fifo: Vec::with_capacity(CHUNK_IN * 2 * channels),
+            in_fifo: SampleRing::new(CHUNK_IN * 2 * channels),
             out_stage: vec![0.0; out_max * channels],
-            out_fifo: Vec::with_capacity(out_fifo_capacity),
-            out_fifo_capacity,
+            out_fifo: SampleRing::new(out_fifo_capacity),
             zero_chunk: vec![0.0; CHUNK_IN * channels],
             total_input: 0,
             emitted: 0,
@@ -241,32 +410,19 @@ impl MonoBackend {
     /// Run rubato over the first CHUNK_IN frames of `in_fifo` and append the
     /// produced frames to `out_fifo`.
     fn run_chunk(&mut self) -> Result<(), &'static str> {
-        let chunk_samples = CHUNK_IN * self.channels;
-        debug_assert!(self.in_fifo.len() >= chunk_samples);
-        debug_assert!(self.out_fifo.len() + self.out_stage.len() <= self.out_fifo_capacity);
-        let (input_used, output_written) = {
-            let input =
-                InterleavedSlice::new(&self.in_fifo[..chunk_samples], self.channels, CHUNK_IN)
-                    .map_err(|_| "resampler backend input view failed")?;
-            let output_frames = self.out_stage.len() / self.channels;
-            let mut output =
-                InterleavedSlice::new_mut(&mut self.out_stage, self.channels, output_frames)
-                    .map_err(|_| "resampler backend output view failed")?;
-            self.engine.process_into_buffer(&input, &mut output)?
-        };
-        let output_capacity_frames = self.out_stage.len() / self.channels;
-        if input_used != CHUNK_IN || output_written > output_capacity_frames {
-            return Err("resampler backend reported out-of-bounds progress");
-        }
-        let remaining = self.in_fifo.len() - chunk_samples;
-        self.in_fifo.copy_within(chunk_samples.., 0);
-        self.in_fifo.truncate(remaining);
-        let skip = self.delay_remaining.min(output_written);
-        self.delay_remaining -= skip;
-        self.out_fifo.extend_from_slice(
-            &self.out_stage[skip * self.channels..output_written * self.channels],
-        );
-        Ok(())
+        let emitted = process_fifo_chunk_into(
+            &mut self.engine,
+            &mut self.in_fifo,
+            &mut self.out_stage,
+            self.channels,
+            &mut self.delay_remaining,
+        )?;
+        self.out_fifo
+            .push(&self.out_stage[..emitted * self.channels])
+    }
+
+    fn direct_output_is_duration_stable(&self) -> bool {
+        (CHUNK_IN as u128 * self.to_rate as u128).is_multiple_of(self.from_rate as u128)
     }
 
     /// Move up to `max` pending frames into `output`, returning the count.
@@ -276,13 +432,12 @@ impl MonoBackend {
             .min(max);
         if count > 0 {
             let samples = count * self.channels;
-            output[..samples].copy_from_slice(&self.out_fifo[..samples]);
-            let remaining = self.out_fifo.len() - samples;
-            self.out_fifo.copy_within(samples.., 0);
-            self.out_fifo.truncate(remaining);
-            self.emitted += count as u64;
+            let copied = self.out_fifo.pop_into(&mut output[..samples]);
+            let copied_frames = copied / self.channels;
+            self.emitted += copied_frames as u64;
+            return copied_frames;
         }
-        count
+        0
     }
 
     pub(super) fn process(
@@ -304,18 +459,36 @@ impl MonoBackend {
         loop {
             let before = (consumed, produced);
             produced += self.emit_up_to(&mut output[produced * self.channels..], usize::MAX);
-            let free = (self.in_fifo.capacity() - self.in_fifo.len()) / self.channels;
+            let free = self.in_fifo.free() / self.channels;
             let take = free.min(input_frames - consumed);
             if take > 0 {
                 let start = consumed * self.channels;
                 let end = (consumed + take) * self.channels;
-                self.in_fifo.extend_from_slice(&input[start..end]);
+                self.in_fifo.push(&input[start..end])?;
                 consumed += take;
                 self.total_input += take as u64;
             }
             while self.in_fifo.len() / self.channels >= CHUNK_IN
-                && self.out_fifo.len() + self.out_stage.len() <= self.out_fifo_capacity
+                && self.out_fifo.free() >= self.out_stage.len()
             {
+                let remaining_output = output_frames - produced;
+                if self.direct_output_is_duration_stable()
+                    && self.out_fifo.is_empty()
+                    && remaining_output >= self.engine.output_frames_max()
+                {
+                    let direct_samples = self.engine.output_frames_max() * self.channels;
+                    let direct = process_fifo_chunk_into(
+                        &mut self.engine,
+                        &mut self.in_fifo,
+                        &mut output
+                            [produced * self.channels..produced * self.channels + direct_samples],
+                        self.channels,
+                        &mut self.delay_remaining,
+                    )?;
+                    self.emitted += direct as u64;
+                    produced += direct;
+                    continue;
+                }
                 self.run_chunk()?;
             }
             produced += self.emit_up_to(&mut output[produced * self.channels..], usize::MAX);
@@ -342,6 +515,7 @@ impl MonoBackend {
             // ratio; never let already-emitted frames underflow `remaining`.
             self.expected_total =
                 expected_output_frames(self.total_input, self.from_rate, self.to_rate)
+                    .saturating_add(self.engine.finish_extension_frames() as u64)
                     .max(self.emitted);
         }
         let mut produced = 0usize;
@@ -364,8 +538,7 @@ impl MonoBackend {
             let staged_frames = self.in_fifo.len() / self.channels;
             if staged_frames < CHUNK_IN {
                 let pad_samples = (CHUNK_IN - staged_frames) * self.channels;
-                self.in_fifo
-                    .extend_from_slice(&self.zero_chunk[..pad_samples]);
+                self.in_fifo.push(&self.zero_chunk[..pad_samples])?;
             }
             let before_fifo = self.out_fifo.len();
             self.run_chunk()?;
@@ -391,16 +564,66 @@ impl MonoBackend {
         self.draining = false;
         Ok(())
     }
+
+    pub(super) fn latency_frames(&self) -> usize {
+        self.engine.latency_frames()
+    }
+
+    pub(super) fn finish_extension_frames(&self) -> usize {
+        self.engine.finish_extension_frames()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn sample_ring_wraps_without_reordering_or_allocating() {
+        let mut ring = SampleRing::new(8);
+        let first = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        let second = [6.0, 7.0, 8.0, 9.0, 10.0];
+        let mut prefix = [0.0; 5];
+        let mut suffix = [0.0; 6];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            ring.push(&first).unwrap();
+            assert_eq!(ring.pop_into(&mut prefix), prefix.len());
+            ring.push(&second).unwrap();
+            assert_eq!(ring.pop_into(&mut suffix), suffix.len());
+        });
+
+        assert_eq!(prefix, [0.0, 1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(suffix, [5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+        assert!(ring.is_empty());
+    }
+
+    #[test]
+    fn double_chunk_input_ring_keeps_each_front_chunk_contiguous() {
+        const CHUNK: usize = 4;
+        let mut ring = SampleRing::new(CHUNK * 2);
+        ring.push(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        assert_eq!(ring.front_contiguous(CHUNK).unwrap(), &[0.0, 1.0, 2.0, 3.0]);
+        ring.consume(CHUNK).unwrap();
+        ring.push(&[6.0, 7.0]).unwrap();
+        assert_eq!(ring.front_contiguous(CHUNK).unwrap(), &[4.0, 5.0, 6.0, 7.0]);
+        ring.consume(CHUNK).unwrap();
+        assert!(ring.is_empty());
+    }
+
     fn render_backend(backend: &mut MonoBackend, input: &[f64], channels: usize) -> Vec<f64> {
+        render_backend_with_output_frames(backend, input, channels, CHUNK_IN * 4)
+    }
+
+    fn render_backend_with_output_frames(
+        backend: &mut MonoBackend,
+        input: &[f64],
+        channels: usize,
+        output_frames: usize,
+    ) -> Vec<f64> {
         let input_frames = input.len() / channels;
         let mut output = Vec::new();
-        let mut output_scratch = vec![0.0; CHUNK_IN * 4 * channels];
+        let mut output_scratch = vec![0.0; output_frames * channels];
         let mut input_cursor = 0;
         let input_chunk_pattern = [127, 509, 31, 1_024];
         let mut pattern_cursor = 0;
@@ -409,17 +632,20 @@ mod tests {
             let chunk_frames = input_chunk_pattern[pattern_cursor % input_chunk_pattern.len()]
                 .min(input_frames - input_cursor);
             pattern_cursor += 1;
-            let input_start = input_cursor * channels;
-            let input_end = (input_cursor + chunk_frames) * channels;
-            let progress = backend
-                .process(
-                    &input[input_start..input_end],
-                    output_scratch.as_mut_slice(),
-                )
-                .unwrap();
-            assert_eq!(progress.input_frames, chunk_frames);
-            output.extend_from_slice(&output_scratch[..progress.output_frames * channels]);
-            input_cursor += progress.input_frames;
+            let chunk_end = input_cursor + chunk_frames;
+            while input_cursor < chunk_end {
+                let input_start = input_cursor * channels;
+                let input_end = chunk_end * channels;
+                let progress = backend
+                    .process(
+                        &input[input_start..input_end],
+                        output_scratch.as_mut_slice(),
+                    )
+                    .unwrap();
+                assert!(progress.input_frames > 0 || progress.output_frames > 0);
+                output.extend_from_slice(&output_scratch[..progress.output_frames * channels]);
+                input_cursor += progress.input_frames;
+            }
         }
 
         loop {
@@ -501,15 +727,36 @@ mod tests {
     #[test]
     fn ultra_high_preserves_the_sinc_quality_path_for_common_ratios() {
         assert!(matches!(
-            RubatoEngine::new(44_100, 48_000, ResampleQuality::High, 1).unwrap(),
+            RubatoEngine::new(
+                44_100,
+                48_000,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+                1,
+            )
+            .unwrap(),
             RubatoEngine::Fft(_)
         ));
         assert!(matches!(
-            RubatoEngine::new(44_100, 48_000, ResampleQuality::UltraHigh, 1).unwrap(),
+            RubatoEngine::new(
+                44_100,
+                48_000,
+                PhaseResponse::Linear,
+                ResampleQuality::UltraHigh,
+                1,
+            )
+            .unwrap(),
             RubatoEngine::Sinc(_)
         ));
         assert!(matches!(
-            RubatoEngine::new(44_100, 44_101, ResampleQuality::High, 1).unwrap(),
+            RubatoEngine::new(
+                44_100,
+                44_101,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+                1,
+            )
+            .unwrap(),
             RubatoEngine::Sinc(_)
         ));
     }
@@ -518,6 +765,45 @@ mod tests {
     fn native_interleaved_matches_independent_mono_for_fft_and_sinc() {
         for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
             assert_interleaved_matches_independent_mono(quality);
+        }
+    }
+
+    #[test]
+    fn duration_stable_direct_output_is_bit_exact_with_staged_output() {
+        const INPUT_FRAMES: usize = 8_193;
+        let input: Vec<f64> = (0..INPUT_FRAMES)
+            .map(|frame| {
+                let time = frame as f64;
+                (time * 0.071).sin() * 0.6 + (time * 0.013).cos() * 0.2
+            })
+            .collect();
+
+        for (from_rate, to_rate, quality) in [
+            (48_000, 96_000, ResampleQuality::High),
+            (96_000, 48_000, ResampleQuality::UltraHigh),
+        ] {
+            let mut direct =
+                MonoBackend::new(from_rate, to_rate, PhaseResponse::Linear, quality).unwrap();
+            let mut staged =
+                MonoBackend::new(from_rate, to_rate, PhaseResponse::Linear, quality).unwrap();
+
+            let direct_output = render_backend(&mut direct, &input, 1);
+            let staged_output = render_backend_with_output_frames(&mut staged, &input, 1, 257);
+            assert_eq!(
+                direct_output.len(),
+                staged_output.len(),
+                "{from_rate}->{to_rate} output length"
+            );
+            if let Some(index) = direct_output
+                .iter()
+                .zip(&staged_output)
+                .position(|(direct, staged)| direct.to_bits() != staged.to_bits())
+            {
+                panic!(
+                    "{from_rate}->{to_rate} first mismatch at {index}: direct={} staged={}",
+                    direct_output[index], staged_output[index]
+                );
+            }
         }
     }
 

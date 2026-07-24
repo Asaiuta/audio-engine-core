@@ -198,11 +198,14 @@ default:
 - `soxr` (default): native SoXR resampler backend (SoX VHQ). Requires the
   libsoxr native library at build/link time; libsoxr is LGPL-2.1 (see
   [License](#license)).
-- `rubato`: quality-aware pure-Rust backend. Common sample-rate ratios use FFT
-  through High quality; UltraHigh and pathological ratios use windowed sinc.
-  No native dependency; both paths are linear phase only. Exactly one
-  resampler backend must be enabled — enabling
-  neither is a compile error, and when both are enabled, `soxr` wins.
+- `rubato`: quality-aware pure-Rust backend. `PhaseResponse::Linear` uses FFT
+  for common ratios through High quality, while UltraHigh and pathological
+  ratios use windowed sinc. `Minimum` and `Maximum` use a setup-designed
+  rational polyphase FIR with real-cepstrum spectral factorization; reduced
+  rate components above 1024 are rejected rather than silently treated as
+  linear phase. No native dependency. Exactly one resampler backend must be
+  enabled — enabling neither is a compile error, and when both are enabled,
+  `soxr` wins.
 
 A fully pure-Rust, DSP-only build with no native dependency:
 

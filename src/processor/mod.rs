@@ -30,6 +30,7 @@ mod crossfeed;
 mod dsp;
 mod dynamic_loudness;
 mod eq;
+mod fir_design;
 mod fir_eq;
 mod loudness;
 #[cfg(feature = "loudness-db")]
