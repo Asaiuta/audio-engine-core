@@ -310,8 +310,8 @@ while generated < max_tail_frames {
 ### 1. Scope / Trigger
 
 Apply this scenario when changing `StreamingResampler`, a backend adapter,
-Rubato channel construction, reusable resampler memory accounting, or the
-Rubato High/UltraHigh routing policy.
+Rubato or nonlinear polyphase channel construction, reusable resampler memory
+accounting, phase behavior, or the Rubato High/UltraHigh routing policy.
 
 ### 2. Signatures
 
@@ -345,14 +345,24 @@ MonoBackend::new_interleaved(
 * Feature precedence remains `soxr` first. SoXR constructs one native mono
   stream per channel and owns the adapter's preallocated deinterleave,
   per-channel output, and reinterleave scratch.
-* A pure `rubato` build constructs exactly one Rubato engine with the complete
-  configured channel count. `process` and `drain` pass caller-owned interleaved
-  buffers directly to that engine. Do not duplicate the sinc table or FFT plan
-  by constructing one Rubato engine per channel.
-* Rubato's High tier keeps common reduced ratios on the FFT engine; UltraHigh
-  keeps the 256-tap, 512x-oversampled cubic sinc engine. Pathological reduced
-  ratios also use sinc. A performance optimization must not silently reroute
-  UltraHigh through the lower-quality FFT path.
+* A pure `rubato` build constructs exactly one complete interleaved backend for
+  the configured channel count. `PhaseResponse::Linear` uses one Rubato engine;
+  `Minimum` and `Maximum` use one setup-designed rational polyphase FIR bank.
+  `process` and `drain` pass caller-owned interleaved buffers directly to that
+  backend. Do not duplicate a sinc table, FFT plan, or polyphase coefficient
+  bank by constructing one engine per channel.
+* Rubato adapter staging uses fixed-capacity, setup-allocated sample rings, not
+  moving `Vec` prefixes. The input ring holds exactly two fixed backend chunks;
+  consuming one complete chunk guarantees that the next front chunk is
+  contiguous even after wrap. The output ring applies strict backpressure.
+  Neither ring may grow, overwrite unread audio, log, or allocate during
+  process/drain. Push/pop may use at most two bounded contiguous copies.
+* Linear Rubato High keeps common reduced ratios on the FFT engine; Linear
+  UltraHigh keeps the 256-tap, 512x-oversampled cubic sinc engine. Pathological
+  Linear ratios also use sinc. Minimum/Maximum use the precomputed causal
+  polyphase path and reject reduced geometry beyond its explicit limit; a
+  performance optimization must not silently reroute UltraHigh or nonlinear
+  requests through a lower-quality or different-phase engine.
 * `working_buffer_bytes` accounts for reusable adapter-owned PCM scratch, not
   opaque backend engine allocations. It therefore returns the exact SoXR
   scratch capacity in bytes and zero for pure Rubato. Output-render setup
@@ -361,6 +371,12 @@ MonoBackend::new_interleaved(
   must be divisible by the configured channel count before division or
   slicing, and returned progress must be checked against caller frame
   capacities.
+* Caller-visible output accounting is independent of the storage route. Every
+  frame copied from a FIFO or written directly into caller-owned output must
+  advance the backend's cumulative `emitted` count exactly once before the call
+  returns. Merely generating a staged frame does not make it emitted. Drain
+  computes its remaining duration from this count and must never reproduce
+  frames already returned by `process`.
 * Runtime environment switches must not select production resampler
   architecture. Temporary A/B switches are removed after measurements, and a
   changed architecture receives a new benchmark algorithm identifier.
@@ -372,15 +388,26 @@ MonoBackend::new_interleaved(
 | `channels == 0` or either rate is zero | `ResamplerError::InitializationFailed` before backend processing |
 | Rubato input/output length is not divisible by channels | static backend error; no division, slice overrun, or panic |
 | Backend consumed/produced frames exceed caller capacity | allocation-free `ProcessError::Backend` |
+| A Rubato FIFO push exceeds fixed capacity | static backend error; no overwrite, resize, or log |
+| A direct process route returns `N` frames | cumulative caller-visible `emitted` advances by exactly `N`; later drain excludes those frames |
 | Pure-Rubato `working_buffer_bytes` with valid geometry | `Ok(0)` |
 | SoXR `working_buffer_bytes` with valid geometry | exact sum of output scratch plus every channel input/output capacity |
 | UltraHigh at a common audio ratio | sinc engine with the retained Cubic/512 parameters |
+| Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::InitializationFailed`; no linear fallback |
 
 ### 5. Good / Base / Bad Cases
 
-* Good: stereo Rubato uses one two-channel engine, produces the same duration
-  and channel samples as two independent mono reference engines within the
-  measured floating-point bound, and allocates nothing after setup.
+* Good: stereo linear Rubato uses one two-channel engine, produces the same
+  duration and channel samples as two independent mono reference engines within
+  the measured floating-point bound, and allocates nothing after setup.
+* Good: stereo Minimum/Maximum uses one shared polyphase bank, preserves the
+  declared finite tail and causal latency, and allocates nothing after setup.
+* Good: an integer-ratio direct-output process call and an output-constrained
+  staged call produce bit-exact complete streams; finish emits only the shared
+  remaining duration.
+* Good: a wrapped two-chunk Rubato input ring still exposes the next complete
+  backend chunk contiguously, while output wrap preserves sample order and
+  allocation-free strict backpressure.
 * Base: SoXR keeps independent native streams because that backend exposes the
   established mono adapter contract; channel progress must remain identical.
 * Bad: report zero total setup memory because pure Rubato has zero adapter
@@ -388,6 +415,11 @@ MonoBackend::new_interleaved(
 * Bad: retain a hidden environment variable that switches between mono and
   interleaved production paths, making benchmark identity and runtime behavior
   non-deterministic.
+* Bad: bypass `emit_up_to` for direct output without advancing `emitted`; drain
+  then regenerates already-returned frames and can degrade duration and alias
+  measurements even though the process block looked correct.
+* Bad: reuse an overwrite-on-full/logging pipeline ring for Rubato staging, or
+  restore per-chunk `copy_within` prefix shifts after the measured ring layout.
 
 ### 6. Tests Required
 
@@ -398,6 +430,11 @@ MonoBackend::new_interleaved(
   a per-sample bound no weaker than `1e-14` for the current `f64` engines.
 * Keep random input chunking, short/long duration, impulse alignment, terminal
   drain/reset, and process/finish no-allocation coverage.
+* Ring tests cross wrap boundaries, assert exact sample order, prove every
+  two-chunk front is contiguous, and wrap push/pop inside `assert_no_alloc`.
+* For each direct-to-caller optimization, force the same complete stream
+  through a constrained staged-output route and assert equal length plus
+  bit-exact samples for representative upsampling and downsampling engines.
 * Assert `working_buffer_bytes` equals compiled adapter capacities under SoXR
   and zero under pure Rubato. Measure total Rubato setup memory in the
   output-render benchmark instead of adding opaque engine estimates.
@@ -423,6 +460,35 @@ let backends = (0..channels)
 let backends = vec![MonoBackend::new_interleaved(
     from_rate, to_rate, phase, quality, channels,
 )?];
+```
+
+#### Wrong
+
+```rust
+let direct = process_chunk_into(output)?;
+produced += direct; // drain still believes these caller-visible frames remain
+```
+
+#### Correct
+
+```rust
+let direct = process_chunk_into(output)?;
+self.emitted += direct as u64;
+produced += direct;
+```
+
+#### Wrong
+
+```rust
+out_fifo.extend_from_slice(new_samples);
+out_fifo.copy_within(consumed_samples.., 0); // shifts every queued prefix
+```
+
+#### Correct
+
+```rust
+out_fifo.push(new_samples)?;          // fixed capacity, never overwrites
+let copied = out_fifo.pop_into(output); // at most two bounded copies
 ```
 
 ## Scenario: Dynamic Convolver Publication And Reclamation

@@ -587,19 +587,26 @@ let analyses = post_render_analysis_names();
 // Report the two plans separately; only render_stages transform samples.
 ```
 
-## Scenario: Quality-Aware Rubato FFT Routing With Sinc Fallback
+## Scenario: Rubato Linear Routing and Nonlinear Polyphase Phase Support
 
 ### 1. Scope / Trigger
 
-- Trigger: changing the `rubato` version, fixed chunk size, FFT routing bound,
-  sub-chunk count, delay compensation, quality mapping, or resampler benchmark
-  algorithm labels in `src/processor/resampler/rubato_backend.rs`.
+- Trigger: changing the `rubato` version, fixed chunk size, FIFO representation,
+  FFT routing bound, sub-chunk count, phase routing, polyphase geometry,
+  delay/tail accounting, quality mapping, or resampler benchmark algorithm labels in
+  `src/processor/resampler/`.
 
 ### 2. Signatures
 
 ```rust
 should_use_fft(from_rate: u32, to_rate: u32, quality: ResampleQuality) -> bool
-RubatoEngine::new(from_rate: u32, to_rate: u32, quality: ResampleQuality)
+RubatoEngine::new(
+    from_rate: u32,
+    to_rate: u32,
+    phase: PhaseResponse,
+    quality: ResampleQuality,
+    channels: usize,
+)
     -> Result<RubatoEngine, String>
 MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
     -> Result<BackendProgress, &'static str>
@@ -616,15 +623,22 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 
 ### 3. Contracts
 
-- Rubato 4 Low, Standard, and High common ratios route through `Fft<f64>` with
-  a 1024-frame fixed input chunk, two FFT sub-chunks, and `BlackmanHarris2`. A
-  rate pair is common only when both components after GCD reduction are at most
-  1024.
-- UltraHigh and ratios outside that bound use `Async<f64>::new_sinc`.
-  `ResampleQuality` selects sinc parameters for those routes. This preserves a
-  distinct highest-quality tier while default High retains FFT throughput.
-  Both engines remain f64 and linear phase, so `PhaseResponse` is accepted but
-  not applied.
+- `PhaseResponse::Linear` keeps the established Rubato 4 routing: Low,
+  Standard, and High common ratios use `Fft<f64>` with a 1024-frame fixed input
+  chunk, two FFT sub-chunks, and `BlackmanHarris2`. A rate pair is common only
+  when both components after GCD reduction are at most 1024. UltraHigh and
+  larger reduced ratios use `Async<f64>::new_sinc`; quality selects the sinc
+  parameters for those routes.
+- `PhaseResponse::Minimum` and `PhaseResponse::Maximum` use a separate,
+  setup-designed causal rational polyphase FIR. A real-cepstrum spectral
+  factor of the low-pass prototype produces the minimum-phase kernel; reversing
+  that kernel produces maximum phase with the same magnitude response. The
+  bank is immutable after setup and uses only preallocated interleaved history
+  during processing.
+- Nonlinear phase accepts only reduced rate components at most 1024 and a
+  bounded coefficient bank. Unsupported geometry returns the named
+  initialization error; it must never fall back to the linear Rubato engine or
+  merely report a shifted latency as a phase response.
 - Keep `FFT_SUB_CHUNKS = 2` unless a same-machine sweep improves both core
   conversions without weakening quality. The 2026-07-22 512-frame evidence
   rejected one sub-chunk (35.10 ns/input sample at 44.1 to 48 kHz) and four
@@ -636,12 +650,21 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   `audio_output_render_perf --quick` as well as the focused resampler probe;
   the 2026-07-22 sinc route was about 2.8x slower than the diagnostic all-FFT
   render reference but remained below a 3.2% realtime factor.
-- Both engines carry a real leading delay in rubato 4. The adapter discards
+- Linear Rubato engines carry a real leading delay. The adapter discards
   exactly `output_delay()` produced frames once per stream, then drains or
-  truncates to `round(total_input * to_rate / from_rate)`. Reset restores the
-  engine, FIFOs, duration counters, terminal state, and full delay skip.
-- Audioadapter slice wrappers are stack views. Construction and engine boxing
-  happen only during setup; process, drain, and reset remain allocation-free.
+  truncates to `round(total_input * to_rate / from_rate)`. Nonlinear phase does
+  not crop its causal kernel: it reports the actual output-rate latency plus a
+  finite tail whose sum covers the full response. Reset restores the engine,
+  FIFOs, duration counters, terminal state, delay skip, and polyphase history.
+- Input/output staging uses setup-allocated fixed-capacity `SampleRing` queues.
+  The input capacity is two fixed chunks so exact one-chunk consumption keeps
+  each next front chunk contiguous across wrap. The rings never grow, overwrite
+  unread samples, or log; push/pop use at most two bounded copies and preserve
+  strict output backpressure. Do not replace them with the public pipeline ring,
+  whose overflow and read semantics differ from the resampler contract.
+- Audioadapter slice wrappers are stack views. Rubato construction, FIR design,
+  and engine boxing happen only during setup; process, drain, and reset remain
+  allocation-free.
 - The performance report algorithm text and `case_key` identify FFT routing
   plus sinc fallback. Any algorithm/routing change must change that identifier
   so an older sinc or differently routed report is baseline-incompatible.
@@ -651,32 +674,48 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 | Condition | Required result |
 | --- | --- |
 | Either sample rate is zero | Public constructor rejects it before engine construction |
-| Quality is Low, Standard, or High and both reduced rate components are <= 1024 | Select FFT |
-| Quality is UltraHigh | Select sinc even for a common ratio |
-| Either reduced rate component is > 1024 | Select sinc; never construct a pathological FFT block |
+| Linear + Low, Standard, or High and both reduced rate components are <= 1024 | Select FFT |
+| Linear + UltraHigh | Select sinc even for a common ratio |
+| Linear + either reduced rate component > 1024 | Select sinc; never construct a pathological FFT block |
+| Minimum/Maximum + reduced component > 1024 or oversized coefficient bank | Named initialization error; never silently select FFT/sinc |
 | Backend consumes other than the fixed input chunk or over-reports output | Static `ProcessError::Backend` path; never slice or panic |
+| Input/output ring lacks capacity for a requested push | Static backend error; never overwrite, resize, allocate, or log |
 | Initial delay spans multiple output calls | Continue discarding until the counter reaches zero |
 | Reset after process or finish | Re-arm the original delay and produce the same output as a fresh instance |
 | Algorithm label differs from a baseline | Reject comparison before computing timing percentages |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: 44.1 to 48 kHz reduces to 147:160 and uses FFT at High, while
-  UltraHigh uses sinc; 44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc
-  at every quality.
+- Good: 44.1 to 48 kHz reduces to 147:160 and uses FFT at Linear/High, while
+  Linear/UltraHigh uses sinc and Minimum/Maximum use the polyphase bank.
+  44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc for Linear at every
+  quality but rejects nonlinear phase before processing.
 - Base: equal-rate streams bypass the backend in `StreamingResampler`.
+- Good: wrapped input/output rings preserve exact order and expose every next
+  fixed input chunk contiguously without shifting queued prefixes.
 - Bad: construct FFT for every non-equal rate, creating a 44,101-frame output
   block and 22,050-frame delay for 44.1 to 44.101 kHz.
+- Bad: accept `Minimum` or `Maximum`, call the linear engine, and alter only a
+  reported latency or output start frame.
 - Bad: keep a generic `rubato_streaming_default` case key after changing from
   sinc to FFT, which makes incompatible performance evidence look comparable.
+- Bad: cite a noisy quick-run minimum as representative evidence, or retain a
+  FIFO rewrite that does not improve the adjacent heavy median matrix.
 
 ### 6. Tests Required
 
 - Routing tests assert common audio ratios select FFT through High, UltraHigh
   selects sinc for a common ratio, and a coprime adjacent rate selects sinc.
+- Nonlinear tests assert a minimum-phase energy centroid before the linear
+  prototype, maximum after it, distinct non-shift phase envelopes, and the
+  same magnitude response within the documented tolerance. They also cover
+  unsupported reduced geometry and actual-ratio passband, THD+N, and alias
+  bounds.
 - Shared resampler tests cover duration, impulse alignment within one frame,
   random chunking equivalence, reset isolation, and process/finish no-allocation
-  under the pure-Rust feature matrix.
+  under the pure-Rust feature matrix, including nonlinear finite-tail drain.
+- Ring-specific tests cross both input/output wrap, assert exact order and front
+  contiguity, and run push/pop under `assert_no_alloc`.
 - An end-to-end pathological-ratio test must exercise the real sinc fallback,
   not only the routing predicate.
 - Run all 27 quick quality gates and record THD+N, 20 kHz gain, passband, and
@@ -691,7 +730,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 
 ```rust
 let engine = Fft::new_custom(from, to, 1024, 2, 1, window, FixedSync::Input)?;
-out_fifo.extend_from_slice(&out_stage[..written]); // retains leading delay
+out_fifo.extend_from_slice(&out_stage[..written]);
+out_fifo.copy_within(consumed.., 0); // shifts queued samples every chunk
 ```
 
 #### Correct
@@ -700,7 +740,7 @@ out_fifo.extend_from_slice(&out_stage[..written]); // retains leading delay
 let engine = if should_use_fft(from, to, quality) { fft()? } else { sinc()? };
 let skip = delay_remaining.min(written);
 delay_remaining -= skip;
-out_fifo.extend_from_slice(&out_stage[skip..written]);
+out_fifo.push(&out_stage[skip..written])?; // fixed capacity, strict backpressure
 ```
 
 ## Code Review Checklist
