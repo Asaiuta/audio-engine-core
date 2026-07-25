@@ -13,6 +13,7 @@ differ by CPU, compiler version, and load.
 cargo bench --bench audio_callback_chain_perf -- --quick
 cargo bench --bench audio_output_render_perf -- --quick
 cargo bench --bench audio_resampler_streaming_perf -- --quick
+cargo bench --bench audio_resampler_matrix_perf -- --quick
 cargo bench --bench audio_convolver_perf -- --quick
 cargo bench --bench audio_lockfree_params_perf -- --quick
 cargo bench --bench audio_fir_eq_perf -- --quick
@@ -27,6 +28,7 @@ cargo bench --bench audio_quality_measurements -- --quick --enforce --out target
 cargo bench --bench audio_callback_chain_perf -- --quick --enforce --out target/bench-reports/callback.json
 cargo bench --bench audio_output_render_perf -- --quick --enforce --out target/bench-reports/render.json
 cargo bench --bench audio_resampler_streaming_perf -- --quick --enforce --out target/bench-reports/resampler.json
+cargo bench --bench audio_resampler_matrix_perf -- --quick --enforce --out target/bench-reports/resampler-matrix.json
 cargo bench --bench audio_convolver_perf -- --quick --enforce --out target/bench-reports/convolver.json
 cargo bench --bench audio_convolver_perf -- --quick --enforce --pinned --out target/bench-reports/convolver-pinned.json
 cargo bench --bench audio_fir_eq_perf -- --quick --enforce --out target/bench-reports/fir-eq.json
@@ -163,6 +165,24 @@ replace listening tests.
 | Crossfeed mix-change continuity delta | 0.000e0 (vs 5.762e-3 for a reset simulation) |
 | Noise-shaper -140 dBFS changed fraction / non-finite stress outputs | 1.000 / 0 |
 | Dynamic loudness low-volume compensation | +8.41 dB at 40 Hz, +2.83 dB at 3 kHz |
+
+### Resampler configuration matrix
+
+`audio_resampler_matrix_perf` measures `StreamingResampler::process_checked`
+across an intentional rate/quality/phase/channel set, plus construction
+(`StreamingResampler::with_quality`) cost. It complements
+`audio_resampler_streaming_perf` (default High/Linear path only)
+and does not replace it.
+
+Quick mode is a fixed decision set (primary rates, High/Standard/UltraHigh,
+Linear+Minimum, stereo+5.1, setup cost). Full/heavy expands rates and quality
+ladders without a pure cartesian product. Build soxr (default features) or
+rubato-only (`--no-default-features --features rubato`); backend is recorded in
+case keys and environment features so baselines cannot be mixed silently.
+
+Still excluded: decoder, device write, full DSP callback chain, offline
+render chain (see the report `excludes` array), and exhaustive pathological
+rate pairs.
 
 ### Resampler backends
 
