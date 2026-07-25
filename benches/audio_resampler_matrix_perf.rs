@@ -35,7 +35,7 @@ const WARMUP_BUFFERS: usize = 32;
 const OUTPUT_FRAMES_ABS_SLACK: usize = 2048;
 const VALIDATION_BUFFERS: usize = 4;
 const MATRIX_PROBE: &str = "audio_resampler_matrix_perf";
-const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v1";
+const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v2_spectral_nonlinear";
 
 #[derive(Clone, Copy)]
 struct RatePair {
@@ -275,6 +275,13 @@ fn quick_matrix_specs() -> Vec<MatrixCaseSpec> {
         // Nonlinear phase + multi-channel
         MatrixCaseSpec {
             rate: r48_96,
+            quality: high,
+            phase: minimum,
+            channels: stereo,
+            frames: 512,
+        },
+        MatrixCaseSpec {
+            rate: r44_48,
             quality: high,
             phase: minimum,
             channels: stereo,
