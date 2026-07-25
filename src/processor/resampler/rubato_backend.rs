@@ -348,6 +348,14 @@ pub(super) struct MonoBackend {
     zero_chunk: Vec<f64>,
     /// Frames consumed from the caller (pad zeros are not counted).
     total_input: u64,
+    /// Real caller frames actually consumed by completed backend chunks. This
+    /// excludes caller input still queued in `in_fifo` and drain pad zeros; it
+    /// bounds the caller-visible prefix on the non-integer direct-output path.
+    processed_real_input: u64,
+    /// Setup-selected non-integer-ratio direct-output mode: engine output is
+    /// written straight into caller memory up to the cumulative rational
+    /// real-input budget, and the bounded overflow spills into `out_fifo`.
+    prefix_budget_direct: bool,
     /// Frames handed to the caller.
     emitted: u64,
     /// Set at drain start: the duration-aligned total output length.
@@ -411,6 +419,13 @@ impl MonoBackend {
         let out_max = engine.output_frames_max();
         let initial_delay = engine.output_delay();
         let out_fifo_capacity = out_max * 2 * channels;
+        let duration_stable =
+            (CHUNK_IN as u128 * to_rate as u128).is_multiple_of(from_rate.max(1) as u128);
+        // The FFT engine's cumulative post-delay output tracks the exact
+        // rational duration within one frame per chunk, so its non-integer
+        // ratios can use budget-bounded direct output. The sinc and polyphase
+        // engines keep the staged route.
+        let prefix_budget_direct = !duration_stable && matches!(engine, RubatoEngine::Fft(_));
         Ok(Self {
             engine,
             channels,
@@ -419,6 +434,8 @@ impl MonoBackend {
             out_fifo: SampleRing::new(out_fifo_capacity),
             zero_chunk: vec![0.0; CHUNK_IN * channels],
             total_input: 0,
+            processed_real_input: 0,
+            prefix_budget_direct,
             emitted: 0,
             expected_total: 0,
             delay_remaining: initial_delay,
@@ -445,6 +462,20 @@ impl MonoBackend {
 
     fn direct_output_is_duration_stable(&self) -> bool {
         (CHUNK_IN as u128 * self.to_rate as u128).is_multiple_of(self.from_rate as u128)
+    }
+
+    /// Caller-visible frames still authorized by real backend-processed input
+    /// on the prefix-budget direct route. Frames beyond this stay staged in
+    /// `out_fifo` until later real input (or finish) authorizes them.
+    fn process_emit_budget(&self) -> usize {
+        if !self.prefix_budget_direct {
+            return usize::MAX;
+        }
+        let allowed_total =
+            expected_output_frames(self.processed_real_input, self.from_rate, self.to_rate);
+        allowed_total
+            .saturating_sub(self.emitted)
+            .min(usize::MAX as u64) as usize
     }
 
     /// Move up to `max` pending frames into `output`, returning the count.
@@ -480,7 +511,10 @@ impl MonoBackend {
         let output_frames = output.len() / self.channels;
         loop {
             let before = (consumed, produced);
-            produced += self.emit_up_to(&mut output[produced * self.channels..], usize::MAX);
+            produced += self.emit_up_to(
+                &mut output[produced * self.channels..],
+                self.process_emit_budget(),
+            );
             let free = self.in_fifo.free() / self.channels;
             let take = free.min(input_frames - consumed);
             if take > 0 {
@@ -494,12 +528,13 @@ impl MonoBackend {
                 && self.out_fifo.free() >= self.out_stage.len()
             {
                 let remaining_output = output_frames - produced;
-                if self.direct_output_is_duration_stable()
+                let duration_stable = self.direct_output_is_duration_stable();
+                if (duration_stable || self.prefix_budget_direct)
                     && self.out_fifo.is_empty()
                     && remaining_output >= self.engine.output_frames_max()
                 {
                     let direct_samples = self.engine.output_frames_max() * self.channels;
-                    let direct = process_fifo_chunk_into(
+                    let chunk_frames = process_fifo_chunk_into(
                         &mut self.engine,
                         &mut self.in_fifo,
                         &mut output
@@ -507,13 +542,30 @@ impl MonoBackend {
                         self.channels,
                         &mut self.delay_remaining,
                     )?;
+                    self.processed_real_input += CHUNK_IN as u64;
+                    let direct = if duration_stable {
+                        chunk_frames
+                    } else {
+                        // Expose only the cumulative rational real-input
+                        // budget; spill the bounded overflow tail into the
+                        // preallocated output ring for a later emit.
+                        let budgeted = chunk_frames.min(self.process_emit_budget());
+                        let spill_start = (produced + budgeted) * self.channels;
+                        let spill_end = (produced + chunk_frames) * self.channels;
+                        self.out_fifo.push(&output[spill_start..spill_end])?;
+                        budgeted
+                    };
                     self.emitted += direct as u64;
                     produced += direct;
                     continue;
                 }
                 self.run_chunk()?;
+                self.processed_real_input += CHUNK_IN as u64;
             }
-            produced += self.emit_up_to(&mut output[produced * self.channels..], usize::MAX);
+            produced += self.emit_up_to(
+                &mut output[produced * self.channels..],
+                self.process_emit_budget(),
+            );
             if (consumed, produced) == before {
                 break;
             }
@@ -580,6 +632,7 @@ impl MonoBackend {
         self.in_fifo.clear();
         self.out_fifo.clear();
         self.total_input = 0;
+        self.processed_real_input = 0;
         self.emitted = 0;
         self.expected_total = 0;
         self.delay_remaining = self.initial_delay;
@@ -882,6 +935,158 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn noninteger_input() -> Vec<f64> {
+        const INPUT_FRAMES: usize = 9_311;
+        (0..INPUT_FRAMES)
+            .map(|frame| {
+                let time = frame as f64;
+                (time * 0.041).sin() * 0.55 + (time * 0.007).cos() * 0.25
+            })
+            .collect()
+    }
+
+    #[test]
+    fn noninteger_direct_output_is_bit_exact_with_staged_output() {
+        let input = noninteger_input();
+        let expected_len = expected_output_frames(input.len() as u64, 44_100, 48_000) as usize;
+
+        let make = || {
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap()
+        };
+        assert!(make().prefix_budget_direct);
+
+        // Ordinary large caller output: eligible for the direct branch.
+        let direct = render_backend(&mut make(), &input, 1);
+        // Output-constrained caller: always forced through the staged route.
+        let staged = render_backend_with_output_frames(&mut make(), &input, 1, 257);
+        // Irregular caller output sizes: mixes direct and staged chunks.
+        let irregular = render_backend_with_output_frames(&mut make(), &input, 1, 1_201);
+
+        assert_eq!(direct.len(), expected_len);
+        assert_eq!(staged.len(), expected_len);
+        assert_eq!(irregular.len(), expected_len);
+        for (name, other) in [("staged", &staged), ("irregular", &irregular)] {
+            if let Some(index) = direct
+                .iter()
+                .zip(other.iter())
+                .position(|(left, right)| left.to_bits() != right.to_bits())
+            {
+                panic!(
+                    "44100->48000 direct vs {name} first mismatch at {index}: {} vs {}",
+                    direct[index], other[index]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn noninteger_direct_prefix_never_exceeds_real_input_budget() {
+        let input = noninteger_input();
+        let mut backend =
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
+        let mut output = vec![0.0; CHUNK_IN * 4];
+        let mut collected = 0usize;
+        let mut cursor = 0usize;
+        while cursor < input.len() {
+            let end = (cursor + 733).min(input.len());
+            let progress = backend.process(&input[cursor..end], &mut output).unwrap();
+            cursor += progress.input_frames;
+            collected += progress.output_frames;
+            assert!(backend.processed_real_input <= backend.total_input);
+            let allowed =
+                expected_output_frames(backend.processed_real_input, 44_100, 48_000) as usize;
+            assert!(
+                collected <= allowed,
+                "emitted {collected} frames beyond real-input budget {allowed}"
+            );
+        }
+        loop {
+            let produced = backend.drain(&mut output).unwrap();
+            collected += produced;
+            if produced == 0 {
+                break;
+            }
+        }
+        let expected = expected_output_frames(input.len() as u64, 44_100, 48_000) as usize;
+        assert_eq!(collected, expected, "complete finish duration mismatch");
+    }
+
+    #[test]
+    fn noninteger_clear_after_process_and_partial_drain_matches_fresh() {
+        let input = noninteger_input();
+        let mut fresh =
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
+        let expected = render_backend(&mut fresh, &input, 1);
+
+        // Reset after process only.
+        let mut reused =
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
+        let mut scratch = vec![0.0; CHUNK_IN * 4];
+        let mut cursor = 0usize;
+        while cursor < 3_000 {
+            let progress = backend_step(&mut reused, &input[cursor..3_000], &mut scratch);
+            cursor += progress;
+        }
+        reused.clear().unwrap();
+        let after_process_reset = render_backend(&mut reused, &input, 1);
+        assert_bits_equal(&expected, &after_process_reset, "reset after process");
+
+        // Reset after a partial drain.
+        let mut reused =
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
+        let mut cursor = 0usize;
+        while cursor < 3_000 {
+            let progress = backend_step(&mut reused, &input[cursor..3_000], &mut scratch);
+            cursor += progress;
+        }
+        let mut small = [0.0; 97];
+        let _ = reused.drain(&mut small).unwrap();
+        reused.clear().unwrap();
+        let after_partial_drain_reset = render_backend(&mut reused, &input, 1);
+        assert_bits_equal(&expected, &after_partial_drain_reset, "reset after drain");
+    }
+
+    fn backend_step(backend: &mut MonoBackend, input: &[f64], scratch: &mut [f64]) -> usize {
+        let progress = backend.process(input, scratch).unwrap();
+        assert!(progress.input_frames > 0 || progress.output_frames > 0);
+        progress.input_frames
+    }
+
+    fn assert_bits_equal(expected: &[f64], actual: &[f64], label: &str) {
+        assert_eq!(expected.len(), actual.len(), "{label} length");
+        if let Some(index) = expected
+            .iter()
+            .zip(actual.iter())
+            .position(|(left, right)| left.to_bits() != right.to_bits())
+        {
+            panic!(
+                "{label} first mismatch at {index}: {} vs {}",
+                expected[index], actual[index]
+            );
+        }
+    }
+
+    #[test]
+    fn noninteger_process_and_drain_do_not_allocate_after_setup() {
+        let input = noninteger_input();
+        let mut backend =
+            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
+        let mut output = vec![0.0; CHUNK_IN * 4];
+        assert_no_alloc::assert_no_alloc(|| {
+            let mut cursor = 0usize;
+            while cursor < input.len() {
+                let end = (cursor + 733).min(input.len());
+                let progress = backend.process(&input[cursor..end], &mut output).unwrap();
+                cursor += progress.input_frames;
+            }
+            loop {
+                if backend.drain(&mut output).unwrap() == 0 {
+                    break;
+                }
+            }
+        });
     }
 
     #[test]
