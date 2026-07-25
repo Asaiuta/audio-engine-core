@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "verify zero allocation/locking/logging in process/finish"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "verify lifecycle contracts for the new engine"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "verify nonlinear quality gates still pass"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify evidence-backed retention and gates"}
+{"file": ".trellis/tasks/07-25-optimize-rubato-nonlinear-phase-performance/research/fft-nonlinear-phase-design.md", "reason": "check implementation matches the researched design and risk tests"}

@@ -10,12 +10,15 @@ use std::f64::consts::PI;
 
 use rustfft::{num_complex::Complex, FftPlanner};
 
-use crate::config::{PhaseResponse, ResampleQuality};
+#[cfg(test)]
+use crate::config::PhaseResponse;
+use crate::config::ResampleQuality;
 use crate::processor::fir_design::{minimum_phase_from_log_magnitude, modified_bessel_i0};
 
-const MAX_REDUCED_RATE: usize = 1_024;
-const MAX_POLYPHASE_COEFFICIENTS: usize = 524_288;
+pub(super) const MAX_REDUCED_RATE: usize = 1_024;
+pub(super) const MAX_POLYPHASE_COEFFICIENTS: usize = 524_288;
 
+#[cfg(test)]
 pub(super) struct PolyphaseResampler {
     channels: usize,
     up: usize,
@@ -32,6 +35,7 @@ pub(super) struct PolyphaseResampler {
     finish_extension_frames: usize,
 }
 
+#[cfg(test)]
 impl PolyphaseResampler {
     pub(super) fn new(
         from_rate: u32,
@@ -110,6 +114,7 @@ impl PolyphaseResampler {
         (self.chunk_frames * self.up).div_ceil(self.down) + 2
     }
 
+    #[allow(dead_code)]
     pub(super) fn output_delay(&self) -> usize {
         0
     }
@@ -180,6 +185,7 @@ impl PolyphaseResampler {
         Ok((input_frames, produced))
     }
 
+    #[allow(dead_code)]
     pub(super) fn reset(&mut self) {
         self.history.fill(0.0);
         self.write_frame = self.history_frames - 1;
@@ -188,14 +194,14 @@ impl PolyphaseResampler {
     }
 }
 
-fn gcd(mut left: u32, mut right: u32) -> u32 {
+pub(super) fn gcd(mut left: u32, mut right: u32) -> u32 {
     while right != 0 {
         (left, right) = (right, left % right);
     }
     left
 }
 
-fn taps_per_phase(quality: ResampleQuality) -> usize {
+pub(super) fn taps_per_phase(quality: ResampleQuality) -> usize {
     match quality {
         ResampleQuality::Low => 64,
         ResampleQuality::Standard => 128,
@@ -222,7 +228,7 @@ fn quality_beta(quality: ResampleQuality) -> f64 {
     }
 }
 
-fn design_linear_prototype(
+pub(super) fn design_linear_prototype(
     up: usize,
     down: usize,
     taps_per_phase: usize,
@@ -253,7 +259,7 @@ fn design_linear_prototype(
     kernel
 }
 
-fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, String> {
+pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, String> {
     let mut fft_size = 1usize;
     let required = prototype
         .len()
@@ -286,6 +292,7 @@ fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, String> {
     Ok(minimum)
 }
 
+#[cfg(test)]
 fn polyphase_coefficients(kernel: &[f64], up: usize, taps_per_phase: usize) -> Vec<f64> {
     let mut coefficients = vec![0.0; up * taps_per_phase];
     for phase in 0..up {
@@ -298,7 +305,7 @@ fn polyphase_coefficients(kernel: &[f64], up: usize, taps_per_phase: usize) -> V
     coefficients
 }
 
-fn normalize_kernel(kernel: &mut [f64]) {
+pub(super) fn normalize_kernel(kernel: &mut [f64]) {
     let sum = kernel.iter().sum::<f64>();
     if sum.abs() > 1.0e-15 {
         let scale = 1.0 / sum;
@@ -308,7 +315,7 @@ fn normalize_kernel(kernel: &mut [f64]) {
     }
 }
 
-fn phase_peak_latency_frames(kernel: &[f64], down: usize) -> usize {
+pub(super) fn phase_peak_latency_frames(kernel: &[f64], down: usize) -> usize {
     let peak = kernel
         .iter()
         .enumerate()
@@ -322,7 +329,7 @@ fn phase_peak_latency_frames(kernel: &[f64], down: usize) -> usize {
     (peak + down / 2) / down
 }
 
-fn kernel_finish_extension_frames(kernel_len: usize, down: usize) -> usize {
+pub(super) fn kernel_finish_extension_frames(kernel_len: usize, down: usize) -> usize {
     kernel_len.saturating_sub(1).div_ceil(down)
 }
 

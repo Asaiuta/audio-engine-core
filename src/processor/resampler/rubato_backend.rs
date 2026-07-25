@@ -12,7 +12,8 @@
 //!   `output_delay()` produced frames at stream start (and again after reset),
 //!   so callers receive an aligned duration sequence.
 //! - **Nonlinear causal tails.** [`PhaseResponse::Minimum`] and
-//!   [`PhaseResponse::Maximum`] use a setup-designed rational polyphase FIR
+//!   [`PhaseResponse::Maximum`] use a setup-designed spectral (FFT
+//!   block-convolution) engine over the real-cepstrum minimum-phase kernel
 //!   instead of pretending that a delay shift changes phase. They retain the
 //!   actual causal latency and finite tail through the streaming lifecycle.
 //! - **Bounded drain.** At end of stream the adapter feeds preallocated zeros
@@ -28,7 +29,8 @@
 //! ratios that would create pathological FFT blocks use sinc, where the quality
 //! mapping selects sinc length / oversampling rather than a SoX recipe. For
 //! [`PhaseResponse::Minimum`] and [`PhaseResponse::Maximum`], the adapter uses
-//! a precomputed real-cepstrum polyphase FIR bank. Nonlinear phase intentionally
+//! an exact spectral rational resampler whose complex kernel spectrum comes
+//! from the precomputed real-cepstrum design. Nonlinear phase intentionally
 //! rejects reduced rate components above 1024 rather than silently falling back
 //! to the linear Rubato engines.
 
@@ -39,7 +41,8 @@ use rubato::{
 };
 
 use super::{
-    halfband_backend::Halfband2xResampler, polyphase_backend::PolyphaseResampler, BackendProgress,
+    halfband_backend::Halfband2xResampler, spectral_backend::SpectralNonlinearResampler,
+    BackendProgress,
 };
 
 pub(super) const BACKEND_NAME: &str = "rubato";
@@ -215,7 +218,7 @@ enum RubatoEngine {
     Halfband(Halfband2xResampler),
     Sinc(Async<f64>),
     Fft(Box<Fft<f64>>),
-    Polyphase(PolyphaseResampler),
+    Spectral(SpectralNonlinearResampler),
 }
 
 impl RubatoEngine {
@@ -227,8 +230,10 @@ impl RubatoEngine {
         channels: usize,
     ) -> Result<Self, String> {
         if !matches!(phase, PhaseResponse::Linear) {
-            return PolyphaseResampler::new(from_rate, to_rate, phase, quality, channels, CHUNK_IN)
-                .map(Self::Polyphase);
+            return SpectralNonlinearResampler::new(
+                from_rate, to_rate, phase, quality, channels, CHUNK_IN,
+            )
+            .map(Self::Spectral);
         }
         if should_use_halfband_2x(from_rate, to_rate, phase, quality) {
             return Halfband2xResampler::new(channels, CHUNK_IN).map(Self::Halfband);
@@ -267,7 +272,7 @@ impl RubatoEngine {
             Self::Halfband(resampler) => resampler.output_frames_max(),
             Self::Sinc(resampler) => resampler.output_frames_max(),
             Self::Fft(resampler) => resampler.output_frames_max(),
-            Self::Polyphase(resampler) => resampler.output_frames_max(),
+            Self::Spectral(resampler) => resampler.output_frames_max(),
         }
     }
 
@@ -276,21 +281,21 @@ impl RubatoEngine {
             Self::Halfband(resampler) => resampler.output_delay(),
             Self::Sinc(resampler) => resampler.output_delay(),
             Self::Fft(resampler) => resampler.output_delay(),
-            Self::Polyphase(resampler) => resampler.output_delay(),
+            Self::Spectral(resampler) => resampler.output_delay(),
         }
     }
 
     fn latency_frames(&self) -> usize {
         match self {
             Self::Halfband(_) | Self::Sinc(_) | Self::Fft(_) => 0,
-            Self::Polyphase(resampler) => resampler.latency_frames(),
+            Self::Spectral(resampler) => resampler.latency_frames(),
         }
     }
 
     fn finish_extension_frames(&self) -> usize {
         match self {
             Self::Halfband(_) | Self::Sinc(_) | Self::Fft(_) => 0,
-            Self::Polyphase(resampler) => resampler.finish_extension_frames(),
+            Self::Spectral(resampler) => resampler.finish_extension_frames(),
         }
     }
 
@@ -302,7 +307,7 @@ impl RubatoEngine {
     ) -> Result<(usize, usize), &'static str> {
         match self {
             Self::Halfband(resampler) => return resampler.process_chunk(input, output),
-            Self::Polyphase(resampler) => return resampler.process_chunk(input, output),
+            Self::Spectral(resampler) => return resampler.process_chunk(input, output),
             Self::Sinc(resampler) => {
                 let input_frames = input.len() / channels;
                 let output_frames = output.len() / channels;
@@ -330,7 +335,7 @@ impl RubatoEngine {
             Self::Halfband(resampler) => resampler.reset(),
             Self::Sinc(resampler) => resampler.reset(),
             Self::Fft(resampler) => resampler.reset(),
-            Self::Polyphase(resampler) => resampler.reset(),
+            Self::Spectral(resampler) => resampler.reset(),
         }
     }
 }
@@ -422,10 +427,12 @@ impl MonoBackend {
         let duration_stable =
             (CHUNK_IN as u128 * to_rate as u128).is_multiple_of(from_rate.max(1) as u128);
         // The FFT engine's cumulative post-delay output tracks the exact
-        // rational duration within one frame per chunk, so its non-integer
-        // ratios can use budget-bounded direct output. The sinc and polyphase
-        // engines keep the staged route.
-        let prefix_budget_direct = !duration_stable && matches!(engine, RubatoEngine::Fft(_));
+        // rational duration within one frame per chunk, and the spectral
+        // nonlinear engine paces output exactly rationally per block, so their
+        // non-integer ratios can use budget-bounded direct output. The sinc
+        // engine keeps the staged route.
+        let prefix_budget_direct =
+            !duration_stable && matches!(engine, RubatoEngine::Fft(_) | RubatoEngine::Spectral(_));
         Ok(Self {
             engine,
             channels,

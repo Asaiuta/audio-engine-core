@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "FFT plans and buffers must be preallocated at setup; process/finish allocation-free"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "emitted/delay/finish/reset/backpressure and prefix-budget direct-output contracts"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "nonlinear phase correctness expectations and listening gates"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "state accounting rules for the new spectral engine"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "benchmark evidence, baseline gate, and retention policy"}
+{"file": ".trellis/tasks/07-25-optimize-rubato-nonlinear-phase-performance/research/fft-nonlinear-phase-design.md", "reason": "recommended spectral engine design: structure, sizes, pacing, risks, tests"}

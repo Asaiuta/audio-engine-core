@@ -250,3 +250,28 @@ let residual = decimate(waveshaped(interpolated) - interpolated);
 let processed = (delayed_dry + mix * residual) * output_gain;
 let output = delayed_raw + effect_weight * (processed - delayed_raw);
 ```
+
+## 8. Spectral Nonlinear-Phase Resampling Engine (2026-07-25)
+
+Nonlinear phases (`Minimum`/`Maximum`) on the pure-Rust route use the spectral
+engine (`src/processor/resampler/spectral_backend.rs`), not a time-domain
+polyphase loop. Durable contracts:
+
+* The engine is overlap-save: forward real FFT at `Nin = 2·nin`
+  (`nin = down·s >= taps_per_phase`, which guarantees no circular aliasing),
+  one precomputed fold `Y[k] = scale · Σ_{m<down} H[k + m·Nout_full] ·
+  X_ext[(k + m·Nout_full) mod Nin_full]` (the exact multirate decimation
+  identity), inverse real FFT at `Nout = 2·nout` (`nout = up·s`).
+  `scale = up / (down·Nout_full)` folds interpolation gain, alias average, and
+  inverse-FFT normalization exactly once — never rescale elsewhere.
+* The kernel comes from the shared design
+  (`design_linear_prototype` → `minimum_phase_prototype`; Maximum = reversed);
+  `latency_frames` (phase peak) and `finish_extension_frames` ((L−1)/down)
+  formulas are shared with the retired polyphase oracle and asserted equal.
+* Per-block pacing is exactly rational (`floor(total/nin)·nout`), so the
+  engine is eligible for the adapter's `prefix_budget_direct` path and can
+  never over-emit versus `round(processed_real_input · up/down)`.
+* `PolyphaseResampler` is retained `#[cfg(test)]`-only as the parity oracle;
+  any change to the spectral engine must keep the FFT-vs-polyphase max-error
+  `< 1e-9` regression passing across representative ratios, tiers, and both
+  phases.

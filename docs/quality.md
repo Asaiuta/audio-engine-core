@@ -236,14 +236,24 @@ are incompatible with new reports.
 
 For `PhaseResponse::Linear`, rubato keeps the half-band/FFT/sinc routing
 described above.
-For `Minimum` and `Maximum`, the pure-Rust backend instead creates a bounded
-rational polyphase FIR during setup from the same low-pass magnitude target:
-real-cepstrum spectral factorization produces the causal minimum-phase kernel,
-and its reversal produces the maximum-phase kernel. The nonlinear bank accepts
-only reduced rate components up to 1024; unsupported geometry returns a typed
-initialization error instead of silently using linear phase. Its reported
-algorithmic latency and finite tail preserve the actual causal response. Tests
-cover phase-energy ordering, magnitude preservation, 20 kHz gain, THD+N,
+For `Minimum` and `Maximum`, the pure-Rust backend instead builds an exact
+spectral (FFT block-convolution) rational resampler during setup from the same
+low-pass magnitude target: real-cepstrum spectral factorization produces the
+causal minimum-phase kernel, its reversal produces the maximum-phase kernel,
+and the kernel's complex spectrum is applied through an overlap-save input FFT,
+an exact decimation alias fold, and an inverse output FFT. The fold keeps all
+`down` alias terms per bin, so the engine matches the previous time-domain
+polyphase convolution to < 1e-9 (regression-tested across ratios, tiers, and
+both phases). The engine accepts only reduced rate components up to 1024;
+unsupported geometry returns a typed initialization error instead of silently
+using linear phase. Its reported algorithmic latency and finite tail preserve
+the actual causal response. In the 2026-07-25 same-machine paired quick matrix
+(`audio_resampler_matrix_perf`, `matrix_process_checked_v2_spectral_nonlinear`,
+rubato backend, 512-frame stereo `process_checked`, load-matched runs), the
+48-to-96 kHz High/Minimum median fell from 1098.5 to 15.5 ns/input sample
+(~71x) and 44.1-to-48 kHz High/Minimum from 604.0 to 191.4 ns/input sample
+(~3.2x); no Linear-path case regressed beyond run noise. Tests cover
+phase-energy ordering, magnitude preservation, 20 kHz gain, THD+N,
 alias rejection, arbitrary chunking, reset, drain, and no allocation after
 setup. Both backends otherwise share the streaming cursor and terminal-reset
 contract.

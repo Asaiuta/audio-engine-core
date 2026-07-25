@@ -26,6 +26,8 @@ mod polyphase_backend;
 mod rubato_backend;
 #[cfg(feature = "soxr")]
 mod soxr_backend;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod spectral_backend;
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 use rubato_backend::{MonoBackend, BACKEND_NAME};

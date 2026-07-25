@@ -1,0 +1,869 @@
+{
+  "schema_version": 1,
+  "probe": "audio_resampler_matrix_perf",
+  "generated_unix_ms": 1784973117367,
+  "mode": "quick",
+  "environment": {
+    "revision": "07602656bc3ba06c1dc615c843d117ad49a6b8be",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "resampler-rubato"
+    ]
+  },
+  "conditions": {
+    "coverage": "resampler_config_matrix_process_checked",
+    "excludes": [
+      "decoder",
+      "callback_dsp_chain",
+      "cpal_device_write",
+      "gapless_state_machine",
+      "trait_process_direct",
+      "offline_output_render_chain"
+    ],
+    "algorithm_id": "matrix_process_checked_v1",
+    "warmup_buffers": 32,
+    "iterations_per_trial": 40,
+    "trials": 5,
+    "case_count": 10
+  },
+  "cases": [
+    {
+      "case_key": "scenario=music_44k1_to_48k;quality=high;phase=linear;channels=stereo;frames=256;from=44100;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "music_44k1_to_48k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          134200.0,
+          128400.0,
+          110900.0,
+          104700.0,
+          113700.0
+        ],
+        "min": 104700.0,
+        "median": 113700.0,
+        "p95": 134200.0,
+        "max": 134200.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          7.470703125,
+          7.3046875,
+          7.4072265625,
+          7.431640625,
+          7.4755859375
+        ],
+        "min": 7.3046875,
+        "median": 7.431640625,
+        "p95": 7.4755859375,
+        "max": 7.4755859375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          3825.0,
+          3740.0,
+          3792.5,
+          3805.0,
+          3827.5
+        ],
+        "min": 3740.0,
+        "median": 3805.0,
+        "p95": 3827.5,
+        "max": 3827.5
+      },
+      "source_buffer_duration_ns": 5804988.662131519,
+      "median_source_realtime_utilization_pct": 0.06554707031250001,
+      "p95_source_realtime_utilization_pct": 0.06593466796875001,
+      "expected_output_frames_total": 11146,
+      "minimum_output_frames_total": 8541,
+      "maximum_output_frames_total": 13751,
+      "output_frames_total_per_trial": [
+        11520,
+        11520,
+        11520,
+        11520,
+        11520
+      ],
+      "consumed_frames_total_per_trial": [
+        10240,
+        10240,
+        10240,
+        10240,
+        10240
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1280,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;quality=high;phase=linear;channels=stereo;frames=512;from=44100;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "music_44k1_to_48k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          105300.0,
+          103100.0,
+          103700.0,
+          102900.0,
+          104600.0
+        ],
+        "min": 102900.0,
+        "median": 103700.0,
+        "p95": 105300.0,
+        "max": 105300.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          7.2314453125,
+          7.1044921875,
+          7.2021484375,
+          7.6611328125,
+          7.20947265625
+        ],
+        "min": 7.1044921875,
+        "median": 7.20947265625,
+        "p95": 7.6611328125,
+        "max": 7.6611328125
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          7405.0,
+          7275.0,
+          7375.0,
+          7845.0,
+          7382.5
+        ],
+        "min": 7275.0,
+        "median": 7382.5,
+        "p95": 7845.0,
+        "max": 7845.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.063587548828125,
+      "p95_source_realtime_utilization_pct": 0.06757119140625001,
+      "expected_output_frames_total": 22291,
+      "minimum_output_frames_total": 19129,
+      "maximum_output_frames_total": 25453,
+      "output_frames_total_per_trial": [
+        22400,
+        22400,
+        22400,
+        22400,
+        22400
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2560,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;quality=high;phase=linear;channels=stereo;frames=512;from=48000;to=96000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "upsample_48k_to_96k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          54500.0,
+          54300.0,
+          53900.0,
+          59600.0,
+          60700.0
+        ],
+        "min": 53900.0,
+        "median": 54500.0,
+        "p95": 60700.0,
+        "max": 60700.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          4.990234375,
+          5.25146484375,
+          5.00732421875,
+          4.9658203125,
+          5.10986328125
+        ],
+        "min": 4.9658203125,
+        "median": 5.00732421875,
+        "p95": 5.25146484375,
+        "max": 5.25146484375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          5110.0,
+          5377.5,
+          5127.5,
+          5085.0,
+          5232.5
+        ],
+        "min": 5085.0,
+        "median": 5127.5,
+        "p95": 5377.5,
+        "max": 5377.5
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.048070312500000004,
+      "p95_source_realtime_utilization_pct": 0.0504140625,
+      "expected_output_frames_total": 40960,
+      "minimum_output_frames_total": 36864,
+      "maximum_output_frames_total": 45056,
+      "output_frames_total_per_trial": [
+        40960,
+        40960,
+        40960,
+        40960,
+        40960
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=hires_96k_to_48k;quality=high;phase=linear;channels=stereo;frames=512;from=96000;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "hires_96k_to_48k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 96000,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          76400.0,
+          89800.0,
+          82600.0,
+          80300.0,
+          78400.0
+        ],
+        "min": 76400.0,
+        "median": 80300.0,
+        "p95": 89800.0,
+        "max": 89800.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          4.58740234375,
+          4.51171875,
+          4.23583984375,
+          4.3798828125,
+          4.53125
+        ],
+        "min": 4.23583984375,
+        "median": 4.51171875,
+        "p95": 4.58740234375,
+        "max": 4.58740234375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          4697.5,
+          4620.0,
+          4337.5,
+          4485.0,
+          4640.0
+        ],
+        "min": 4337.5,
+        "median": 4620.0,
+        "p95": 4697.5,
+        "max": 4697.5
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.08662500000000001,
+      "p95_source_realtime_utilization_pct": 0.08807812500000001,
+      "expected_output_frames_total": 10240,
+      "minimum_output_frames_total": 7680,
+      "maximum_output_frames_total": 12800,
+      "output_frames_total_per_trial": [
+        10240,
+        10240,
+        10240,
+        10240,
+        10240
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 1024,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;quality=high;phase=linear;channels=stereo;frames=512;from=48000;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "equal_rate_48k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          93900.0,
+          91100.0,
+          106600.0,
+          128400.0,
+          100400.0
+        ],
+        "min": 91100.0,
+        "median": 100400.0,
+        "p95": 128400.0,
+        "max": 128400.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          0.08544921875,
+          0.0830078125,
+          0.0830078125,
+          0.09033203125,
+          0.0830078125
+        ],
+        "min": 0.0830078125,
+        "median": 0.0830078125,
+        "p95": 0.09033203125,
+        "max": 0.09033203125
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          87.5,
+          85.0,
+          85.0,
+          92.5,
+          85.0
+        ],
+        "min": 85.0,
+        "median": 85.0,
+        "p95": 92.5,
+        "max": 92.5
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.0007968750000000001,
+      "p95_source_realtime_utilization_pct": 0.0008671875000000001,
+      "expected_output_frames_total": 20480,
+      "minimum_output_frames_total": 17408,
+      "maximum_output_frames_total": 23552,
+      "output_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2048,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;quality=standard;phase=linear;channels=stereo;frames=512;from=44100;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "music_44k1_to_48k",
+      "quality": "standard",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=standard phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          112600.0,
+          109600.0,
+          101400.0,
+          100800.0,
+          116300.0
+        ],
+        "min": 100800.0,
+        "median": 109600.0,
+        "p95": 116300.0,
+        "max": 116300.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          7.26318359375,
+          7.7001953125,
+          7.119140625,
+          7.22900390625,
+          7.0947265625
+        ],
+        "min": 7.0947265625,
+        "median": 7.22900390625,
+        "p95": 7.7001953125,
+        "max": 7.7001953125
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          7437.5,
+          7885.0,
+          7290.0,
+          7402.5,
+          7265.0
+        ],
+        "min": 7265.0,
+        "median": 7402.5,
+        "p95": 7885.0,
+        "max": 7885.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.063759814453125,
+      "p95_source_realtime_utilization_pct": 0.06791572265625,
+      "expected_output_frames_total": 22291,
+      "minimum_output_frames_total": 19129,
+      "maximum_output_frames_total": 25453,
+      "output_frames_total_per_trial": [
+        22400,
+        22400,
+        22400,
+        22400,
+        22400
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2560,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;quality=ultrahigh;phase=linear;channels=stereo;frames=512;from=44100;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "music_44k1_to_48k",
+      "quality": "ultrahigh",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=ultrahigh phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          5157100.0,
+          5306600.0,
+          4678200.0,
+          5031600.0,
+          4786100.0
+        ],
+        "min": 4678200.0,
+        "median": 5031600.0,
+        "p95": 5306600.0,
+        "max": 5306600.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          79.951171875,
+          75.869140625,
+          74.77783203125,
+          76.8115234375,
+          84.4287109375
+        ],
+        "min": 74.77783203125,
+        "median": 76.8115234375,
+        "p95": 84.4287109375,
+        "max": 84.4287109375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          81870.0,
+          77690.0,
+          76572.5,
+          78655.0,
+          86455.0
+        ],
+        "min": 76572.5,
+        "median": 78655.0,
+        "p95": 86455.0,
+        "max": 86455.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.67747763671875,
+      "p95_source_realtime_utilization_pct": 0.74466123046875,
+      "expected_output_frames_total": 22291,
+      "minimum_output_frames_total": 19129,
+      "maximum_output_frames_total": 25453,
+      "output_frames_total_per_trial": [
+        22291,
+        22291,
+        22291,
+        22291,
+        22291
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2229,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;quality=high;phase=minimum;channels=stereo;frames=512;from=48000;to=96000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "upsample_48k_to_96k",
+      "quality": "high",
+      "phase": "minimum",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=minimum id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          338900.0,
+          342500.0,
+          313900.0,
+          350100.0,
+          334200.0
+        ],
+        "min": 313900.0,
+        "median": 338900.0,
+        "p95": 350100.0,
+        "max": 350100.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          777.92724609375,
+          717.25830078125,
+          704.35302734375,
+          754.2626953125,
+          723.73779296875
+        ],
+        "min": 704.35302734375,
+        "median": 723.73779296875,
+        "p95": 777.92724609375,
+        "max": 777.92724609375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          796597.5,
+          734472.5,
+          721257.5,
+          772365.0,
+          741107.5
+        ],
+        "min": 721257.5,
+        "median": 741107.5,
+        "p95": 796597.5,
+        "max": 796597.5
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 6.9478828125000005,
+      "p95_source_realtime_utilization_pct": 7.4681015625,
+      "expected_output_frames_total": 40960,
+      "minimum_output_frames_total": 36864,
+      "maximum_output_frames_total": 45056,
+      "output_frames_total_per_trial": [
+        40960,
+        40960,
+        40960,
+        40960,
+        40960
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;quality=high;phase=linear;channels=surround51;frames=512;from=44100;to=48000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "music_44k1_to_48k",
+      "quality": "high",
+      "phase": "linear",
+      "channels_label": "surround51",
+      "channels": 6,
+      "frames": 512,
+      "input_samples": 3072,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=high phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          207000.0,
+          195200.0,
+          205100.0,
+          194900.0,
+          203300.0
+        ],
+        "min": 194900.0,
+        "median": 203300.0,
+        "p95": 207000.0,
+        "max": 207000.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          7.566731770833333,
+          7.6611328125,
+          7.530924479166667,
+          7.643229166666667,
+          8.240559895833334
+        ],
+        "min": 7.530924479166667,
+        "median": 7.643229166666667,
+        "p95": 8.240559895833334,
+        "max": 8.240559895833334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          23245.0,
+          23535.0,
+          23135.0,
+          23480.0,
+          25315.0
+        ],
+        "min": 23135.0,
+        "median": 23480.0,
+        "p95": 25315.0,
+        "max": 25315.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.20223984375,
+      "p95_source_realtime_utilization_pct": 0.21804521484375,
+      "expected_output_frames_total": 22291,
+      "minimum_output_frames_total": 19129,
+      "maximum_output_frames_total": 25453,
+      "output_frames_total_per_trial": [
+        22400,
+        22400,
+        22400,
+        22400,
+        22400
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2560,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;quality=ultrahigh;phase=linear;channels=stereo;frames=512;from=48000;to=96000;algorithm=rubato_matrix_process_checked_v1",
+      "scenario": "upsample_48k_to_96k",
+      "quality": "ultrahigh",
+      "phase": "linear",
+      "channels_label": "stereo",
+      "channels": 2,
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "backend": "rubato",
+      "algorithm": "rubato matrix process_checked quality=ultrahigh phase=linear id=matrix_process_checked_v1",
+      "setup_ns": {
+        "samples": [
+          5096300.0,
+          5347800.0,
+          5202000.0,
+          5243600.0,
+          5313900.0
+        ],
+        "min": 5096300.0,
+        "median": 5243600.0,
+        "p95": 5347800.0,
+        "max": 5347800.0
+      },
+      "ns_per_input_sample": {
+        "samples": [
+          162.81005859375,
+          169.0625,
+          148.1298828125,
+          186.33056640625,
+          141.37939453125
+        ],
+        "min": 141.37939453125,
+        "median": 162.81005859375,
+        "p95": 186.33056640625,
+        "max": 186.33056640625
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          166717.5,
+          173120.0,
+          151685.0,
+          190802.5,
+          144772.5
+        ],
+        "min": 144772.5,
+        "median": 166717.5,
+        "p95": 190802.5,
+        "max": 190802.5
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 1.5629765625,
+      "p95_source_realtime_utilization_pct": 1.7887734375000002,
+      "expected_output_frames_total": 40960,
+      "minimum_output_frames_total": 36864,
+      "maximum_output_frames_total": 45056,
+      "output_frames_total_per_trial": [
+        40960,
+        40960,
+        40960,
+        40960,
+        40960
+      ],
+      "consumed_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 4,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true,
+        "init_ok": true,
+        "init_error": null
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}
