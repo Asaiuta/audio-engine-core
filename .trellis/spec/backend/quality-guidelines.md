@@ -628,8 +628,10 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   1024-frame fixed input chunk, evaluates 32 symmetric coefficient pairs, and
   emits the companion phase as a delayed direct source sample. Other Low,
   Standard, and High common ratios use `Fft<f64>` with two FFT sub-chunks and
-  `BlackmanHarris2`. A rate pair is common only when both components after GCD
-  reduction are at most 1024. UltraHigh and larger reduced ratios use
+  `BlackmanHarris2`; UltraHigh common ratios use `Fft<f64>` with one sub-chunk
+  (a 2x longer internal FIR, the tier's quality knob). A rate pair is common
+  only when both components after GCD
+  reduction are at most 1024. Larger reduced ratios use
   `Async<f64>::new_sinc`; quality selects the sinc parameters for those routes.
 - `PhaseResponse::Minimum` and `PhaseResponse::Maximum` use a separate,
   setup-designed causal rational polyphase FIR. A real-cepstrum spectral
@@ -641,17 +643,21 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   bounded coefficient bank. Unsupported geometry returns the named
   initialization error; it must never fall back to the linear Rubato engine or
   merely report a shifted latency as a phase response.
-- Keep `FFT_SUB_CHUNKS = 2` unless a same-machine sweep improves both core
-  conversions without weakening quality. The 2026-07-22 512-frame evidence
-  rejected one sub-chunk (35.10 ns/input sample at 44.1 to 48 kHz) and four
-  sub-chunks (14.59 ns/input sample at 48 to 96 kHz) against two sub-chunks
-  (9.86 and 12.57 respectively). Changing the precomputed window does not
-  reduce runtime FFT work and still requires fresh quality evidence.
-- `OutputRenderChain` requests UltraHigh and therefore uses sinc under the
-  rubato feature. A quality-routing change must run
-  `audio_output_render_perf --quick` as well as the focused resampler probe;
-  the 2026-07-22 sinc route was about 2.8x slower than the diagnostic all-FFT
-  render reference but remained below a 3.2% realtime factor.
+- Keep two sub-chunks for Low through High unless a same-machine sweep improves
+  both core conversions without weakening quality. The 2026-07-22 512-frame
+  evidence rejected one sub-chunk for High (35.10 ns/input sample at 44.1 to
+  48 kHz) and four sub-chunks (14.59 ns/input sample at 48 to 96 kHz) against
+  two sub-chunks (9.86 and 12.57 respectively). UltraHigh deliberately pays the
+  one-sub-chunk cost for the 2x longer filter: the 2026-07-25 quality harness
+  measured THD+N -204.9 dB, passband deviation 2.0e-11 dB, and alias
+  attenuation -290.5 dB, beating both the High two-sub-chunk route and the
+  previous UltraHigh sinc engine on passband and alias. Changing the
+  precomputed window does not reduce runtime FFT work and still requires fresh
+  quality evidence.
+- `OutputRenderChain` requests UltraHigh, which under the rubato feature now
+  uses the one-sub-chunk FFT route for common ratios. A quality-routing change
+  must run `audio_output_render_perf --quick` as well as the focused resampler
+  probe.
 - Linear Rubato engines carry a real leading delay. The adapter discards
   exactly `output_delay()` produced frames once per stream, then drains or
   truncates to `round(total_input * to_rate / from_rate)`. Nonlinear phase does
@@ -683,8 +689,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 | --- | --- |
 | Either sample rate is zero | Public constructor rejects it before engine construction |
 | Linear + High + exact 2x upsampling | Select the dedicated half-band engine |
-| Linear + Low/Standard, or High non-2x, and both reduced rate components are <= 1024 | Select FFT |
-| Linear + UltraHigh | Select sinc even for a common ratio |
+| Linear + Low/Standard, or High non-2x, and both reduced rate components are <= 1024 | Select FFT with two sub-chunks |
+| Linear + UltraHigh common ratio | Select FFT with one sub-chunk (2x longer FIR than High) |
 | Linear + either reduced rate component > 1024 | Select sinc; never construct a pathological FFT block |
 | Minimum/Maximum + reduced component > 1024 or oversized coefficient bank | Named initialization error; never silently select FFT/sinc |
 | Backend consumes other than the fixed input chunk or over-reports output | Static `ProcessError::Backend` path; never slice or panic |
@@ -696,7 +702,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 ### 5. Good / Base / Bad Cases
 
 - Good: 48 to 96 kHz and 44.1 to 88.2 kHz use half-band at Linear/High;
-  Linear/Standard keeps FFT and Linear/UltraHigh keeps sinc. 44.1 to 48 kHz
+  Linear/Standard keeps FFT and Linear/UltraHigh uses the one-sub-chunk FFT.
+  44.1 to 48 kHz
   reduces to 147:160 and uses FFT at Linear/High, while Minimum/Maximum use the
   polyphase bank.
   44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc for Linear at every
@@ -718,8 +725,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 ### 6. Tests Required
 
 - Routing tests assert exact-2x Linear/High upsampling selects half-band without
-  broadening; other common ratios select FFT through High, UltraHigh selects
-  sinc, and a coprime adjacent rate selects sinc.
+  broadening; other common ratios select FFT (UltraHigh with one sub-chunk,
+  Low through High with two), and a coprime adjacent rate selects sinc.
 - Half-band tests compare block output with full zero-stuffed convolution,
   enforce DC gain and representative passband/image bounds, compare native
   interleaving with independent mono engines, and run process/reset under

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "process/finish must stay allocation-free; setup-only construction"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Fft engine delay-skip, emitted, finish, reset, prefix-budget contracts"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "evidence-backed retention policy and benchmark conventions"}
+{"file": ".trellis/tasks/07-25-route-ultrahigh-linear-to-fft/research/ultrahigh-linear-fft-routing.md", "reason": "chosen A-prime design, sub-chunk quality knob, archived quality numbers, rejected alternatives"}

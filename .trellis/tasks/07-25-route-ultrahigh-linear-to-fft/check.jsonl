@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "verify allocation-free process/finish"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "verify lifecycle contracts under new routing"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify gates and evidence claims"}
+{"file": ".trellis/tasks/07-25-route-ultrahigh-linear-to-fft/research/ultrahigh-linear-fft-routing.md", "reason": "check implementation matches the researched routing decision"}
