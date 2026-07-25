@@ -189,21 +189,25 @@ rate pairs.
 The resampler quality rows above measure the default native SoXR (SoX VHQ)
 backend. The pure-Rust rubato backend (`default-features = false,
 features = ["rubato"]`) uses a dedicated 127-tap symmetric half-band FIR for
-exact 2x `Linear + High` upsampling. Other common Low-through-High ratios use
-rubato 4.0's synchronous FFT engine; UltraHigh and ratios whose reduced
-components would create pathological FFT blocks use windowed sinc. The shared
+exact 2x `Linear + High` upsampling. Other common ratios use rubato 4.0's
+synchronous FFT engine at every quality tier: UltraHigh selects one FFT
+sub-chunk (a 2x longer internal FIR) while Low through High use two
+sub-chunks (2026-07-25 routing change). Only ratios whose reduced components
+would create pathological FFT blocks use windowed sinc. The shared
 adapter removes each linear engine's leading delay. The backend passes the
 same 27 quick-run quality gates on this machine; that bench explicitly requests
 UltraHigh, while route-specific tests separately enforce the High half-band's
 20 kHz gain, THD+N, interpolation images, lifecycle, and zero-allocation
-contracts. Representative same-machine UltraHigh deltas:
+contracts. Representative same-machine UltraHigh deltas (rubato column from
+the 2026-07-25 one-sub-chunk FFT run; the previous UltraHigh sinc route
+measured -216.2 dB THD+N and -208.1 dB alias attenuation):
 
 | Metric | SoXR (default) | rubato |
 | --- | ---: | ---: |
-| Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB | -216.2 dB |
+| Resampler THD+N, 44.1 kHz to 48 kHz | -187.0 dB | -204.9 dB |
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB | 0.0000 dB |
 | 20 kHz resampler gain | -0.0062 dB | -0.0017 dB |
-| Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -208.1 dB |
+| Worst fitted alias attenuation, 96 kHz to 48 kHz | -290.2 dB | -290.5 dB |
 
 Same-machine streaming cost (`audio_resampler_streaming_perf`; 512-frame stereo
 buffers, `process_checked`, seven-trial medians). The 44.1-to-48 row uses the
@@ -220,14 +224,20 @@ reduced 128/256/512-frame `process_checked` medians from
 36.104/14.354/17.667 to 5.849/5.807/6.026 ns/input sample (83.8%, 59.5%, and
 65.9%). All cases passed consumed/produced and finite-output work validation.
 
-`OutputRenderChain` deliberately requests UltraHigh, so pure-Rust resampled
-offline rendering uses sinc rather than the High FFT route. In the same
-2026-07-22 quick probe, the active 44.1-to-48 kHz 4096-frame render measured
-353.97 ns/input sample for a one-second input and 266.38 for five seconds
-(3.12% and 2.35% realtime factors). A diagnostic all-FFT reference measured
-126.64 and 93.65 respectively, so preserving UltraHigh sinc evidence costs
-about 2.8x in that offline scenario; both remain comfortably faster than
-realtime.
+In the 2026-07-25 same-machine paired quick matrix
+(`audio_resampler_matrix_perf`, rubato backend, 512-frame stereo
+`process_checked`), routing UltraHigh Linear onto the one-sub-chunk FFT
+engine cut 44.1-to-48 kHz from 101.13 to 8.15 ns/input sample (~12.4x) and
+48-to-96 kHz from 163.87 to 10.22 (~16x), with median setup falling from
+5.82/6.26 ms to 0.16/0.20 ms; no other case regressed beyond run noise.
+
+`OutputRenderChain` deliberately requests UltraHigh; since the 2026-07-25
+routing change, pure-Rust resampled offline rendering uses the one-sub-chunk
+FFT route instead of sinc. In the 2026-07-25 quick probe, the active
+44.1-to-48 kHz 4096-frame render measured 103.02 ns/input sample for a
+one-second input and 82.92 for five seconds (0.91% and 0.73% realtime
+factors), compared with 353.97 and 266.38 (3.12% and 2.35%) for the retired
+UltraHigh sinc route in the 2026-07-22 quick probe.
 
 Benchmark reports now record the compiled backend in the environment
 `features` field (`resampler-soxr` / `resampler-rubato`) and in the

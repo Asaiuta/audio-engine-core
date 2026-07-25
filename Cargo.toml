@@ -45,8 +45,9 @@ loudness-db = ["dep:rusqlite"]
 # enabled; when both are enabled, soxr wins.
 soxr = ["dep:soxr"]
 # Pure Rust quality-aware resampler backend. Exact-2x Linear/High upsampling
-# uses a dedicated half-band FIR; other common ratios use FFT through High;
-# UltraHigh/pathological ratios use sinc; Minimum/Maximum use a bounded causal
+# uses a dedicated half-band FIR; other common ratios use FFT at every quality
+# tier (UltraHigh uses a 2x longer single-sub-chunk FFT filter); pathological
+# ratios use sinc; Minimum/Maximum use a bounded causal
 # polyphase FIR. No native dependency; use with `default-features = false,
 # features = ["rubato", ...]` for a fully pure-Rust build.
 rubato = ["dep:rubato"]

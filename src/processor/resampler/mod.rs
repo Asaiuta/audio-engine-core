@@ -4,8 +4,9 @@
 //! granularity, duration-aligned drain, `clear` restoring initial state): the
 //! native SoXR / SoX VHQ backend (`soxr` feature, default) and the pure-Rust
 //! rubato backend (`rubato` feature), which routes common sample-rate ratios
-//! through FFT resampling up to High quality and uses windowed sinc for
-//! UltraHigh or pathological ratios. When both features are enabled, SoXR
+//! through FFT resampling at every quality tier (UltraHigh selects a 2x longer
+//! single-sub-chunk FFT filter) and uses windowed sinc only for pathological
+//! ratios. When both features are enabled, SoXR
 //! wins. The public `Resampler` / `StreamingResampler` API is identical for
 //! both.
 

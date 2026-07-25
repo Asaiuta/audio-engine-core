@@ -25,9 +25,11 @@
 //!
 //! For [`PhaseResponse::Linear`], exact 2:1 High-quality upsampling uses a
 //! dedicated symmetric half-band FIR. Other common reduced sample-rate ratios
-//! use the much faster rubato FFT engine through High quality; UltraHigh and
-//! ratios that would create pathological FFT blocks use sinc, where the quality
-//! mapping selects sinc length / oversampling rather than a SoX recipe. For
+//! use the much faster rubato FFT engine at every quality tier: UltraHigh
+//! selects a single FFT sub-chunk (a 2x longer internal FIR) while Low through
+//! High use two sub-chunks. Only ratios that would create pathological FFT
+//! blocks fall back to sinc, where the quality mapping selects sinc length /
+//! oversampling rather than a SoX recipe. For
 //! [`PhaseResponse::Minimum`] and [`PhaseResponse::Maximum`], the adapter uses
 //! an exact spectral rational resampler whose complex kernel spectrum comes
 //! from the precomputed real-cepstrum design. Nonlinear phase intentionally
@@ -56,12 +58,22 @@ const CHUNK_IN: usize = 1024;
 /// block, delay, and per-call output grow with the raw rate pair; for example,
 /// 44_100 -> 44_101 would otherwise create a 44_101-frame output block and a
 /// 22_050-frame delay. All conventional audio-rate conversions fit this bound.
-/// UltraHigh intentionally bypasses this route to preserve the strongest sinc
-/// quality tier while the default High tier retains FFT throughput.
+/// Only pathological reduced ratios fall back to the sinc engine.
 const MAX_FFT_REDUCED_RATE: u32 = 1024;
 
-/// FFT sub-chunks selected by the retained same-machine sweep.
-const FFT_SUB_CHUNKS: usize = 2;
+/// FFT sub-chunk count is the quality knob for the FFT route: one sub-chunk
+/// doubles the FFT unit and therefore the internal FIR length. UltraHigh uses
+/// the single-sub-chunk (2x longer) filter; the 2026-07-25 same-machine quality
+/// harness shows it beats both the High two-sub-chunk route and the previous
+/// UltraHigh sinc engine on passband flatness and alias attenuation. Low
+/// through High keep the two-sub-chunk configuration selected by the retained
+/// 2026-07-22 same-machine sweep.
+fn fft_sub_chunks(quality: ResampleQuality) -> usize {
+    match quality {
+        ResampleQuality::UltraHigh => 1,
+        _ => 2,
+    }
+}
 
 /// Consecutive zero-output flush rounds tolerated during drain before the
 /// backend reports a stall instead of looping forever.
@@ -86,14 +98,12 @@ fn greatest_common_divisor(mut left: u32, mut right: u32) -> u32 {
     left
 }
 
-fn should_use_fft(from_rate: u32, to_rate: u32, quality: ResampleQuality) -> bool {
+fn should_use_fft(from_rate: u32, to_rate: u32, _quality: ResampleQuality) -> bool {
     if from_rate == 0 || to_rate == 0 {
         return false;
     }
     let divisor = greatest_common_divisor(from_rate, to_rate);
-    !matches!(quality, ResampleQuality::UltraHigh)
-        && from_rate / divisor <= MAX_FFT_REDUCED_RATE
-        && to_rate / divisor <= MAX_FFT_REDUCED_RATE
+    from_rate / divisor <= MAX_FFT_REDUCED_RATE && to_rate / divisor <= MAX_FFT_REDUCED_RATE
 }
 
 fn should_use_halfband_2x(
@@ -243,7 +253,7 @@ impl RubatoEngine {
                 from_rate as usize,
                 to_rate as usize,
                 CHUNK_IN,
-                FFT_SUB_CHUNKS,
+                fft_sub_chunks(quality),
                 channels,
                 WindowFunction::BlackmanHarris2,
                 FixedSync::Input,
@@ -801,12 +811,13 @@ mod tests {
             ResampleQuality::Low,
             ResampleQuality::Standard,
             ResampleQuality::High,
+            ResampleQuality::UltraHigh,
         ] {
             for (from_rate, to_rate) in [(44_100, 48_000), (96_000, 44_100), (44_100, 192_000)] {
                 assert!(should_use_fft(from_rate, to_rate, quality));
             }
+            assert!(!should_use_fft(44_100, 44_101, quality));
         }
-        assert!(!should_use_fft(44_100, 44_101, ResampleQuality::High));
         assert!(!should_use_fft(0, 48_000, ResampleQuality::High));
     }
 
@@ -862,7 +873,9 @@ mod tests {
     }
 
     #[test]
-    fn ultra_high_preserves_the_sinc_quality_path_for_common_ratios() {
+    fn ultra_high_routes_common_ratios_to_fft_and_pathological_ratios_to_sinc() {
+        assert_eq!(fft_sub_chunks(ResampleQuality::UltraHigh), 1);
+        assert_eq!(fft_sub_chunks(ResampleQuality::High), 2);
         assert!(matches!(
             RubatoEngine::new(
                 44_100,
@@ -883,25 +896,40 @@ mod tests {
                 1,
             )
             .unwrap(),
-            RubatoEngine::Sinc(_)
+            RubatoEngine::Fft(_)
         ));
-        assert!(matches!(
-            RubatoEngine::new(
-                44_100,
-                44_101,
-                PhaseResponse::Linear,
-                ResampleQuality::High,
-                1,
-            )
-            .unwrap(),
-            RubatoEngine::Sinc(_)
-        ));
+        // UltraHigh's one-sub-chunk FFT unit is twice the High unit, so its
+        // per-call output block and leading delay differ from High.
+        let high = RubatoEngine::new(
+            44_100,
+            48_000,
+            PhaseResponse::Linear,
+            ResampleQuality::High,
+            1,
+        )
+        .unwrap();
+        let ultra = RubatoEngine::new(
+            44_100,
+            48_000,
+            PhaseResponse::Linear,
+            ResampleQuality::UltraHigh,
+            1,
+        )
+        .unwrap();
+        assert!(ultra.output_delay() > high.output_delay());
+        for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
+            assert!(matches!(
+                RubatoEngine::new(44_100, 44_101, PhaseResponse::Linear, quality, 1).unwrap(),
+                RubatoEngine::Sinc(_)
+            ));
+        }
     }
 
     #[test]
     fn native_interleaved_matches_independent_mono_for_fft_and_sinc() {
         assert_interleaved_matches_independent_mono(44_100, 48_000, ResampleQuality::High);
         assert_interleaved_matches_independent_mono(44_100, 48_000, ResampleQuality::UltraHigh);
+        assert_interleaved_matches_independent_mono(48_000, 96_000, ResampleQuality::UltraHigh);
         assert_interleaved_matches_independent_mono(48_000, 96_000, ResampleQuality::High);
     }
 
@@ -959,31 +987,31 @@ mod tests {
         let input = noninteger_input();
         let expected_len = expected_output_frames(input.len() as u64, 44_100, 48_000) as usize;
 
-        let make = || {
-            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap()
-        };
-        assert!(make().prefix_budget_direct);
+        for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
+            let make = || MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, quality).unwrap();
+            assert!(make().prefix_budget_direct);
 
-        // Ordinary large caller output: eligible for the direct branch.
-        let direct = render_backend(&mut make(), &input, 1);
-        // Output-constrained caller: always forced through the staged route.
-        let staged = render_backend_with_output_frames(&mut make(), &input, 1, 257);
-        // Irregular caller output sizes: mixes direct and staged chunks.
-        let irregular = render_backend_with_output_frames(&mut make(), &input, 1, 1_201);
+            // Ordinary large caller output: eligible for the direct branch.
+            let direct = render_backend(&mut make(), &input, 1);
+            // Output-constrained caller: always forced through the staged route.
+            let staged = render_backend_with_output_frames(&mut make(), &input, 1, 257);
+            // Irregular caller output sizes: mixes direct and staged chunks.
+            let irregular = render_backend_with_output_frames(&mut make(), &input, 1, 1_201);
 
-        assert_eq!(direct.len(), expected_len);
-        assert_eq!(staged.len(), expected_len);
-        assert_eq!(irregular.len(), expected_len);
-        for (name, other) in [("staged", &staged), ("irregular", &irregular)] {
-            if let Some(index) = direct
-                .iter()
-                .zip(other.iter())
-                .position(|(left, right)| left.to_bits() != right.to_bits())
-            {
-                panic!(
-                    "44100->48000 direct vs {name} first mismatch at {index}: {} vs {}",
-                    direct[index], other[index]
-                );
+            assert_eq!(direct.len(), expected_len);
+            assert_eq!(staged.len(), expected_len);
+            assert_eq!(irregular.len(), expected_len);
+            for (name, other) in [("staged", &staged), ("irregular", &irregular)] {
+                if let Some(index) = direct
+                    .iter()
+                    .zip(other.iter())
+                    .position(|(left, right)| left.to_bits() != right.to_bits())
+                {
+                    panic!(
+                        "44100->48000 {quality:?} direct vs {name} first mismatch at {index}: {} vs {}",
+                        direct[index], other[index]
+                    );
+                }
             }
         }
     }
@@ -1078,22 +1106,24 @@ mod tests {
     #[test]
     fn noninteger_process_and_drain_do_not_allocate_after_setup() {
         let input = noninteger_input();
-        let mut backend =
-            MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, ResampleQuality::High).unwrap();
-        let mut output = vec![0.0; CHUNK_IN * 4];
-        assert_no_alloc::assert_no_alloc(|| {
-            let mut cursor = 0usize;
-            while cursor < input.len() {
-                let end = (cursor + 733).min(input.len());
-                let progress = backend.process(&input[cursor..end], &mut output).unwrap();
-                cursor += progress.input_frames;
-            }
-            loop {
-                if backend.drain(&mut output).unwrap() == 0 {
-                    break;
+        for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
+            let mut backend =
+                MonoBackend::new(44_100, 48_000, PhaseResponse::Linear, quality).unwrap();
+            let mut output = vec![0.0; backend.engine.output_frames_max().max(CHUNK_IN * 4)];
+            assert_no_alloc::assert_no_alloc(|| {
+                let mut cursor = 0usize;
+                while cursor < input.len() {
+                    let end = (cursor + 733).min(input.len());
+                    let progress = backend.process(&input[cursor..end], &mut output).unwrap();
+                    cursor += progress.input_frames;
                 }
-            }
-        });
+                loop {
+                    if backend.drain(&mut output).unwrap() == 0 {
+                        break;
+                    }
+                }
+            });
+        }
     }
 
     #[test]
