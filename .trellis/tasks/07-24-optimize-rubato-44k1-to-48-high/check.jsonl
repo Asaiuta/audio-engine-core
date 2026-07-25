@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "verify no allocation/locking/logging in process and finish after setup"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "verify emitted/finish/reset/drain contracts and rational output budget"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify 27 quick quality gates, clippy, fmt, feature-matrix tests, and benchmark evidence"}
+{"file": ".trellis/tasks/07-24-optimize-rubato-44k1-to-48-high/research/noninteger-direct-output.md", "reason": "check implementation matches the researched prefix-budget/spill design"}

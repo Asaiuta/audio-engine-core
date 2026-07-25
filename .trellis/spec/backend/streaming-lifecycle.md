@@ -378,6 +378,16 @@ MonoBackend::new_interleaved(
   returns. Merely generating a staged frame does not make it emitted. Drain
   computes its remaining duration from this count and must never reproduce
   frames already returned by `process`.
+* Non-integer-ratio direct output is prefix-budgeted. The Rubato FFT route may
+  write a backend chunk directly into caller memory only while cumulative
+  caller-visible output stays within
+  `round(processed_real_input * to_rate / from_rate)`, where
+  `processed_real_input` counts caller frames actually consumed by completed
+  backend chunks — not caller input still queued in the FIFO and not drain pad
+  zeros. The bounded per-chunk overflow tail spills into the preallocated
+  output ring (never a new allocation) and is emitted only once later real
+  input or finish authorizes it. Direct and staged complete streams stay
+  bit-exact with the established rounded duration.
 * Runtime environment switches must not select production resampler
   architecture. Temporary A/B switches are removed after measurements, and a
   changed architecture receives a new benchmark algorithm identifier.

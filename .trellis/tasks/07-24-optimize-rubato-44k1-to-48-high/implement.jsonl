@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "process/finish must stay allocation-free; spill storage must be preallocated at setup"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "emitted/expected-duration/finish/reset/backpressure contracts the direct-output path must preserve"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "quality gates and benchmark evidence conventions for retaining a perf candidate"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "error conventions for the resampler adapter paths"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "state accounting rules (processed_real_input vs FIFO-queued input) for the rational output budget"}
+{"file": ".trellis/tasks/07-24-optimize-rubato-44k1-to-48-high/research/noninteger-direct-output.md", "reason": "prefix-budget design, data flow, risks, and alternatives for the non-integer direct-output candidate"}
+{"file": ".trellis/tasks/07-24-optimize-rubato-nonlinear-phase/research/phase-and-optimization.md", "reason": "prior direct-output evidence and the emitted-accounting lifecycle bug to avoid repeating"}
