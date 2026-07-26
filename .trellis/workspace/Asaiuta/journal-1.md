@@ -768,3 +768,37 @@ Replaced long-IR complex tail FFTs with realfft half-spectra, flattened IR/histo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Optimize 147:160 nonlinear resampling
+
+**Date**: 2026-07-26
+**Task**: Optimize 147:160 nonlinear resampling
+**Branch**: `main`
+
+### Summary
+
+Added hybrid nonlinear routing with a contiguous polyphase backend for reduced up greater than 16; achieved a 5.00x 44.1-to-48 High/Minimum speedup while preserving quality, lifecycle, and Linear retention gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9f43dc` | (see git log) |
+| `8cf09f3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
