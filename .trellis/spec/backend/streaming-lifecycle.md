@@ -310,8 +310,8 @@ while generated < max_tail_frames {
 ### 1. Scope / Trigger
 
 Apply this scenario when changing `StreamingResampler`, a backend adapter,
-Rubato or nonlinear polyphase channel construction, reusable resampler memory
-accounting, phase behavior, or the Rubato High/UltraHigh routing policy.
+Rubato or nonlinear engine/channel construction, reusable resampler memory
+accounting, phase behavior, or the Rubato routing policy.
 
 ### 2. Signatures
 
@@ -347,10 +347,11 @@ MonoBackend::new_interleaved(
   per-channel output, and reinterleave scratch.
 * A pure `rubato` build constructs exactly one complete interleaved backend for
   the configured channel count. `PhaseResponse::Linear` uses one Rubato engine;
-  `Minimum` and `Maximum` use one setup-designed rational polyphase FIR bank.
-  `process` and `drain` pass caller-owned interleaved buffers directly to that
-  backend. Do not duplicate a sinc table, FFT plan, or polyphase coefficient
-  bank by constructing one engine per channel.
+  `Minimum` and `Maximum` use one setup-designed rational FIR bank and one
+  interleaved nonlinear engine. `process` and `drain` pass caller-owned
+  interleaved buffers directly to that backend. Do not duplicate a sinc table,
+  FFT plan, or nonlinear coefficient bank by constructing one engine per
+  channel.
 * Rubato adapter staging uses fixed-capacity, setup-allocated sample rings, not
   moving `Vec` prefixes. The input ring holds exactly two fixed backend chunks;
   consuming one complete chunk guarantees that the next front chunk is
@@ -361,10 +362,12 @@ MonoBackend::new_interleaved(
   half-band engine. Other common Linear ratios use the FFT engine at every
   quality tier: UltraHigh selects one FFT sub-chunk (a 2x longer internal FIR)
   while Low through High keep two sub-chunks.
-  Pathological Linear ratios use sinc. Minimum/Maximum use the precomputed
-  causal polyphase path and reject reduced geometry beyond its explicit limit;
-  a performance optimization must not silently broaden half-band routing or
-  reroute nonlinear requests through a different engine.
+  Pathological Linear ratios use sinc. Minimum/Maximum reduce the ratio and use
+  the spectral engine when `up <= 16`, otherwise the contiguous time-domain
+  polyphase engine. Both use the identical causal kernel and reject reduced
+  geometry beyond 1024 or the coefficient-bank bound; a performance
+  optimization must not broaden half-band routing, change this threshold
+  without evidence, or fall back to a Linear engine.
 * `working_buffer_bytes` accounts for reusable adapter-owned PCM scratch, not
   opaque backend engine allocations. It therefore returns the exact SoXR
   scratch capacity in bytes and zero for pure Rubato. Output-render setup
@@ -379,9 +382,9 @@ MonoBackend::new_interleaved(
   returns. Merely generating a staged frame does not make it emitted. Drain
   computes its remaining duration from this count and must never reproduce
   frames already returned by `process`.
-* Non-integer-ratio direct output is prefix-budgeted. The Rubato FFT route may
-  write a backend chunk directly into caller memory only while cumulative
-  caller-visible output stays within
+* Non-integer-ratio direct output is prefix-budgeted. The Rubato FFT route and
+  both nonlinear engines may write a backend chunk directly into caller memory
+  only while cumulative caller-visible output stays within
   `round(processed_real_input * to_rate / from_rate)`, where
   `processed_real_input` counts caller frames actually consumed by completed
   backend chunks — not caller input still queued in the FIFO and not drain pad
@@ -406,6 +409,8 @@ MonoBackend::new_interleaved(
 | SoXR `working_buffer_bytes` with valid geometry | exact sum of output scratch plus every channel input/output capacity |
 | Exact-2x Linear High upsampling | one half-band engine; shared delay skip, emitted accounting, and drain lifecycle |
 | UltraHigh at a common audio ratio | FFT engine with one sub-chunk (2x longer FIR than High) |
+| Minimum/Maximum with reduced `up <= 16` | one interleaved spectral nonlinear engine |
+| Minimum/Maximum with reduced `up > 16` and valid geometry | one interleaved contiguous polyphase engine |
 | Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::InitializationFailed`; no linear fallback |
 
 ### 5. Good / Base / Bad Cases
@@ -415,8 +420,9 @@ MonoBackend::new_interleaved(
   the measured floating-point bound, and allocates nothing after setup.
 * Good: 48-to-96 Linear/High uses the half-band engine while 48-to-96
   Linear/Standard remains FFT and Linear/UltraHigh uses the one-sub-chunk FFT.
-* Good: stereo Minimum/Maximum uses one shared polyphase bank, preserves the
-  declared finite tail and causal latency, and allocates nothing after setup.
+* Good: 48-to-96 Minimum/Maximum stays spectral (`up = 2`), while 44.1-to-48
+  and 48-to-44.1 use contiguous polyphase (`up = 160` and 147). Both preserve
+  the shared finite tail and causal latency and allocate nothing after setup.
 * Good: an integer-ratio direct-output process call and an output-constrained
   staged call produce bit-exact complete streams; finish emits only the shared
   remaining duration.
@@ -448,6 +454,11 @@ MonoBackend::new_interleaved(
 * For half-band, compare block output against an independent full zero-stuffed
   convolution oracle, assert representative passband/image limits, and prove
   the setup-selected vector accumulator is bit-equal to scalar.
+* For nonlinear routing, assert the `up = 16` boundary, both 44.1/48
+  directions, the 48/96 retained spectral route, and pathological rejection.
+  Compare both engines with the test-only polyphase oracle below `1e-9`, assert
+  timing equality, and prove the setup-selected stereo AVX2 dot kernel is
+  bit-equal to scalar for vector and remainder lengths.
 * Keep random input chunking, short/long duration, impulse alignment, terminal
   drain/reset, and process/finish no-allocation coverage.
 * Ring tests cross wrap boundaries, assert exact sample order, prove every
@@ -460,7 +471,8 @@ MonoBackend::new_interleaved(
   output-render benchmark instead of adding opaque engine estimates.
 * Run quality, output-render, and streaming benchmarks after a channel
   architecture change; update the streaming algorithm identifier so stale
-  baselines cannot compare as the same implementation.
+  baselines cannot compare as the same implementation. The hybrid route uses
+  `matrix_process_checked_v4_nonlinear_polyphase_up16` in the matrix probe.
 
 ### 7. Wrong vs Correct
 

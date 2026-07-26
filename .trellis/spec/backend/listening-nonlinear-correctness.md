@@ -251,27 +251,45 @@ let processed = (delayed_dry + mix * residual) * output_gain;
 let output = delayed_raw + effect_weight * (processed - delayed_raw);
 ```
 
-## 8. Spectral Nonlinear-Phase Resampling Engine (2026-07-25)
+## 8. Hybrid Nonlinear-Phase Resampling Engines (2026-07-26)
 
-Nonlinear phases (`Minimum`/`Maximum`) on the pure-Rust route use the spectral
-engine (`src/processor/resampler/spectral_backend.rs`), not a time-domain
-polyphase loop. Durable contracts:
+Nonlinear phases (`Minimum`/`Maximum`) on the pure-Rust route share one exact
+rational kernel but select one of two execution engines from the reduced
+interpolation factor `up = to_rate / gcd(from_rate, to_rate)`:
 
-* The engine is overlap-save: forward real FFT at `Nin = 2·nin`
+* `up <= 16` uses `SpectralNonlinearResampler`; `up > 16` uses
+  `ContiguousPolyphaseResampler`. Both enforce reduced `up` and `down` no
+  greater than 1024 plus the shared coefficient-bank bound. Unsupported
+  geometry is rejected and never falls back to a Linear engine.
+* The spectral engine is overlap-save: forward real FFT at `Nin = 2·nin`
   (`nin = down·s >= taps_per_phase`, which guarantees no circular aliasing),
   one precomputed fold `Y[k] = scale · Σ_{m<down} H[k + m·Nout_full] ·
   X_ext[(k + m·Nout_full) mod Nin_full]` (the exact multirate decimation
   identity), inverse real FFT at `Nout = 2·nout` (`nout = up·s`).
   `scale = up / (down·Nout_full)` folds interpolation gain, alias average, and
   inverse-FFT normalization exactly once — never rescale elsewhere.
+* The contiguous engine keeps planar channel history and reversed contiguous
+  phase coefficients. Its retained head is
+  `taps_per_phase - 1 + ceil((down - 1) / up)`, which covers the maximum
+  rational lag at a chunk boundary. Every history offset and window end uses
+  checked arithmetic and returns a static callback-safe backend error on an
+  impossible range; it never relies on unsigned wrap or a hot-path panic.
 * The kernel comes from the shared design
   (`design_linear_prototype` → `minimum_phase_prototype`; Maximum = reversed);
   `latency_frames` (phase peak) and `finish_extension_frames` ((L−1)/down)
   formulas are shared with the retired polyphase oracle and asserted equal.
-* Per-block pacing is exactly rational (`floor(total/nin)·nout`), so the
-  engine is eligible for the adapter's `prefix_budget_direct` path and can
-  never over-emit versus `round(processed_real_input · up/down)`.
+* Both engines pace output from cumulative integer arithmetic and are eligible
+  for the adapter's `prefix_budget_direct` path. Neither may over-emit versus
+  `round(processed_real_input · up/down)`, and drain/reset retain the existing
+  causal latency and finite-tail contract.
+* Construction selects the stereo contiguous dot-product function once.
+  AVX2 uses four independent multiply/add lanes without FMA so its reduction
+  order is bit-equal to the scalar four-accumulator kernel; callback processing
+  performs no feature detection. Mono and non-stereo layouts use the scalar
+  contiguous kernel.
 * `PolyphaseResampler` is retained `#[cfg(test)]`-only as the parity oracle;
-  any change to the spectral engine must keep the FFT-vs-polyphase max-error
-  `< 1e-9` regression passing across representative ratios, tiers, and both
-  phases.
+  changes to either production engine must keep max error `< 1e-9` across
+  representative ratios, tiers, and both phases. Tests additionally require
+  timing equality, mono/stereo bit equality, scalar/AVX2 bit equality,
+  irregular chunking, finite drain, reset isolation, and process/finish
+  no-allocation after setup.

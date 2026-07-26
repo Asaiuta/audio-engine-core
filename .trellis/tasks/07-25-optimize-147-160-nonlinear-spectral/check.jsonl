@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "verify allocation-free process/finish"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "verify lifecycle contracts under the new routing"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "verify parity-oracle contract upheld"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify gates and evidence claims"}
+{"file": ".trellis/tasks/07-25-optimize-147-160-nonlinear-spectral/research/147-160-nonlinear-speedup.md", "reason": "check implementation matches the researched design"}

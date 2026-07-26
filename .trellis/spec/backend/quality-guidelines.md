@@ -587,7 +587,7 @@ let analyses = post_render_analysis_names();
 // Report the two plans separately; only render_stages transform samples.
 ```
 
-## Scenario: Rubato Linear Routing and Nonlinear Polyphase Phase Support
+## Scenario: Rubato Linear Routing and Hybrid Nonlinear Phase Support
 
 ### 1. Scope / Trigger
 
@@ -600,6 +600,7 @@ let analyses = post_render_analysis_names();
 
 ```rust
 should_use_fft(from_rate: u32, to_rate: u32, quality: ResampleQuality) -> bool
+nonlinear_uses_spectral(from_rate: u32, to_rate: u32) -> bool
 RubatoEngine::new(
     from_rate: u32,
     to_rate: u32,
@@ -618,6 +619,7 @@ Evidence commands:
 
 ```text
 cargo bench --bench audio_resampler_streaming_perf --no-default-features --features rubato -- --quick --enforce --out <resampler.json>
+cargo bench --bench audio_resampler_matrix_perf --no-default-features --features rubato -- --heavy --out <matrix.json>
 cargo bench --bench audio_quality_measurements --no-default-features --features rubato -- --quick --enforce --out <quality.json>
 ```
 
@@ -634,15 +636,24 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   reduction are at most 1024. Larger reduced ratios use
   `Async<f64>::new_sinc`; quality selects the sinc parameters for those routes.
 - `PhaseResponse::Minimum` and `PhaseResponse::Maximum` use a separate,
-  setup-designed causal rational polyphase FIR. A real-cepstrum spectral
-  factor of the low-pass prototype produces the minimum-phase kernel; reversing
-  that kernel produces maximum phase with the same magnitude response. The
-  bank is immutable after setup and uses only preallocated interleaved history
-  during processing.
+  setup-designed causal rational FIR. A real-cepstrum spectral factor of the
+  low-pass prototype produces the minimum-phase kernel; reversing that kernel
+  produces maximum phase with the same magnitude response. Reduced `up <= 16`
+  uses overlap-save spectral execution. Larger valid `up` uses contiguous
+  time-domain polyphase execution with planar channel history. Both engines
+  share the immutable kernel, latency, finish-extension, and exact cumulative
+  rational pacing formulas.
 - Nonlinear phase accepts only reduced rate components at most 1024 and a
   bounded coefficient bank. Unsupported geometry returns the named
   initialization error; it must never fall back to the linear Rubato engine or
   merely report a shifted latency as a phase response.
+- Contiguous history retains
+  `taps_per_phase - 1 + ceil((down - 1) / up)` frames before each chunk so a
+  rationally authorized output may refer just before the chunk boundary.
+  Window offsets use checked arithmetic and static errors. Construction selects
+  a stereo AVX2 function pointer when available; it uses multiply plus add, not
+  FMA, so the four-lane reduction stays bit-equal to scalar and feature
+  detection never enters the callback.
 - Keep two sub-chunks for Low through High unless a same-machine sweep improves
   both core conversions without weakening quality. The 2026-07-22 512-frame
   evidence rejected one sub-chunk for High (35.10 ns/input sample at 44.1 to
@@ -679,9 +690,15 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   detection. The scalar fallback and selected vector kernel must be bit-equal
   for vector and remainder lengths.
 - The performance report algorithm text and `case_key` identify exact-2x
-  half-band routing plus FFT/sinc fallback. Any algorithm/routing change must
-  change that identifier so an older sinc, FFT, or differently routed report
-  is baseline-incompatible.
+  half-band routing, FFT/sinc fallback, and the nonlinear `up = 16` split. Any
+  algorithm/routing change must change that identifier so an older spectral,
+  sinc, FFT, or differently routed report is baseline-incompatible.
+- On the recorded 2026-07-26 Windows/rustc 1.93.1 host, four-run pinned heavy
+  medians moved 44.1-to-48 High/Minimum from 137.72 to 27.53 ns/input sample
+  (5.00x). Retained 48-to-96 nonlinear cases were within +1.01%; the only
+  short-matrix Linear result above +5% passed a 6000-iteration, 21-trial
+  focused ABBA at -3.35%. These are machine-local evidence, not portable
+  absolute claims.
 
 ### 4. Validation & Error Matrix
 
@@ -692,6 +709,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 | Linear + Low/Standard, or High non-2x, and both reduced rate components are <= 1024 | Select FFT with two sub-chunks |
 | Linear + UltraHigh common ratio | Select FFT with one sub-chunk (2x longer FIR than High) |
 | Linear + either reduced rate component > 1024 | Select sinc; never construct a pathological FFT block |
+| Minimum/Maximum + reduced `up <= 16` | Select spectral nonlinear execution |
+| Minimum/Maximum + reduced `up > 16` within all bounds | Select contiguous polyphase execution |
 | Minimum/Maximum + reduced component > 1024 or oversized coefficient bank | Named initialization error; never silently select FFT/sinc |
 | Backend consumes other than the fixed input chunk or over-reports output | Static `ProcessError::Backend` path; never slice or panic |
 | Input/output ring lacks capacity for a requested push | Static backend error; never overwrite, resize, allocate, or log |
@@ -705,7 +724,8 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   Linear/Standard keeps FFT and Linear/UltraHigh uses the one-sub-chunk FFT.
   44.1 to 48 kHz
   reduces to 147:160 and uses FFT at Linear/High, while Minimum/Maximum use the
-  polyphase bank.
+  contiguous polyphase engine. 48 to 96 Minimum/Maximum stays on the spectral
+  engine because its reduced `up` is 2.
   44.1 to 44.101 kHz reduces to 44100:44101 and uses sinc for Linear at every
   quality but rejects nonlinear phase before processing.
 - Base: equal-rate streams bypass the backend in `StreamingResampler`.
@@ -734,8 +754,9 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 - Nonlinear tests assert a minimum-phase energy centroid before the linear
   prototype, maximum after it, distinct non-shift phase envelopes, and the
   same magnitude response within the documented tolerance. They also cover
-  unsupported reduced geometry and actual-ratio passband, THD+N, and alias
-  bounds.
+  the spectral/contiguous routing boundary, oracle error below `1e-9`, timing
+  equality, scalar/AVX2 bit equality, unsupported reduced geometry, and
+  actual-ratio passband, THD+N, and alias bounds.
 - Shared resampler tests cover duration, impulse alignment within one frame,
   random chunking equivalence, reset isolation, and process/finish no-allocation
   under the pure-Rust feature matrix, including nonlinear finite-tail drain.
@@ -755,6 +776,7 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 
 ```rust
 let engine = Fft::new_custom(from, to, 1024, 2, 1, window, FixedSync::Input)?;
+let nonlinear = SpectralNonlinearResampler::new(from, to, phase, quality, channels, 1024)?;
 out_fifo.extend_from_slice(&out_stage[..written]);
 out_fifo.copy_within(consumed.., 0); // shifts queued samples every chunk
 ```
@@ -763,6 +785,11 @@ out_fifo.copy_within(consumed.., 0); // shifts queued samples every chunk
 
 ```rust
 let engine = if should_use_fft(from, to, quality) { fft()? } else { sinc()? };
+let nonlinear = if nonlinear_uses_spectral(from, to) {
+    spectral()?
+} else {
+    contiguous_polyphase()?
+};
 let skip = delay_remaining.min(written);
 delay_remaining -= skip;
 out_fifo.push(&out_stage[skip..written])?; // fixed capacity, strict backpressure
