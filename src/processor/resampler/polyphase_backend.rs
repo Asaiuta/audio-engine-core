@@ -292,8 +292,7 @@ pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, Str
     Ok(minimum)
 }
 
-#[cfg(test)]
-fn polyphase_coefficients(kernel: &[f64], up: usize, taps_per_phase: usize) -> Vec<f64> {
+pub(super) fn polyphase_coefficients(kernel: &[f64], up: usize, taps_per_phase: usize) -> Vec<f64> {
     let mut coefficients = vec![0.0; up * taps_per_phase];
     for phase in 0..up {
         for tap in 0..taps_per_phase {
