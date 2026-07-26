@@ -35,7 +35,7 @@ const WARMUP_BUFFERS: usize = 32;
 const OUTPUT_FRAMES_ABS_SLACK: usize = 2048;
 const VALIDATION_BUFFERS: usize = 4;
 const MATRIX_PROBE: &str = "audio_resampler_matrix_perf";
-const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v3_ultrahigh_fft_sub1";
+const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v4_nonlinear_polyphase_up16";
 
 #[derive(Clone, Copy)]
 struct RatePair {

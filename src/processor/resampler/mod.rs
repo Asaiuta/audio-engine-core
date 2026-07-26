@@ -20,6 +20,8 @@ compile_error!(
 );
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod contiguous_polyphase_backend;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod halfband_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod polyphase_backend;
