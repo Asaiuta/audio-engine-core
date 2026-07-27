@@ -108,10 +108,54 @@ Reading the full set of cached parameters once per callback costs about
 split-atomic field-by-field read and ~83 ns for an unconditional `ArcSwap`
 guard load (`audio_lockfree_params_perf`; single-machine evidence).
 
-Processors implement the object-safe `StreamingProcessor` lifecycle. Wrap
-caller-owned interleaved `f64` storage in an `AudioBlockMut` and drive it
-through `process_checked`, which centrally validates consumed/produced counts
-and in-place 1:1 progress:
+Processors implement the object-safe `StreamingProcessor` lifecycle. For the
+recommended canonical callback DSP order, build a caller-driven
+`PlaybackPipeline`. The pipeline owns neither a decoder nor an audio device;
+the callback retains ownership of its interleaved `f64` buffer:
+
+```rust
+use audio_engine_core::{
+    CallbackSpec, PlaybackConfig, PlaybackCrossfeedConfig, PlaybackPipeline,
+};
+
+let spec = CallbackSpec::stereo(48_000, 512)?;
+let (mut pipeline, controller) = PlaybackPipeline::builder(spec)
+    .configure(
+        PlaybackConfig::transparent()
+            .with_crossfeed(PlaybackCrossfeedConfig::enabled(0.25, 800.0)),
+    )
+    .build()?;
+
+// The controller is exclusive because it owns the pipeline's private
+// single-consumer lease. Convolution-kernel publication remains an advanced
+// `OutputChainBuilder` / `ConvolverControl` operation. Its parameter publisher
+// is clonable for UI and remote-control threads.
+let parameters = controller.parameters();
+parameters.set_volume(0.8);
+parameters.set_eq_band_gain_db(3, 2.5);
+
+// Audio callback: handle the typed result without logging or panicking here.
+let mut samples = [0.0_f64; 512 * 2];
+let progress = pipeline.process(&mut samples)?;
+# Ok::<(), audio_engine_core::ProcessError>(())
+```
+
+`CallbackSpec` describes already-converted device-domain audio and bounds the
+maximum callback block size. `PlaybackConfig::transparent()` is the default:
+it disables every non-identity stage, including the limiter, so it preserves
+samples and adds no limiter latency. `PlaybackPipeline::process` is
+allocation-free for prepared-capacity blocks. Build, parameter publishing,
+draining with `finish_into_with_policy`, and `reset` are control/lifecycle
+operations, not callback operations. `PlaybackController` is intentionally
+exclusive because it retains the private convolver lease. Convolution is
+loaded through it: `controller.load_impulse_response(&ir)?` validates the
+interleaved IR against the callback spec and prepares the FFT kernel on the
+control thread, and the audio callback adopts it without allocating.
+`PlaybackParameters` from `controller.parameters()`
+is the safe clonable UI/remote update handle. Dynamic-loudness telemetry is
+best-effort latest per-field reporting, not a coherent multi-value snapshot.
+For custom stage order or raw atomic controls, use the lower-level
+`OutputChainBuilder` / `StreamingProcessor` APIs directly.
 
 ```rust
 use audio_engine_core::processor::traits::{
@@ -167,7 +211,7 @@ Representative results from a single machine and configuration (reproduce with
 `cargo bench`; values differ by CPU, compiler, and load):
 
 - `LoudnessMeter` integrated loudness parity vs direct `ebur128`: **0.000000 LU**
-- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB** (default SoXR backend; pure-Rust rubato UltraHigh measures -216.2 dB, see [docs/quality.md](docs/quality.md))
+- Resampler THD+N, 44.1 kHz to 48 kHz: **-187.0 dB** (default SoXR backend; pure-Rust rubato UltraHigh measures -204.9 dB, see [docs/quality.md](docs/quality.md))
 - Worst fitted alias attenuation, 96 kHz to 48 kHz: **-290.2 dB** (near the analyzer's own numeric floor)
 - True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
 - Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
@@ -179,8 +223,19 @@ rather than a conformance gate. In the current quick run the probe meets the
 target — worst full-chain output true peak -1.000 dBTP with zero over-limit
 points — and it is retained as regression evidence.
 
-The full benchmark commands, JSON report/baseline machinery, processing-budget
-tables, and complete measurement tables live in [docs/quality.md](docs/quality.md).
+On the 2026-07-27 core-pinned heavy adapter controls, SoXR v2 measured
+8.569 / 7.424 ns/input-sample for 44.1-to-48 / 48-to-44.1 kHz versus raw
+libsoxr at 8.632 / 7.368, a statistical tie in both directions. In the
+separate same-geometry Rubato build, v17 measured 8.182 / 7.025 versus raw
+Rubato at 8.592 / 6.908: 4.77% faster forward and tied reverse. The wider
+11-engine matrix is Pareto evidence across different recipes, lanes, and
+latency policies, not a universal fastest ranking.
+
+The full in-crate benchmark commands, JSON report/baseline machinery,
+processing-budget tables, and complete measurement tables live in
+[docs/quality.md](docs/quality.md). Raw-upstream and independent resampler
+methodology and results live in
+[docs/resampler-comparison.md](docs/resampler-comparison.md).
 
 ## Installation & Feature Flags
 
@@ -200,11 +255,13 @@ default:
   [License](#license)).
 - `rubato`: quality-aware pure-Rust backend. Exact 2x upsampling at
   `PhaseResponse::Linear` + High uses a dedicated 127-tap symmetric half-band
-  FIR; other common ratios use FFT through High, while UltraHigh and
-  pathological ratios use windowed sinc. `Minimum` and `Maximum` use a
-  setup-designed rational polyphase FIR with real-cepstrum spectral
-  factorization; reduced rate components above 1024 are rejected rather than
-  silently treated as linear phase. No native dependency. At least one
+  FIR; other common ratios use FFT, with two sub-chunks through High and one
+  longer sub-chunk for UltraHigh, while only pathological reduced ratios use
+  windowed sinc. `Minimum` and `Maximum` use setup-designed rational FIRs with
+  real-cepstrum spectral factorization, selecting spectral execution for small
+  interpolation factors and contiguous polyphase execution otherwise; reduced
+  rate components above 1024 are rejected rather than silently treated as
+  linear phase. No native dependency. At least one
   resampler backend must be enabled — enabling neither is a compile error, and
   when both are enabled, `soxr` wins.
 

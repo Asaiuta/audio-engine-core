@@ -12,6 +12,45 @@ SemVer for pre-1.0 releases.
 ## [Unreleased]
 
 ### Added
+- High-level playback facade for the canonical callback DSP chain:
+  `CallbackSpec` (validated callback-domain geometry with a `max_frames`
+  prepared-capacity contract), intent-level `PlaybackConfig` with per-stage
+  configs (`PlaybackSaturationConfig`, `PlaybackCrossfeedConfig`,
+  `PlaybackDynamicLoudnessConfig`, `PlaybackNoiseShapingConfig`),
+  `PlaybackBuilder`, callback-owned non-cloneable `PlaybackPipeline`
+  (allocation-free `process`, timing/tail reporting, explicit bounded
+  `finish_into_with_policy`, `reset`), non-cloneable `PlaybackController`
+  holding the private convolver lease, and its cloneable `PlaybackParameters`
+  publisher for control/UI threads. The default profile is sample-transparent.
+  Construction delegates to `OutputChainBuilder`; raw atomic parameter handles
+  and `ConvolverControl` remain advanced APIs and are not exposed.
+- New typed error `ProcessError::UnsupportedOperation` for operations that an
+  API surface intentionally does not support (used by the facade to reject
+  runtime saturation re-arming, which requires a rebuild).
+- `PlaybackController::load_impulse_response` / `set_convolution_enabled` /
+  `convolution_status` / `reclaim_retired_convolution_kernels`: high-level
+  convolution path. IR geometry is validated against the callback spec and FFT
+  preparation happens on the control thread; the raw `ConvolverControl` lease
+  stays private.
+- `PlaybackParameters::set_eq` publishes enablement plus all band gains as one
+  coherent snapshot (preset-friendly), and every facade parameter now has a
+  control-thread snapshot reader (`volume`, `muted`, `eq_enabled`,
+  `eq_band_gains_db`, `limiter_enabled`, `limiter_threshold_db`, `crossfeed`,
+  `dynamic_loudness`, `noise_shaping`).
+- `PlaybackSaturationConfig` gains `enabled()` plus `with_*` builders.
+
+### Changed
+- `ProcessError` and the facade config/telemetry structs
+  (`PlaybackSaturationConfig`, `PlaybackCrossfeedConfig`,
+  `PlaybackDynamicLoudnessConfig`, `PlaybackNoiseShapingConfig`,
+  `DynamicLoudnessTelemetry`, `PlaybackTiming`) are now `#[non_exhaustive]`:
+  construct configs via their constructors/builders and match errors with a
+  wildcard arm so future additions are not breaking changes.
+- HTTP sources now feed the server `Content-Type` header into Symphonia format
+  probing alongside the URL-extension hint, improving detection for
+  extensionless stream URLs and signed CDN paths. Generic media types
+  (`application/octet-stream`, `binary/octet-stream`, `text/plain`) and MIME
+  parameters are ignored.
 - Pluggable resampler backends behind unchanged public APIs: the new `soxr`
   feature (default) selects the native SoXR / SoX VHQ backend, and the new
   pure-Rust `rubato` feature selects quality-aware half-band/FFT/sinc/polyphase
@@ -31,9 +70,10 @@ SemVer for pre-1.0 releases.
   recorded before backend labeling are incompatible with new reports.
 - The pure-Rust resampler now uses rubato 4.0 plus a dedicated 127-tap
   symmetric half-band engine for exact 2x `Linear + High` upsampling. Other
-  common Low-through-High ratios use the synchronous FFT engine, while
-  UltraHigh and pathological ratios use windowed sinc. The shared adapter
-  removes each linear engine's leading delay and preserves duration-aligned
+  common Low-through-High ratios use the synchronous 1024/2 FFT engine,
+  UltraHigh common ratios use the longer 1024/1 FFT engine, and only
+  pathological reduced ratios use windowed sinc. The shared adapter removes
+  each linear engine's leading delay and preserves duration-aligned
   drain/reset/chunking and allocation-free processing. On the recorded
   2026-07-24 Windows/Alder Lake same-revision quick matrix, 48-to-96 kHz High
   `process_checked` cost fell from the retained FFT route's
@@ -41,6 +81,17 @@ SemVer for pre-1.0 releases.
   128/256/512-frame blocks. The algorithm label and case key changed so older
   FFT baselines are rejected automatically. UltraHigh retains -216.24 dB
   THD+N and all 27 quick quality gates pass.
+- Stereo SoXR streaming now owns one native interleaved `Soxr<Stereo<f64>>`
+  state and uses caller buffers directly. Mono and non-stereo layouts retain
+  the independent-stream fallback. Stereo output remains bit-identical to the
+  mono reference, adapter PCM scratch is zero, and process/finish remain
+  allocation-free after setup.
+- The Rubato 1024/2 adapter now bulk-copies channels, joins a staged FIFO prefix
+  with the caller suffix without restaging it, asks Rubato to supply terminal
+  zero padding, and discards delay/native suffix frames directly on a
+  duration-completing drain. Constrained output retains the fixed-ring
+  split/spill path. Test-only oracle switches prove every fast path bit-exact;
+  they are not production runtime selectors.
 - Dual licensing under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`).
 - `NOTICE` file documenting the SoXR (libsoxr, LGPL-2.1) native dependency.
 - Optional feature flags: `http` (network/streaming decode via `reqwest`) and
@@ -74,6 +125,21 @@ SemVer for pre-1.0 releases.
 - Ubuntu CI quick gates that upload all four quality/performance JSON reports.
 
 ### Changed
+- `NetworkError` is now `#[non_exhaustive]`: future transport classifications
+  can be added without a breaking release. Downstream `match` expressions need
+  a wildcard arm; treat unknown variants as non-retriable.
+- `NetworkError` transport classification now prefers structured
+  `std::io::ErrorKind` values found by walking the reqwest error source chain;
+  error-message text matching is only a last-resort fallback. `ConnectionAborted`,
+  `BrokenPipe`, and `UnexpectedEof` now classify as the retriable
+  `ConnectionReset` instead of the non-retried `Other`. Retry semantics no
+  longer depend on dependency error wording or localized OS messages, and the
+  `ErrorKind`-to-retry mapping is locked by a contract test.
+- Decode cancellation inside HTTP source paths is now the dedicated
+  `NetworkError::Cancelled` variant instead of a `NetworkError::Other` value
+  carrying magic message text. Matching on `NetworkError::Other("Decode
+  cancelled")` no longer identifies cancellation; `DecoderError::Canceled`
+  mapping and `is_retriable()` (`false`) are unchanged.
 - Upgraded the decoder backend from Symphonia 0.5.5 to 0.6.0. The existing
   `StreamingDecoder` surface, supported codec matrix, source features, typed
   errors, and seek contract remain intact while the internal
