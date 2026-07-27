@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 #[cfg(feature = "http")]
-use super::{source::fetch_range_once, NetworkError};
+use super::{error::network_error_to_decoder_error, source::fetch_range_once, NetworkError};
 use super::{DecodeCancelToken, DecoderError, OpenedMediaSource, StreamingDecoder};
 
 /// Monotonic counter for unique temp filenames within this test process.
@@ -205,7 +205,60 @@ fn cancelled_range_fetch_returns_before_network_request() {
         Some(&token),
     );
 
-    assert!(matches!(result, Err(NetworkError::Other(message)) if message == "Decode cancelled"));
+    assert!(matches!(result, Err(NetworkError::Cancelled)));
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn network_error_io_kind_classification_is_structured_and_total() {
+    use std::io::ErrorKind;
+
+    // Contract table: ErrorKind -> (variant, retriable). Retry semantics must
+    // never depend on error message text.
+    let retriable_kinds = [
+        (ErrorKind::TimedOut, NetworkError::HttpTimeout),
+        (ErrorKind::ConnectionReset, NetworkError::ConnectionReset),
+        (ErrorKind::ConnectionAborted, NetworkError::ConnectionReset),
+        (ErrorKind::BrokenPipe, NetworkError::ConnectionReset),
+        (ErrorKind::UnexpectedEof, NetworkError::ConnectionReset),
+    ];
+    for (kind, expected) in retriable_kinds {
+        let classified = NetworkError::from_io(std::io::Error::new(kind, "localized text"));
+        assert_eq!(classified, expected, "kind {kind:?}");
+        assert!(classified.is_retriable(), "kind {kind:?} must be retriable");
+    }
+
+    // Unclassified kinds degrade to the non-retried Other, never to a retry.
+    for kind in [
+        ErrorKind::NotFound,
+        ErrorKind::PermissionDenied,
+        ErrorKind::InvalidData,
+        ErrorKind::Interrupted,
+    ] {
+        let classified = NetworkError::from_io(std::io::Error::new(kind, "detail"));
+        assert!(
+            matches!(classified, NetworkError::Other(_)),
+            "kind {kind:?} must fall back to Other, got {classified:?}"
+        );
+        assert!(!classified.is_retriable());
+    }
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn network_error_cancelled_is_a_variant_not_a_message() {
+    assert!(!NetworkError::Cancelled.is_retriable());
+
+    // A hostile or coincidental message must not turn into a cancellation.
+    let spoofed = NetworkError::Other("Decode cancelled".to_string());
+    assert!(matches!(
+        network_error_to_decoder_error(spoofed),
+        DecoderError::Network(NetworkError::Other(_))
+    ));
+    assert!(matches!(
+        network_error_to_decoder_error(NetworkError::Cancelled),
+        DecoderError::Canceled
+    ));
 }
 
 // ---------------------------------------------------------------------------

@@ -180,6 +180,13 @@ impl<T: Copy> SharedParams<T> {
         self.current.load_full()
     }
 
+    /// Control-side coherent snapshot + generation read.
+    ///
+    /// This may briefly spin while a publisher is mid-publish (generation is
+    /// odd), so it must only be called from control/UI threads. Realtime
+    /// consumers must use `subscribe_realtime` +
+    /// `load_realtime_if_changed_since`, whose failure mode is "keep the
+    /// cached snapshot" instead of waiting.
     #[inline]
     fn load_with_generation(&self) -> (Arc<T>, u64) {
         loop {
@@ -282,6 +289,12 @@ macro_rules! impl_snapshot_accessors {
             self.shared.load()
         }
 
+        /// Control-side coherent snapshot + generation read.
+        ///
+        /// May briefly spin while a publish is in flight; do not call from the
+        /// audio callback. Realtime consumers use [`Self::subscribe_realtime`]
+        /// and [`Self::load_realtime_if_changed_since`] instead, which never
+        /// wait.
         #[inline]
         pub fn load_with_generation(&self) -> (Arc<$snapshot>, u64) {
             self.shared.load_with_generation()
@@ -579,6 +592,17 @@ impl AtomicSaturationParams {
         }
     }
 
+    /// Publish all saturation settings as one coherent snapshot.
+    #[inline]
+    pub fn write(&self, snapshot: SaturationParamsSnapshot) {
+        let mut snapshot = snapshot;
+        snapshot.drive = snapshot.drive.clamp(0.0, 2.0);
+        snapshot.threshold = snapshot.threshold.clamp(0.0, 1.0);
+        snapshot.mix = snapshot.mix.clamp(0.0, 1.0);
+        snapshot.highpass_cutoff = snapshot.highpass_cutoff.clamp(1000.0, 12000.0);
+        self.shared.publish(snapshot);
+    }
+
     /// Set drive amount (0.0 - 2.0)
     #[inline]
     pub fn set_drive(&self, drive: f64) {
@@ -707,6 +731,16 @@ impl AtomicCrossfeedParams {
         Self {
             shared: SharedParams::new(),
         }
+    }
+
+    /// Publish crossfeed settings as one coherent snapshot.
+    #[inline]
+    pub fn write(&self, enabled: bool, mix: f64, cutoff_hz: f64) {
+        self.shared.publish(CrossfeedParamsSnapshot {
+            enabled,
+            mix: mix.clamp(0.0, 1.0),
+            cutoff_hz: cutoff_hz.clamp(CROSSFEED_MIN_CUTOFF_HZ, CROSSFEED_MAX_CUTOFF_HZ),
+        });
     }
 
     #[inline]
@@ -917,6 +951,16 @@ impl AtomicNoiseShaperParams {
         }
     }
 
+    /// Publish noise-shaping settings as one coherent snapshot.
+    #[inline]
+    pub fn write(&self, enabled: bool, bits: u32, curve: super::dsp::NoiseShaperCurve) {
+        self.shared.publish(NoiseShaperParamsSnapshot {
+            enabled,
+            bits: bits.clamp(8, 32),
+            curve,
+        });
+    }
+
     impl_set_enabled_accessor!();
 
     #[inline]
@@ -989,6 +1033,18 @@ impl AtomicDynamicLoudnessParams {
         Self {
             shared: SharedParams::new(),
         }
+    }
+
+    /// Publish current listening volume and compensation strength as one
+    /// coherent snapshot. `volume` is linear, where 1.0 is 0 dBFS.
+    #[inline]
+    pub fn write(&self, enabled: bool, volume: f64, strength: f64) {
+        self.shared.publish(DynamicLoudnessParamsSnapshot {
+            enabled,
+            volume: volume.clamp(0.0, 1.0),
+            strength: strength.clamp(0.0, 1.0),
+            ref_volume_db: None,
+        });
     }
 
     impl_set_enabled_accessor!();
@@ -1096,6 +1152,33 @@ mod tests {
             assert!((snapshot.gains[i] - g).abs() < 1e-10);
         }
         assert!(snapshot.enabled);
+    }
+
+    #[test]
+    fn composite_publishers_do_not_expose_mixed_tuples() {
+        let crossfeed = AtomicCrossfeedParams::new();
+        crossfeed.write(true, 0.25, 900.0);
+        let crossfeed_snapshot = crossfeed.read();
+        assert!(crossfeed_snapshot.enabled);
+        assert_eq!(crossfeed_snapshot.mix, 0.25);
+        assert_eq!(crossfeed_snapshot.cutoff_hz, 900.0);
+
+        let loudness = AtomicDynamicLoudnessParams::new();
+        loudness.write(true, 0.25, 0.75);
+        let loudness_snapshot = loudness.read();
+        assert!(loudness_snapshot.enabled);
+        assert_eq!(loudness_snapshot.volume, 0.25);
+        assert_eq!(loudness_snapshot.strength, 0.75);
+
+        let noise = AtomicNoiseShaperParams::new();
+        noise.write(true, 16, crate::processor::dsp::NoiseShaperCurve::TpdfOnly);
+        let noise_snapshot = noise.read();
+        assert!(noise_snapshot.enabled);
+        assert_eq!(noise_snapshot.bits, 16);
+        assert_eq!(
+            noise_snapshot.curve,
+            crate::processor::dsp::NoiseShaperCurve::TpdfOnly
+        );
     }
 
     #[test]
