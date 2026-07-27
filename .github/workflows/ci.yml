@@ -126,6 +126,38 @@ jobs:
       - name: Test (no native dependencies)
         run: cargo test --no-default-features --features rubato
 
+      - name: Decoder quick report gate (pure Rust feature set)
+        run: >-
+          cargo bench --bench audio_decoder_perf
+          --no-default-features --features rubato --
+          --quick --enforce
+          --out target/bench-reports/decoder-rubato-quick.json
+
+      - name: Component quick report gate (pure Rust feature set)
+        if: always()
+        run: >-
+          cargo bench --bench audio_component_perf
+          --no-default-features --features rubato --
+          --quick --enforce
+          --out target/bench-reports/component-rubato-quick.json
+
+      - name: Lifecycle-memory quick report gate (pure Rust feature set)
+        if: always()
+        run: >-
+          cargo bench --bench audio_lifecycle_memory_perf
+          --no-default-features --features rubato --
+          --quick --enforce
+          --out target/bench-reports/lifecycle-rubato-quick.json
+
+      - name: Upload pure-Rust benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-performance-rubato-${{ github.sha }}
+          path: target/bench-reports/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
   # Deterministic quality gates plus machine-readable realtime evidence. The
   # shared runner does not enforce an absolute timing budget; a compatible
   # baseline must be supplied explicitly to enable the 10% median gate.
@@ -159,6 +191,13 @@ jobs:
           --quick --enforce
           --out target/bench-reports/callback-chain-quick.json
 
+      - name: Callback-tail quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_callback_tail_perf --
+          --quick --enforce
+          --out target/bench-reports/callback-tail-quick.json
+
       - name: Offline-render quick report gate
         if: always()
         run: >-
@@ -179,6 +218,27 @@ jobs:
           cargo bench --bench audio_fir_eq_perf --
           --quick --enforce
           --out target/bench-reports/fir-eq-quick.json
+
+      - name: Decoder/startup quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_decoder_perf --
+          --quick --enforce
+          --out target/bench-reports/decoder-quick.json
+
+      - name: Public-component quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_component_perf --
+          --quick --enforce
+          --out target/bench-reports/component-quick.json
+
+      - name: Lifecycle-memory quick report gate
+        if: always()
+        run: >-
+          cargo bench --bench audio_lifecycle_memory_perf --
+          --quick --enforce
+          --out target/bench-reports/lifecycle-memory-quick.json
 
       - name: Upload quality and performance reports
         if: always()

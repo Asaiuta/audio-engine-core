@@ -1,11 +1,16 @@
 use std::hint::black_box;
-use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
 pub mod support;
 
+use support::callback_fixture::{
+    callback_case_key, synthetic_callback_buffer, validate_callback_work, CallbackChainFixture,
+    CallbackScenario as Scenario, CallbackWorkValidation as WorkValidation,
+    CALLBACK_BUFFER_FRAMES as BUFFER_FRAMES, CALLBACK_CHANNELS as CHANNELS,
+    CALLBACK_SAMPLE_RATE_HZ, CALLBACK_WARMUP_BUFFERS as WARMUP_BUFFERS,
+};
 use support::{
     compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
     summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
@@ -14,71 +19,13 @@ use support::{
 };
 
 use audio_engine_core::processor::{
-    callback_stage_order_csv, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
-    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
-    AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, ConvolverControl,
-    DspChain, FFTConvolver, NoiseShaperCurve, OutputChainBuilder, OutputChainParams, Saturation,
-    SaturationQuality, SaturationQualityValue, SaturationType, SaturationTypeValue, EQ_BANDS,
+    callback_stage_order_csv, DspChain, Saturation, SaturationQuality, SaturationType,
 };
 
-const CHANNELS: usize = 2;
-const SAMPLE_RATE: f64 = 48_000.0;
-const BUFFER_FRAMES: [usize; 4] = [64, 128, 256, 512];
-const WARMUP_BUFFERS: usize = 256;
+const SAMPLE_RATE: f64 = CALLBACK_SAMPLE_RATE_HZ as f64;
 const PRIMARY_ACTIVE_FRAMES: usize = 512;
 const PRIMARY_MEDIAN_MAX_REGRESSION_PCT: f64 = 3.0;
 const PRIMARY_P95_DEADLINE_MAX_REGRESSION_PCT: f64 = 5.0;
-
-#[derive(Clone, Copy)]
-enum Scenario {
-    BypassDefault,
-    ActiveDspNoConvolver,
-    ActiveDspWithConvolver,
-}
-
-impl Scenario {
-    fn name(self) -> &'static str {
-        match self {
-            Self::BypassDefault => "bypass_default",
-            Self::ActiveDspNoConvolver => "active_dsp_no_convolver",
-            Self::ActiveDspWithConvolver => "active_dsp_with_convolver",
-        }
-    }
-
-    fn all() -> &'static [Self] {
-        &[
-            Self::BypassDefault,
-            Self::ActiveDspNoConvolver,
-            Self::ActiveDspWithConvolver,
-        ]
-    }
-
-    fn config_key(self) -> &'static str {
-        match self {
-            Self::BypassDefault => "bypass_defaults",
-            Self::ActiveDspNoConvolver => "active_oversampled4x_no_convolver",
-            Self::ActiveDspWithConvolver => "active_oversampled4x_ir256",
-        }
-    }
-
-    fn config_description(self) -> &'static str {
-        match self {
-            Self::BypassDefault => {
-                "optional stages disabled; volume unity; convolver slot empty"
-            }
-            Self::ActiveDspNoConvolver => {
-                "EQ + Oversampled4x Tube saturation + Bauer low-pass crossfeed + dynamic loudness + true-peak limiter + 24-bit TPDF noise shaper; convolver slot empty"
-            }
-            Self::ActiveDspWithConvolver => {
-                "active DSP configuration plus a stereo 256-tap synthetic convolver"
-            }
-        }
-    }
-}
-
-struct ChainBundle {
-    chain: DspChain,
-}
 
 struct TrialMeasurement {
     ns_per_sample: f64,
@@ -96,17 +43,6 @@ struct CallbackConditions {
     warmup_buffers: usize,
     iterations_per_trial: usize,
     trials: usize,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct WorkValidation {
-    valid: bool,
-    all_samples_finite: bool,
-    output_changed: bool,
-    expected_output_changed: bool,
-    bypassed: bool,
-    consumed_frames: usize,
-    produced_frames: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -192,7 +128,7 @@ fn main() -> Result<(), String> {
         trials,
     };
     let mut cases = Vec::new();
-    for &scenario in Scenario::all() {
+    for &scenario in &Scenario::ALL {
         for &frames in &BUFFER_FRAMES {
             cases.push(benchmark_scenario(scenario, frames, iterations, trials)?);
         }
@@ -513,15 +449,15 @@ fn benchmark_scenario(
     iterations: usize,
     trials: usize,
 ) -> Result<CallbackCase, String> {
-    let corpus = synthetic_buffer(frames, CHANNELS);
-    let work_validation = validate_work(scenario, frames, &corpus);
+    let corpus = synthetic_callback_buffer(frames);
+    let work_validation = validate_callback_work(scenario, frames, &corpus)?;
     let mut ns_per_sample = Vec::with_capacity(trials);
     let mut ns_per_buffer = Vec::with_capacity(trials);
 
     for _ in 0..trials {
-        let mut bundle = build_chain_bundle(scenario);
-        warm_chain(&mut bundle, scenario, &corpus);
-        let measurement = measure_chain(&mut bundle.chain, &corpus, frames, iterations);
+        let mut bundle = CallbackChainFixture::build(scenario)?;
+        bundle.warm(&corpus)?;
+        let measurement = measure_chain(bundle.chain_mut(), &corpus, frames, iterations);
         ns_per_sample.push(measurement.ns_per_sample);
         ns_per_buffer.push(measurement.ns_per_buffer);
     }
@@ -530,12 +466,7 @@ fn benchmark_scenario(
     let ns_per_buffer = summarize_trials(ns_per_buffer)?;
     let buffer_duration_ns = frames as f64 / SAMPLE_RATE * 1.0e9;
     Ok(CallbackCase {
-        case_key: format!(
-            "scenario={};frames={};config={}",
-            scenario.name(),
-            frames,
-            scenario.config_key()
-        ),
+        case_key: callback_case_key(scenario, frames),
         scenario: scenario.name().to_string(),
         scenario_config: scenario.config_description().to_string(),
         frames,
@@ -554,7 +485,7 @@ fn benchmark_isolated_saturation(
     iterations: usize,
     trials: usize,
 ) -> Result<CallbackCase, String> {
-    let corpus = synthetic_buffer(frames, CHANNELS);
+    let corpus = synthetic_callback_buffer(frames);
     let work_validation = validate_isolated_saturation_work(frames, &corpus);
     let mut ns_per_sample = Vec::with_capacity(trials);
     let mut ns_per_buffer = Vec::with_capacity(trials);
@@ -589,37 +520,6 @@ fn benchmark_isolated_saturation(
     })
 }
 
-fn validate_work(scenario: Scenario, frames: usize, corpus: &[f64]) -> WorkValidation {
-    let mut bundle = build_chain_bundle(scenario);
-    warm_chain(&mut bundle, scenario, corpus);
-    let mut scratch = corpus.to_vec();
-    let progress = bundle
-        .chain
-        .process(&mut scratch, CHANNELS)
-        .expect("benchmark callback validation must succeed");
-    let all_samples_finite = scratch.iter().all(|sample| sample.is_finite());
-    let output_changed = scratch
-        .iter()
-        .zip(corpus)
-        .any(|(output, input)| output.to_bits() != input.to_bits());
-    let expected_output_changed = !matches!(scenario, Scenario::BypassDefault);
-    let bypassed = progress.is_bypassed();
-    let consumed_frames = progress.consumed_frames();
-    let produced_frames = progress.produced_frames();
-    WorkValidation {
-        valid: all_samples_finite
-            && output_changed == expected_output_changed
-            && consumed_frames == frames
-            && produced_frames == frames,
-        all_samples_finite,
-        output_changed,
-        expected_output_changed,
-        bypassed,
-        consumed_frames,
-        produced_frames,
-    }
-}
-
 fn validate_isolated_saturation_work(frames: usize, corpus: &[f64]) -> WorkValidation {
     let mut saturation = build_isolated_saturation();
     warm_isolated_saturation(&mut saturation, corpus);
@@ -638,142 +538,6 @@ fn validate_isolated_saturation_work(frames: usize, corpus: &[f64]) -> WorkValid
         bypassed: false,
         consumed_frames: frames,
         produced_frames: frames,
-    }
-}
-
-// Rebuilds the callback-safe output chain from the crate's canonical builder.
-// The timings here track realtime DSP cost and exclude decoder, upstream
-// playback resampling, spectrum packing, and the OS device write.
-fn build_chain_bundle(scenario: Scenario) -> ChainBundle {
-    let eq_params = Arc::new(AtomicEqParams::new());
-    let saturation_params = Arc::new(AtomicSaturationParams::new());
-    let crossfeed_params = Arc::new(AtomicCrossfeedParams::new());
-    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
-    let volume_params = Arc::new(AtomicVolumeParams::new());
-    let noise_shaper_params = Arc::new(AtomicNoiseShaperParams::new());
-    let dynamic_loudness_params = Arc::new(AtomicDynamicLoudnessParams::new());
-    let dynamic_loudness_telemetry = Arc::new(AtomicDynamicLoudnessTelemetry::new());
-
-    configure_params(
-        scenario,
-        &eq_params,
-        &saturation_params,
-        &crossfeed_params,
-        &limiter_params,
-        &volume_params,
-        &noise_shaper_params,
-        &dynamic_loudness_params,
-    );
-
-    let convolver_control = ConvolverControl::default();
-
-    if matches!(scenario, Scenario::ActiveDspWithConvolver) {
-        convolver_control.set_enabled(true);
-        convolver_control
-            .publish_at_rate(
-                FFTConvolver::new(&synthetic_ir(256, CHANNELS), CHANNELS)
-                    .expect("benchmark IR geometry is valid"),
-                SAMPLE_RATE as u32,
-            )
-            .expect("benchmark sample rate is valid");
-    }
-
-    let chain = OutputChainBuilder::new(OutputChainParams {
-        channels: CHANNELS,
-        source_sample_rate: SAMPLE_RATE as u32,
-        output_sample_rate: SAMPLE_RATE as u32,
-        eq_params,
-        saturation_params,
-        crossfeed_params,
-        convolver_control,
-        volume_params,
-        dynamic_loudness_params,
-        dynamic_loudness_telemetry,
-        limiter_params,
-        noise_shaper_params,
-    })
-    .build_callback_chain()
-    .expect("benchmark output-chain configuration must be valid");
-
-    ChainBundle { chain }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn configure_params(
-    scenario: Scenario,
-    eq_params: &AtomicEqParams,
-    saturation_params: &AtomicSaturationParams,
-    crossfeed_params: &AtomicCrossfeedParams,
-    limiter_params: &AtomicPeakLimiterParams,
-    volume_params: &AtomicVolumeParams,
-    noise_shaper_params: &AtomicNoiseShaperParams,
-    dynamic_loudness_params: &AtomicDynamicLoudnessParams,
-) {
-    match scenario {
-        Scenario::BypassDefault => {
-            eq_params.write(&[0.0; EQ_BANDS], false);
-            saturation_params.set_enabled(false);
-            saturation_params.set_armed(false);
-            crossfeed_params.set_enabled(false);
-            limiter_params.set_enabled(false);
-            volume_params.set_volume(1.0);
-            volume_params.set_muted(false);
-            noise_shaper_params.set_enabled(false);
-            dynamic_loudness_params.set_enabled(false);
-        }
-        Scenario::ActiveDspNoConvolver => {
-            eq_params.write(
-                &[1.5, -0.75, 0.5, 0.0, -1.0, 0.8, 0.0, 1.0, -0.4, 0.2],
-                true,
-            );
-            saturation_params.set_enabled(true);
-            saturation_params.set_armed(true);
-            saturation_params.set_drive(0.85);
-            saturation_params.set_threshold(0.82);
-            saturation_params.set_mix(0.35);
-            saturation_params.set_sat_type(SaturationTypeValue::Tube);
-            saturation_params.set_quality(SaturationQualityValue::Oversampled4x);
-            saturation_params.set_highpass_mode(true);
-            saturation_params.set_highpass_cutoff(4_000.0);
-            crossfeed_params.set_enabled(true);
-            crossfeed_params.set_mix(0.30);
-            crossfeed_params.set_cutoff(700.0);
-            limiter_params.set_enabled(true);
-            limiter_params.set_threshold(-1.0);
-            limiter_params.set_release(120.0);
-            volume_params.set_volume(0.72);
-            volume_params.set_muted(false);
-            noise_shaper_params.set_enabled(true);
-            noise_shaper_params.set_bits(24);
-            noise_shaper_params.set_curve(NoiseShaperCurve::TpdfOnly);
-            dynamic_loudness_params.set_enabled(true);
-            dynamic_loudness_params.set_volume(0.72);
-            dynamic_loudness_params.set_strength(0.65);
-        }
-        Scenario::ActiveDspWithConvolver => {
-            configure_params(
-                Scenario::ActiveDspNoConvolver,
-                eq_params,
-                saturation_params,
-                crossfeed_params,
-                limiter_params,
-                volume_params,
-                noise_shaper_params,
-                dynamic_loudness_params,
-            );
-        }
-    }
-}
-
-fn warm_chain(bundle: &mut ChainBundle, _scenario: Scenario, corpus: &[f64]) {
-    let mut scratch = corpus.to_vec();
-
-    for _ in 0..WARMUP_BUFFERS {
-        scratch.copy_from_slice(corpus);
-        let _ = bundle
-            .chain
-            .process(black_box(&mut scratch), CHANNELS)
-            .expect("benchmark callback processing must succeed");
     }
 }
 
@@ -852,48 +616,4 @@ fn measure_isolated_saturation(
         ns_per_sample,
         ns_per_buffer,
     }
-}
-
-fn synthetic_buffer(frames: usize, channels: usize) -> Vec<f64> {
-    let mut out = Vec::with_capacity(frames * channels);
-    let mut left_phase = 0.0_f64;
-    let mut right_phase = 0.0_f64;
-
-    for frame in 0..frames {
-        let t = frame as f64 / SAMPLE_RATE;
-        left_phase += std::f64::consts::TAU * (220.0 + 11.0 * (t * 3.0).sin()) / SAMPLE_RATE;
-        right_phase += std::f64::consts::TAU * (330.0 + 7.0 * (t * 5.0).cos()) / SAMPLE_RATE;
-        let envelope = 0.65 + 0.20 * (std::f64::consts::TAU * 1.7 * t).sin();
-        let transient = if frame % 127 == 0 { 0.28 } else { 0.0 };
-        let left =
-            (left_phase.sin() * 0.55 + (left_phase * 3.0).sin() * 0.08 + transient) * envelope;
-        let right =
-            (right_phase.sin() * 0.50 - (right_phase * 2.0).cos() * 0.07 - transient) * envelope;
-
-        out.push(left.clamp(-0.95, 0.95));
-        if channels > 1 {
-            out.push(right.clamp(-0.95, 0.95));
-        }
-        for ch in 2..channels {
-            out.push((left * (1.0 - ch as f64 * 0.05)).clamp(-0.95, 0.95));
-        }
-    }
-
-    out
-}
-
-fn synthetic_ir(taps_per_channel: usize, channels: usize) -> Vec<f64> {
-    let mut ir = Vec::with_capacity(taps_per_channel * channels);
-
-    for tap in 0..taps_per_channel {
-        let decay = (-(tap as f64) / 48.0).exp();
-        for ch in 0..channels {
-            let impulse = if tap == 0 { 0.72 } else { 0.0 };
-            let early = if tap == 17 + ch * 3 { 0.12 } else { 0.0 };
-            let tail = ((tap + ch * 11) as f64 * 0.37).sin() * 0.025 * decay;
-            ir.push(impulse + early + tail);
-        }
-    }
-
-    ir
 }

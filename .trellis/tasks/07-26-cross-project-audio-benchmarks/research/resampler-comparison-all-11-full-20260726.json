@@ -1,0 +1,4973 @@
+{
+  "schema_version": 1,
+  "probe": "audio_resampler_comparison_perf",
+  "generated_unix_ms": 1785058525679,
+  "mode": "full",
+  "environment": {
+    "revision": "342fd447c4c92025c86497b3cfb0d729559046ab",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+    "workload_id": "quality_latency_throughput_pareto_v1",
+    "channels": 2,
+    "chunk_frames": 512,
+    "rate_pairs": [
+      "music_44k1_to_48k",
+      "music_48k_to_44k1"
+    ],
+    "warmup_buffers": 32,
+    "iterations_per_trial": 1000,
+    "trials": 11,
+    "trial_order": "alternating_forward_reverse",
+    "quality_input_frames": 16384,
+    "quality_policy": "report_only_cross_engine;gate_complete_finite_work;explicit_native_paths;libsamplerate_path_source=argument",
+    "require_complete_matrix": true,
+    "measured_engines": [
+      {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (soxr)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "audio_engine_core_soxr_per_channel_high_linear_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: libsoxr HQ/Bits20, linear phase, high-precision clock",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      {
+        "engine_id": "raw_libsoxr",
+        "display_name": "raw libsoxr stereo",
+        "implementation": "direct Soxr<Stereo<f64>> via soxr 0.6.0",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_libsoxr_hq_bits20_linear_single_thread_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "QualityRecipe::high/Bits20; Small rolloff; HighPrecisionClock; RuntimeSpec threads=1",
+        "phase_response": "linear; phase_response=50",
+        "native_library": null
+      },
+      {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      },
+      {
+        "engine_id": "libsamplerate",
+        "display_name": "libsamplerate SINC_BEST_QUALITY",
+        "implementation": "runtime-loaded libsamplerate streaming C API",
+        "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libsamplerate_sinc_best_quality_streaming_f32_v2",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1",
+        "phase_response": "library-defined linear-phase sinc; latency not exposed by API",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\libsamplerate-0.2.2-1\\mingw64\\bin\\libsamplerate-0.dll",
+          "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+          "sha256": "1e08aeb1fecade2cf2d7a83463a1b375e13d5f2f008cdeea7409a3eff7ed9a0e",
+          "file_bytes": 1502619,
+          "source_revision": null,
+          "build_provenance": "signed MSYS2 mingw-w64-x86_64-libsamplerate package; release DLL",
+          "linked_artifacts": []
+        }
+      },
+      {
+        "engine_id": "ffmpeg_libswresample",
+        "display_name": "FFmpeg libswresample",
+        "implementation": "native swr_alloc_set_opts2/swr_convert streaming shim",
+        "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "ffmpeg_libswresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "libswresample SWR engine defaults; packed AV_SAMPLE_FMT_DBL stereo; filter_size=32; phase_shift=10; exact_rational=1",
+        "phase_response": "linear-phase windowed sinc; null-input flush",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\ffmpeg_libswresample_shim.dll",
+          "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+          "sha256": "2d2ca725008d883ebcb1ff0b7c4070d4bf70dd56322a826cf7d9e6f4bd816b32",
+          "file_bytes": 676395,
+          "source_revision": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; FFmpeg minimal shared release build with runtime x86 SIMD dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\swresample-6.dll",
+              "sha256": "98fdb4d1788bd64c2282c7b363d5675f3844dd8bfcd8bbf27690c5595a63f0c7",
+              "file_bytes": 179712
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\avutil-60.dll",
+              "sha256": "6d025cf39a586811eb4f8944c364df507504cae567f491a7a5a4fd17443baa3e",
+              "file_bytes": 1094144
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "speexdsp",
+        "display_name": "SpeexDSP quality 10",
+        "implementation": "native speex_resampler_process_interleaved_float streaming shim; fresh-state reset",
+        "upstream_version": "SpeexDSP 1.2.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "speexdsp_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SpeexDSP quality=10; interleaved float stereo; natural leading latency retained; zero-tail drain to nominal plus output latency",
+        "phase_response": "SpeexDSP quality-10 sinc; API output latency retained and reported",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\speexdsp_shim.dll",
+          "upstream_version": "SpeexDSP 1.2.1",
+          "sha256": "8b9269a1d2bab8d04e673bd732430db890584dd9dfedcb99f0291146ccd2d3ec",
+          "file_bytes": 676035,
+          "source_revision": "MSYS2 mingw-w64-x86_64-speexdsp-1.2.1-1",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; signed MSYS2 SpeexDSP release DLL",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libspeexdsp-1.dll",
+              "sha256": "676de283408c6a7c06221774bbf8150dcfe94668e0a249d67e81ede17cc22a45",
+              "file_bytes": 111227
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "r8brain",
+        "display_name": "r8brain-free-src",
+        "implementation": "two independent r8b::CDSPResampler24 channel states with interleaved shim",
+        "upstream_version": "r8brain-free-src 7.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "r8brain_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "CDSPResampler24; 2 percent transition band; 180.15 dB requested attenuation; linear phase; double precision",
+        "phase_response": "linear phase; upstream automatic initial-latency consumption; bounded zero-tail drain to duration-aligned output",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\r8brain_shim.dll",
+          "upstream_version": "r8brain-free-src 7.1",
+          "sha256": "68fe08c3d852a296bc18ed43a85d21478a87dd6efd52eeba7979f0e153b81e0c",
+          "file_bytes": 890384,
+          "source_revision": "e71c31bf320f84210bb4bdcb57e296c39ce940f9",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated header implementation; FFT4G double backend",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "zita_resampler",
+        "display_name": "zita-resampler",
+        "implementation": "native Resampler::setup/process/reset interleaved float shim",
+        "upstream_version": "zita-resampler 1.11.2",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "zita_resampler_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "zita Resampler hlen=96 default cutoff; author file-mode half-filter pre/post zero policy; interleaved float stereo",
+        "phase_response": "linear phase; half-filter input latency reported; file-mode centered stream alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\zita_resampler_shim.dll",
+          "upstream_version": "zita-resampler 1.11.2",
+          "sha256": "b41c9c17632a3e085ae618868984679ac76ba620f144cffb18c2c31dca0929b4",
+          "file_bytes": 698250,
+          "source_revision": "official release 1.11.2; archive sha256 AA5C54E696069AF26F3F1FED4A963113CC1237CDDFD57AE5842ABCB1ACD5492C",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -DENABLE_SSE2 -msse3; source-integrated shared release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "webrtc",
+        "display_name": "WebRTC PushResampler",
+        "implementation": "WebRTC PushResampler<float> with preallocated arbitrary-chunk 10 ms staging",
+        "upstream_version": "webrtc-audio-processing 1.3",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "webrtc_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "WebRTC SincResampler kernel=32, offset_count=32, Blackman window, 0.9 cutoff scale; runtime AVX2/SSE2; interleaved float stereo",
+        "phase_response": "linear phase; 16-input-frame algorithmic delay; final 10 ms block zero padded and trimmed to exact duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\webrtc_shim.dll",
+          "upstream_version": "webrtc-audio-processing 1.3",
+          "sha256": "bcde9a7a876f7d847ae20adef1db94d273cfa42ce54e2318f748bd73a7aa0610",
+          "file_bytes": 725790,
+          "source_revision": "8e258a1933d405073c9e6465628a69ac7d2a1f13",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated PushResampler with runtime SSE2/AVX2 dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "wdl",
+        "display_name": "WDL Resampler",
+        "implementation": "native WDL_Resampler input-driven interleaved double shim",
+        "upstream_version": "WDL commit 96b770f (2026-07-15)",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "wdl_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "WDL sinc mode size=64, interpolation table=32, input-driven feed mode, double samples, stereo",
+        "phase_response": "linear-phase sinc; 31-input-frame startup latency reported; documented short-input flush trimmed to duration alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\wdl_shim.dll",
+          "upstream_version": "WDL commit 96b770f (2026-07-15)",
+          "sha256": "a489b23d3b0c787ce576ce90b985cbbcff35563ebeac88807511619ce038bbd8",
+          "file_bytes": 703087,
+          "source_revision": "96b770f7368f75b53756e0c8941ce3ecc8b6c29b",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; WDL resample.cpp source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      {
+        "engine_id": "libresample",
+        "display_name": "libresample high quality",
+        "implementation": "two independent high-quality libresample C states with interleaved float shim",
+        "upstream_version": "libresample 0.1.5 development head",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "resample_open highQuality=1 at fixed exact ratio; one state per channel; final zero padding trimmed to exact duration",
+        "phase_response": "linear-phase Kaiser-windowed sinc; filter-width input latency reported; documented padding used for exact output duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libresample_shim.dll",
+          "upstream_version": "libresample 0.1.5 development head",
+          "sha256": "9780bda327c2481013239743b7422e510f36124313f3222fe94bd14aa4db9b35",
+          "file_bytes": 694089,
+          "source_revision": "7cb7f9c3f72d4e6774d964dc324af827192df7c3",
+          "build_provenance": "MinGW-w64 GCC/G++ 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; resample.c/filterkit.c/resamplesubs.c source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      }
+    ],
+    "unavailable_engine_ids": [],
+    "excludes": [
+      "cross_format_speed_gate",
+      "device_driver_latency",
+      "decoder_pipeline"
+    ]
+  },
+  "coverage": {
+    "all_terminal": true,
+    "entries": [
+      {
+        "engine_id": "audio_engine_core",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=audio_engine_core;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=audio_engine_core_soxr_per_channel_high_linear_v1",
+          "engine=audio_engine_core;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=audio_engine_core_soxr_per_channel_high_linear_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "raw_libsoxr",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=raw_libsoxr;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_libsoxr_hq_bits20_linear_single_thread_v1",
+          "engine=raw_libsoxr;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_libsoxr_hq_bits20_linear_single_thread_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "raw_rubato",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=raw_rubato;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+          "engine=raw_rubato;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "libsamplerate",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=libsamplerate;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=libsamplerate_sinc_best_quality_streaming_f32_v2",
+          "engine=libsamplerate;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=libsamplerate_sinc_best_quality_streaming_f32_v2"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "ffmpeg_libswresample",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=ffmpeg_libswresample;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=ffmpeg_libswresample_benchmark_shim_v1",
+          "engine=ffmpeg_libswresample;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=ffmpeg_libswresample_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "speexdsp",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=speexdsp;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=speexdsp_benchmark_shim_v1",
+          "engine=speexdsp;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=speexdsp_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "r8brain",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=r8brain;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=r8brain_benchmark_shim_v1",
+          "engine=r8brain;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=r8brain_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "zita_resampler",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=zita_resampler;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=zita_resampler_benchmark_shim_v1",
+          "engine=zita_resampler;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=zita_resampler_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "webrtc",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=webrtc;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=webrtc_benchmark_shim_v1",
+          "engine=webrtc;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=webrtc_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "wdl",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=wdl;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=wdl_benchmark_shim_v1",
+          "engine=wdl;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=wdl_benchmark_shim_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "libresample",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=libresample;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=libresample_benchmark_shim_v1",
+          "engine=libresample;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=libresample_benchmark_shim_v1"
+        ],
+        "evidence": null
+      }
+    ]
+  },
+  "unavailable_engines": [],
+  "cases": [
+    {
+      "case_key": "engine=audio_engine_core;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=audio_engine_core_soxr_per_channel_high_linear_v1",
+      "engine": {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (soxr)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "audio_engine_core_soxr_per_channel_high_linear_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: libsoxr HQ/Bits20, linear phase, high-precision clock",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          845700.0,
+          801600.0,
+          1072100.0,
+          857300.0,
+          1042300.0,
+          729800.0,
+          2646900.0,
+          1290000.0,
+          548100.0,
+          552700.0,
+          953200.0
+        ],
+        "min": 548100.0,
+        "median": 857300.0,
+        "p95": 2646900.0,
+        "max": 2646900.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          14.91884765625,
+          11.54931640625,
+          22.478125,
+          17.621875,
+          18.3388671875,
+          38.94091796875,
+          34.77734375,
+          17.40625,
+          20.04150390625,
+          18.12900390625,
+          23.11943359375
+        ],
+        "min": 11.54931640625,
+        "median": 18.3388671875,
+        "p95": 38.94091796875,
+        "max": 38.94091796875
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          15276.9,
+          11826.5,
+          23017.6,
+          18044.8,
+          18779.0,
+          39875.5,
+          35612.0,
+          17824.0,
+          20522.5,
+          18564.1,
+          23674.3
+        ],
+        "min": 11826.5,
+        "median": 18779.0,
+        "p95": 39875.5,
+        "max": 39875.5
+      },
+      "reset_ns": {
+        "samples": [
+          533700.0,
+          963800.0,
+          950600.0,
+          975400.0,
+          870900.0,
+          827700.0,
+          859800.0,
+          619800.0,
+          605300.0,
+          827600.0,
+          926800.0
+        ],
+        "min": 533700.0,
+        "median": 859800.0,
+        "p95": 975400.0,
+        "max": 975400.0
+      },
+      "drain_ns": {
+        "samples": [
+          135000.0,
+          135600.0,
+          245400.0,
+          246000.0,
+          207600.0,
+          208300.0,
+          242700.0,
+          107400.0,
+          438400.0,
+          194200.0,
+          188200.0
+        ],
+        "min": 107400.0,
+        "median": 207600.0,
+        "p95": 438400.0,
+        "max": 438400.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.16174880859375,
+      "p95_source_realtime_utilization_pct": 0.343458896484375,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 3.958604565315153e-7,
+        "gain_18_khz_db": -0.001723557516445046,
+        "passband_max_abs_deviation_db": 0.001723557516445046,
+        "thdn_997_hz_db": -134.30798582862562,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 17897,
+        "steady_output_frames_per_trial": [
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823
+        ],
+        "drain_frames_per_trial": [
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_libsoxr;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_libsoxr_hq_bits20_linear_single_thread_v1",
+      "engine": {
+        "engine_id": "raw_libsoxr",
+        "display_name": "raw libsoxr stereo",
+        "implementation": "direct Soxr<Stereo<f64>> via soxr 0.6.0",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_libsoxr_hq_bits20_linear_single_thread_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "QualityRecipe::high/Bits20; Small rolloff; HighPrecisionClock; RuntimeSpec threads=1",
+        "phase_response": "linear; phase_response=50",
+        "native_library": null
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          511000.0,
+          394200.0,
+          483100.0,
+          705300.0,
+          424800.0,
+          260200.0,
+          455500.0,
+          490100.0,
+          293800.0,
+          542800.0,
+          458600.0
+        ],
+        "min": 260200.0,
+        "median": 458600.0,
+        "p95": 705300.0,
+        "max": 705300.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          16.63603515625,
+          10.13046875,
+          16.7697265625,
+          12.79609375,
+          14.5564453125,
+          11.727734375,
+          18.15185546875,
+          17.62841796875,
+          16.31875,
+          14.01337890625,
+          13.40791015625
+        ],
+        "min": 10.13046875,
+        "median": 14.5564453125,
+        "p95": 18.15185546875,
+        "max": 18.15185546875
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          17035.3,
+          10373.6,
+          17172.2,
+          13103.2,
+          14905.8,
+          12009.2,
+          18587.5,
+          18051.5,
+          16710.4,
+          14349.7,
+          13729.7
+        ],
+        "min": 10373.6,
+        "median": 14905.8,
+        "p95": 18587.5,
+        "max": 18587.5
+      },
+      "reset_ns": {
+        "samples": [
+          3974900.0,
+          683600.0,
+          302800.0,
+          287000.0,
+          523300.0,
+          660300.0,
+          363400.0,
+          786300.0,
+          557400.0,
+          361200.0,
+          329800.0
+        ],
+        "min": 287000.0,
+        "median": 523300.0,
+        "p95": 3974900.0,
+        "max": 3974900.0
+      },
+      "drain_ns": {
+        "samples": [
+          186300.0,
+          117500.0,
+          126100.0,
+          120500.0,
+          203700.0,
+          104900.0,
+          195500.0,
+          184800.0,
+          246800.0,
+          113600.0,
+          180000.0
+        ],
+        "min": 104900.0,
+        "median": 180000.0,
+        "p95": 246800.0,
+        "max": 246800.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.12838784765625,
+      "p95_source_realtime_utilization_pct": 0.16009936523437499,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 3.958604565315153e-7,
+        "gain_18_khz_db": -0.001723557516445046,
+        "passband_max_abs_deviation_db": 0.001723557516445046,
+        "thdn_997_hz_db": -134.30798582862562,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1070,
+        "steady_output_frames_per_trial": [
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823,
+          557823
+        ],
+        "drain_frames_per_trial": [
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335,
+          335
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_rubato;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+      "engine": {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          340200.0,
+          125600.0,
+          95500.0,
+          163200.0,
+          131000.0,
+          310900.0,
+          105800.0,
+          166300.0,
+          77100.0,
+          156100.0,
+          104400.0
+        ],
+        "min": 77100.0,
+        "median": 131000.0,
+        "p95": 340200.0,
+        "max": 340200.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          18.6189453125,
+          13.8787109375,
+          14.6775390625,
+          20.88369140625,
+          20.80302734375,
+          15.78173828125,
+          15.51015625,
+          21.82900390625,
+          16.78037109375,
+          23.211328125,
+          18.115234375
+        ],
+        "min": 13.8787109375,
+        "median": 18.115234375,
+        "p95": 23.211328125,
+        "max": 23.211328125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          19065.8,
+          14211.8,
+          15029.8,
+          21384.9,
+          21302.3,
+          16160.5,
+          15882.4,
+          22352.9,
+          17183.1,
+          23768.4,
+          18550.0
+        ],
+        "min": 14211.8,
+        "median": 18550.0,
+        "p95": 23768.4,
+        "max": 23768.4
+      },
+      "reset_ns": {
+        "samples": [
+          1200.0,
+          1700.0,
+          1800.0,
+          2200.0,
+          1000.0,
+          1100.0,
+          1900.0,
+          2000.0,
+          2000.0,
+          2200.0,
+          2000.0
+        ],
+        "min": 1000.0,
+        "median": 1900.0,
+        "p95": 2200.0,
+        "max": 2200.0
+      },
+      "drain_ns": {
+        "samples": [
+          6900.0,
+          10200.0,
+          8800.0,
+          13900.0,
+          6200.0,
+          5800.0,
+          10200.0,
+          13700.0,
+          13400.0,
+          14100.0,
+          13800.0
+        ],
+        "min": 5800.0,
+        "median": 10200.0,
+        "p95": 14100.0,
+        "max": 14100.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.1597763671875,
+      "p95_source_realtime_utilization_pct": 0.2047239140625,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17993,
+        "actual_complete_output_frames": 17993,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 160,
+        "measured_impulse_peak_frame": 160,
+        "gain_997_hz_db": 1.4272046504987478e-12,
+        "gain_18_khz_db": -4.927530132008422e-10,
+        "passband_max_abs_deviation_db": 4.927530132008422e-10,
+        "thdn_997_hz_db": -196.5385046551221,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 640,
+        "steady_output_frames_per_trial": [
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440,
+          557440
+        ],
+        "drain_frames_per_trial": [
+          232,
+          232,
+          232,
+          232,
+          232,
+          232,
+          232,
+          232,
+          232,
+          232,
+          232
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=libsamplerate;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=libsamplerate_sinc_best_quality_streaming_f32_v2",
+      "engine": {
+        "engine_id": "libsamplerate",
+        "display_name": "libsamplerate SINC_BEST_QUALITY",
+        "implementation": "runtime-loaded libsamplerate streaming C API",
+        "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libsamplerate_sinc_best_quality_streaming_f32_v2",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1",
+        "phase_response": "library-defined linear-phase sinc; latency not exposed by API",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\libsamplerate-0.2.2-1\\mingw64\\bin\\libsamplerate-0.dll",
+          "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+          "sha256": "1e08aeb1fecade2cf2d7a83463a1b375e13d5f2f008cdeea7409a3eff7ed9a0e",
+          "file_bytes": 1502619,
+          "source_revision": null,
+          "build_provenance": "signed MSYS2 mingw-w64-x86_64-libsamplerate package; release DLL",
+          "linked_artifacts": []
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          259000.0,
+          1329900.0,
+          283900.0,
+          286300.0,
+          204300.0,
+          251200.0,
+          280200.0,
+          251900.0,
+          277200.0,
+          447500.0,
+          274200.0
+        ],
+        "min": 204300.0,
+        "median": 277200.0,
+        "p95": 1329900.0,
+        "max": 1329900.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          488.782421875,
+          579.64755859375,
+          613.3318359375,
+          659.5638671875,
+          588.494921875,
+          591.48310546875,
+          806.31923828125,
+          684.5232421875,
+          583.74091796875,
+          643.9974609375,
+          507.12861328125
+        ],
+        "min": 488.782421875,
+        "median": 591.48310546875,
+        "p95": 806.31923828125,
+        "max": 806.31923828125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          500513.2,
+          593559.1,
+          628051.8,
+          675393.4,
+          602618.8,
+          605678.7,
+          825670.9,
+          700951.8,
+          597750.7,
+          659453.4,
+          519299.7
+        ],
+        "min": 500513.2,
+        "median": 605678.7,
+        "p95": 825670.9,
+        "max": 825670.9
+      },
+      "reset_ns": {
+        "samples": [
+          68500.0,
+          83400.0,
+          90100.0,
+          142800.0,
+          70900.0,
+          95600.0,
+          103300.0,
+          117100.0,
+          99500.0,
+          114200.0,
+          54500.0
+        ],
+        "min": 54500.0,
+        "median": 95600.0,
+        "p95": 142800.0,
+        "max": 142800.0
+      },
+      "drain_ns": {
+        "samples": [
+          1200.0,
+          1400.0,
+          600.0,
+          1100.0,
+          1800.0,
+          700.0,
+          1000.0,
+          900.0,
+          800.0,
+          1500.0,
+          800.0
+        ],
+        "min": 600.0,
+        "median": 1000.0,
+        "p95": 1800.0,
+        "max": 1800.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 5.216880990234374,
+      "p95_source_realtime_utilization_pct": 7.111735681640625,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -2.888350735318243e-9,
+        "gain_18_khz_db": -8.256073227617614e-7,
+        "passband_max_abs_deviation_db": 8.256073227617614e-7,
+        "thdn_997_hz_db": -149.42988254248422,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1070,
+        "steady_output_frames_per_trial": [
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435,
+          557435
+        ],
+        "drain_frames_per_trial": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=ffmpeg_libswresample;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=ffmpeg_libswresample_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "ffmpeg_libswresample",
+        "display_name": "FFmpeg libswresample",
+        "implementation": "native swr_alloc_set_opts2/swr_convert streaming shim",
+        "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "ffmpeg_libswresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "libswresample SWR engine defaults; packed AV_SAMPLE_FMT_DBL stereo; filter_size=32; phase_shift=10; exact_rational=1",
+        "phase_response": "linear-phase windowed sinc; null-input flush",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\ffmpeg_libswresample_shim.dll",
+          "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+          "sha256": "2d2ca725008d883ebcb1ff0b7c4070d4bf70dd56322a826cf7d9e6f4bd816b32",
+          "file_bytes": 676395,
+          "source_revision": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; FFmpeg minimal shared release build with runtime x86 SIMD dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\swresample-6.dll",
+              "sha256": "98fdb4d1788bd64c2282c7b363d5675f3844dd8bfcd8bbf27690c5595a63f0c7",
+              "file_bytes": 179712
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\avutil-60.dll",
+              "sha256": "6d025cf39a586811eb4f8944c364df507504cae567f491a7a5a4fd17443baa3e",
+              "file_bytes": 1094144
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          213000.0,
+          160500.0,
+          210900.0,
+          184800.0,
+          128000.0,
+          171200.0,
+          305100.0,
+          186100.0,
+          230400.0,
+          231800.0,
+          143800.0
+        ],
+        "min": 128000.0,
+        "median": 186100.0,
+        "p95": 305100.0,
+        "max": 305100.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          9.8240234375,
+          8.31708984375,
+          16.4484375,
+          16.87001953125,
+          12.447265625,
+          16.62587890625,
+          16.29853515625,
+          16.816796875,
+          13.79658203125,
+          16.66826171875,
+          9.0384765625
+        ],
+        "min": 8.31708984375,
+        "median": 16.29853515625,
+        "p95": 16.87001953125,
+        "max": 16.87001953125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          10059.8,
+          8516.7,
+          16843.2,
+          17274.9,
+          12746.0,
+          17024.9,
+          16689.7,
+          17220.4,
+          14127.7,
+          17068.3,
+          9255.4
+        ],
+        "min": 8516.7,
+        "median": 16689.7,
+        "p95": 17274.9,
+        "max": 17274.9
+      },
+      "reset_ns": {
+        "samples": [
+          173900.0,
+          111300.0,
+          288100.0,
+          190900.0,
+          262700.0,
+          174800.0,
+          280900.0,
+          163100.0,
+          506100.0,
+          123300.0,
+          172100.0
+        ],
+        "min": 111300.0,
+        "median": 174800.0,
+        "p95": 506100.0,
+        "max": 506100.0
+      },
+      "drain_ns": {
+        "samples": [
+          2900.0,
+          2400.0,
+          3300.0,
+          2300.0,
+          2400.0,
+          2500.0,
+          2400.0,
+          2700.0,
+          2600.0,
+          2200.0,
+          1600.0
+        ],
+        "min": 1600.0,
+        "median": 2400.0,
+        "p95": 3300.0,
+        "max": 3300.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.143753080078125,
+      "p95_source_realtime_utilization_pct": 0.14879357226562503,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 0.00004816097714730849,
+        "gain_18_khz_db": 0.00014986563599079006,
+        "passband_max_abs_deviation_db": 0.00014986563599079006,
+        "thdn_997_hz_db": -106.55619278289807,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 8749,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17,
+          17
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=speexdsp;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=speexdsp_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "speexdsp",
+        "display_name": "SpeexDSP quality 10",
+        "implementation": "native speex_resampler_process_interleaved_float streaming shim; fresh-state reset",
+        "upstream_version": "SpeexDSP 1.2.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "speexdsp_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SpeexDSP quality=10; interleaved float stereo; natural leading latency retained; zero-tail drain to nominal plus output latency",
+        "phase_response": "SpeexDSP quality-10 sinc; API output latency retained and reported",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\speexdsp_shim.dll",
+          "upstream_version": "SpeexDSP 1.2.1",
+          "sha256": "8b9269a1d2bab8d04e673bd732430db890584dd9dfedcb99f0291146ccd2d3ec",
+          "file_bytes": 676035,
+          "source_revision": "MSYS2 mingw-w64-x86_64-speexdsp-1.2.1-1",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; signed MSYS2 SpeexDSP release DLL",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libspeexdsp-1.dll",
+              "sha256": "676de283408c6a7c06221774bbf8150dcfe94668e0a249d67e81ede17cc22a45",
+              "file_bytes": 111227
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          721300.0,
+          752900.0,
+          984100.0,
+          1049400.0,
+          1329900.0,
+          1041100.0,
+          1024300.0,
+          959400.0,
+          1108000.0,
+          1190600.0,
+          873700.0
+        ],
+        "min": 721300.0,
+        "median": 1024300.0,
+        "p95": 1329900.0,
+        "max": 1329900.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          504.42353515625,
+          408.82392578125,
+          512.4103515625,
+          562.78486328125,
+          514.958203125,
+          497.79033203125,
+          467.87958984375,
+          542.967578125,
+          1043.09189453125,
+          534.9037109375,
+          429.08564453125
+        ],
+        "min": 408.82392578125,
+        "median": 512.4103515625,
+        "p95": 1043.09189453125,
+        "max": 1043.09189453125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          516529.7,
+          418635.7,
+          524708.2,
+          576291.7,
+          527317.2,
+          509737.3,
+          479108.7,
+          555998.8,
+          1068126.1,
+          547741.4,
+          439383.7
+        ],
+        "min": 418635.7,
+        "median": 524708.2,
+        "p95": 1068126.1,
+        "max": 1068126.1
+      },
+      "reset_ns": {
+        "samples": [
+          591800.0,
+          821100.0,
+          665600.0,
+          998400.0,
+          956500.0,
+          1027800.0,
+          887100.0,
+          1013700.0,
+          977000.0,
+          967700.0,
+          1045400.0
+        ],
+        "min": 591800.0,
+        "median": 967700.0,
+        "p95": 1045400.0,
+        "max": 1045400.0
+      },
+      "drain_ns": {
+        "samples": [
+          86800.0,
+          178600.0,
+          129000.0,
+          136000.0,
+          124600.0,
+          128100.0,
+          110500.0,
+          124200.0,
+          121800.0,
+          117700.0,
+          111400.0
+        ],
+        "min": 86800.0,
+        "median": 124200.0,
+        "p95": 178600.0,
+        "max": 178600.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 4.51945930078125,
+      "p95_source_realtime_utilization_pct": 9.200070509765625,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17972,
+        "actual_complete_output_frames": 17972,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 139,
+        "measured_impulse_peak_frame": 139,
+        "gain_997_hz_db": -1.7202451287249004e-6,
+        "gain_18_khz_db": -9.08165036381307e-6,
+        "passband_max_abs_deviation_db": 9.08165036381307e-6,
+        "thdn_997_hz_db": -136.6304688247098,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1720,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          139,
+          139,
+          139,
+          139,
+          139,
+          139,
+          139,
+          139,
+          139,
+          139,
+          139
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=r8brain;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=r8brain_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "r8brain",
+        "display_name": "r8brain-free-src",
+        "implementation": "two independent r8b::CDSPResampler24 channel states with interleaved shim",
+        "upstream_version": "r8brain-free-src 7.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "r8brain_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "CDSPResampler24; 2 percent transition band; 180.15 dB requested attenuation; linear phase; double precision",
+        "phase_response": "linear phase; upstream automatic initial-latency consumption; bounded zero-tail drain to duration-aligned output",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\r8brain_shim.dll",
+          "upstream_version": "r8brain-free-src 7.1",
+          "sha256": "68fe08c3d852a296bc18ed43a85d21478a87dd6efd52eeba7979f0e153b81e0c",
+          "file_bytes": 890384,
+          "source_revision": "e71c31bf320f84210bb4bdcb57e296c39ce940f9",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated header implementation; FFT4G double backend",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          599500.0,
+          38900.0,
+          34300.0,
+          52000.0,
+          35800.0,
+          26100.0,
+          33600.0,
+          45500.0,
+          40900.0,
+          52600.0,
+          51900.0
+        ],
+        "min": 26100.0,
+        "median": 40900.0,
+        "p95": 599500.0,
+        "max": 599500.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          31.0828125,
+          39.05,
+          37.253515625,
+          41.452734375,
+          42.003515625,
+          38.3828125,
+          35.159765625,
+          40.80009765625,
+          39.788671875,
+          38.1056640625,
+          38.44013671875
+        ],
+        "min": 31.0828125,
+        "median": 38.44013671875,
+        "p95": 42.003515625,
+        "max": 42.003515625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          31828.8,
+          39987.2,
+          38147.6,
+          42447.6,
+          43011.6,
+          39304.0,
+          36003.6,
+          41779.3,
+          40743.6,
+          39020.2,
+          39362.7
+        ],
+        "min": 31828.8,
+        "median": 39362.7,
+        "p95": 43011.6,
+        "max": 43011.6
+      },
+      "reset_ns": {
+        "samples": [
+          1200.0,
+          1500.0,
+          1300.0,
+          1600.0,
+          1000.0,
+          1600.0,
+          1200.0,
+          1500.0,
+          1700.0,
+          1700.0,
+          1100.0
+        ],
+        "min": 1000.0,
+        "median": 1500.0,
+        "p95": 1700.0,
+        "max": 1700.0
+      },
+      "drain_ns": {
+        "samples": [
+          125900.0,
+          118700.0,
+          116200.0,
+          128500.0,
+          109000.0,
+          159300.0,
+          102800.0,
+          120700.0,
+          122400.0,
+          136300.0,
+          93000.0
+        ],
+        "min": 93000.0,
+        "median": 120700.0,
+        "p95": 159300.0,
+        "max": 159300.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.339042005859375,
+      "p95_source_realtime_utilization_pct": 0.3704710078125,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 1851,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 5.572655563539371e-10,
+        "gain_18_khz_db": 6.071135717516684e-10,
+        "passband_max_abs_deviation_db": 6.071135717516684e-10,
+        "thdn_997_hz_db": -180.5398194512128,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1024,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850,
+          1850
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=zita_resampler;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=zita_resampler_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "zita_resampler",
+        "display_name": "zita-resampler",
+        "implementation": "native Resampler::setup/process/reset interleaved float shim",
+        "upstream_version": "zita-resampler 1.11.2",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "zita_resampler_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "zita Resampler hlen=96 default cutoff; author file-mode half-filter pre/post zero policy; interleaved float stereo",
+        "phase_response": "linear phase; half-filter input latency reported; file-mode centered stream alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\zita_resampler_shim.dll",
+          "upstream_version": "zita-resampler 1.11.2",
+          "sha256": "b41c9c17632a3e085ae618868984679ac76ba620f144cffb18c2c31dca0929b4",
+          "file_bytes": 698250,
+          "source_revision": "official release 1.11.2; archive sha256 AA5C54E696069AF26F3F1FED4A963113CC1237CDDFD57AE5842ABCB1ACD5492C",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -DENABLE_SSE2 -msse3; source-integrated shared release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          2769900.0,
+          3514400.0,
+          2856300.0,
+          3801400.0,
+          3189900.0,
+          3988800.0,
+          3269800.0,
+          3486500.0,
+          3413800.0,
+          3871500.0,
+          3061900.0
+        ],
+        "min": 2769900.0,
+        "median": 3413800.0,
+        "p95": 3988800.0,
+        "max": 3988800.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          56.16474609375,
+          89.069140625,
+          66.1802734375,
+          68.4189453125,
+          74.95419921875,
+          78.089453125,
+          59.68984375,
+          68.094140625,
+          73.82021484375,
+          66.647265625,
+          65.858984375
+        ],
+        "min": 56.16474609375,
+        "median": 68.094140625,
+        "p95": 89.069140625,
+        "max": 89.069140625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          57512.7,
+          91206.8,
+          67768.6,
+          70061.0,
+          76753.1,
+          79963.6,
+          61122.4,
+          69728.4,
+          75591.9,
+          68246.8,
+          67439.6
+        ],
+        "min": 57512.7,
+        "median": 69728.4,
+        "p95": 91206.8,
+        "max": 91206.8
+      },
+      "reset_ns": {
+        "samples": [
+          800.0,
+          1400.0,
+          1200.0,
+          1500.0,
+          1200.0,
+          600.0,
+          1200.0,
+          1600.0,
+          1400.0,
+          1400.0,
+          1300.0
+        ],
+        "min": 600.0,
+        "median": 1300.0,
+        "p95": 1600.0,
+        "max": 1600.0
+      },
+      "drain_ns": {
+        "samples": [
+          7300.0,
+          58100.0,
+          13600.0,
+          14600.0,
+          15500.0,
+          7000.0,
+          13200.0,
+          14400.0,
+          15600.0,
+          13600.0,
+          14300.0
+        ],
+        "min": 7000.0,
+        "median": 14300.0,
+        "p95": 58100.0,
+        "max": 58100.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.6005903203124999,
+      "p95_source_realtime_utilization_pct": 0.7855898203125001,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 104,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -1.9218497727340075e-8,
+        "gain_18_khz_db": -7.64408317156951e-6,
+        "passband_max_abs_deviation_db": 7.64408317156951e-6,
+        "thdn_997_hz_db": -144.72162226025975,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1685,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          104,
+          104,
+          104,
+          104,
+          104,
+          104,
+          104,
+          104,
+          104,
+          104,
+          104
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=webrtc;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=webrtc_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "webrtc",
+        "display_name": "WebRTC PushResampler",
+        "implementation": "WebRTC PushResampler<float> with preallocated arbitrary-chunk 10 ms staging",
+        "upstream_version": "webrtc-audio-processing 1.3",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "webrtc_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "WebRTC SincResampler kernel=32, offset_count=32, Blackman window, 0.9 cutoff scale; runtime AVX2/SSE2; interleaved float stereo",
+        "phase_response": "linear phase; 16-input-frame algorithmic delay; final 10 ms block zero padded and trimmed to exact duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\webrtc_shim.dll",
+          "upstream_version": "webrtc-audio-processing 1.3",
+          "sha256": "bcde9a7a876f7d847ae20adef1db94d273cfa42ce54e2318f748bd73a7aa0610",
+          "file_bytes": 725790,
+          "source_revision": "8e258a1933d405073c9e6465628a69ac7d2a1f13",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated PushResampler with runtime SSE2/AVX2 dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          380900.0,
+          341700.0,
+          514300.0,
+          387300.0,
+          528500.0,
+          886500.0,
+          466500.0,
+          496900.0,
+          542000.0,
+          538400.0,
+          659700.0
+        ],
+        "min": 341700.0,
+        "median": 514300.0,
+        "p95": 886500.0,
+        "max": 886500.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          12.46044921875,
+          11.08525390625,
+          15.6890625,
+          19.2333984375,
+          21.14736328125,
+          23.0619140625,
+          20.57197265625,
+          24.03896484375,
+          21.6173828125,
+          19.5107421875,
+          22.93642578125
+        ],
+        "min": 11.08525390625,
+        "median": 20.57197265625,
+        "p95": 24.03896484375,
+        "max": 24.03896484375
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          12759.5,
+          11351.3,
+          16065.6,
+          19695.0,
+          21654.9,
+          23615.4,
+          21065.7,
+          24615.9,
+          22136.2,
+          19979.0,
+          23486.9
+        ],
+        "min": 11351.3,
+        "median": 21065.7,
+        "p95": 24615.9,
+        "max": 24615.9
+      },
+      "reset_ns": {
+        "samples": [
+          417800.0,
+          399100.0,
+          527400.0,
+          654800.0,
+          546400.0,
+          588600.0,
+          472700.0,
+          513300.0,
+          439100.0,
+          586300.0,
+          539900.0
+        ],
+        "min": 399100.0,
+        "median": 527400.0,
+        "p95": 654800.0,
+        "max": 654800.0
+      },
+      "drain_ns": {
+        "samples": [
+          12200.0,
+          11700.0,
+          20300.0,
+          21300.0,
+          21900.0,
+          11500.0,
+          18700.0,
+          20400.0,
+          13600.0,
+          21100.0,
+          20200.0
+        ],
+        "min": 11500.0,
+        "median": 20200.0,
+        "p95": 21900.0,
+        "max": 21900.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.181444798828125,
+      "p95_source_realtime_utilization_pct": 0.21202366992187505,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 17,
+        "measured_impulse_peak_frame": 18,
+        "gain_997_hz_db": -0.00007365365056344854,
+        "gain_18_khz_db": -0.6568477740794383,
+        "passband_max_abs_deviation_db": 0.6568477740794383,
+        "thdn_997_hz_db": -89.5964173061658,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 960,
+        "steady_output_frames_per_trial": [
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280,
+          557280
+        ],
+        "drain_frames_per_trial": [
+          72,
+          72,
+          72,
+          72,
+          72,
+          72,
+          72,
+          72,
+          72,
+          72,
+          72
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=wdl;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=wdl_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "wdl",
+        "display_name": "WDL Resampler",
+        "implementation": "native WDL_Resampler input-driven interleaved double shim",
+        "upstream_version": "WDL commit 96b770f (2026-07-15)",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "wdl_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "WDL sinc mode size=64, interpolation table=32, input-driven feed mode, double samples, stereo",
+        "phase_response": "linear-phase sinc; 31-input-frame startup latency reported; documented short-input flush trimmed to duration alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\wdl_shim.dll",
+          "upstream_version": "WDL commit 96b770f (2026-07-15)",
+          "sha256": "a489b23d3b0c787ce576ce90b985cbbcff35563ebeac88807511619ce038bbd8",
+          "file_bytes": 703087,
+          "source_revision": "96b770f7368f75b53756e0c8941ce3ecc8b6c29b",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; WDL resample.cpp source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          256700.0,
+          231800.0,
+          307200.0,
+          339500.0,
+          325200.0,
+          226700.0,
+          290200.0,
+          311700.0,
+          268100.0,
+          368100.0,
+          314600.0
+        ],
+        "min": 226700.0,
+        "median": 307200.0,
+        "p95": 368100.0,
+        "max": 368100.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          64.4044921875,
+          53.94326171875,
+          61.34736328125,
+          68.5888671875,
+          72.46767578125,
+          69.14951171875,
+          59.92548828125,
+          61.8283203125,
+          69.4853515625,
+          65.9837890625,
+          62.131640625
+        ],
+        "min": 53.94326171875,
+        "median": 64.4044921875,
+        "p95": 72.46767578125,
+        "max": 72.46767578125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          65950.2,
+          55237.9,
+          62819.7,
+          70235.0,
+          74206.9,
+          70809.1,
+          61363.7,
+          63312.2,
+          71153.0,
+          67567.4,
+          63622.8
+        ],
+        "min": 55237.9,
+        "median": 65950.2,
+        "p95": 74206.9,
+        "max": 74206.9
+      },
+      "reset_ns": {
+        "samples": [
+          1100.0,
+          500.0,
+          700.0,
+          800.0,
+          900.0,
+          700.0,
+          600.0,
+          600.0,
+          1100.0,
+          900.0,
+          600.0
+        ],
+        "min": 500.0,
+        "median": 700.0,
+        "p95": 1100.0,
+        "max": 1100.0
+      },
+      "drain_ns": {
+        "samples": [
+          15700.0,
+          12100.0,
+          14800.0,
+          20400.0,
+          17800.0,
+          19200.0,
+          16400.0,
+          17100.0,
+          16200.0,
+          15500.0,
+          14600.0
+        ],
+        "min": 12100.0,
+        "median": 16200.0,
+        "p95": 20400.0,
+        "max": 20400.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.5680476210937501,
+      "p95_source_realtime_utilization_pct": 0.639164900390625,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 34,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -0.000011591564534172403,
+        "gain_18_khz_db": -0.004443107419703284,
+        "passband_max_abs_deviation_db": 0.004443107419703284,
+        "thdn_997_hz_db": -121.27272092852908,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 1615,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          37,
+          37,
+          37,
+          37,
+          37,
+          37,
+          37,
+          37,
+          37,
+          37,
+          37
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=libresample;format=interleaved_f32;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=libresample_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "libresample",
+        "display_name": "libresample high quality",
+        "implementation": "two independent high-quality libresample C states with interleaved float shim",
+        "upstream_version": "libresample 0.1.5 development head",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "resample_open highQuality=1 at fixed exact ratio; one state per channel; final zero padding trimmed to exact duration",
+        "phase_response": "linear-phase Kaiser-windowed sinc; filter-width input latency reported; documented padding used for exact output duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libresample_shim.dll",
+          "upstream_version": "libresample 0.1.5 development head",
+          "sha256": "9780bda327c2481013239743b7422e510f36124313f3222fe94bd14aa4db9b35",
+          "file_bytes": 694089,
+          "source_revision": "7cb7f9c3f72d4e6774d964dc324af827192df7c3",
+          "build_provenance": "MinGW-w64 GCC/G++ 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; resample.c/filterkit.c/resamplesubs.c source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          17818000.0,
+          15369600.0,
+          19547300.0,
+          41964900.0,
+          24032200.0,
+          26636600.0,
+          20670400.0,
+          21449500.0,
+          23123000.0,
+          30824500.0,
+          25237800.0
+        ],
+        "min": 15369600.0,
+        "median": 23123000.0,
+        "p95": 41964900.0,
+        "max": 41964900.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          38.9990234375,
+          44.86025390625,
+          61.18046875,
+          323.44091796875,
+          68.74375,
+          77.7111328125,
+          74.90859375,
+          70.7103515625,
+          101.35185546875,
+          76.968359375,
+          68.07607421875
+        ],
+        "min": 38.9990234375,
+        "median": 70.7103515625,
+        "p95": 323.44091796875,
+        "max": 323.44091796875
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          39935.0,
+          45936.9,
+          62648.8,
+          331203.5,
+          70393.6,
+          79576.2,
+          76706.4,
+          72407.4,
+          103784.3,
+          78815.6,
+          69709.9
+        ],
+        "min": 39935.0,
+        "median": 72407.4,
+        "p95": 331203.5,
+        "max": 331203.5
+      },
+      "reset_ns": {
+        "samples": [
+          16370400.0,
+          15878000.0,
+          23750800.0,
+          25041200.0,
+          24465400.0,
+          19354800.0,
+          24759200.0,
+          23027000.0,
+          29775000.0,
+          26645300.0,
+          21713200.0
+        ],
+        "min": 15878000.0,
+        "median": 23750800.0,
+        "p95": 29775000.0,
+        "max": 29775000.0
+      },
+      "drain_ns": {
+        "samples": [
+          39800.0,
+          71800.0,
+          71100.0,
+          91500.0,
+          241200.0,
+          82700.0,
+          67400.0,
+          85300.0,
+          91300.0,
+          82300.0,
+          80300.0
+        ],
+        "min": 39800.0,
+        "median": 82300.0,
+        "p95": 241200.0,
+        "max": 241200.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.6236653007812499,
+      "p95_source_realtime_utilization_pct": 2.852748896484375,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 30,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 0.0008177261019650371,
+        "gain_18_khz_db": -0.22695476022638117,
+        "passband_max_abs_deviation_db": 0.22695476022638117,
+        "thdn_997_hz_db": -79.2281103041292,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 557279,
+        "output_frame_slack": 4681,
+        "steady_output_frames_per_trial": [
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279,
+          557279
+        ],
+        "drain_frames_per_trial": [
+          29,
+          29,
+          29,
+          29,
+          29,
+          29,
+          29,
+          29,
+          29,
+          29,
+          29
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=audio_engine_core;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=audio_engine_core_soxr_per_channel_high_linear_v1",
+      "engine": {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (soxr)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "audio_engine_core_soxr_per_channel_high_linear_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: libsoxr HQ/Bits20, linear phase, high-precision clock",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          1474700.0,
+          1179100.0,
+          850000.0,
+          1152800.0,
+          1275800.0,
+          961600.0,
+          1132300.0,
+          1485000.0,
+          970300.0,
+          1005900.0,
+          845200.0
+        ],
+        "min": 845200.0,
+        "median": 1132300.0,
+        "p95": 1485000.0,
+        "max": 1485000.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          21.784765625,
+          20.009765625,
+          21.04013671875,
+          17.661328125,
+          21.21220703125,
+          10.794140625,
+          17.76552734375,
+          14.93525390625,
+          13.23232421875,
+          13.55224609375,
+          17.48115234375
+        ],
+        "min": 10.794140625,
+        "median": 17.661328125,
+        "p95": 21.784765625,
+        "max": 21.784765625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          22307.6,
+          20490.0,
+          21545.1,
+          18085.2,
+          21721.3,
+          11053.2,
+          18191.9,
+          15293.7,
+          13549.9,
+          13877.5,
+          17900.7
+        ],
+        "min": 11053.2,
+        "median": 18085.2,
+        "p95": 22307.6,
+        "max": 22307.6
+      },
+      "reset_ns": {
+        "samples": [
+          1119700.0,
+          1007700.0,
+          1315400.0,
+          1600800.0,
+          1749500.0,
+          649900.0,
+          1010300.0,
+          991500.0,
+          1103100.0,
+          972600.0,
+          796000.0
+        ],
+        "min": 649900.0,
+        "median": 1010300.0,
+        "p95": 1749500.0,
+        "max": 1749500.0
+      },
+      "drain_ns": {
+        "samples": [
+          184400.0,
+          252500.0,
+          221300.0,
+          197700.0,
+          145800.0,
+          155900.0,
+          180900.0,
+          459300.0,
+          406600.0,
+          277700.0,
+          162100.0
+        ],
+        "min": 145800.0,
+        "median": 197700.0,
+        "p95": 459300.0,
+        "max": 459300.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.16954875000000003,
+      "p95_source_realtime_utilization_pct": 0.20913375,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -3.8542906520741007e-7,
+        "gain_18_khz_db": -0.0021848723184103094,
+        "passband_max_abs_deviation_db": 0.0021848723184103094,
+        "thdn_997_hz_db": -134.3802049036866,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -137.67192770278328
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 15117,
+        "steady_output_frames_per_trial": [
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102
+        ],
+        "drain_frames_per_trial": [
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_libsoxr;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_libsoxr_hq_bits20_linear_single_thread_v1",
+      "engine": {
+        "engine_id": "raw_libsoxr",
+        "display_name": "raw libsoxr stereo",
+        "implementation": "direct Soxr<Stereo<f64>> via soxr 0.6.0",
+        "upstream_version": "libsoxr via soxr crate 0.6.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_libsoxr_hq_bits20_linear_single_thread_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "QualityRecipe::high/Bits20; Small rolloff; HighPrecisionClock; RuntimeSpec threads=1",
+        "phase_response": "linear; phase_response=50",
+        "native_library": null
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          649500.0,
+          680700.0,
+          643800.0,
+          566000.0,
+          640900.0,
+          362300.0,
+          509200.0,
+          302700.0,
+          267700.0,
+          663100.0,
+          356400.0
+        ],
+        "min": 267700.0,
+        "median": 566000.0,
+        "p95": 680700.0,
+        "max": 680700.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          15.39462890625,
+          16.689453125,
+          15.61435546875,
+          15.7095703125,
+          26.36396484375,
+          14.97197265625,
+          15.10224609375,
+          14.43720703125,
+          9.56259765625,
+          15.14365234375,
+          14.9576171875
+        ],
+        "min": 9.56259765625,
+        "median": 15.14365234375,
+        "p95": 26.36396484375,
+        "max": 26.36396484375
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          15764.1,
+          17090.0,
+          15989.1,
+          16086.6,
+          26996.7,
+          15331.3,
+          15464.7,
+          14783.7,
+          9792.1,
+          15507.1,
+          15316.6
+        ],
+        "min": 9792.1,
+        "median": 15507.1,
+        "p95": 26996.7,
+        "max": 26996.7
+      },
+      "reset_ns": {
+        "samples": [
+          649500.0,
+          715300.0,
+          501500.0,
+          733300.0,
+          1231100.0,
+          712600.0,
+          536800.0,
+          565400.0,
+          741600.0,
+          301300.0,
+          516700.0
+        ],
+        "min": 301300.0,
+        "median": 649500.0,
+        "p95": 1231100.0,
+        "max": 1231100.0
+      },
+      "drain_ns": {
+        "samples": [
+          183200.0,
+          184100.0,
+          154000.0,
+          177000.0,
+          418700.0,
+          107500.0,
+          180100.0,
+          228800.0,
+          117800.0,
+          208900.0,
+          237400.0
+        ],
+        "min": 107500.0,
+        "median": 183200.0,
+        "p95": 418700.0,
+        "max": 418700.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.14537906250000002,
+      "p95_source_realtime_utilization_pct": 0.25309406250000005,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -3.8542906520741007e-7,
+        "gain_18_khz_db": -0.0021848723184103094,
+        "passband_max_abs_deviation_db": 0.0021848723184103094,
+        "thdn_997_hz_db": -134.3802049036866,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -137.67192770278328
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 983,
+        "steady_output_frames_per_trial": [
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102,
+          470102
+        ],
+        "drain_frames_per_trial": [
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617,
+          617
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_rubato;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+      "engine": {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          139000.0,
+          159700.0,
+          186000.0,
+          131700.0,
+          429700.0,
+          148100.0,
+          133300.0,
+          205200.0,
+          205700.0,
+          79400.0,
+          69300.0
+        ],
+        "min": 69300.0,
+        "median": 148100.0,
+        "p95": 429700.0,
+        "max": 429700.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          19.4763671875,
+          18.21416015625,
+          21.79814453125,
+          18.1263671875,
+          25.6626953125,
+          13.4326171875,
+          19.75673828125,
+          13.7814453125,
+          14.72255859375,
+          13.173828125,
+          12.69267578125
+        ],
+        "min": 12.69267578125,
+        "median": 18.1263671875,
+        "p95": 25.6626953125,
+        "max": 25.6626953125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          19943.8,
+          18651.3,
+          22321.3,
+          18561.4,
+          26278.6,
+          13755.0,
+          20230.9,
+          14112.2,
+          15075.9,
+          13490.0,
+          12997.3
+        ],
+        "min": 12997.3,
+        "median": 18561.4,
+        "p95": 26278.6,
+        "max": 26278.6
+      },
+      "reset_ns": {
+        "samples": [
+          2200.0,
+          2300.0,
+          2000.0,
+          2100.0,
+          2100.0,
+          1400.0,
+          1800.0,
+          1100.0,
+          2000.0,
+          2000.0,
+          1100.0
+        ],
+        "min": 1100.0,
+        "median": 2000.0,
+        "p95": 2300.0,
+        "max": 2300.0
+      },
+      "drain_ns": {
+        "samples": [
+          14200.0,
+          13800.0,
+          14400.0,
+          13800.0,
+          14200.0,
+          8300.0,
+          7800.0,
+          5800.0,
+          40700.0,
+          12200.0,
+          6000.0
+        ],
+        "min": 5800.0,
+        "median": 13800.0,
+        "p95": 40700.0,
+        "max": 40700.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.17401312500000002,
+      "p95_source_realtime_utilization_pct": 0.24636187499999998,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15200,
+        "actual_complete_output_frames": 15200,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 147,
+        "measured_impulse_peak_frame": 147,
+        "gain_997_hz_db": 1.2956703840600303e-11,
+        "gain_18_khz_db": -5.333164837563356e-10,
+        "passband_max_abs_deviation_db": 5.333164837563356e-10,
+        "thdn_997_hz_db": -206.60330198220734,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -202.85515340849258
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 588,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=libsamplerate;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=libsamplerate_sinc_best_quality_streaming_f32_v2",
+      "engine": {
+        "engine_id": "libsamplerate",
+        "display_name": "libsamplerate SINC_BEST_QUALITY",
+        "implementation": "runtime-loaded libsamplerate streaming C API",
+        "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libsamplerate_sinc_best_quality_streaming_f32_v2",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1",
+        "phase_response": "library-defined linear-phase sinc; latency not exposed by API",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\libsamplerate-0.2.2-1\\mingw64\\bin\\libsamplerate-0.dll",
+          "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo",
+          "sha256": "1e08aeb1fecade2cf2d7a83463a1b375e13d5f2f008cdeea7409a3eff7ed9a0e",
+          "file_bytes": 1502619,
+          "source_revision": null,
+          "build_provenance": "signed MSYS2 mingw-w64-x86_64-libsamplerate package; release DLL",
+          "linked_artifacts": []
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          455100.0,
+          517900.0,
+          403500.0,
+          237900.0,
+          253000.0,
+          557000.0,
+          444600.0,
+          227900.0,
+          720000.0,
+          441800.0,
+          262900.0
+        ],
+        "min": 227900.0,
+        "median": 441800.0,
+        "p95": 720000.0,
+        "max": 720000.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          565.92548828125,
+          576.10361328125,
+          749.41123046875,
+          580.96005859375,
+          701.5376953125,
+          563.16171875,
+          481.65595703125,
+          373.4328125,
+          512.1576171875,
+          500.61533203125,
+          485.09091796875
+        ],
+        "min": 373.4328125,
+        "median": 563.16171875,
+        "p95": 749.41123046875,
+        "max": 749.41123046875
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          579507.7,
+          589930.1,
+          767397.1,
+          594903.1,
+          718374.6,
+          576677.6,
+          493215.7,
+          382395.2,
+          524449.4,
+          512630.1,
+          496733.1
+        ],
+        "min": 382395.2,
+        "median": 576677.6,
+        "p95": 767397.1,
+        "max": 767397.1
+      },
+      "reset_ns": {
+        "samples": [
+          91800.0,
+          94500.0,
+          339100.0,
+          93800.0,
+          89500.0,
+          56000.0,
+          113100.0,
+          72200.0,
+          74000.0,
+          44800.0,
+          49600.0
+        ],
+        "min": 44800.0,
+        "median": 89500.0,
+        "p95": 339100.0,
+        "max": 339100.0
+      },
+      "drain_ns": {
+        "samples": [
+          1000.0,
+          800.0,
+          2000.0,
+          1100.0,
+          800.0,
+          800.0,
+          600.0,
+          800.0,
+          800.0,
+          800.0,
+          800.0
+        ],
+        "min": 600.0,
+        "median": 800.0,
+        "p95": 2000.0,
+        "max": 2000.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 5.406352500000001,
+      "p95_source_realtime_utilization_pct": 7.1943478125,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 1.8569372238268027e-7,
+        "gain_18_khz_db": -6.998196828749795e-7,
+        "passband_max_abs_deviation_db": 6.998196828749795e-7,
+        "thdn_997_hz_db": -145.60724161609838,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -163.65787937443915
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 983,
+        "steady_output_frames_per_trial": [
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544,
+          470544
+        ],
+        "drain_frames_per_trial": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=ffmpeg_libswresample;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=ffmpeg_libswresample_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "ffmpeg_libswresample",
+        "display_name": "FFmpeg libswresample",
+        "implementation": "native swr_alloc_set_opts2/swr_convert streaming shim",
+        "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "ffmpeg_libswresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "libswresample SWR engine defaults; packed AV_SAMPLE_FMT_DBL stereo; filter_size=32; phase_shift=10; exact_rational=1",
+        "phase_response": "linear-phase windowed sinc; null-input flush",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\ffmpeg_libswresample_shim.dll",
+          "upstream_version": "FFmpeg n8.0.1 libswresample 6",
+          "sha256": "2d2ca725008d883ebcb1ff0b7c4070d4bf70dd56322a826cf7d9e6f4bd816b32",
+          "file_bytes": 676395,
+          "source_revision": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; FFmpeg minimal shared release build with runtime x86 SIMD dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\swresample-6.dll",
+              "sha256": "98fdb4d1788bd64c2282c7b363d5675f3844dd8bfcd8bbf27690c5595a63f0c7",
+              "file_bytes": 179712
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\avutil-60.dll",
+              "sha256": "6d025cf39a586811eb4f8944c364df507504cae567f491a7a5a4fd17443baa3e",
+              "file_bytes": 1094144
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          777900.0,
+          1050000.0,
+          899100.0,
+          842700.0,
+          904600.0,
+          818900.0,
+          763600.0,
+          399800.0,
+          564700.0,
+          761000.0,
+          434000.0
+        ],
+        "min": 399800.0,
+        "median": 777900.0,
+        "p95": 1050000.0,
+        "max": 1050000.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          14.71416015625,
+          15.2423828125,
+          18.82333984375,
+          14.20888671875,
+          16.0640625,
+          13.0041015625,
+          11.8275390625,
+          4.83955078125,
+          9.6904296875,
+          14.2447265625,
+          12.31533203125
+        ],
+        "min": 4.83955078125,
+        "median": 14.20888671875,
+        "p95": 18.82333984375,
+        "max": 18.82333984375
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          15067.3,
+          15608.2,
+          19275.1,
+          14549.9,
+          16449.6,
+          13316.2,
+          12111.4,
+          4955.7,
+          9923.0,
+          14586.6,
+          12610.9
+        ],
+        "min": 4955.7,
+        "median": 14549.9,
+        "p95": 19275.1,
+        "max": 19275.1
+      },
+      "reset_ns": {
+        "samples": [
+          136500.0,
+          86000.0,
+          248000.0,
+          91600.0,
+          250800.0,
+          94800.0,
+          193100.0,
+          52400.0,
+          234100.0,
+          85200.0,
+          217700.0
+        ],
+        "min": 52400.0,
+        "median": 136500.0,
+        "p95": 250800.0,
+        "max": 250800.0
+      },
+      "drain_ns": {
+        "samples": [
+          1700.0,
+          2600.0,
+          2900.0,
+          3100.0,
+          2800.0,
+          2800.0,
+          2600.0,
+          1600.0,
+          2700.0,
+          2600.0,
+          2300.0
+        ],
+        "min": 1600.0,
+        "median": 2600.0,
+        "p95": 3100.0,
+        "max": 3100.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.1364053125,
+      "p95_source_realtime_utilization_pct": 0.18070406249999998,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 0,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 0.00008658152691855062,
+        "gain_18_khz_db": -0.0096067598632476,
+        "passband_max_abs_deviation_db": 0.0096067598632476,
+        "thdn_997_hz_db": -108.68563499466326,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -19.9271614050809
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 8662,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          16,
+          16,
+          16,
+          16,
+          16,
+          16,
+          16,
+          16,
+          16,
+          16,
+          16
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=speexdsp;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=speexdsp_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "speexdsp",
+        "display_name": "SpeexDSP quality 10",
+        "implementation": "native speex_resampler_process_interleaved_float streaming shim; fresh-state reset",
+        "upstream_version": "SpeexDSP 1.2.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "speexdsp_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "SpeexDSP quality=10; interleaved float stereo; natural leading latency retained; zero-tail drain to nominal plus output latency",
+        "phase_response": "SpeexDSP quality-10 sinc; API output latency retained and reported",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\speexdsp_shim.dll",
+          "upstream_version": "SpeexDSP 1.2.1",
+          "sha256": "8b9269a1d2bab8d04e673bd732430db890584dd9dfedcb99f0291146ccd2d3ec",
+          "file_bytes": 676035,
+          "source_revision": "MSYS2 mingw-w64-x86_64-speexdsp-1.2.1-1",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; signed MSYS2 SpeexDSP release DLL",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libspeexdsp-1.dll",
+              "sha256": "676de283408c6a7c06221774bbf8150dcfe94668e0a249d67e81ede17cc22a45",
+              "file_bytes": 111227
+            },
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          994000.0,
+          871600.0,
+          1111000.0,
+          1003400.0,
+          1086700.0,
+          1410700.0,
+          998500.0,
+          989500.0,
+          1278200.0,
+          633900.0,
+          666500.0
+        ],
+        "min": 633900.0,
+        "median": 998500.0,
+        "p95": 1410700.0,
+        "max": 1410700.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          456.5037109375,
+          479.65771484375,
+          531.3625,
+          488.0841796875,
+          602.58330078125,
+          499.04462890625,
+          421.47802734375,
+          324.194921875,
+          316.148828125,
+          469.75517578125,
+          419.7873046875
+        ],
+        "min": 316.148828125,
+        "median": 469.75517578125,
+        "p95": 602.58330078125,
+        "max": 602.58330078125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          467459.8,
+          491169.5,
+          544115.2,
+          499798.2,
+          617045.3,
+          511021.7,
+          431593.5,
+          331975.6,
+          323736.4,
+          481029.3,
+          429862.2
+        ],
+        "min": 323736.4,
+        "median": 481029.3,
+        "p95": 617045.3,
+        "max": 617045.3
+      },
+      "reset_ns": {
+        "samples": [
+          1254400.0,
+          1082700.0,
+          1466600.0,
+          1081800.0,
+          1098700.0,
+          1082000.0,
+          973000.0,
+          474900.0,
+          548600.0,
+          1022200.0,
+          1066500.0
+        ],
+        "min": 474900.0,
+        "median": 1081800.0,
+        "p95": 1466600.0,
+        "max": 1466600.0
+      },
+      "drain_ns": {
+        "samples": [
+          123600.0,
+          144600.0,
+          160800.0,
+          119300.0,
+          130300.0,
+          151000.0,
+          325900.0,
+          64100.0,
+          69600.0,
+          121800.0,
+          150300.0
+        ],
+        "min": 64100.0,
+        "median": 130300.0,
+        "p95": 325900.0,
+        "max": 325900.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 4.5096496875000005,
+      "p95_source_realtime_utilization_pct": 5.7847996875000005,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15182,
+        "actual_complete_output_frames": 15182,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 129,
+        "measured_impulse_peak_frame": 129,
+        "gain_997_hz_db": -1.7247836182339908e-6,
+        "gain_18_khz_db": -8.23341831496223e-6,
+        "passband_max_abs_deviation_db": 8.23341831496223e-6,
+        "thdn_997_hz_db": -137.78485598158827,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -123.39834427355166
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 1623,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          129,
+          129,
+          129,
+          129,
+          129,
+          129,
+          129,
+          129,
+          129,
+          129,
+          129
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=r8brain;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=r8brain_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "r8brain",
+        "display_name": "r8brain-free-src",
+        "implementation": "two independent r8b::CDSPResampler24 channel states with interleaved shim",
+        "upstream_version": "r8brain-free-src 7.1",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "r8brain_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "CDSPResampler24; 2 percent transition band; 180.15 dB requested attenuation; linear phase; double precision",
+        "phase_response": "linear phase; upstream automatic initial-latency consumption; bounded zero-tail drain to duration-aligned output",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\r8brain_shim.dll",
+          "upstream_version": "r8brain-free-src 7.1",
+          "sha256": "68fe08c3d852a296bc18ed43a85d21478a87dd6efd52eeba7979f0e153b81e0c",
+          "file_bytes": 890384,
+          "source_revision": "e71c31bf320f84210bb4bdcb57e296c39ce940f9",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated header implementation; FFT4G double backend",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          1852000.0,
+          44600.0,
+          50400.0,
+          45200.0,
+          29500.0,
+          65400.0,
+          35800.0,
+          59000.0,
+          21500.0,
+          68800.0,
+          42700.0
+        ],
+        "min": 21500.0,
+        "median": 45200.0,
+        "p95": 1852000.0,
+        "max": 1852000.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          38.543359375,
+          38.39248046875,
+          49.87734375,
+          35.84228515625,
+          41.92490234375,
+          36.3546875,
+          35.1390625,
+          28.75341796875,
+          25.91201171875,
+          32.02666015625,
+          27.5599609375
+        ],
+        "min": 25.91201171875,
+        "median": 35.84228515625,
+        "p95": 49.87734375,
+        "max": 49.87734375
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          39468.4,
+          39313.9,
+          51074.4,
+          36702.5,
+          42931.1,
+          37227.2,
+          35982.4,
+          29443.5,
+          26533.9,
+          32795.3,
+          28221.4
+        ],
+        "min": 26533.9,
+        "median": 36702.5,
+        "p95": 51074.4,
+        "max": 51074.4
+      },
+      "reset_ns": {
+        "samples": [
+          1400.0,
+          1600.0,
+          1700.0,
+          1500.0,
+          1700.0,
+          1800.0,
+          1600.0,
+          900.0,
+          700.0,
+          1100.0,
+          1700.0
+        ],
+        "min": 700.0,
+        "median": 1600.0,
+        "p95": 1800.0,
+        "max": 1800.0
+      },
+      "drain_ns": {
+        "samples": [
+          239600.0,
+          176300.0,
+          192200.0,
+          188500.0,
+          202600.0,
+          167100.0,
+          157900.0,
+          96400.0,
+          93900.0,
+          286700.0,
+          203200.0
+        ],
+        "min": 93900.0,
+        "median": 188500.0,
+        "p95": 286700.0,
+        "max": 286700.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.34408593750000005,
+      "p95_source_realtime_utilization_pct": 0.47882250000000004,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 1533,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 4.679669043014398e-10,
+        "gain_18_khz_db": 7.164507554246573e-9,
+        "passband_max_abs_deviation_db": 7.164507554246573e-9,
+        "thdn_997_hz_db": -181.10040549305944,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -213.63197329474505
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 1024,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533,
+          1533
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=zita_resampler;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=zita_resampler_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "zita_resampler",
+        "display_name": "zita-resampler",
+        "implementation": "native Resampler::setup/process/reset interleaved float shim",
+        "upstream_version": "zita-resampler 1.11.2",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "zita_resampler_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "zita Resampler hlen=96 default cutoff; author file-mode half-filter pre/post zero policy; interleaved float stereo",
+        "phase_response": "linear phase; half-filter input latency reported; file-mode centered stream alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\zita_resampler_shim.dll",
+          "upstream_version": "zita-resampler 1.11.2",
+          "sha256": "b41c9c17632a3e085ae618868984679ac76ba620f144cffb18c2c31dca0929b4",
+          "file_bytes": 698250,
+          "source_revision": "official release 1.11.2; archive sha256 AA5C54E696069AF26F3F1FED4A963113CC1237CDDFD57AE5842ABCB1ACD5492C",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -DENABLE_SSE2 -msse3; source-integrated shared release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          3073200.0,
+          3673500.0,
+          4720600.0,
+          3031500.0,
+          3790600.0,
+          3550900.0,
+          3411700.0,
+          2209800.0,
+          2173500.0,
+          3035400.0,
+          3275600.0
+        ],
+        "min": 2173500.0,
+        "median": 3275600.0,
+        "p95": 4720600.0,
+        "max": 4720600.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          59.0033203125,
+          57.2734375,
+          51.178515625,
+          59.5642578125,
+          73.40478515625,
+          62.80546875,
+          52.77666015625,
+          48.0193359375,
+          28.92392578125,
+          50.2859375,
+          37.153515625
+        ],
+        "min": 28.92392578125,
+        "median": 52.77666015625,
+        "p95": 73.40478515625,
+        "max": 73.40478515625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          60419.4,
+          58648.0,
+          52406.8,
+          60993.8,
+          75166.5,
+          64312.8,
+          54043.3,
+          49171.8,
+          29618.1,
+          51492.8,
+          38045.2
+        ],
+        "min": 29618.1,
+        "median": 54043.3,
+        "p95": 75166.5,
+        "max": 75166.5
+      },
+      "reset_ns": {
+        "samples": [
+          1200.0,
+          1300.0,
+          1300.0,
+          1200.0,
+          1400.0,
+          1400.0,
+          1100.0,
+          1500.0,
+          800.0,
+          1200.0,
+          1300.0
+        ],
+        "min": 800.0,
+        "median": 1300.0,
+        "p95": 1500.0,
+        "max": 1500.0
+      },
+      "drain_ns": {
+        "samples": [
+          14200.0,
+          14400.0,
+          14800.0,
+          11100.0,
+          62800.0,
+          14700.0,
+          13700.0,
+          13800.0,
+          6500.0,
+          13300.0,
+          13300.0
+        ],
+        "min": 6500.0,
+        "median": 13800.0,
+        "p95": 62800.0,
+        "max": 62800.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.5066559375,
+      "p95_source_realtime_utilization_pct": 0.7046859375000001,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 99,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -2.0857676988008356e-8,
+        "gain_18_khz_db": 3.7672143858207964e-7,
+        "passband_max_abs_deviation_db": 3.7672143858207964e-7,
+        "thdn_997_hz_db": -145.0608701451425,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -114.81848742391188
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 1593,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          99,
+          99,
+          99,
+          99,
+          99,
+          99,
+          99,
+          99,
+          99,
+          99,
+          99
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=webrtc;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=webrtc_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "webrtc",
+        "display_name": "WebRTC PushResampler",
+        "implementation": "WebRTC PushResampler<float> with preallocated arbitrary-chunk 10 ms staging",
+        "upstream_version": "webrtc-audio-processing 1.3",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "webrtc_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "WebRTC SincResampler kernel=32, offset_count=32, Blackman window, 0.9 cutoff scale; runtime AVX2/SSE2; interleaved float stereo",
+        "phase_response": "linear phase; 16-input-frame algorithmic delay; final 10 ms block zero padded and trimmed to exact duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\webrtc_shim.dll",
+          "upstream_version": "webrtc-audio-processing 1.3",
+          "sha256": "bcde9a7a876f7d847ae20adef1db94d273cfa42ce54e2318f748bd73a7aa0610",
+          "file_bytes": 725790,
+          "source_revision": "8e258a1933d405073c9e6465628a69ac7d2a1f13",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated PushResampler with runtime SSE2/AVX2 dispatch",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          520500.0,
+          606800.0,
+          540500.0,
+          482000.0,
+          540000.0,
+          513000.0,
+          449200.0,
+          282100.0,
+          372000.0,
+          510100.0,
+          465800.0
+        ],
+        "min": 282100.0,
+        "median": 510100.0,
+        "p95": 606800.0,
+        "max": 606800.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          19.82490234375,
+          19.642578125,
+          22.025390625,
+          14.32724609375,
+          17.5509765625,
+          19.16416015625,
+          13.01640625,
+          9.1455078125,
+          9.68017578125,
+          10.306640625,
+          9.1109375
+        ],
+        "min": 9.1109375,
+        "median": 14.32724609375,
+        "p95": 22.025390625,
+        "max": 22.025390625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          20300.7,
+          20114.0,
+          22554.0,
+          14671.1,
+          17972.2,
+          19624.1,
+          13328.8,
+          9365.0,
+          9912.5,
+          10554.0,
+          9329.6
+        ],
+        "min": 9329.6,
+        "median": 14671.1,
+        "p95": 22554.0,
+        "max": 22554.0
+      },
+      "reset_ns": {
+        "samples": [
+          499700.0,
+          574300.0,
+          536000.0,
+          542000.0,
+          1051600.0,
+          387100.0,
+          299400.0,
+          292100.0,
+          423900.0,
+          355100.0,
+          294100.0
+        ],
+        "min": 292100.0,
+        "median": 423900.0,
+        "p95": 1051600.0,
+        "max": 1051600.0
+      },
+      "drain_ns": {
+        "samples": [
+          19000.0,
+          18700.0,
+          19600.0,
+          18100.0,
+          20100.0,
+          12600.0,
+          7000.0,
+          6600.0,
+          6400.0,
+          6700.0,
+          7500.0
+        ],
+        "min": 6400.0,
+        "median": 12600.0,
+        "p95": 20100.0,
+        "max": 20100.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.13754156250000002,
+      "p95_source_realtime_utilization_pct": 0.21144374999999999,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 15,
+        "measured_impulse_peak_frame": 15,
+        "gain_997_hz_db": 0.0001440608938503878,
+        "gain_18_khz_db": -0.8363418871072146,
+        "passband_max_abs_deviation_db": 0.8363418871072146,
+        "thdn_997_hz_db": -91.53521013428937,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -42.86880751858823
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 882,
+        "steady_output_frames_per_trial": [
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106,
+          470106
+        ],
+        "drain_frames_per_trial": [
+          353,
+          353,
+          353,
+          353,
+          353,
+          353,
+          353,
+          353,
+          353,
+          353,
+          353
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=wdl;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=wdl_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "wdl",
+        "display_name": "WDL Resampler",
+        "implementation": "native WDL_Resampler input-driven interleaved double shim",
+        "upstream_version": "WDL commit 96b770f (2026-07-15)",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "wdl_benchmark_shim_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "WDL sinc mode size=64, interpolation table=32, input-driven feed mode, double samples, stereo",
+        "phase_response": "linear-phase sinc; 31-input-frame startup latency reported; documented short-input flush trimmed to duration alignment",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\wdl_shim.dll",
+          "upstream_version": "WDL commit 96b770f (2026-07-15)",
+          "sha256": "a489b23d3b0c787ce576ce90b985cbbcff35563ebeac88807511619ce038bbd8",
+          "file_bytes": 703087,
+          "source_revision": "96b770f7368f75b53756e0c8941ce3ecc8b6c29b",
+          "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; WDL resample.cpp source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          396800.0,
+          315700.0,
+          330300.0,
+          342900.0,
+          265300.0,
+          328400.0,
+          184000.0,
+          277100.0,
+          401900.0,
+          571900.0,
+          178900.0
+        ],
+        "min": 178900.0,
+        "median": 328400.0,
+        "p95": 571900.0,
+        "max": 571900.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          57.471875,
+          54.46279296875,
+          56.0291015625,
+          51.75478515625,
+          58.515625,
+          54.89150390625,
+          44.644140625,
+          46.59951171875,
+          45.83525390625,
+          47.3306640625,
+          45.37255859375
+        ],
+        "min": 44.644140625,
+        "median": 51.75478515625,
+        "p95": 58.515625,
+        "max": 58.515625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          58851.2,
+          55769.9,
+          57373.8,
+          52996.9,
+          59920.0,
+          56208.9,
+          45715.6,
+          47717.9,
+          46935.3,
+          48466.6,
+          46461.5
+        ],
+        "min": 45715.6,
+        "median": 52996.9,
+        "p95": 59920.0,
+        "max": 59920.0
+      },
+      "reset_ns": {
+        "samples": [
+          900.0,
+          900.0,
+          700.0,
+          1000.0,
+          800.0,
+          800.0,
+          700.0,
+          300.0,
+          900.0,
+          700.0,
+          600.0
+        ],
+        "min": 300.0,
+        "median": 800.0,
+        "p95": 1000.0,
+        "max": 1000.0
+      },
+      "drain_ns": {
+        "samples": [
+          21300.0,
+          17200.0,
+          20000.0,
+          17500.0,
+          20600.0,
+          21000.0,
+          6500.0,
+          12200.0,
+          16700.0,
+          15800.0,
+          6100.0
+        ],
+        "min": 6100.0,
+        "median": 17200.0,
+        "p95": 21300.0,
+        "max": 21300.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.49684593750000006,
+      "p95_source_realtime_utilization_pct": 0.56175,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 28,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": -0.000012399444159627303,
+        "gain_18_khz_db": -0.003933642594254933,
+        "passband_max_abs_deviation_db": 0.003933642594254933,
+        "thdn_997_hz_db": -123.3641169074525,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -32.7552608347603
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 1522,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31,
+          31
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=libresample;format=interleaved_f32;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=libresample_benchmark_shim_v1",
+      "engine": {
+        "engine_id": "libresample",
+        "display_name": "libresample high quality",
+        "implementation": "two independent high-quality libresample C states with interleaved float shim",
+        "upstream_version": "libresample 0.1.5 development head",
+        "adapter_schema": "cross_project_resampler_v3_terminal_coverage",
+        "algorithm_id": "libresample_benchmark_shim_v1",
+        "sample_format": "interleaved_f32",
+        "quality_recipe": "resample_open highQuality=1 at fixed exact ratio; one state per channel; final zero padding trimmed to exact duration",
+        "phase_response": "linear-phase Kaiser-windowed sinc; filter-width input latency reported; documented padding used for exact output duration",
+        "native_library": {
+          "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libresample_shim.dll",
+          "upstream_version": "libresample 0.1.5 development head",
+          "sha256": "9780bda327c2481013239743b7422e510f36124313f3222fe94bd14aa4db9b35",
+          "file_bytes": 694089,
+          "source_revision": "7cb7f9c3f72d4e6774d964dc324af827192df7c3",
+          "build_provenance": "MinGW-w64 GCC/G++ 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; resample.c/filterkit.c/resamplesubs.c source-integrated release shim",
+          "linked_artifacts": [
+            {
+              "canonical_path": "\\\\?\\D:\\AI\\audio-engine-core\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+              "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9",
+              "file_bytes": 65018
+            }
+          ]
+        }
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          23707700.0,
+          25386000.0,
+          23443200.0,
+          20373500.0,
+          24764600.0,
+          22569000.0,
+          19610400.0,
+          14936900.0,
+          18043100.0,
+          14459400.0,
+          18080200.0
+        ],
+        "min": 14459400.0,
+        "median": 20373500.0,
+        "p95": 25386000.0,
+        "max": 25386000.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          87.6,
+          82.55478515625,
+          71.98779296875,
+          80.980859375,
+          85.8732421875,
+          83.22890625,
+          66.45615234375,
+          53.0267578125,
+          63.37734375,
+          56.16513671875,
+          68.54521484375
+        ],
+        "min": 53.0267578125,
+        "median": 71.98779296875,
+        "p95": 87.6,
+        "max": 87.6
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          89702.4,
+          84536.1,
+          73715.5,
+          82924.4,
+          87934.2,
+          85226.4,
+          68051.1,
+          54299.4,
+          64898.4,
+          57513.1,
+          70190.3
+        ],
+        "min": 54299.4,
+        "median": 73715.5,
+        "p95": 89702.4,
+        "max": 89702.4
+      },
+      "reset_ns": {
+        "samples": [
+          25977700.0,
+          20694300.0,
+          24913700.0,
+          22490700.0,
+          27206700.0,
+          23182900.0,
+          21018300.0,
+          18678800.0,
+          18885400.0,
+          16832700.0,
+          19289700.0
+        ],
+        "min": 16832700.0,
+        "median": 21018300.0,
+        "p95": 27206700.0,
+        "max": 27206700.0
+      },
+      "drain_ns": {
+        "samples": [
+          95400.0,
+          89600.0,
+          127800.0,
+          79800.0,
+          76000.0,
+          94300.0,
+          78300.0,
+          42200.0,
+          44000.0,
+          42500.0,
+          89100.0
+        ],
+        "min": 42200.0,
+        "median": 79800.0,
+        "p95": 127800.0,
+        "max": 127800.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.6910828125,
+      "p95_source_realtime_utilization_pct": 0.8409599999999999,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_latency_frames": 27,
+        "measured_impulse_peak_frame": 0,
+        "gain_997_hz_db": 0.0008174976915666238,
+        "gain_18_khz_db": -0.22695478793362406,
+        "passband_max_abs_deviation_db": 0.22695478793362406,
+        "thdn_997_hz_db": -76.65816852314963,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -78.87799556597838
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_consumed_frames_per_trial": 512000,
+        "consumed_frames_per_trial": [
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000,
+          512000
+        ],
+        "expected_steady_output_frames": 470400,
+        "output_frame_slack": 4595,
+        "steady_output_frames_per_trial": [
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400,
+          470400
+        ],
+        "drain_frames_per_trial": [
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26,
+          26
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}

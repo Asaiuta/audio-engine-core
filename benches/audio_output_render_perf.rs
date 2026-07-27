@@ -1,6 +1,4 @@
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -8,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod support;
 
+use support::allocation::AllocationScope;
 use support::{
     compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
     summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
@@ -31,82 +30,6 @@ const RENDER_BLOCK_FRAMES: usize = 4_096;
 const SHORT_RENDER_BLOCK_FRAMES: usize = 64;
 const WARMUP_FRAMES: usize = 4_096;
 const ACTIVE_EQ_GAINS_DB: [f64; EQ_BANDS] = [2.5, -1.5, 1.0, -0.5, 1.5, -2.0, 1.0, 0.5, -1.0, 1.5];
-
-static ALLOCATION_MEASUREMENT_ENABLED: AtomicBool = AtomicBool::new(false);
-static ALLOCATION_CALLS: AtomicUsize = AtomicUsize::new(0);
-static DEALLOCATION_CALLS: AtomicUsize = AtomicUsize::new(0);
-static REALLOCATION_CALLS: AtomicUsize = AtomicUsize::new(0);
-static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
-static PEAK_LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
-
-struct CountingAllocator;
-
-#[global_allocator]
-static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
-
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let pointer = unsafe { System.alloc(layout) };
-        if !pointer.is_null() && ALLOCATION_MEASUREMENT_ENABLED.load(Ordering::Relaxed) {
-            record_allocation(layout.size());
-        }
-        pointer
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let pointer = unsafe { System.alloc_zeroed(layout) };
-        if !pointer.is_null() && ALLOCATION_MEASUREMENT_ENABLED.load(Ordering::Relaxed) {
-            record_allocation(layout.size());
-        }
-        pointer
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(pointer, layout) };
-        if !pointer.is_null() && ALLOCATION_MEASUREMENT_ENABLED.load(Ordering::Relaxed) {
-            record_deallocation(layout.size());
-        }
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let new_pointer = unsafe { System.realloc(pointer, layout, new_size) };
-        if !new_pointer.is_null() && ALLOCATION_MEASUREMENT_ENABLED.load(Ordering::Relaxed) {
-            REALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
-            adjust_live_bytes(layout.size(), new_size);
-        }
-        new_pointer
-    }
-}
-
-fn record_allocation(bytes: usize) {
-    ALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
-    let live = LIVE_BYTES
-        .fetch_add(bytes, Ordering::Relaxed)
-        .saturating_add(bytes);
-    PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
-}
-
-fn record_deallocation(bytes: usize) {
-    DEALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
-    let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(current.saturating_sub(bytes))
-    });
-}
-
-fn adjust_live_bytes(old_size: usize, new_size: usize) {
-    if new_size >= old_size {
-        let delta = new_size - old_size;
-        let live = LIVE_BYTES
-            .fetch_add(delta, Ordering::Relaxed)
-            .saturating_add(delta);
-        PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
-    } else {
-        let delta = old_size - new_size;
-        let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(delta))
-        });
-    }
-}
 
 #[derive(Clone, Copy)]
 enum Scenario {
@@ -345,46 +268,6 @@ struct RenderReport {
     baseline: Option<BaselineReference>,
     comparisons: Vec<RegressionComparison>,
     memory_comparisons: Vec<MemoryComparison>,
-}
-
-#[derive(Clone, Copy)]
-struct AllocationSnapshot {
-    allocations: usize,
-    deallocations: usize,
-    reallocations: usize,
-    live_bytes: usize,
-    peak_live_bytes: usize,
-}
-
-struct AllocationScope;
-
-impl AllocationScope {
-    fn start() -> Self {
-        ALLOCATION_CALLS.store(0, Ordering::Relaxed);
-        DEALLOCATION_CALLS.store(0, Ordering::Relaxed);
-        REALLOCATION_CALLS.store(0, Ordering::Relaxed);
-        LIVE_BYTES.store(0, Ordering::Relaxed);
-        PEAK_LIVE_BYTES.store(0, Ordering::Relaxed);
-        ALLOCATION_MEASUREMENT_ENABLED.store(true, Ordering::Relaxed);
-        Self
-    }
-
-    fn finish(self) -> AllocationSnapshot {
-        ALLOCATION_MEASUREMENT_ENABLED.store(false, Ordering::Relaxed);
-        AllocationSnapshot {
-            allocations: ALLOCATION_CALLS.load(Ordering::Relaxed),
-            deallocations: DEALLOCATION_CALLS.load(Ordering::Relaxed),
-            reallocations: REALLOCATION_CALLS.load(Ordering::Relaxed),
-            live_bytes: LIVE_BYTES.load(Ordering::Relaxed),
-            peak_live_bytes: PEAK_LIVE_BYTES.load(Ordering::Relaxed),
-        }
-    }
-}
-
-impl Drop for AllocationScope {
-    fn drop(&mut self) {
-        ALLOCATION_MEASUREMENT_ENABLED.store(false, Ordering::Relaxed);
-    }
 }
 
 fn main() -> Result<(), String> {

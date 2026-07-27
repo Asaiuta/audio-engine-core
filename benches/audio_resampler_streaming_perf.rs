@@ -5,10 +5,12 @@ use serde::{Deserialize, Serialize};
 
 pub mod support;
 
+use support::signals::resampler_test_buffer;
 use support::{
-    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
-    summarize_trials, validate_performance_baseline, write_json, BenchEnvironment, BenchMode,
-    PerfArgs, PerformanceReportIdentity, RegressionComparison, TrialDistribution,
+    compare_case_medians, environment_json, generated_unix_ms, parse_pinned_probe_args,
+    pin_current_thread, read_json, regression_gate_error, summarize_trials,
+    validate_performance_baseline, write_json, BenchEnvironment, BenchMode, PerfArgs,
+    PerformanceReportIdentity, PinnedSchedulingState, RegressionComparison, TrialDistribution,
     REPORT_SCHEMA_VERSION,
 };
 
@@ -18,21 +20,22 @@ use audio_engine_core::processor::{
 };
 
 const CHANNELS: usize = 2;
-const BUFFER_FRAMES: [usize; 3] = [128, 256, 512];
+const BUFFER_FRAMES: [usize; 4] = [128, 256, 512, 1_024];
 const WARMUP_BUFFERS: usize = 64;
 const VALIDATION_BUFFERS: usize = 8;
 
 #[cfg(feature = "soxr")]
-const RESAMPLER_ALGORITHM_LABEL: &str = "streaming default quality/phase";
+const RESAMPLER_ALGORITHM_LABEL: &str =
+    "native-interleaved stereo with per-channel fallback, default quality/phase";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_LABEL: &str =
-    "native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output";
+    "native-interleaved exact-2x High half-band plus quality-preserving FFT 1024/2 Low-High and 1024/1 UltraHigh routing with bulk channel input/output adapters, split FIFO-prefix/caller-suffix input, aligned split output, partial-zero terminal-truncating FFT drain, ring FIFO fallback, and prefix-budget direct output";
 
 #[cfg(feature = "soxr")]
-const RESAMPLER_ALGORITHM_ID: &str = "streaming_default";
+const RESAMPLER_ALGORITHM_ID: &str = "streaming_interleaved_stereo_v2";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_ID: &str =
-    "streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo";
+    "streaming_native_interleaved_halfband2x_fft1024_sub2_bulk_io_split_input_terminal_drain_v17";
 
 fn resampler_algorithm_label() -> String {
     format!("{RESAMPLER_BACKEND_NAME} {RESAMPLER_ALGORITHM_LABEL}")
@@ -45,7 +48,7 @@ struct Scenario {
     to_rate: u32,
 }
 
-const SCENARIOS: [Scenario; 3] = [
+const SCENARIOS: [Scenario; 4] = [
     Scenario {
         name: "equal_rate_48k",
         from_rate: 48_000,
@@ -55,6 +58,11 @@ const SCENARIOS: [Scenario; 3] = [
         name: "music_44k1_to_48k",
         from_rate: 44_100,
         to_rate: 48_000,
+    },
+    Scenario {
+        name: "music_48k_to_44k1",
+        from_rate: 48_000,
+        to_rate: 44_100,
     },
     Scenario {
         name: "upsample_48k_to_96k",
@@ -98,6 +106,9 @@ struct ResamplerConditions {
     warmup_buffers: usize,
     iterations_per_trial: usize,
     trials: usize,
+    pinned: bool,
+    pin_core: Option<usize>,
+    scheduling: Option<PinnedSchedulingState>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -163,11 +174,17 @@ struct ApiRun {
 }
 
 fn main() -> Result<(), String> {
-    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    let pinned = parse_pinned_probe_args(std::env::args().skip(1).collect())?;
+    let args = PerfArgs::parse(pinned.remaining)?;
     if args.help {
         print_help();
         return Ok(());
     }
+    let scheduling = if pinned.enabled {
+        Some(pin_current_thread(pinned.core)?)
+    } else {
+        None
+    };
 
     let (iterations, trials) = workload(args.mode);
     let environment = BenchEnvironment::capture();
@@ -187,11 +204,14 @@ fn main() -> Result<(), String> {
         warmup_buffers: WARMUP_BUFFERS,
         iterations_per_trial: iterations,
         trials,
+        pinned: pinned.enabled,
+        pin_core: pinned.enabled.then_some(pinned.core),
+        scheduling,
     };
     let mut cases = Vec::new();
     for scenario in SCENARIOS {
         for frames in BUFFER_FRAMES {
-            let input = synthetic_buffer(frames, CHANNELS, scenario.from_rate);
+            let input = resampler_test_buffer(frames, CHANNELS, scenario.from_rate);
             for &api in ApiPath::all() {
                 cases.push(benchmark_api(
                     scenario, api, frames, &input, iterations, trials,
@@ -245,7 +265,7 @@ fn workload(mode: BenchMode) -> (usize, usize) {
 
 fn print_help() {
     println!(
-        "Usage: cargo bench --bench audio_resampler_streaming_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+        "Usage: cargo bench --bench audio_resampler_streaming_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>] [--pinned] [--pin-core <core>]\n\
          \n\
          Reports trial min/median/p95/max and source-buffer realtime-reference utilization.\n\
          Timing is report-only unless a compatible same-machine baseline is supplied."
@@ -265,8 +285,13 @@ fn print_report(report: &ResamplerReport) -> Result<(), String> {
         environment_json(&report.environment)?
     );
     println!(
-        "audio_resampler_streaming_note excludes={} utilization_reference=source_buffer_duration",
-        report.conditions.excludes.join(",")
+        "audio_resampler_streaming_note excludes={} utilization_reference=source_buffer_duration pinned={} pin_core={}",
+        report.conditions.excludes.join(","),
+        report.conditions.pinned,
+        report
+            .conditions
+            .pin_core
+            .map_or_else(|| "n/a".to_string(), |core| core.to_string())
     );
     for case in &report.cases {
         println!(
@@ -585,30 +610,4 @@ fn run_api(
         produced_frames: output_frames,
         all_output_samples_finite,
     }
-}
-
-fn synthetic_buffer(frames: usize, channels: usize, sample_rate: u32) -> Vec<f64> {
-    let mut out = Vec::with_capacity(frames * channels);
-    let sample_rate = sample_rate as f64;
-    let mut left_phase = 0.0_f64;
-    let mut right_phase = 0.0_f64;
-
-    for frame in 0..frames {
-        let t = frame as f64 / sample_rate;
-        left_phase += std::f64::consts::TAU * (330.0 + 17.0 * (t * 2.5).sin()) / sample_rate;
-        right_phase += std::f64::consts::TAU * (550.0 + 23.0 * (t * 1.7).cos()) / sample_rate;
-        let envelope = 0.7 + 0.15 * (std::f64::consts::TAU * 1.1 * t).sin();
-        let left = (left_phase.sin() * 0.6 + (left_phase * 2.0).sin() * 0.05) * envelope;
-        let right = (right_phase.sin() * 0.55 - (right_phase * 3.0).cos() * 0.04) * envelope;
-
-        out.push(left.clamp(-0.95, 0.95));
-        if channels > 1 {
-            out.push(right.clamp(-0.95, 0.95));
-        }
-        for ch in 2..channels {
-            out.push((left * (1.0 - ch as f64 * 0.05)).clamp(-0.95, 0.95));
-        }
-    }
-
-    out
 }

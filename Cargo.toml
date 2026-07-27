@@ -54,7 +54,9 @@ rubato = ["dep:rubato"]
 
 [dev-dependencies]
 assert_no_alloc = "1.1"
+libloading = "0.8"
 serde_json = "1"
+sha2 = "0.10"
 
 # Custom-harness benchmarks (run with `cargo bench --bench <name> -- --quick`).
 # These exercise only this crate's processor/resampler modules; they use a
@@ -68,7 +70,15 @@ name = "audio_resampler_matrix_perf"
 harness = false
 
 [[bench]]
+name = "audio_resampler_comparison_perf"
+harness = false
+
+[[bench]]
 name = "audio_callback_chain_perf"
+harness = false
+
+[[bench]]
+name = "audio_callback_tail_perf"
 harness = false
 
 [[bench]]
@@ -93,6 +103,18 @@ harness = false
 
 [[bench]]
 name = "audio_gapless_comparison_perf"
+harness = false
+
+[[bench]]
+name = "audio_decoder_perf"
+harness = false
+
+[[bench]]
+name = "audio_component_perf"
+harness = false
+
+[[bench]]
+name = "audio_lifecycle_memory_perf"
 harness = false
 
 [package.metadata.vcpkg]

@@ -1,0 +1,689 @@
+{
+  "schema_version": 1,
+  "probe": "audio_lifecycle_memory_perf",
+  "generated_unix_ms": 1784998528206,
+  "mode": "quick",
+  "environment": {
+    "revision": "1798833cc18678af3537080e63d5b45edb59c40c",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "resampler-rubato"
+    ]
+  },
+  "conditions": {
+    "backend": "rubato",
+    "channels": 2,
+    "from_rate_hz": 44100,
+    "to_rate_hz": 48000,
+    "process_frames": 8192,
+    "short_ir_frames": 256,
+    "long_ir_frames": 8192,
+    "finish_block_frames": 128,
+    "trials": 7,
+    "soak_trials": 5,
+    "soak_iterations": 128,
+    "case_keys": [
+      "component=dynamic_convolver;operation=adopt_process;ir_frames=1;channels=1;block_frames=512",
+      "component=dynamic_convolver;operation=bounded_lifecycle_soak;iterations=128;ir_frames=1;channels=1",
+      "component=dynamic_convolver;operation=finish_drain;channels=2;ir_frames=256;finish_block_frames=128",
+      "component=dynamic_convolver;operation=publish;ir_frames=1;channels=1",
+      "component=dynamic_convolver;operation=reclaim_retired;ir_frames=1;channels=1",
+      "component=dynamic_convolver;operation=reset_after_process;channels=2;ir_frames=256",
+      "component=fft_convolver;operation=setup;channels=2;ir_frames=256",
+      "component=fft_convolver;operation=setup;channels=2;ir_frames=8192",
+      "component=resampler;operation=finish_drain;channels=2;input_frames=8192;from=44100;to=44100;backend=rubato",
+      "component=resampler;operation=finish_drain;channels=2;input_frames=8192;from=44100;to=48000;backend=rubato",
+      "component=resampler;operation=reset_after_process;channels=2;from=44100;to=48000;backend=rubato",
+      "component=resampler;operation=setup;channels=2;from=44100;to=44100;backend=rubato",
+      "component=resampler;operation=setup;channels=2;from=44100;to=48000;backend=rubato"
+    ],
+    "baseline_gate_case_keys": [
+      "component=dynamic_convolver;operation=bounded_lifecycle_soak;iterations=128;ir_frames=1;channels=1",
+      "component=dynamic_convolver;operation=finish_drain;channels=2;ir_frames=256;finish_block_frames=128",
+      "component=fft_convolver;operation=setup;channels=2;ir_frames=256",
+      "component=fft_convolver;operation=setup;channels=2;ir_frames=8192",
+      "component=resampler;operation=finish_drain;channels=2;input_frames=8192;from=44100;to=48000;backend=rubato",
+      "component=resampler;operation=reset_after_process;channels=2;from=44100;to=48000;backend=rubato",
+      "component=resampler;operation=setup;channels=2;from=44100;to=48000;backend=rubato"
+    ],
+    "timer_scope": "setup timers include construction only; reset timers exclude re-dirtying; finish timers include repeated finish_checked calls through terminal state; dynamic timers isolate control publication, one adoption block, or control reclamation",
+    "allocator_scope": "Rust global allocator calls only; setup snapshots are captured while the constructed object remains alive; caller input/output buffers are allocated before the scope",
+    "native_allocation_disclosure": "rubato: backend allocations routed through Rust are counted; StreamingResampler::working_buffer_bytes reports adapter-owned PCM scratch only, and no opaque engine estimate is invented",
+    "soak_scope": "bounded repeated one-tap Convolver control/processor construction, publication, adoption, retirement, reclamation, quiescence, and drop; this is not an unbounded RSS claim",
+    "baseline_scope": "compatible-baseline medians gate active-resampler setup/reset/drain, Convolver setup/drain, and soak cases; timer-quantized Convolver reset plus equal-rate and isolated dynamic ownership cases remain report-only while retaining raw samples"
+  },
+  "cases": [
+    {
+      "case_key": "component=dynamic_convolver;operation=adopt_process;ir_frames=1;channels=1;block_frames=512",
+      "component": "ConvolverProcessor",
+      "operation": "adopt_and_process",
+      "primary_unit": "ns/adoption-block",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          2400.0,
+          2200.0,
+          2100.0,
+          2100.0,
+          2000.0,
+          2200.0,
+          2100.0
+        ],
+        "min": 2000.0,
+        "median": 2100.0,
+        "p95": 2400.0,
+        "max": 2400.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 7168,
+        "produced_frames": 7168,
+        "expected_produced_frames": 7168,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=dynamic_convolver;operation=bounded_lifecycle_soak;iterations=128;ir_frames=1;channels=1",
+      "component": "ConvolverControl+ConvolverProcessor",
+      "operation": "complete_lifecycle_cycle",
+      "primary_unit": "ns/cycle",
+      "baseline_gate": true,
+      "expected_timing_samples": 5,
+      "distribution": {
+        "samples": [
+          2915.625,
+          2903.90625,
+          2917.96875,
+          2895.3125,
+          2890.625
+        ],
+        "min": 2890.625,
+        "median": 2903.90625,
+        "p95": 2917.96875,
+        "max": 2917.96875
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 640,
+        "expected_operations": 640,
+        "consumed_frames": 327680,
+        "produced_frames": 327680,
+        "expected_produced_frames": 327680,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 5
+      }
+    },
+    {
+      "case_key": "component=dynamic_convolver;operation=finish_drain;channels=2;ir_frames=256;finish_block_frames=128",
+      "component": "ConvolverProcessor",
+      "operation": "finish_checked_until_terminal",
+      "primary_unit": "ns/drain",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          47700.0,
+          10200.0,
+          9500.0,
+          7900.0,
+          7900.0,
+          7800.0,
+          7900.0
+        ],
+        "min": 7800.0,
+        "median": 7900.0,
+        "p95": 47700.0,
+        "max": 47700.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 3584,
+        "produced_frames": 1785,
+        "expected_produced_frames": 1785,
+        "terminal_finished": true,
+        "terminal_idempotent": true,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=dynamic_convolver;operation=publish;ir_frames=1;channels=1",
+      "component": "ConvolverControl",
+      "operation": "publish_at_rate",
+      "primary_unit": "ns/publication",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          200.0,
+          100.0,
+          100.0,
+          100.0,
+          100.0,
+          100.0,
+          100.0
+        ],
+        "min": 100.0,
+        "median": 100.0,
+        "p95": 200.0,
+        "max": 200.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 7168,
+        "produced_frames": 7168,
+        "expected_produced_frames": 7168,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=dynamic_convolver;operation=reclaim_retired;ir_frames=1;channels=1",
+      "component": "ConvolverControl",
+      "operation": "reclaim_retired",
+      "primary_unit": "ns/reclamation",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          6400.0,
+          200.0,
+          200.0,
+          200.0,
+          300.0,
+          200.0,
+          200.0
+        ],
+        "min": 200.0,
+        "median": 200.0,
+        "p95": 6400.0,
+        "max": 6400.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 7168,
+        "produced_frames": 7168,
+        "expected_produced_frames": 7168,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=dynamic_convolver;operation=reset_after_process;channels=2;ir_frames=256",
+      "component": "ConvolverProcessor",
+      "operation": "reset",
+      "primary_unit": "ns/reset",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          1600.0,
+          200.0,
+          100.0,
+          100.0,
+          100.0,
+          100.0,
+          100.0
+        ],
+        "min": 100.0,
+        "median": 100.0,
+        "p95": 1600.0,
+        "max": 1600.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 3584,
+        "produced_frames": 3584,
+        "expected_produced_frames": 3584,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=fft_convolver;operation=setup;channels=2;ir_frames=256",
+      "component": "FFTConvolver",
+      "operation": "new",
+      "primary_unit": "ns/setup",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          41500.0,
+          27200.0,
+          26900.0,
+          26400.0,
+          26600.0,
+          26200.0,
+          25800.0
+        ],
+        "min": 25800.0,
+        "median": 26600.0,
+        "p95": 41500.0,
+        "max": 41500.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 0,
+        "produced_frames": 0,
+        "expected_produced_frames": 0,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=fft_convolver;operation=setup;channels=2;ir_frames=8192",
+      "component": "FFTConvolver",
+      "operation": "new",
+      "primary_unit": "ns/setup",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          368600.0,
+          430300.0,
+          331100.0,
+          328600.0,
+          352300.0,
+          356900.0,
+          343800.0
+        ],
+        "min": 328600.0,
+        "median": 352300.0,
+        "p95": 430300.0,
+        "max": 430300.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 0,
+        "produced_frames": 0,
+        "expected_produced_frames": 0,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=resampler;operation=finish_drain;channels=2;input_frames=8192;from=44100;to=44100;backend=rubato",
+      "component": "StreamingResampler",
+      "operation": "finish_checked_until_terminal",
+      "primary_unit": "ns/drain",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          4800.0,
+          5200.0,
+          4100.0,
+          3800.0,
+          3800.0,
+          4100.0,
+          3800.0
+        ],
+        "min": 3800.0,
+        "median": 4100.0,
+        "p95": 5200.0,
+        "max": 5200.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 57344,
+        "produced_frames": 57344,
+        "expected_produced_frames": 57344,
+        "terminal_finished": true,
+        "terminal_idempotent": true,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=resampler;operation=finish_drain;channels=2;input_frames=8192;from=44100;to=48000;backend=rubato",
+      "component": "StreamingResampler",
+      "operation": "finish_checked_until_terminal",
+      "primary_unit": "ns/drain",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          24900.0,
+          25800.0,
+          25800.0,
+          26400.0,
+          25500.0,
+          25200.0,
+          65100.0
+        ],
+        "min": 24900.0,
+        "median": 25800.0,
+        "p95": 65100.0,
+        "max": 65100.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 57344,
+        "produced_frames": 62412,
+        "expected_produced_frames": 62412,
+        "terminal_finished": true,
+        "terminal_idempotent": true,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=resampler;operation=reset_after_process;channels=2;from=44100;to=48000;backend=rubato",
+      "component": "StreamingResampler",
+      "operation": "reset",
+      "primary_unit": "ns/reset",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          3800.0,
+          1200.0,
+          1200.0,
+          1300.0,
+          1200.0,
+          1000.0,
+          1000.0
+        ],
+        "min": 1000.0,
+        "median": 1200.0,
+        "p95": 3800.0,
+        "max": 3800.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 57344,
+        "produced_frames": 56000,
+        "expected_produced_frames": 56000,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=resampler;operation=setup;channels=2;from=44100;to=44100;backend=rubato",
+      "component": "StreamingResampler",
+      "operation": "new",
+      "primary_unit": "ns/setup",
+      "baseline_gate": false,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          115100.0,
+          99200.0,
+          104100.0,
+          96000.0,
+          97500.0,
+          97300.0,
+          242200.0
+        ],
+        "min": 96000.0,
+        "median": 99200.0,
+        "p95": 242200.0,
+        "max": 242200.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 0,
+        "produced_frames": 0,
+        "expected_produced_frames": 0,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    },
+    {
+      "case_key": "component=resampler;operation=setup;channels=2;from=44100;to=48000;backend=rubato",
+      "component": "StreamingResampler",
+      "operation": "new",
+      "primary_unit": "ns/setup",
+      "baseline_gate": true,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          234300.0,
+          128100.0,
+          124900.0,
+          112400.0,
+          103000.0,
+          103600.0,
+          114100.0
+        ],
+        "min": 103000.0,
+        "median": 114100.0,
+        "p95": 234300.0,
+        "max": 234300.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "consumed_frames": 0,
+        "produced_frames": 0,
+        "expected_produced_frames": 0,
+        "terminal_finished": false,
+        "terminal_idempotent": false,
+        "lifecycle_counters_valid": true,
+        "expected_timing_samples": 7
+      }
+    }
+  ],
+  "persistent_memory": [
+    {
+      "component": "StreamingResampler",
+      "configuration": "channels=2;from=44100;to=48000;backend=rubato",
+      "setup_allocation_calls": 45,
+      "setup_deallocation_calls": 12,
+      "setup_reallocation_calls": 0,
+      "setup_peak_live_bytes": 257266,
+      "setup_retained_rust_bytes": 257266,
+      "configured_working_buffer_bytes": 0,
+      "allocation_boundary": "Rust setup allocations routed through the global allocator plus exact adapter-owned reusable PCM scratch"
+    },
+    {
+      "component": "FFTConvolver",
+      "configuration": "channels=2;ir_frames=256;strategy=overlap-save",
+      "setup_allocation_calls": 15,
+      "setup_deallocation_calls": 5,
+      "setup_reallocation_calls": 0,
+      "setup_peak_live_bytes": 53336,
+      "setup_retained_rust_bytes": 53008,
+      "configured_working_buffer_bytes": null,
+      "allocation_boundary": "all constructor allocations routed through the Rust global allocator while the convolver remains alive"
+    },
+    {
+      "component": "FFTConvolver",
+      "configuration": "channels=2;ir_frames=8192;strategy=partitioned",
+      "setup_allocation_calls": 70,
+      "setup_deallocation_calls": 29,
+      "setup_reallocation_calls": 0,
+      "setup_peak_live_bytes": 869888,
+      "setup_retained_rust_bytes": 853360,
+      "configured_working_buffer_bytes": null,
+      "allocation_boundary": "all constructor allocations routed through the Rust global allocator while the convolver remains alive"
+    }
+  ],
+  "lifecycle_allocations": [
+    {
+      "operation": "resampler_equal_rate_setup",
+      "allocation_calls": 37,
+      "deallocation_calls": 10,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 222034,
+      "retained_bytes": 222034,
+      "rust_allocation_free_required": false,
+      "valid": true,
+      "allocation_boundary": "Rust setup allocations captured while the equal-rate bypass object remains alive"
+    },
+    {
+      "operation": "resampler_active_reset",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "active resampler object and caller input/output storage are created before the reset scope"
+    },
+    {
+      "operation": "resampler_active_finish",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "resampler state and caller-owned finish output are allocated before the complete drain scope"
+    },
+    {
+      "operation": "resampler_equal_rate_finish",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "resampler state and caller-owned finish output are allocated before the complete drain scope"
+    },
+    {
+      "operation": "convolver_reset",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "Convolver kernel, processor, and caller block are created before the reset scope"
+    },
+    {
+      "operation": "convolver_finish",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "Convolver state and caller-owned finish output are allocated before the complete drain scope"
+    },
+    {
+      "operation": "dynamic_convolver_publish",
+      "allocation_calls": 1,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 168,
+      "retained_bytes": 168,
+      "rust_allocation_free_required": false,
+      "valid": true,
+      "allocation_boundary": "the FFTConvolver kernel is built before timing; control publication may allocate ownership storage retained after the scope"
+    },
+    {
+      "operation": "dynamic_convolver_adopt",
+      "allocation_calls": 0,
+      "deallocation_calls": 0,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": true,
+      "valid": true,
+      "allocation_boundary": "published ownership and the caller block exist before the audio-side adoption/process scope"
+    },
+    {
+      "operation": "dynamic_convolver_reclaim",
+      "allocation_calls": 0,
+      "deallocation_calls": 7,
+      "reallocation_calls": 0,
+      "peak_live_bytes": 0,
+      "retained_bytes": 0,
+      "rust_allocation_free_required": false,
+      "valid": true,
+      "allocation_boundary": "control-side reclamation may deallocate ownership created before this isolated scope"
+    }
+  ],
+  "soak": {
+    "trials": 5,
+    "iterations_per_trial": 128,
+    "retained_rust_bytes_per_trial": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "peak_rust_bytes_per_trial": [
+      5040,
+      5040,
+      5040,
+      5040,
+      5040
+    ],
+    "allocation_calls_per_trial": [
+      1282,
+      1282,
+      1282,
+      1282,
+      1282
+    ],
+    "deallocation_calls_per_trial": [
+      1282,
+      1282,
+      1282,
+      1282,
+      1282
+    ],
+    "maximum_retained_rust_bytes": 0,
+    "all_cycles_valid": true,
+    "bounded": true
+  },
+  "baseline": null,
+  "comparisons": []
+}

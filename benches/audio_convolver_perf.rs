@@ -11,10 +11,10 @@ pub mod support;
 
 use support::{
     compare_case_medians, enforce_pinned_burst_limits, environment_json, generated_unix_ms,
-    parse_pinned_probe_args, read_json, regression_gate_error, summarize_trials,
-    validate_performance_baseline, write_json, BenchEnvironment, BenchMode, PerfArgs,
-    PerformanceReportIdentity, RegressionComparison, TrialDistribution, DEFAULT_PINNED_PROBE_CORE,
-    REPORT_SCHEMA_VERSION,
+    parse_pinned_probe_args, pin_current_thread, read_json, regression_gate_error,
+    summarize_callback_samples, summarize_trials, validate_performance_baseline, write_json,
+    BenchEnvironment, BenchMode, PerfArgs, PerformanceReportIdentity, RegressionComparison,
+    TrialDistribution, DEFAULT_PINNED_PROBE_CORE, REPORT_SCHEMA_VERSION,
 };
 
 const SAMPLE_RATE: f64 = 48_000.0;
@@ -294,46 +294,6 @@ const PINNED_GATE_CHANNELS: usize = 6;
 const PINNED_GATE_MAX_UTILIZATION_PCT: f64 = 50.0;
 const PINNED_GATE_P99_UTILIZATION_PCT: f64 = 40.0;
 
-#[cfg(windows)]
-fn pin_current_thread(core: usize) -> Result<(), String> {
-    const THREAD_PRIORITY_HIGHEST: i32 = 2;
-    const HIGH_PRIORITY_CLASS: u32 = 0x0000_0080;
-
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetCurrentProcess() -> isize;
-        fn GetCurrentThread() -> isize;
-        fn SetPriorityClass(process: isize, class: u32) -> i32;
-        fn SetThreadAffinityMask(thread: isize, mask: usize) -> usize;
-        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
-    }
-
-    if core >= usize::BITS as usize {
-        return Err(format!("--pin-core {core} exceeds the affinity mask width"));
-    }
-    // SAFETY: these calls only adjust scheduling for the current process/thread
-    // and use pseudo handles that require no cleanup. Thread priority is
-    // relative to the process class, so raise both before collecting samples.
-    unsafe {
-        if SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) == 0 {
-            return Err("SetPriorityClass failed".to_string());
-        }
-        let thread = GetCurrentThread();
-        if SetThreadAffinityMask(thread, 1usize << core) == 0 {
-            return Err(format!("SetThreadAffinityMask failed for core {core}"));
-        }
-        if SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST) == 0 {
-            return Err("SetThreadPriority failed".to_string());
-        }
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn pin_current_thread(_core: usize) -> Result<(), String> {
-    Err("--pinned is only implemented on Windows in this bench".to_string())
-}
-
 fn workload(mode: BenchMode) -> (usize, usize, usize, usize) {
     match mode {
         BenchMode::Quick => (2_048, 512, 2, 7),
@@ -612,40 +572,15 @@ fn warm_allocating(convolver: &mut FFTConvolver, input: &[f64]) -> Result<(), St
 }
 
 fn summarize_callbacks(samples: Vec<f64>) -> Result<CallbackDistribution, String> {
-    if samples.is_empty() {
-        return Err("callback distribution requires at least one sample".to_string());
-    }
-    if let Some((index, value)) = samples
-        .iter()
-        .copied()
-        .enumerate()
-        .find(|(_, value)| !value.is_finite() || *value <= 0.0)
-    {
-        return Err(format!(
-            "callback sample {index} must be finite and positive, got {value}"
-        ));
-    }
-    let mut sorted = samples.clone();
-    sorted.sort_by(f64::total_cmp);
-    let middle = sorted.len() / 2;
-    let median = if sorted.len().is_multiple_of(2) {
-        (sorted[middle - 1] + sorted[middle]) * 0.5
-    } else {
-        sorted[middle]
-    };
+    let distribution = summarize_callback_samples(samples)?;
     Ok(CallbackDistribution {
-        min: sorted[0],
-        median,
-        p95: nearest_rank(&sorted, 0.95),
-        p99: nearest_rank(&sorted, 0.99),
-        max: sorted[sorted.len() - 1],
-        samples,
+        samples: distribution.samples,
+        min: distribution.min,
+        median: distribution.median,
+        p95: distribution.p95,
+        p99: distribution.p99,
+        max: distribution.max,
     })
-}
-
-fn nearest_rank(sorted: &[f64], percentile: f64) -> f64 {
-    let rank = ((sorted.len() as f64 * percentile).ceil() as usize).max(1);
-    sorted[rank - 1]
 }
 
 fn ns_per_sample(elapsed_ns: u128, frames: usize, channels: usize, iterations: usize) -> f64 {
