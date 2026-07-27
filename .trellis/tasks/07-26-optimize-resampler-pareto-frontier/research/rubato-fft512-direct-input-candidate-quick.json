@@ -1,0 +1,1028 @@
+{
+  "schema_version": 1,
+  "probe": "audio_resampler_comparison_perf",
+  "generated_unix_ms": 1785076018859,
+  "mode": "quick",
+  "environment": {
+    "revision": "342fd447c4c92025c86497b3cfb0d729559046ab",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "resampler-rubato"
+    ]
+  },
+  "conditions": {
+    "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+    "workload_id": "quality_latency_throughput_pareto_v2",
+    "channels": 2,
+    "chunk_frames": 512,
+    "rate_pairs": [
+      "music_44k1_to_48k",
+      "music_48k_to_44k1"
+    ],
+    "warmup_buffers": 32,
+    "iterations_per_trial": 200,
+    "trials": 7,
+    "trial_order": "alternating_forward_reverse",
+    "quality_input_frames": 16384,
+    "quality_policy": "report_only_cross_engine;gate_complete_finite_work;explicit_native_paths;libsamplerate_path_source=none",
+    "require_complete_matrix": false,
+    "measured_engines": [
+      {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (rubato)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: Rubato FFT 512/1 with 1024/2-equivalent internal filter and aligned caller-input bypass, linear phase",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      }
+    ],
+    "unavailable_engine_ids": [
+      "ffmpeg_libswresample",
+      "libresample",
+      "libsamplerate",
+      "r8brain",
+      "raw_libsoxr",
+      "speexdsp",
+      "wdl",
+      "webrtc",
+      "zita_resampler"
+    ],
+    "scope_boundaries": [
+      "cross_format_speed_gate",
+      "device_driver_latency",
+      "decoder_pipeline"
+    ]
+  },
+  "coverage": {
+    "all_terminal": false,
+    "entries": [
+      {
+        "engine_id": "audio_engine_core",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=audio_engine_core;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+          "engine=audio_engine_core;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "raw_libsoxr",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "raw libsoxr control was not compiled; enable the 'soxr' Cargo feature"
+      },
+      {
+        "engine_id": "raw_rubato",
+        "state": "measured",
+        "terminal": true,
+        "measured_rate_pairs": [
+          "music_44k1_to_48k",
+          "music_48k_to_44k1"
+        ],
+        "case_keys": [
+          "engine=raw_rubato;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+          "engine=raw_rubato;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1"
+        ],
+        "evidence": null
+      },
+      {
+        "engine_id": "libsamplerate",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit library path; pass --libsamplerate <path> or set AUDIO_BENCH_LIBSAMPLERATE_PATH"
+      },
+      {
+        "engine_id": "ffmpeg_libswresample",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library ffmpeg_libswresample=<absolute-path>"
+      },
+      {
+        "engine_id": "speexdsp",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library speexdsp=<absolute-path>"
+      },
+      {
+        "engine_id": "r8brain",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library r8brain=<absolute-path>"
+      },
+      {
+        "engine_id": "zita_resampler",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library zita_resampler=<absolute-path>"
+      },
+      {
+        "engine_id": "webrtc",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library webrtc=<absolute-path>"
+      },
+      {
+        "engine_id": "wdl",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library wdl=<absolute-path>"
+      },
+      {
+        "engine_id": "libresample",
+        "state": "unavailable",
+        "terminal": false,
+        "measured_rate_pairs": [],
+        "case_keys": [],
+        "evidence": "no explicit shim path; pass --engine-library libresample=<absolute-path>"
+      }
+    ]
+  },
+  "unavailable_engines": [
+    {
+      "engine_id": "ffmpeg_libswresample",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library ffmpeg_libswresample=<absolute-path>"
+    },
+    {
+      "engine_id": "libresample",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library libresample=<absolute-path>"
+    },
+    {
+      "engine_id": "libsamplerate",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit library path; pass --libsamplerate <path> or set AUDIO_BENCH_LIBSAMPLERATE_PATH"
+    },
+    {
+      "engine_id": "r8brain",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library r8brain=<absolute-path>"
+    },
+    {
+      "engine_id": "raw_libsoxr",
+      "classification": "skipped",
+      "required": false,
+      "reason": "raw libsoxr control was not compiled; enable the 'soxr' Cargo feature"
+    },
+    {
+      "engine_id": "speexdsp",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library speexdsp=<absolute-path>"
+    },
+    {
+      "engine_id": "wdl",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library wdl=<absolute-path>"
+    },
+    {
+      "engine_id": "webrtc",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library webrtc=<absolute-path>"
+    },
+    {
+      "engine_id": "zita_resampler",
+      "classification": "skipped",
+      "required": false,
+      "reason": "no explicit shim path; pass --engine-library zita_resampler=<absolute-path>"
+    }
+  ],
+  "cases": [
+    {
+      "case_key": "engine=audio_engine_core;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+      "engine": {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (rubato)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: Rubato FFT 512/1 with 1024/2-equivalent internal filter and aligned caller-input bypass, linear phase",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          138000.0,
+          184300.0,
+          138900.0,
+          129100.0,
+          180300.0,
+          138100.0,
+          137500.0
+        ],
+        "min": 129100.0,
+        "median": 138100.0,
+        "p95": 184300.0,
+        "max": 184300.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          10.205078125,
+          11.087890625,
+          10.1806640625,
+          12.8828125,
+          11.814453125,
+          11.326171875,
+          12.154296875
+        ],
+        "min": 10.1806640625,
+        "median": 11.326171875,
+        "p95": 12.8828125,
+        "max": 12.8828125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          10450.0,
+          11354.0,
+          10425.0,
+          13192.0,
+          12098.0,
+          11598.0,
+          12446.0
+        ],
+        "min": 10425.0,
+        "median": 11598.0,
+        "p95": 13192.0,
+        "max": 13192.0
+      },
+      "reset_ns": {
+        "samples": [
+          2500.0,
+          1600.0,
+          1700.0,
+          2700.0,
+          2000.0,
+          2400.0,
+          2100.0
+        ],
+        "min": 1600.0,
+        "median": 2100.0,
+        "p95": 2700.0,
+        "max": 2700.0
+      },
+      "drain_ns": {
+        "samples": [
+          18900.0,
+          14400.0,
+          13600.0,
+          20900.0,
+          14500.0,
+          14500.0,
+          14300.0
+        ],
+        "min": 13600.0,
+        "median": 14500.0,
+        "p95": 20900.0,
+        "max": 20900.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.09989683593750001,
+      "p95_source_realtime_utilization_pct": 0.11362640625,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17833,
+        "actual_complete_output_frames": 17833,
+        "all_output_samples_finite": true,
+        "reported_api_buffering_latency_frames": 0,
+        "observed_input_frames_before_first_output": 512,
+        "measured_impulse_peak_frame": 0,
+        "measured_impulse_peak_magnitude": 0.9767937659510992,
+        "gain_997_hz_db": -1.9460128275047515e-12,
+        "gain_18_khz_db": 1.001743372254977e-11,
+        "passband_max_abs_deviation_db": 1.001743372254977e-11,
+        "thdn_997_hz_db": -200.75880631449675,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null,
+        "validity_errors": []
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_warmup_consumed_frames_per_trial": 16384,
+        "warmup_consumed_frames_per_trial": [
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "expected_timed_consumed_frames_per_trial": 102400,
+        "timed_consumed_frames_per_trial": [
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400
+        ],
+        "expected_complete_output_frames_per_trial": [
+          129289,
+          129289,
+          129289,
+          129289,
+          129289,
+          129289,
+          129289
+        ],
+        "warmup_output_frames_per_trial": [
+          16942,
+          16942,
+          16942,
+          16942,
+          16942,
+          16942,
+          16942
+        ],
+        "steady_output_frames_per_trial": [
+          111892,
+          111892,
+          111892,
+          111892,
+          111892,
+          111892,
+          111892
+        ],
+        "drain_frames_per_trial": [
+          455,
+          455,
+          455,
+          455,
+          455,
+          455,
+          455
+        ],
+        "actual_complete_output_frames_per_trial": [
+          129289,
+          129289,
+          129289,
+          129289,
+          129289,
+          129289,
+          129289
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_rubato;format=interleaved_f64;rate=music_44k1_to_48k;from=44100;to=48000;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+      "engine": {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      },
+      "rate_pair": "music_44k1_to_48k",
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          107200.0,
+          98600.0,
+          74200.0,
+          63900.0,
+          105900.0,
+          95000.0,
+          79100.0
+        ],
+        "min": 63900.0,
+        "median": 95000.0,
+        "p95": 107200.0,
+        "max": 107200.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          10.77197265625,
+          13.5556640625,
+          10.38232421875,
+          9.720703125,
+          16.615234375,
+          10.04248046875,
+          15.923828125
+        ],
+        "min": 9.720703125,
+        "median": 10.77197265625,
+        "p95": 16.615234375,
+        "max": 16.615234375
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          11030.5,
+          13881.0,
+          10631.5,
+          9954.0,
+          17014.0,
+          10283.5,
+          16306.0
+        ],
+        "min": 9954.0,
+        "median": 11030.5,
+        "p95": 17014.0,
+        "max": 17014.0
+      },
+      "reset_ns": {
+        "samples": [
+          1100.0,
+          1300.0,
+          1400.0,
+          1000.0,
+          1500.0,
+          1000.0,
+          700.0
+        ],
+        "min": 700.0,
+        "median": 1100.0,
+        "p95": 1500.0,
+        "max": 1500.0
+      },
+      "drain_ns": {
+        "samples": [
+          8000.0,
+          9300.0,
+          12900.0,
+          6000.0,
+          9300.0,
+          6400.0,
+          6400.0
+        ],
+        "min": 6000.0,
+        "median": 8000.0,
+        "p95": 12900.0,
+        "max": 12900.0
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.095008798828125,
+      "p95_source_realtime_utilization_pct": 0.1465463671875,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 17993,
+        "actual_complete_output_frames": 17993,
+        "all_output_samples_finite": true,
+        "reported_api_buffering_latency_frames": 160,
+        "observed_input_frames_before_first_output": 0,
+        "measured_impulse_peak_frame": 160,
+        "measured_impulse_peak_magnitude": 0.953838467527623,
+        "gain_997_hz_db": 1.4272046504987478e-12,
+        "gain_18_khz_db": -4.927530132008422e-10,
+        "passband_max_abs_deviation_db": 4.927530132008422e-10,
+        "thdn_997_hz_db": -196.5385046551221,
+        "stopband_input_hz": null,
+        "folded_alias_hz": null,
+        "alias_attenuation_db": null,
+        "validity_errors": []
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_warmup_consumed_frames_per_trial": 16384,
+        "warmup_consumed_frames_per_trial": [
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "expected_timed_consumed_frames_per_trial": 102400,
+        "timed_consumed_frames_per_trial": [
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400
+        ],
+        "expected_complete_output_frames_per_trial": [
+          129449,
+          129449,
+          129449,
+          129449,
+          129449,
+          129449,
+          129449
+        ],
+        "warmup_output_frames_per_trial": [
+          17600,
+          17600,
+          17600,
+          17600,
+          17600,
+          17600,
+          17600
+        ],
+        "steady_output_frames_per_trial": [
+          111680,
+          111680,
+          111680,
+          111680,
+          111680,
+          111680,
+          111680
+        ],
+        "drain_frames_per_trial": [
+          169,
+          169,
+          169,
+          169,
+          169,
+          169,
+          169
+        ],
+        "actual_complete_output_frames_per_trial": [
+          129449,
+          129449,
+          129449,
+          129449,
+          129449,
+          129449,
+          129449
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=audio_engine_core;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+      "engine": {
+        "engine_id": "audio_engine_core",
+        "display_name": "audio-engine-core (rubato)",
+        "implementation": "audio-engine-core 0.1.0 StreamingResampler",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "audio_engine_core_rubato_fft512_subchunk1_direct_input_high_linear_v3",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "audio-engine-core High: Rubato FFT 512/1 with 1024/2-equivalent internal filter and aligned caller-input bypass, linear phase",
+        "phase_response": "linear; project lifecycle semantics",
+        "native_library": null
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          130100.0,
+          125800.0,
+          118200.0,
+          158900.0,
+          361800.0,
+          114900.0,
+          112300.0
+        ],
+        "min": 112300.0,
+        "median": 125800.0,
+        "p95": 361800.0,
+        "max": 361800.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          10.642578125,
+          9.01904296875,
+          8.96923828125,
+          13.89501953125,
+          9.2880859375,
+          9.2490234375,
+          8.7783203125
+        ],
+        "min": 8.7783203125,
+        "median": 9.2490234375,
+        "p95": 13.89501953125,
+        "max": 13.89501953125
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          10898.0,
+          9235.5,
+          9184.5,
+          14228.5,
+          9511.0,
+          9471.0,
+          8989.0
+        ],
+        "min": 8989.0,
+        "median": 9471.0,
+        "p95": 14228.5,
+        "max": 14228.5
+      },
+      "reset_ns": {
+        "samples": [
+          1900.0,
+          1700.0,
+          1000.0,
+          2700.0,
+          1700.0,
+          1500.0,
+          1200.0
+        ],
+        "min": 1000.0,
+        "median": 1700.0,
+        "p95": 2700.0,
+        "max": 2700.0
+      },
+      "drain_ns": {
+        "samples": [
+          24800.0,
+          24300.0,
+          23200.0,
+          59400.0,
+          24500.0,
+          24700.0,
+          23300.0
+        ],
+        "min": 23200.0,
+        "median": 24500.0,
+        "p95": 59400.0,
+        "max": 59400.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.088790625,
+      "p95_source_realtime_utilization_pct": 0.1333921875,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15053,
+        "actual_complete_output_frames": 15053,
+        "all_output_samples_finite": true,
+        "reported_api_buffering_latency_frames": 0,
+        "observed_input_frames_before_first_output": 512,
+        "measured_impulse_peak_frame": 0,
+        "measured_impulse_peak_magnitude": 0.8974292875398476,
+        "gain_997_hz_db": -8.666410941918715e-12,
+        "gain_18_khz_db": 2.2887348091145563e-11,
+        "passband_max_abs_deviation_db": 2.2887348091145563e-11,
+        "thdn_997_hz_db": -209.8158692277081,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -232.80912100442396,
+        "validity_errors": []
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_warmup_consumed_frames_per_trial": 16384,
+        "warmup_consumed_frames_per_trial": [
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "expected_timed_consumed_frames_per_trial": 102400,
+        "timed_consumed_frames_per_trial": [
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400
+        ],
+        "expected_complete_output_frames_per_trial": [
+          109133,
+          109133,
+          109133,
+          109133,
+          109133,
+          109133,
+          109133
+        ],
+        "warmup_output_frames_per_trial": [
+          14353,
+          14353,
+          14353,
+          14353,
+          14353,
+          14353,
+          14353
+        ],
+        "steady_output_frames_per_trial": [
+          94080,
+          94080,
+          94080,
+          94080,
+          94080,
+          94080,
+          94080
+        ],
+        "drain_frames_per_trial": [
+          700,
+          700,
+          700,
+          700,
+          700,
+          700,
+          700
+        ],
+        "actual_complete_output_frames_per_trial": [
+          109133,
+          109133,
+          109133,
+          109133,
+          109133,
+          109133,
+          109133
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case_key": "engine=raw_rubato;format=interleaved_f64;rate=music_48k_to_44k1;from=48000;to=44100;frames=512;algorithm=raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+      "engine": {
+        "engine_id": "raw_rubato",
+        "display_name": "raw Rubato FFT",
+        "implementation": "direct rubato::Fft<f64> 4.0.0",
+        "upstream_version": "rubato 4.0.0",
+        "adapter_schema": "cross_project_resampler_v4_exact_work_latency_provenance",
+        "algorithm_id": "raw_rubato_fft_bh2_subchunks2_fixed_input_v1",
+        "sample_format": "interleaved_f64",
+        "quality_recipe": "Fft<f64>; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel",
+        "phase_response": "linear; raw output_delay preserved and reported",
+        "native_library": null
+      },
+      "rate_pair": "music_48k_to_44k1",
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "channels": 2,
+      "chunk_frames": 512,
+      "setup_ns": {
+        "samples": [
+          94700.0,
+          58900.0,
+          64300.0,
+          59200.0,
+          74700.0,
+          46700.0,
+          59600.0
+        ],
+        "min": 46700.0,
+        "median": 59600.0,
+        "p95": 94700.0,
+        "max": 94700.0
+      },
+      "steady_ns_per_input_sample": {
+        "samples": [
+          8.77392578125,
+          9.05810546875,
+          9.54931640625,
+          8.78271484375,
+          8.92724609375,
+          8.6884765625,
+          8.87841796875
+        ],
+        "min": 8.6884765625,
+        "median": 8.87841796875,
+        "p95": 9.54931640625,
+        "max": 9.54931640625
+      },
+      "steady_ns_per_input_buffer": {
+        "samples": [
+          8984.5,
+          9275.5,
+          9778.5,
+          8993.5,
+          9141.5,
+          8897.0,
+          9091.5
+        ],
+        "min": 8897.0,
+        "median": 9091.5,
+        "p95": 9778.5,
+        "max": 9778.5
+      },
+      "reset_ns": {
+        "samples": [
+          800.0,
+          900.0,
+          1200.0,
+          600.0,
+          700.0,
+          500.0,
+          600.0
+        ],
+        "min": 500.0,
+        "median": 700.0,
+        "p95": 1200.0,
+        "max": 1200.0
+      },
+      "drain_ns": {
+        "samples": [
+          6400.0,
+          6300.0,
+          6900.0,
+          5900.0,
+          6400.0,
+          5900.0,
+          6200.0
+        ],
+        "min": 5900.0,
+        "median": 6300.0,
+        "p95": 6900.0,
+        "max": 6900.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.0852328125,
+      "p95_source_realtime_utilization_pct": 0.0916734375,
+      "quality": {
+        "classification": "report",
+        "valid": true,
+        "input_frames": 16384,
+        "expected_complete_output_frames": 15200,
+        "actual_complete_output_frames": 15200,
+        "all_output_samples_finite": true,
+        "reported_api_buffering_latency_frames": 147,
+        "observed_input_frames_before_first_output": 0,
+        "measured_impulse_peak_frame": 147,
+        "measured_impulse_peak_magnitude": 0.8763390781181524,
+        "gain_997_hz_db": 1.2956703840600303e-11,
+        "gain_18_khz_db": -5.333164837563356e-10,
+        "passband_max_abs_deviation_db": 5.333164837563356e-10,
+        "thdn_997_hz_db": -206.60330198220734,
+        "stopband_input_hz": 23000.0,
+        "folded_alias_hz": 21100.0,
+        "alias_attenuation_db": -202.85515340849258,
+        "validity_errors": []
+      },
+      "work_validation": {
+        "classification": "gate",
+        "valid": true,
+        "expected_warmup_consumed_frames_per_trial": 16384,
+        "warmup_consumed_frames_per_trial": [
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "expected_timed_consumed_frames_per_trial": 102400,
+        "timed_consumed_frames_per_trial": [
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400,
+          102400
+        ],
+        "expected_complete_output_frames_per_trial": [
+          109280,
+          109280,
+          109280,
+          109280,
+          109280,
+          109280,
+          109280
+        ],
+        "warmup_output_frames_per_trial": [
+          14994,
+          14994,
+          14994,
+          14994,
+          14994,
+          14994,
+          14994
+        ],
+        "steady_output_frames_per_trial": [
+          94080,
+          94080,
+          94080,
+          94080,
+          94080,
+          94080,
+          94080
+        ],
+        "drain_frames_per_trial": [
+          206,
+          206,
+          206,
+          206,
+          206,
+          206,
+          206
+        ],
+        "actual_complete_output_frames_per_trial": [
+          109280,
+          109280,
+          109280,
+          109280,
+          109280,
+          109280,
+          109280
+        ],
+        "drain_terminal_per_trial": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": [],
+  "run_failures": []
+}

@@ -278,9 +278,10 @@ extended benches must keep it:
 ### 1. Scope / Trigger
 
 - Trigger: changing `audio_quality_measurements`,
-  `audio_callback_chain_perf`, `audio_resampler_streaming_perf`, shared
-  `audio_convolver_perf`, `audio_fir_eq_perf`, `benches/support/` code,
-  benchmark CI wiring, or a documented timing claim.
+  `audio_callback_chain_perf`, `audio_callback_tail_perf`,
+  `audio_resampler_streaming_perf`, shared `audio_convolver_perf`,
+  `audio_fir_eq_perf`, `benches/support/` code, benchmark CI wiring, or a
+  documented timing claim.
 - These are custom-main benches (`harness = false`). Benchmark plumbing stays
   bench-local; do not expose report helpers as crate public API.
 
@@ -294,6 +295,14 @@ cargo bench --bench audio_callback_chain_perf -- \
   [--quick|--heavy] [--enforce] [--out <candidate.json>] \
   [--baseline <baseline.json>] \
   [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_callback_tail_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>] \
+  [--max-p99-regression-pct <non-negative-finite-pct>] \
+  [--max-p999-regression-pct <non-negative-finite-pct>] \
+  [--pinned] [--pin-core <logical-core>]
 
 cargo bench --bench audio_output_render_perf -- \
   [--quick|--heavy] [--enforce] [--out <candidate.json>] \
@@ -318,7 +327,7 @@ cargo bench --bench audio_convolver_perf -- \
 ```
 
 Omitting `--quick` / `--heavy` selects full mode. Quality supports quick/full;
-the five performance probes additionally support heavy. Environment overrides
+the six performance probes additionally support heavy. Environment overrides
 are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 `AUDIO_BENCH_RUSTC_VERBOSE`, `AUDIO_BENCH_TARGET`, `AUDIO_BENCH_CPU`, and
 `AUDIO_BENCH_PROFILE`; `GITHUB_SHA` is a revision fallback.
@@ -348,6 +357,22 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   source-buffer realtime reference and must be named as such. FIR regeneration
   compares ns/regeneration while FIR apply compares ns/sample; the case key and
   payload must state that primary unit explicitly.
+- Keep callback throughput and tail evidence separate.
+  `audio_callback_chain_perf` retains its trial-average schema, case keys, and
+  baseline meaning. `audio_callback_tail_perf` retains one raw `Instant`
+  duration per callback while both probes obtain the three canonical scenarios,
+  64/128/256/512-frame matrix, synthetic corpus, and chain configuration from
+  the shared bench-local callback fixture.
+- The callback-tail timer includes input copy, `DspChain::process`, and output
+  `black_box`, but excludes construction, warmup, validation, and report I/O.
+  It reports min/median/nearest-rank-p95/p99/p99.9/max, deadline-utilization
+  summaries, and an untrimmed missed-deadline count/rate. The deadline is
+  `frames / 48_000 Hz`; quick/full/heavy retain 4,000/20,000/100,000 callbacks
+  per case.
+- Callback-tail timing gates classify only the two active-chain scenarios.
+  Their default compatible-baseline limits are 10% median, 20% p99, and 30%
+  p99.9. The clock-quantized bypass scenario is report-only, but its raw
+  samples, max, and missed-deadline evidence remain present.
 - Direct convolver throughput trials must run long enough that short overlap-save
   cases are not dominated by timer quantization; the maintained quick workload
   uses a 2048-frame buffer and 512 base iterations. Callback distributions keep
@@ -360,6 +385,12 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   baselines incompatible. `--pin-core` without `--pinned`, a missing/non-numeric
   core, a core outside the affinity-mask width, or a failed Windows scheduling
   call is a named error.
+- Callback-tail baselines are stricter: supplying `--baseline` without
+  `--pinned` is rejected before sampling. A pinned report records the requested
+  core plus the verified processor group, affinity mask, process priority
+  class, and thread priority. Baseline and candidate must contain the same
+  effective state. Affinity and priority do not eliminate interrupts, DPCs,
+  frequency changes, or scheduler outliers, so every sample stays retained.
 - In pinned `--enforce` mode, the 65536-tap, 6-channel, 64-frame callback case
   must be present and pass p99 <= 40% and max <= 50% of its deadline. These are
   machine-local task gates, not portable performance claims. Affinity cannot
@@ -386,9 +417,10 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   output capacity and require candidate temporary memory to be no larger than
   a compatible baseline. Fixed-stage temporary memory must remain bounded as
   duration grows.
-- Shared CI runners run all five quick reports and upload JSON, but never use
-  a cross-run absolute nanosecond gate without an explicitly supplied
-  compatible baseline.
+- Shared default-feature CI runners run all nine quick reports and upload JSON;
+  the pure-Rust runner additionally executes decoder, component, and lifecycle
+  reports under the Rubato-only feature set. Neither runner uses a cross-run
+  absolute nanosecond gate without an explicitly supplied compatible baseline.
 
 ### 4. Validation & Error Matrix
 
@@ -396,9 +428,11 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | --- | --- |
 | Unknown CLI option, missing path, negative/non-finite threshold | named argument error |
 | `--pin-core` without `--pinned`, missing value, or non-numeric value | named pinned-probe argument error |
+| Callback-tail `--baseline` without `--pinned` | reject before collecting samples |
 | Pinned logical core exceeds the platform affinity-mask width | reject before shifting the mask |
-| Windows priority or affinity call fails | abort before collecting pinned evidence |
+| Windows priority/affinity call fails or effective state differs | abort before collecting pinned evidence |
 | Empty, non-finite, or non-positive trial sample | report construction error |
+| Callback-tail raw vector length differs from declared callbacks | report-integrity failure naming declared and retained counts |
 | Duplicate/missing case key | baseline comparison rejected with both case sets named |
 | Corrupt JSON | deserialization error naming the file and report type |
 | Schema/probe/mode/conditions mismatch | comparison rejected before percentages are computed |
@@ -406,6 +440,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 | Baseline and candidate compiled with different resampler backends | comparison rejected via differing `resampler-*` feature entries |
 | Candidate median exactly 10% slower | comparison passes |
 | Candidate median more than 10% slower | enforced failure names case, baseline, candidate, regression, and threshold |
+| Active callback-tail p99 exceeds +20% or p99.9 exceeds +30% | enforced failure names case, metric, values, regression, and threshold |
+| Bypass callback-tail changes under a compatible baseline | retain as report-only; do not create timing comparisons for it |
+| Pinned callback-tail compared with an unpinned/differently pinned report | reject as a conditions mismatch before percentages are computed |
 | 512-frame active callback median exceeds +3% or p95 utilization exceeds +5% | task acceptance failure even when generic +10% would pass |
 | Any isolated Saturation 4x candidate median is not lower | strict-improvement failure |
 | Render temporary bytes grow with duration for a fixed scenario/block | memory scaling gate failure |
@@ -420,6 +457,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   features, mode, conditions, and case set; allow revisions to differ.
 - Base: generate a quick CI artifact with `--enforce --out` and no baseline;
   deterministic quality/work checks are enforced while timing is evidence.
+- Good: keep 48,000 quick callback-tail samples, classify the eight active
+  cases for median/p99/p99.9 comparison, and leave all four bypass cases
+  report-only without removing their outliers.
 - Good: collect a Windows convolver max/p99 gate with `--pinned --enforce`,
   record the selected core in JSON, and keep a load-contaminated failed report
   separate from the quiet-host acceptance report.
@@ -432,6 +472,8 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   corpus into a successful conformance claim.
 - Bad: run with `--pin-core 2` but omit `--pinned`, compare a pinned report to
   an unpinned baseline, or discard a raw max because it missed the gate.
+- Bad: add per-callback timers to `audio_callback_chain_perf`, silently change
+  its historical trial-average meaning, or gate timer-quantized bypass tails.
 - Good: port the exact benchmark workload into a detached old-code worktree,
   expose an existing private block-size hook only for measurement, and compare
   that report with the candidate. Never generate a baseline from candidate
@@ -444,6 +486,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   environment compatibility including unknown-field rejection. Pinned-probe
   tests additionally cover argument removal/default core/error cases and exact
   p99/max threshold boundaries.
+- Callback-tail support tests additionally assert nearest-rank p99/p99.9,
+  exact raw-order retention, invalid-sample rejection, tail-threshold CLI
+  parsing, canonical scenario/case keys, and actual bypass/active fixture work.
 - `tests/benchmark_support.rs` asserts the captured environment features
   contain `resampler-{RESAMPLER_BACKEND_NAME}`; run it under both
   `--all-features` and `--no-default-features --features rubato`.
@@ -458,6 +503,10 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   calls, write versioned JSON, contain the 65536/6ch/64 target case, and pass
   both absolute gates. Unit tests cover pure parsing/gate logic; they do not
   substitute for this probe.
+- A Windows callback-tail acceptance run must write unpinned and pinned quick
+  reports, verify 12 unique cases and exactly 48,000 retained samples, record
+  the effective scheduling state, pass a compatible 24-comparison
+  baseline/candidate gate, and reject an unpinned baseline by name.
 - Callback acceptance checks require two 512-frame active cases and four
   isolated Saturation 4x cases. Output-render checks require every
   scenario/duration/block tuple, active-work evidence, exact finite tails,
@@ -477,6 +526,8 @@ Candidate is 8 ns/sample, therefore this is the fastest implementation.
 GitHub timing regressed, so fail against last run regardless of runner CPU.
 Pinned max missed while the host was saturated, so delete that sample and keep
 rerunning until one report passes.
+Fold raw callback timings into the aggregate callback report and compare the
+sub-microsecond bypass p99 against a portable shared-runner threshold.
 ```
 
 #### Correct
@@ -489,6 +540,195 @@ baseline; shared-runner absolute timing remains report-only.
 For a pinned machine-local max gate, retain every raw sample and failed report;
 rerun on a documented quiet host only when concurrent system load polluted the
 measurement.
+Keep aggregate callback throughput and per-callback tail probes separate. Gate
+only active callback-tail median/p99/p99.9 against a verified compatible pinned
+baseline; shared CI and bypass tails remain report-only timing evidence.
+```
+
+## Scenario: Decoder, Public Component, And Lifecycle Performance Coverage
+
+### 1. Scope / Trigger
+
+- Trigger: changing `StreamingDecoder` startup/streaming/seek/staging behavior;
+  `SpectrumAnalyzer`, `Downmixer`, loudness/true-peak analysis, AutoMix,
+  `RingBuffer`, or `LoudnessDatabase`; processor setup/reset/finish behavior;
+  dynamic Convolver ownership; shared allocation instrumentation; or the three
+  coverage probes and their CI wiring.
+- These probes close crate-owned performance surfaces. CPAL/WASAPI/device and
+  user-visible playback latency stay in consuming-application integration
+  evidence because this crate owns no device.
+
+### 2. Signatures
+
+```bash
+cargo bench --bench audio_decoder_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_component_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+
+cargo bench --bench audio_lifecycle_memory_perf -- \
+  [--quick|--heavy] [--enforce] [--out <candidate.json>] \
+  [--baseline <baseline.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>]
+```
+
+All three use the shared `PerfArgs`, schema version, environment capture,
+distribution, JSON, case-set comparison, and compatible-baseline helpers in
+`benches/support/`. The decoder and AutoMix cases share
+`support::audio_fixture`; allocation evidence shares
+`support::allocation::AllocationScope`.
+
+### 3. Contracts
+
+- `audio_decoder_perf` generates a byte-stable 12-second stereo PCM16
+  RIFF/WAVE file before timing. Conditions record container, codec/sample
+  format, rate, channels, frames, duration, byte count, FNV-1a content hash,
+  generation identifier, warm-cache state, and the no-network scope.
+- Decoder timing separates local source open, probe, decoder build, first
+  borrowed PCM, steady borrowed decode, coarse seek command, and coarse
+  seek-to-first-PCM. Steady decode's primary lower-is-better value is ns/frame;
+  frames/second and realtime factor remain additional distributions.
+- Quick decoder reports retain nine ordinary raw samples and 24 seek samples.
+  Each open/probe/build/first-PCM raw sample averages 16 repetitions of that
+  same isolated phase so Windows timer granularity does not create false 10%
+  regressions. Conditions declare both sample and repetition counts; work
+  validation counts all 144 phase operations rather than pretending there were
+  only nine.
+- Decoder work validation requires exact frames, finite PCM, non-empty first
+  packet, stable packet count/hash, and seek error no greater than
+  `SEEK_COARSE_TOLERANCE_FRAMES`. Fixed `StreamingDecoder` staging bytes are
+  exact; global-allocator rows never claim to include opaque Symphonia/system
+  allocations.
+- `audio_component_perf` has 11 always-present cases: two Spectrum geometries,
+  5.1 and 7.1 Downmixer, two LoudnessMeter block sizes, contiguous and strided
+  TruePeakDetector, AutoMix Head/Full, and RingBuffer wrap-capable
+  write/read/advance. With `loudness-db`, five in-memory SQLite cases add open,
+  single upsert, indexed get, batch upsert, and stats. Without the feature,
+  conditions say `excluded`; the cases are not silently treated as passes.
+- Component cases declare their primary unit and exact work items. AutoMix uses
+  the shared local fixture with a five-second bounded window and no live
+  network. Database paths use non-requested benchmark URLs only to avoid local
+  file metadata lookup; SQLite itself is in memory.
+- `audio_lifecycle_memory_perf` has 13 timing cases: equal-rate and active
+  resampler setup, active resampler reset, equal-rate and active resampler
+  finish/drain, short/long Convolver setup, Convolver reset and finite drain,
+  isolated dynamic-Convolver publication/adoption/reclamation, and bounded
+  complete Convolver ownership cycles. Its nine allocation rows separately
+  cover equal-rate setup/finish, active reset/finish, Convolver reset/finish,
+  and dynamic publication/adoption/reclamation; three persistent-memory rows
+  retain the active resampler and both Convolver strategies.
+- Persistent setup snapshots are captured while the constructed object remains
+  alive. Final/caller buffers are outside the scope. SoXR native `malloc` is
+  explicitly invisible; `working_buffer_bytes` describes only exact
+  adapter-owned PCM scratch. Pure-Rust reports count allocations routed through
+  Rust but do not invent estimates for opaque engine ownership.
+- Quick soak performs five trials of 128 complete control/processor lifecycles.
+  Every trial must finish disabled, reclaimed, quiescent, dropped, and with zero
+  retained Rust bytes. This is bounded lifecycle evidence, not an unbounded RSS
+  guarantee.
+- Report construction validates the exact mode/feature-specific case set even
+  when no baseline is supplied. After writing JSON, each probe deserializes it
+  through its concrete report type and compares the result with the in-memory
+  report; structural/integer/string values are exact and finite floating-point
+  fields may differ by at most four machine epsilons after JSON round-trip.
+- Lifecycle same-machine baselines gate seven stable cases: active-resampler
+  setup/reset/drain, short/long Convolver setup, finite Convolver drain, and the
+  bounded soak. Equal-rate setup/finish, timer-quantized Convolver reset, and
+  isolated publication/adoption/reclamation remain report-only with full raw
+  evidence.
+- All absolute timing stays report-only without a compatible same-machine
+  baseline. Default-feature and Rubato reports are incompatible through both
+  environment features and backend-bearing conditions/case keys.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Fixture bytes/header/hash differ from the versioned contract | support test or decoder report integrity fails before timing claims are accepted |
+| Decoder first PCM is empty, output is non-finite, frames/hash vary, or seek exceeds tolerance | named decoder case is invalid; `--enforce` fails |
+| Steady decoder has no post-first-packet work | reject the fixture/report rather than emit a fabricated throughput |
+| Component output is non-finite/trivial or work counts differ | named component case is invalid |
+| `loudness-db` feature is absent | 11 cases plus explicit exclusion text; no database pass claim |
+| Resampler process + drain length differs from rounded rate conversion | lifecycle report fails |
+| Convolver finish differs from `ir_length - 1` or repeated finish is not `Finished(0)` | lifecycle report fails |
+| Dynamic generation/counter/reclamation/quiescence invariant fails | publication/adoption/reclamation and soak cases fail |
+| Any complete soak trial retains Rust bytes | bounded soak gate fails and reports maximum retained bytes |
+| A mode/feature-specific case is missing or duplicated without a baseline | report integrity fails before JSON is accepted |
+| Written JSON cannot deserialize to the concrete report or exceeds the round-trip tolerance | `--enforce --out` fails after writing the named report |
+| SoXR allocator row is presented as total native/process memory | invalid claim; preserve native-allocation limitation |
+| Baseline schema/mode/conditions/environment/case set differs | reject before calculating percentages |
+| Shared CI has no explicit baseline | validate work/schema/JSON only; timing remains report-only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: compare two same-machine decoder reports with identical fixture hash
+  and warm-cache conditions, while retaining open/probe/build/first/steady/seek
+  as separate cases.
+- Good: a Rubato-only component report contains 11 valid cases and a visible
+  database feature exclusion; a default report contains all 16.
+- Base: a lifecycle report shows zero public Rubato adapter working bytes while
+  retaining measured Rust setup allocations for the engine; the two fields
+  describe different ownership boundaries.
+- Bad: time fixture generation as decoder startup, combine open and first PCM,
+  call PCM/WAV throughput a compressed-codec result, or perform live HTTP in
+  quick mode.
+- Bad: report Convolver publication speed without driving audio adoption and
+  control-side reclamation, or call a process-alive allocation snapshot a leak.
+- Bad: claim end-to-end/device latency from an in-crate `Instant` interval that
+  never opens an audio device.
+
+### 6. Tests Required
+
+- `tests/benchmark_support.rs` asserts the deterministic WAV header, length,
+  rate/channels/frames, stable content hash, idempotent file generation, and
+  observable Rust allocation activity/peak bytes.
+- Each quick probe must run with `--enforce --out`, deserialize its own report,
+  contain unique complete case keys and exact raw trial counts, and validate
+  every case's work.
+- Decoder quick validates exact decoded frames, stable full/steady hashes,
+  staging bytes, non-empty first/post-seek packets, finite samples, and coarse
+  seek tolerance.
+- Component quick runs under default features (16 cases) and Rubato-only (11
+  cases plus database exclusion). AutoMix Head and Full must both execute the
+  local fixture.
+- Lifecycle quick runs under both backends and proves exact resampler duration,
+  exact Convolver tail, stable terminal finish, dynamic generation/reclamation,
+  authoritative quiescence, 13 unique timing cases, nine allocation rows, three
+  persistent-memory rows, and zero retained Rust bytes after every complete
+  soak trial.
+- Shared support tests round-trip all report types and reject missing or
+  duplicate standalone case keys. Every real `--out` run then performs the same
+  concrete-type read-back check against the just-written report.
+- Baseline tests retain the shared exactly-10%-passes and incompatible
+  schema/mode/conditions/environment/case-set rejection behavior.
+- CI uploads the three reports from both default-feature and pure-Rust jobs;
+  neither supplies an implicit cross-run baseline.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+Time StreamingDecoder::open plus fixture creation and call the result first PCM.
+Report one component count even when loudness-db was not compiled.
+Treat Rust retained bytes as libsoxr/process RSS and run an endless soak in CI.
+```
+
+#### Correct
+
+```text
+Generate and validate the byte-stable fixture before timing, then report
+source-open, probe, build, first borrowed PCM, steady decode, and seek separately.
+Record 16 default or 11 Rubato-only component cases with a visible DB exclusion.
+Report Rust allocator and exact adapter scratch boundaries separately, and use a
+declared 13-case lifecycle matrix and bounded soak whose complete trials return
+retained bytes to zero. Validate the exact case set and read the JSON back before
+accepting a report, even when no baseline was supplied.
 ```
 
 ## Scenario: Canonical Output Stages And Post-Render Analysis
@@ -681,6 +921,24 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   unread samples, or log; push/pop use at most two bounded copies and preserve
   strict output backpressure. Do not replace them with the public pipeline ring,
   whose overflow and read semantics differ from the resampler contract.
+- Low-through-High FFT keeps the 1024-frame/two-sub-chunk production geometry.
+  A complete caller chunk bypasses an empty input FIFO. When a staged FIFO
+  prefix plus the caller suffix completes the chunk, `SplitInterleavedInput`
+  presents both segments as one stack view and Rubato bulk-copies each channel
+  directly into its planar scratch; the suffix is not first copied into the
+  ring. Output adapters bulk-copy per channel. A short caller output uses the
+  bounded split/spill route and preserves unread output in the fixed ring.
+- FFT drain with an empty input FIFO uses `Indexing::new().partial_len(0)` so
+  Rubato supplies its internal zero padding without an explicit interleaved
+  zero block. If one drain step covers every caller-visible frame still
+  authorized by exact duration and the caller has enough capacity,
+  `TerminalInterleavedOutput` writes only that interval and discards leading
+  delay plus the native suffix after the terminal frame. Constrained output,
+  non-FFT engines, or a real partial tail retain the split/spill fallback.
+- `split_input_enabled`, `partial_zero_drain_enabled`, and
+  `terminal_truncate_drain_enabled` exist only under `cfg(test)` as permanent
+  bit-exact oracle controls. They are not runtime architecture switches or
+  benchmark tuning knobs.
 - Audioadapter slice wrappers are stack views. Rubato construction, FIR design,
   and engine boxing happen only during setup; process, drain, and reset remain
   allocation-free.
@@ -693,6 +951,13 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   half-band routing, FFT/sinc fallback, and the nonlinear `up = 16` split. Any
   algorithm/routing change must change that identifier so an older spectral,
   sinc, FFT, or differently routed report is baseline-incompatible.
+- The retained v17 FFT adapter IDs are
+  `streaming_native_interleaved_halfband2x_fft1024_sub2_bulk_io_split_input_terminal_drain_v17`
+  and
+  `audio_engine_core_rubato_fft1024_subchunk2_bulk_io_split_input_terminal_drain_v17`.
+  Reports with earlier adapter IDs may be matched manually only after aligning
+  work, quality, caller schedule, and host conditions; they are not compatible
+  automatic timing baselines.
 - On the recorded 2026-07-26 Windows/rustc 1.93.1 host, four-run pinned heavy
   medians moved 44.1-to-48 High/Minimum from 137.72 to 27.53 ns/input sample
   (5.00x). Retained 48-to-96 nonlinear cases were within +1.01%; the only
@@ -714,7 +979,10 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 | Minimum/Maximum + reduced component > 1024 or oversized coefficient bank | Named initialization error; never silently select FFT/sinc |
 | Backend consumes other than the fixed input chunk or over-reports output | Static `ProcessError::Backend` path; never slice or panic |
 | Input/output ring lacks capacity for a requested push | Static backend error; never overwrite, resize, allocate, or log |
+| FIFO prefix plus caller suffix does not form exactly one FFT input chunk | static backend error before native processing |
 | Initial delay spans multiple output calls | Continue discarding until the counter reaches zero |
+| Terminal direct drain cannot retain every still-authorized frame in caller output | use split/spill fallback; never truncate required output |
+| Repeated drain after exact duration is emitted | return zero without invoking more native work |
 | Reset after process or finish | Re-arm the original delay and produce the same output as a fresh instance |
 | Algorithm label differs from a baseline | Reject comparison before computing timing percentages |
 
@@ -731,6 +999,10 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
 - Base: equal-rate streams bypass the backend in `StreamingResampler`.
 - Good: wrapped input/output rings preserve exact order and expose every next
   fixed input chunk contiguously without shifting queued prefixes.
+- Good: a 512-frame FIFO prefix plus a 512-frame caller suffix completes one
+  FFT input chunk through the split view, while a terminal zero-input FFT step
+  writes only the exact remaining duration directly to a sufficiently large
+  caller buffer.
 - Bad: construct FFT for every non-equal rate, creating a 44,101-frame output
   block and 22,050-frame delay for 44.1 to 44.101 kHz.
 - Bad: accept `Minimum` or `Maximum`, call the linear engine, and alter only a
@@ -741,6 +1013,11 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   non-2x ratios, or nonlinear phase because one 48-to-96 benchmark improved.
 - Bad: cite a noisy quick-run minimum as representative evidence, or retain a
   FIFO rewrite that does not improve the adjacent heavy median matrix.
+- Bad: stage a full interleaved zero chunk merely to drain an empty FFT FIFO,
+  or copy a terminal native suffix into a ring only to clear it at the exact
+  duration boundary.
+- Bad: expose the three test-only oracle switches through an environment
+  variable or production API.
 
 ### 6. Tests Required
 
@@ -762,11 +1039,20 @@ cargo bench --bench audio_quality_measurements --no-default-features --features 
   under the pure-Rust feature matrix, including nonlinear finite-tail drain.
 - Ring-specific tests cross both input/output wrap, assert exact order and front
   contiguity, and run push/pop under `assert_no_alloc`.
+- FFT adapter tests cover both canonical directions with 128/256/512-frame
+  callers and a constrained 257-frame output. They prove split-input versus
+  forced FIFO, partial-zero versus explicit-zero, and terminal-truncate versus
+  split/spill complete streams are bit-exact; they also cover reset/fresh,
+  stable terminal drain, and process/drain `assert_no_alloc`.
 - An end-to-end pathological-ratio test must exercise the real sinc fallback,
   not only the routing predicate.
 - Run all 27 quick quality gates and record THD+N, 20 kHz gain, passband, and
   stopband values. Run the quick resampler report and record both 512-frame
   `process_checked` conversions before changing documented claims.
+- Run pinned streaming quick plus at least two heavy confirmations over
+  128/256/512/1024 callers and both public API paths after changing the FFT
+  adapter. Retain raw median/p95 vectors and do not classify a cross-run p95
+  spike as a regression unless it repeats under matched host conditions.
 - When UltraHigh routing changes, run the quick output-render report and record
   the active resampled scenario's CPU, realtime factor, and setup memory.
 
@@ -779,6 +1065,8 @@ let engine = Fft::new_custom(from, to, 1024, 2, 1, window, FixedSync::Input)?;
 let nonlinear = SpectralNonlinearResampler::new(from, to, phase, quality, channels, 1024)?;
 out_fifo.extend_from_slice(&out_stage[..written]);
 out_fifo.copy_within(consumed.., 0); // shifts queued samples every chunk
+in_fifo.push(&zero_chunk)?; // copies interleaved silence solely to drive FFT drain
+out_fifo.push(&terminal_native_output)?; // stages suffix that exact duration discards
 ```
 
 #### Correct
@@ -793,6 +1081,17 @@ let nonlinear = if nonlinear_uses_spectral(from, to) {
 let skip = delay_remaining.min(written);
 delay_remaining -= skip;
 out_fifo.push(&out_stage[skip..written])?; // fixed capacity, strict backpressure
+
+let input = SplitInterleavedInput::new(&[], &[], channels)?;
+let indexing = Indexing::new().partial_len(0);
+let mut output = TerminalInterleavedOutput::new(
+    caller_output,
+    channels,
+    native_frames,
+    delay_to_drop,
+    exact_remaining,
+)?;
+engine.process_fft_adapters(&input, &mut output, Some(&indexing))?;
 ```
 
 ## Code Review Checklist
@@ -989,4 +1288,322 @@ fs::copy(dll, profile_dir.join("libsoxr.dll"))?;
 let prefix = pkg_config_dir.ancestors().nth(2).ok_or("missing prefix")?;
 let dll = prefix.join("bin").join("libsoxr.dll");
 deploy_runtime_dlls(&dll, out_dir)?; // root + deps + examples, same-source closure
+```
+
+## Scenario: Cross-Project Resampler Comparison
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing `audio_resampler_comparison_perf`, its
+  benchmark-owned adapters/report schema, a raw-upstream control, or a
+  runtime-loaded external resampler.
+- This scenario is evidence tooling only. It must not change production
+  backend selection, public resampler behavior, or ordinary runtime linkage.
+
+### 2. Signatures
+
+```text
+cargo bench --bench audio_resampler_comparison_perf --all-features -- \
+  [--quick|--heavy] [--enforce] [--out <report.json>] \
+  [--baseline <report.json>] \
+  [--max-median-regression-pct <non-negative-finite-pct>] \
+  [--libsamplerate <explicit-library-path>] \
+  [--engine-library <engine-id>=<explicit-shim-path>] \
+  [--require-engine <engine-id>] [--require-complete-matrix] \
+  [--raw-rubato-geometry <512/1|1024/2>] \
+  [--pinned] [--pin-core <logical-core>]
+
+AUDIO_BENCH_LIBSAMPLERATE_PATH=<explicit-library-path>
+AUDIO_BENCH_NATIVE_SHIM_TEST_DIR=<directory-containing-all-seven-shims>
+
+LibSamplerateAdapter::process_final(input: &[f32], output: &mut [f32])
+    -> Result<AdapterProgress, String>
+LibSamplerateAdapter::drain(output: &mut [f32])
+    -> Result<AdapterProgress, String>
+
+build_resampler_shims.ps1
+    [-DependencyRoot <ignored-cache>] [-CompilerPrefix <mingw-prefix>]
+    [-BuildDirectory <ignored-output>]
+
+ReportConditions.adapter_schema =
+    "cross_project_resampler_v5_common_capacity_compensated_exact_work"
+ReportConditions.workload_id =
+    "quality_latency_throughput_pareto_v3_strict_capacity_delay"
+ReportConditions.output_capacity_policy =
+    "common_max_per_rate_across_all_measured_factories;identical_for_process_reset_quality_and_drain"
+AEB_RESAMPLER_ABI_VERSION = 2
+
+aeb_resampler_process(
+    state, input, input_frames, output, output_capacity_frames, end_of_input,
+    consumed_frames, produced_frames, finished
+) noexcept -> int
+aeb_resampler_reset(state) noexcept -> int
+```
+
+Known engine IDs are `audio_engine_core`, `raw_libsoxr`, `raw_rubato`,
+`libsamplerate`, `ffmpeg_libswresample`, `speexdsp`, `r8brain`,
+`zita_resampler`, `webrtc`, `wdl`, and `libresample`. The last seven are
+runtime-loaded benchmark shim IDs.
+
+### 3. Contracts
+
+- External libraries load only from `--libsamplerate`,
+  `AUDIO_BENCH_LIBSAMPLERATE_PATH`, or one explicit `--engine-library
+  <engine-id>=<path>` per native shim. Never search `PATH` or system
+  directories. Record the canonical path, upstream version, SHA-256, file
+  size, sample format, source revision, build provenance, and linked runtime
+  artifacts in the report; keep acquired binaries under ignored benchmark
+  cache storage and never commit them.
+- `benches/native/build_resampler_shims.ps1` is the reproducible provisioning
+  entry point. It validates pinned package/file hashes and exact git revisions,
+  rejects dirty pinned git worktrees, and validates fixed source/install inputs
+  before compiling. Directory identity uses sorted
+  `relative-path SP file-SHA256` records encoded as UTF-8 without BOM and joined
+  with LF before hashing. The script requires MinGW-w64 GCC/G++ 15.2.0,
+  separates C/C++ compilation where required, copies only runtime dependencies
+  into the ignored output directory, and prints final shim hashes.
+- Every measured engine records adapter schema
+  `cross_project_resampler_v5_common_capacity_compensated_exact_work`, a stable
+  algorithm ID, implementation/version, format/layout, quality recipe, phase
+  behavior, rate pair, channels, and chunk size. An algorithm or lifecycle
+  change needs a new algorithm ID so incompatible reports cannot compare as
+  one engine.
+- Before measurement, every discovered factory must create successfully for
+  both canonical rate pairs. A failed create probe becomes an explicit
+  unavailable row before any partial case can be presented as measured.
+- Before timing each factory/rate pair, process a deterministic stream, reset
+  the same instance, process it again, and compare both complete outputs with a
+  separately created fresh instance bit-for-bit. Any length/sample difference
+  invalidates that engine; a native reset API is never trusted by itself.
+- Time setup, steady process, reset, and drain separately. Validate native
+  consumed/produced counts before slicing and retain raw trial samples. For
+  every trial, gate exact warm-up and timed input consumption plus
+  `warmup_output_frames + steady_output_frames + drain_frames ==
+  expected_complete_output_frames`; terminal drain is also mandatory. One
+  native output buffer of slack is not acceptable. Cross-engine quality,
+  latency, and throughput remain report-only; compatible same-engine baselines
+  may gate timing.
+- Before setup timing, create every runnable factory once per rate and select
+  the maximum advertised output capacity. Record that value in
+  `output_capacity_frames_by_rate` and use the identical common capacity for
+  process, reset/fresh, quality, and drain across all engines. A factory that
+  cannot create for the capacity probe is unavailable; a per-engine timed
+  buffer is not comparable v5 evidence.
+- Optional `--pinned --pin-core <logical-core>` must record the requested core
+  plus the verified effective affinity mask, process priority, and thread
+  priority. Pinned and unpinned reports, or reports pinned to different cores
+  or scheduling states, are baseline-incompatible. Pinning reduces migration
+  noise but does not remove interrupts, DPCs, frequency changes, or scheduler
+  outliers from raw trials.
+- The f64 project/libsoxr/Rubato/FFmpeg/r8brain/WDL lanes and the f32
+  libsamplerate/SpeexDSP/zita/WebRTC/libresample lanes are distinct. Never
+  create a strict cross-format speed gate or imply that differently named
+  quality recipes are equivalent.
+- Preserve native lifecycle semantics. Duration-aligned engines produce the
+  rounded rate-converted length unless the upstream API has a stricter
+  documented endpoint rule. Raw Rubato records its native `output_delay` but
+  compensates it before caller-visible output, reports zero compensated API
+  latency, and paces emission to the exact rounded duration. Its 512/1 and
+  1024/2 algorithms are respectively
+  `raw_rubato_fft512_bh2_subchunk1_compensated_exact_v3` and
+  `raw_rubato_fft1024_bh2_subchunk2_compensated_exact_v3`. Drain uses bounded
+  partial-zero state advancement and must terminate at the exact target.
+- Strict adapter-overhead claims require one compiled build and one report with
+  the same lane, recipe, geometry, common capacity, exact work, and trial
+  schedule. The all-feature build pairs the selected project SoXR backend with
+  raw libsoxr; the Rubato-only build pairs the project Rubato backend with raw
+  Rubato 1024/2. Absolute timings across those two separately compiled reports
+  are informative but are not a controlled AB comparison. A `faster` claim
+  requires at least a 2% median advantage or separated trial distributions;
+  smaller median deltas are classified as tied.
+- libsamplerate must receive `end_of_input = 1` on the final `src_process`
+  call that still contains real input. A later empty call is only for draining
+  already-signalled state; first exhausting all input with
+  `end_of_input = 0` truncates the filter tail. Its exact completed length is
+  `ceil(input_frames * output_rate / input_rate)`, including 2,787 frames for
+  2,560 input frames at 44.1-to-48 kHz. This lifecycle is identified as
+  `libsamplerate_sinc_best_quality_streaming_f32_v3`.
+- Every native shim uses ABI version 2, validates geometry and progress at the
+  C boundary, preallocates process/drain staging, and makes terminal drain
+  idempotent. All seven `process` and `reset` exports are `noexcept`; C++
+  exceptions are translated to a shim error code/string and never cross the C
+  ABI. Algorithm IDs use `<engine-id>_benchmark_shim_v2`.
+- Its exact complete output follows the adapter's documented
+  duration-plus-latency policy. Keep three concepts separate in every quality
+  case: `reported_api_buffering_latency_frames`,
+  `observed_input_frames_before_first_output`, and
+  `measured_impulse_peak_frame`. File-aligned engines may consume lookahead
+  before producing output while retaining an impulse at output frame zero.
+- FFmpeg process and drain cap output against cumulative exact rational
+  duration. A short native flush is not terminal while target frames remain.
+  WebRTC accumulates arbitrary 512-frame caller chunks into native 10 ms
+  blocks, pads only the final block, and trims output attributable to padding.
+- Reset must reproduce a fresh stream sample-for-sample. The tested SpeexDSP
+  1.2.1 interleaved build leaves right-channel history after
+  `speex_resampler_reset_mem`; its shim constructs a replacement native state,
+  swaps only after successful setup, and then destroys the old state. Reset
+  timing includes this setup work; process and drain remain preallocated.
+- Quality rendering must have exact complete length, terminal drain, finite
+  samples, a finite/analyzable impulse peak and RMS, and analyzable 997 Hz and
+  18 kHz tone fits. Silent or near-silent output is invalid; do not floor an
+  undefined amplitude or THD+N into an apparent quality pass.
+- Unavailable engines are explicit `unavailable` entries with a reason. A required
+  unavailable engine writes any requested JSON first, then returns non-zero.
+  An unavailable row is never counted as a successful measured case.
+- Coverage claims are evaluated against the user-approved representative
+  project inventory, not only the cases that happened to execute. Every
+  required project must end as `measured`, `not-comparable`, or
+  `infeasible-with-evidence`; `skipped`, `unavailable`, `deferred`, adapter
+  placeholders, and lack of a prebuilt package are non-terminal. A report or
+  document with a non-terminal project row must not be titled or described as
+  `final`, `complete`, `all`, or universal coverage. Non-project limitations
+  belong in `conditions.scope_boundaries`; schema v5 does not serialize the
+  ambiguous `excludes` field.
+- The report's top-level `coverage` payload contains `all_terminal` and exactly
+  11 ordered entries. Each entry records `engine_id`, `state`, `terminal`,
+  `measured_rate_pairs`, `case_keys`, and optional `evidence`. `measured`
+  requires both canonical rate IDs. `not_comparable` and
+  `infeasible_with_evidence` are terminal only with persisted evidence;
+  `unavailable` is non-terminal. Reconstruct the table from actual case and
+  unavailable rows and reject duplicates, partial rates, measured/unavailable
+  conflicts, unknown IDs, omissions, or a mismatched serialized table.
+- `--require-complete-matrix` does not suppress partial evidence. Print and
+  write requested JSON first, then fail with every non-terminal engine and its
+  evidence. The primary all-features evidence report uses this flag and must
+  contain 11 measured entries and 22 cases. A Rubato-only supplementary report
+  intentionally records raw libsoxr as unavailable and must not be presented
+  as the complete representative matrix.
+- Formal `--require-complete-matrix` runs require verified provenance for every
+  runtime-loaded native identity. A caller-provided payload with only a path or
+  self-reported metadata is insufficient: its bytes must match a pinned source
+  and build identity. The representative 11-engine report therefore has eight
+  unique provenance-verified native engines: libsamplerate plus seven shims.
+- Baseline validation, required-engine enforcement, complete-coverage
+  enforcement, formal provenance, and `--enforce` work/quality failures are
+  accumulated into top-level `run_failures`. Print and write the fully populated
+  report, read it back, and only then return non-zero. A pre-write validation
+  error must not erase measured or unavailable evidence.
+- JSON read-back keeps structure, keys, arrays, strings, integers, and booleans
+  exact. Finite floating-point values may differ by at most four machine
+  epsilons after serialization; diagnostics name the first differing path.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown `--require-engine` value | named argument error listing known IDs |
+| Unknown/duplicate `--raw-rubato-geometry`, or use without the Rubato feature | named argument/feature error before discovery |
+| Invalid `--pinned` / `--pin-core`, affinity, or priority state | fail before timing; do not label the report pinned |
+| `--engine-library` has an unknown/non-shim ID, empty path, or duplicate ID | named argument error before discovery |
+| No explicit libsamplerate path | `unavailable`, with argument/environment guidance |
+| Explicit DLL path cannot load, ABI/symbol/engine ID is wrong, or metadata is empty | `unavailable` with the concrete path/ABI reason |
+| Factory cannot create either canonical rate pair | mark the engine unavailable; do not retain a partial measured case |
+| Common-capacity probe fails, or a timed adapter advertises more than the selected capacity | named engine/rate error before measurement |
+| Unavailable engine is required | requested JSON contains `required=true`, then process exits non-zero |
+| Complete matrix contains any `unavailable` row | requested JSON contains all 11 coverage rows, then process exits non-zero |
+| Complete matrix uses an unverified native payload | append a named provenance failure, persist JSON, then exit non-zero |
+| Native consumed/produced count is negative or exceeds capacity | reject before cursor advance or slice |
+| libsamplerate final real input is not fully consumed | named final-input error; do not enter drain |
+| libsamplerate is drained before real input carried `end_of_input=1` | named lifecycle error |
+| libsamplerate exact length uses nearest rounding instead of ceiling | work gate fails; 2,560 frames at 44.1-to-48 must produce 2,787 |
+| Complete output differs from the engine's duration-plus-latency contract | work gate fails under `--enforce` |
+| Compensated raw Rubato exposes native leading delay or emits beyond rounded duration | strict control/reset oracle fails; do not retain the case |
+| Warm-up/timed consumption or warm-up + steady + drain total differs in any trial | named per-trial work gate fails; no output slack is allowed |
+| Impulse/tone output is silent, below analyzable energy, non-finite, or has undefined THD+N | quality row is invalid and `--enforce` records a run failure |
+| Reset output differs from either the second reset render or a fresh instance | engine/rate reset-fresh oracle fails with the first differing sample |
+| Measured engine has only one canonical rate, duplicate rate/case, or is also unavailable | coverage construction fails by engine/rate name |
+| SpeexDSP reset output differs from a fresh state | ignored native evidence test reports first sample/frame/channel/value difference |
+| Shim `process`/`reset` throws C++ | ABI v2 catches it and returns a diagnostic; no exception crosses C |
+| Pinned git source is dirty or a package/file/tree manifest hash differs | provisioning stops before compilation and names the mismatched input |
+| Baseline format, algorithm, recipe, conditions, case set, or environment differs | reject before timing percentages |
+| Baseline/required/coverage/provenance/enforce check fails | append to `run_failures`, persist/read back the report, then exit non-zero |
+| JSON structure or non-float value changes on read-back, or `excludes` reappears | report-integrity failure naming the field path |
+
+### 5. Good / Base / Bad Cases
+
+- Good: build all seven pinned shims, load every native DLL through an explicit
+  canonicalizable path, require complete coverage, retain binary/source
+  identity, use one common per-rate output capacity, and compare project SoXR
+  with raw libsoxr in the same 22-case all-feature report. Run the separate
+  Rubato-only 1024/2 project/raw control under identical pinned conditions.
+- Base: run without libsamplerate during ordinary development; the report keeps
+  project/raw controls plus visible non-required unavailable coverage entries.
+- Bad: silently locate a DLL through `PATH`, report an unavailable engine as
+  passed, or commit the acquired package/DLL.
+- Bad: rank f32 `SRC_SINC_BEST_QUALITY` against f64 engines as a strict speed
+  regression without matching format, response, and latency.
+- Bad: place project SoXR and project Rubato values from separate feature
+  builds in one table and describe their absolute difference as a controlled
+  backend win.
+- Bad: consume the last real block with `end_of_input=0`, then send an empty
+  `end_of_input=1` call and accept the resulting short output.
+- Bad: allow one output buffer of work slack, accept exact-length silence, or
+  use an impulse peak as a substitute for first-output buffering latency.
+- Bad: trust a native reset API without a fresh-stream oracle, or manually mark
+  a coverage row measured without two actual case keys.
+- Bad: fail baseline validation before writing JSON, or label caller-provided
+  native bytes as verified merely because the shim reports a pinned revision.
+
+### 6. Tests Required
+
+- Unit tests cover native count bounds, unique discovered IDs, required-flag
+  preservation, explicit argument/environment/shim parsing, unknown and
+  duplicate IDs, canonical create-probe failures, exact rational output
+  rounding, the libsamplerate 2,560-frame ceiling regression, common-capacity
+  selection/serialization, pinned-argument parsing, raw Rubato delay
+  compensation and exact-duration drain, 1024/2 bit equality with the
+  production Rubato stream, reset/fresh bit equality, exact per-trial output
+  totals, silent/non-analyzable quality rejection, separated latency fields,
+  complete/non-terminal/partial coverage tables, formal provenance, and
+  float-tolerant JSON read-back with a field-path failure.
+- Run `cargo test --all-features` and
+  `cargo test --no-default-features --features rubato` so both project backend
+  identities and available raw controls compile and execute.
+- The ignored native evidence test loads all seven shims through
+  `AUDIO_BENCH_NATIVE_SHIM_TEST_DIR`, runs both canonical rates with a
+  4,097-frame irregular chunk schedule, and asserts ABI v2,
+  metadata/hash/runtime identity, bounded progress, exact length, finite output,
+  complete/idempotent drain, and reset/fresh bit equality. Run it under both
+  feature matrices.
+- The formal all-features run uses explicit pinned paths, `--enforce`,
+  `--require-complete-matrix`, and `--out`; it must contain 11 terminal measured
+  entries, 22 valid cases, exact complete outputs, zero `run_failures`, and
+  eight unique provenance-verified native engines. A claim-bearing timing run
+  also uses `--pinned --pin-core <core>` and retains the effective scheduling
+  state.
+- The Rubato-only run requires libsamplerate and all seven shims, selects raw
+  Rubato `1024/2` for the strict production control, retains 20 valid cases, and
+  marks raw libsoxr unavailable. A deliberately incomplete complete-matrix or
+  incompatible-baseline run must write its 11-row JSON and populated
+  `run_failures`, then exit non-zero with every failure named. Its conditions
+  contain `scope_boundaries` and no `excludes` key.
+- Provisioning validation must pass with the pinned clean sources and fixed
+  package/import/runtime/tree hashes; a dirty-source or changed-hash fixture
+  must stop before producing a formal shim.
+- Run both strict Clippy feature matrices and rustfmt after adapter/report
+  changes. Regenerate formal JSON after any setup- or timing-affecting change.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+coverage.push(EngineCoverage::measured("speexdsp")); // no actual rate evidence
+speex_resampler_reset_mem(state); // assumed fresh without a stereo oracle
+let db = db_ratio_with_floor(0.0, reference); // silence becomes a fake number
+validate_baseline(&report)?; // exits before requested evidence is written
+```
+
+#### Correct
+
+```rust
+let coverage = build_coverage(report.cases(), report.unavailable())?;
+assert_eq!(coverage.entries.len(), ALL_ENGINE_IDS.len());
+assert!(coverage.entries.iter().all(|entry| {
+    entry.state != CoverageState::Measured || entry.case_keys.len() == RATE_PAIRS.len()
+}));
+validate_reset_matches_fresh(factory, rate, inputs)?;
+assert_eq!(warmup_output + steady_output + drain_output, expected_output);
+report.run_failures.extend(run_all_deferred_checks(&report));
+write_and_read_back(&report)?;
 ```

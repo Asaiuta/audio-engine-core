@@ -1,0 +1,2350 @@
+{
+  "schema_version": 1,
+  "probe": "audio_resampler_streaming_perf",
+  "generated_unix_ms": 1785085099740,
+  "mode": "quick",
+  "environment": {
+    "revision": "342fd447c4c92025c86497b3cfb0d729559046ab",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "resampler-rubato"
+    ]
+  },
+  "conditions": {
+    "channels": 2,
+    "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+    "coverage": "streaming_resampler_only",
+    "excludes": [
+      "decoder",
+      "callback_dsp_chain",
+      "cpal_device_write",
+      "gapless_state_machine"
+    ],
+    "warmup_buffers": 64,
+    "iterations_per_trial": 75,
+    "trials": 7,
+    "pinned": true,
+    "pin_core": 2,
+    "scheduling": {
+      "requested_core": 2,
+      "effective_group": 0,
+      "effective_affinity_mask": 4,
+      "effective_process_priority_class": 128,
+      "effective_thread_priority": 2
+    }
+  },
+  "cases": [
+    {
+      "case_key": "scenario=equal_rate_48k;api=process_checked;frames=128;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.24479166666666666,
+          0.23958333333333334,
+          0.22916666666666666,
+          0.22916666666666666,
+          0.2552083333333333,
+          0.22395833333333334,
+          0.22916666666666666
+        ],
+        "min": 0.22395833333333334,
+        "median": 0.22916666666666666,
+        "p95": 0.2552083333333333,
+        "max": 0.2552083333333333
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          62.666666666666664,
+          61.333333333333336,
+          58.666666666666664,
+          58.666666666666664,
+          65.33333333333333,
+          57.333333333333336,
+          58.666666666666664
+        ],
+        "min": 57.333333333333336,
+        "median": 58.666666666666664,
+        "p95": 65.33333333333333,
+        "max": 65.33333333333333
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.0022,
+      "p95_source_realtime_utilization_pct": 0.00245,
+      "expected_output_frames_total": 9600,
+      "minimum_output_frames_total": 9120,
+      "maximum_output_frames_total": 10080,
+      "output_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1024,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=trait_process_direct;frames=128;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.22395833333333334,
+          0.25,
+          0.23958333333333334,
+          0.25,
+          0.24479166666666666,
+          0.24479166666666666,
+          0.2604166666666667
+        ],
+        "min": 0.22395833333333334,
+        "median": 0.24479166666666666,
+        "p95": 0.2604166666666667,
+        "max": 0.2604166666666667
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          57.333333333333336,
+          64.0,
+          61.333333333333336,
+          64.0,
+          62.666666666666664,
+          62.666666666666664,
+          66.66666666666667
+        ],
+        "min": 57.333333333333336,
+        "median": 62.666666666666664,
+        "p95": 66.66666666666667,
+        "max": 66.66666666666667
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.00235,
+      "p95_source_realtime_utilization_pct": 0.0025000000000000005,
+      "expected_output_frames_total": 9600,
+      "minimum_output_frames_total": 9120,
+      "maximum_output_frames_total": 10080,
+      "output_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1024,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=process_checked;frames=256;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.15364583333333334,
+          0.1796875,
+          0.16927083333333334,
+          0.16145833333333334,
+          0.17708333333333334,
+          0.17447916666666666,
+          0.20572916666666666
+        ],
+        "min": 0.15364583333333334,
+        "median": 0.17447916666666666,
+        "p95": 0.20572916666666666,
+        "max": 0.20572916666666666
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          78.66666666666667,
+          92.0,
+          86.66666666666667,
+          82.66666666666667,
+          90.66666666666667,
+          89.33333333333333,
+          105.33333333333333
+        ],
+        "min": 78.66666666666667,
+        "median": 89.33333333333333,
+        "p95": 105.33333333333333,
+        "max": 105.33333333333333
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.001675,
+      "p95_source_realtime_utilization_pct": 0.0019749999999999998,
+      "expected_output_frames_total": 19200,
+      "minimum_output_frames_total": 18240,
+      "maximum_output_frames_total": 20160,
+      "output_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2048,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=trait_process_direct;frames=256;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.15625,
+          0.13802083333333334,
+          0.15364583333333334,
+          0.11979166666666667,
+          0.14322916666666666,
+          0.11197916666666667,
+          0.14583333333333334
+        ],
+        "min": 0.11197916666666667,
+        "median": 0.14322916666666666,
+        "p95": 0.15625,
+        "max": 0.15625
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          80.0,
+          70.66666666666667,
+          78.66666666666667,
+          61.333333333333336,
+          73.33333333333333,
+          57.333333333333336,
+          74.66666666666667
+        ],
+        "min": 57.333333333333336,
+        "median": 73.33333333333333,
+        "p95": 80.0,
+        "max": 80.0
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.0013750000000000001,
+      "p95_source_realtime_utilization_pct": 0.0015,
+      "expected_output_frames_total": 19200,
+      "minimum_output_frames_total": 18240,
+      "maximum_output_frames_total": 20160,
+      "output_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2048,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=process_checked;frames=512;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.14322916666666666,
+          0.2747395833333333,
+          0.15104166666666666,
+          0.12369791666666667,
+          0.12369791666666667,
+          0.12890625,
+          0.15364583333333334
+        ],
+        "min": 0.12369791666666667,
+        "median": 0.14322916666666666,
+        "p95": 0.2747395833333333,
+        "max": 0.2747395833333333
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          146.66666666666666,
+          281.3333333333333,
+          154.66666666666666,
+          126.66666666666667,
+          126.66666666666667,
+          132.0,
+          157.33333333333334
+        ],
+        "min": 126.66666666666667,
+        "median": 146.66666666666666,
+        "p95": 281.3333333333333,
+        "max": 281.3333333333333
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.0013750000000000001,
+      "p95_source_realtime_utilization_pct": 0.0026375,
+      "expected_output_frames_total": 38400,
+      "minimum_output_frames_total": 36480,
+      "maximum_output_frames_total": 40320,
+      "output_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=trait_process_direct;frames=512;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.11588541666666667,
+          0.11588541666666667,
+          0.1171875,
+          0.1171875,
+          0.13411458333333334,
+          0.1171875,
+          0.12109375
+        ],
+        "min": 0.11588541666666667,
+        "median": 0.1171875,
+        "p95": 0.13411458333333334,
+        "max": 0.13411458333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          118.66666666666667,
+          118.66666666666667,
+          120.0,
+          120.0,
+          137.33333333333334,
+          120.0,
+          124.0
+        ],
+        "min": 118.66666666666667,
+        "median": 120.0,
+        "p95": 137.33333333333334,
+        "max": 137.33333333333334
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.0011250000000000001,
+      "p95_source_realtime_utilization_pct": 0.0012875,
+      "expected_output_frames_total": 38400,
+      "minimum_output_frames_total": 36480,
+      "maximum_output_frames_total": 40320,
+      "output_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=process_checked;frames=1024;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.08463541666666667,
+          0.08138020833333333,
+          0.08658854166666667,
+          0.07421875,
+          0.072265625,
+          0.07291666666666667,
+          0.072265625
+        ],
+        "min": 0.072265625,
+        "median": 0.07421875,
+        "p95": 0.08658854166666667,
+        "max": 0.08658854166666667
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          173.33333333333334,
+          166.66666666666666,
+          177.33333333333334,
+          152.0,
+          148.0,
+          149.33333333333334,
+          148.0
+        ],
+        "min": 148.0,
+        "median": 152.0,
+        "p95": 177.33333333333334,
+        "max": 177.33333333333334
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.0007125,
+      "p95_source_realtime_utilization_pct": 0.0008312500000000001,
+      "expected_output_frames_total": 76800,
+      "minimum_output_frames_total": 72960,
+      "maximum_output_frames_total": 80640,
+      "output_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 8192,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=equal_rate_48k;api=trait_process_direct;frames=1024;from=48000;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "equal_rate_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          0.06640625,
+          0.06901041666666667,
+          0.06901041666666667,
+          0.06705729166666667,
+          0.06640625,
+          0.068359375,
+          0.06575520833333333
+        ],
+        "min": 0.06575520833333333,
+        "median": 0.06705729166666667,
+        "p95": 0.06901041666666667,
+        "max": 0.06901041666666667
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          136.0,
+          141.33333333333334,
+          141.33333333333334,
+          137.33333333333334,
+          136.0,
+          140.0,
+          134.66666666666666
+        ],
+        "min": 134.66666666666666,
+        "median": 137.33333333333334,
+        "p95": 141.33333333333334,
+        "max": 141.33333333333334
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.00064375,
+      "p95_source_realtime_utilization_pct": 0.0006625000000000001,
+      "expected_output_frames_total": 76800,
+      "minimum_output_frames_total": 72960,
+      "maximum_output_frames_total": 80640,
+      "output_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 8192,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=process_checked;frames=128;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          13.182291666666666,
+          9.973958333333334,
+          10.994791666666666,
+          10.296875,
+          9.791666666666666,
+          10.291666666666666,
+          9.744791666666666
+        ],
+        "min": 9.744791666666666,
+        "median": 10.291666666666666,
+        "p95": 13.182291666666666,
+        "max": 13.182291666666666
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          3374.6666666666665,
+          2553.3333333333335,
+          2814.6666666666665,
+          2636.0,
+          2506.6666666666665,
+          2634.6666666666665,
+          2494.6666666666665
+        ],
+        "min": 2494.6666666666665,
+        "median": 2634.6666666666665,
+        "p95": 3374.6666666666665,
+        "max": 3374.6666666666665
+      },
+      "source_buffer_duration_ns": 2902494.3310657595,
+      "median_source_realtime_utilization_pct": 0.09077249999999999,
+      "p95_source_realtime_utilization_pct": 0.1162678125,
+      "expected_output_frames_total": 10449,
+      "minimum_output_frames_total": 9926,
+      "maximum_output_frames_total": 10971,
+      "output_frames_total_per_trial": [
+        10240,
+        10240,
+        10240,
+        10240,
+        10240,
+        10240,
+        10240
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1280,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=trait_process_direct;frames=128;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          9.958333333333334,
+          9.947916666666666,
+          9.765625,
+          9.984375,
+          10.411458333333334,
+          9.630208333333334,
+          9.875
+        ],
+        "min": 9.630208333333334,
+        "median": 9.947916666666666,
+        "p95": 10.411458333333334,
+        "max": 10.411458333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          2549.3333333333335,
+          2546.6666666666665,
+          2500.0,
+          2556.0,
+          2665.3333333333335,
+          2465.3333333333335,
+          2528.0
+        ],
+        "min": 2465.3333333333335,
+        "median": 2546.6666666666665,
+        "p95": 2665.3333333333335,
+        "max": 2665.3333333333335
+      },
+      "source_buffer_duration_ns": 2902494.3310657595,
+      "median_source_realtime_utilization_pct": 0.08774062499999999,
+      "p95_source_realtime_utilization_pct": 0.0918290625,
+      "expected_output_frames_total": 10449,
+      "minimum_output_frames_total": 9926,
+      "maximum_output_frames_total": 10971,
+      "output_frames_total_per_trial": [
+        10240,
+        10240,
+        10240,
+        10240,
+        10240,
+        10240,
+        10240
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1280,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=process_checked;frames=256;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          13.3515625,
+          14.122395833333334,
+          12.395833333333334,
+          9.736979166666666,
+          11.841145833333334,
+          9.760416666666666,
+          9.6953125
+        ],
+        "min": 9.6953125,
+        "median": 11.841145833333334,
+        "p95": 14.122395833333334,
+        "max": 14.122395833333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          6836.0,
+          7230.666666666667,
+          6346.666666666667,
+          4985.333333333333,
+          6062.666666666667,
+          4997.333333333333,
+          4964.0
+        ],
+        "min": 4964.0,
+        "median": 6062.666666666667,
+        "p95": 7230.666666666667,
+        "max": 7230.666666666667
+      },
+      "source_buffer_duration_ns": 5804988.662131519,
+      "median_source_realtime_utilization_pct": 0.10443890625000002,
+      "p95_source_realtime_utilization_pct": 0.12455953125,
+      "expected_output_frames_total": 20898,
+      "minimum_output_frames_total": 19853,
+      "maximum_output_frames_total": 21942,
+      "output_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2560,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=trait_process_direct;frames=256;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          14.677083333333334,
+          9.963541666666666,
+          10.419270833333334,
+          9.830729166666666,
+          10.0625,
+          12.333333333333334,
+          14.473958333333334
+        ],
+        "min": 9.830729166666666,
+        "median": 10.419270833333334,
+        "p95": 14.677083333333334,
+        "max": 14.677083333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          7514.666666666667,
+          5101.333333333333,
+          5334.666666666667,
+          5033.333333333333,
+          5152.0,
+          6314.666666666667,
+          7410.666666666667
+        ],
+        "min": 5033.333333333333,
+        "median": 5334.666666666667,
+        "p95": 7514.666666666667,
+        "max": 7514.666666666667
+      },
+      "source_buffer_duration_ns": 5804988.662131519,
+      "median_source_realtime_utilization_pct": 0.09189796875,
+      "p95_source_realtime_utilization_pct": 0.12945187500000002,
+      "expected_output_frames_total": 20898,
+      "minimum_output_frames_total": 19853,
+      "maximum_output_frames_total": 21942,
+      "output_frames_total_per_trial": [
+        20480,
+        20480,
+        20480,
+        20480,
+        20480,
+        20480,
+        20480
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 2560,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=process_checked;frames=512;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.165364583333334,
+          10.03515625,
+          10.61328125,
+          9.743489583333334,
+          11.645833333333334,
+          11.313802083333334,
+          9.88671875
+        ],
+        "min": 9.743489583333334,
+        "median": 10.165364583333334,
+        "p95": 11.645833333333334,
+        "max": 11.645833333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          10409.333333333334,
+          10276.0,
+          10868.0,
+          9977.333333333334,
+          11925.333333333334,
+          11585.333333333334,
+          10124.0
+        ],
+        "min": 9977.333333333334,
+        "median": 10409.333333333334,
+        "p95": 11925.333333333334,
+        "max": 11925.333333333334
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.08965851562500002,
+      "p95_source_realtime_utilization_pct": 0.10271625000000001,
+      "expected_output_frames_total": 41796,
+      "minimum_output_frames_total": 39706,
+      "maximum_output_frames_total": 43885,
+      "output_frames_total_per_trial": [
+        41600,
+        41600,
+        41600,
+        41600,
+        41600,
+        41600,
+        41600
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 4480,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=trait_process_direct;frames=512;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          9.87109375,
+          10.455729166666666,
+          10.634114583333334,
+          14.364583333333334,
+          9.856770833333334,
+          9.703125,
+          13.186197916666666
+        ],
+        "min": 9.703125,
+        "median": 10.455729166666666,
+        "p95": 14.364583333333334,
+        "max": 14.364583333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          10108.0,
+          10706.666666666666,
+          10889.333333333334,
+          14709.333333333334,
+          10093.333333333334,
+          9936.0,
+          13502.666666666666
+        ],
+        "min": 9936.0,
+        "median": 10706.666666666666,
+        "p95": 14709.333333333334,
+        "max": 14709.333333333334
+      },
+      "source_buffer_duration_ns": 11609977.324263038,
+      "median_source_realtime_utilization_pct": 0.09221953125,
+      "p95_source_realtime_utilization_pct": 0.126695625,
+      "expected_output_frames_total": 41796,
+      "minimum_output_frames_total": 39706,
+      "maximum_output_frames_total": 43885,
+      "output_frames_total_per_trial": [
+        41600,
+        41600,
+        41600,
+        41600,
+        41600,
+        41600,
+        41600
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 4480,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=process_checked;frames=1024;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          9.735677083333334,
+          11.934895833333334,
+          11.834635416666666,
+          12.652994791666666,
+          12.685546875,
+          12.65234375,
+          11.766927083333334
+        ],
+        "min": 9.735677083333334,
+        "median": 11.934895833333334,
+        "p95": 12.685546875,
+        "max": 12.685546875
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          19938.666666666668,
+          24442.666666666668,
+          24237.333333333332,
+          25913.333333333332,
+          25980.0,
+          25912.0,
+          24098.666666666668
+        ],
+        "min": 19938.666666666668,
+        "median": 24442.666666666668,
+        "p95": 25980.0,
+        "max": 25980.0
+      },
+      "source_buffer_duration_ns": 23219954.648526076,
+      "median_source_realtime_utilization_pct": 0.10526578125000001,
+      "p95_source_realtime_utilization_pct": 0.1118865234375,
+      "expected_output_frames_total": 83592,
+      "minimum_output_frames_total": 79412,
+      "maximum_output_frames_total": 87771,
+      "output_frames_total_per_trial": [
+        83840,
+        83840,
+        83840,
+        83840,
+        83840,
+        83840,
+        83840
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 8960,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_44k1_to_48k;api=trait_process_direct;frames=1024;from=44100;to=48000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_44k1_to_48k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 44100,
+      "to_rate_hz": 48000,
+      "ns_per_input_sample": {
+        "samples": [
+          11.30078125,
+          12.608723958333334,
+          15.447916666666666,
+          14.744791666666666,
+          13.625,
+          14.650390625,
+          15.361979166666666
+        ],
+        "min": 11.30078125,
+        "median": 14.650390625,
+        "p95": 15.447916666666666,
+        "max": 15.447916666666666
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          23144.0,
+          25822.666666666668,
+          31637.333333333332,
+          30197.333333333332,
+          27904.0,
+          30004.0,
+          31461.333333333332
+        ],
+        "min": 23144.0,
+        "median": 30004.0,
+        "p95": 31637.333333333332,
+        "max": 31637.333333333332
+      },
+      "source_buffer_duration_ns": 23219954.648526076,
+      "median_source_realtime_utilization_pct": 0.1292164453125,
+      "p95_source_realtime_utilization_pct": 0.136250625,
+      "expected_output_frames_total": 83592,
+      "minimum_output_frames_total": 79412,
+      "maximum_output_frames_total": 87771,
+      "output_frames_total_per_trial": [
+        83840,
+        83840,
+        83840,
+        83840,
+        83840,
+        83840,
+        83840
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 8960,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=process_checked;frames=128;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          15.046875,
+          15.109375,
+          13.458333333333334,
+          15.234375,
+          14.927083333333334,
+          13.302083333333334,
+          12.927083333333334
+        ],
+        "min": 12.927083333333334,
+        "median": 14.927083333333334,
+        "p95": 15.234375,
+        "max": 15.234375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          3852.0,
+          3868.0,
+          3445.3333333333335,
+          3900.0,
+          3821.3333333333335,
+          3405.3333333333335,
+          3309.3333333333335
+        ],
+        "min": 3309.3333333333335,
+        "median": 3821.3333333333335,
+        "p95": 3900.0,
+        "max": 3900.0
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.14330000000000004,
+      "p95_source_realtime_utilization_pct": 0.14625,
+      "expected_output_frames_total": 8820,
+      "minimum_output_frames_total": 8379,
+      "maximum_output_frames_total": 9261,
+      "output_frames_total_per_trial": [
+        8820,
+        8820,
+        8820,
+        8820,
+        8820,
+        8820,
+        8820
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1176,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=trait_process_direct;frames=128;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          13.59375,
+          13.65625,
+          18.697916666666668,
+          13.53125,
+          14.666666666666666,
+          13.744791666666666,
+          13.609375
+        ],
+        "min": 13.53125,
+        "median": 13.65625,
+        "p95": 18.697916666666668,
+        "max": 18.697916666666668
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          3480.0,
+          3496.0,
+          4786.666666666667,
+          3464.0,
+          3754.6666666666665,
+          3518.6666666666665,
+          3484.0
+        ],
+        "min": 3464.0,
+        "median": 3496.0,
+        "p95": 4786.666666666667,
+        "max": 4786.666666666667
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.13110000000000002,
+      "p95_source_realtime_utilization_pct": 0.17950000000000002,
+      "expected_output_frames_total": 8820,
+      "minimum_output_frames_total": 8379,
+      "maximum_output_frames_total": 9261,
+      "output_frames_total_per_trial": [
+        8820,
+        8820,
+        8820,
+        8820,
+        8820,
+        8820,
+        8820
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 1176,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=process_checked;frames=256;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          13.294270833333334,
+          14.559895833333334,
+          12.309895833333334,
+          11.940104166666666,
+          10.859375,
+          11.966145833333334,
+          11.6484375
+        ],
+        "min": 10.859375,
+        "median": 11.966145833333334,
+        "p95": 14.559895833333334,
+        "max": 14.559895833333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          6806.666666666667,
+          7454.666666666667,
+          6302.666666666667,
+          6113.333333333333,
+          5560.0,
+          6126.666666666667,
+          5964.0
+        ],
+        "min": 5560.0,
+        "median": 6126.666666666667,
+        "p95": 7454.666666666667,
+        "max": 7454.666666666667
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.114875,
+      "p95_source_realtime_utilization_pct": 0.139775,
+      "expected_output_frames_total": 17640,
+      "minimum_output_frames_total": 16758,
+      "maximum_output_frames_total": 18522,
+      "output_frames_total_per_trial": [
+        17052,
+        17052,
+        17052,
+        17052,
+        17052,
+        17052,
+        17052
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 1764,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=trait_process_direct;frames=256;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          11.067708333333334,
+          11.783854166666666,
+          14.046875,
+          11.205729166666666,
+          12.9765625,
+          12.635416666666666,
+          12.088541666666666
+        ],
+        "min": 11.067708333333334,
+        "median": 12.088541666666666,
+        "p95": 14.046875,
+        "max": 14.046875
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          5666.666666666667,
+          6033.333333333333,
+          7192.0,
+          5737.333333333333,
+          6644.0,
+          6469.333333333333,
+          6189.333333333333
+        ],
+        "min": 5666.666666666667,
+        "median": 6189.333333333333,
+        "p95": 7192.0,
+        "max": 7192.0
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.11605000000000001,
+      "p95_source_realtime_utilization_pct": 0.13485,
+      "expected_output_frames_total": 17640,
+      "minimum_output_frames_total": 16758,
+      "maximum_output_frames_total": 18522,
+      "output_frames_total_per_trial": [
+        17052,
+        17052,
+        17052,
+        17052,
+        17052,
+        17052,
+        17052
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 1764,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=process_checked;frames=512;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          11.055989583333334,
+          11.260416666666666,
+          12.84375,
+          13.953125,
+          13.888020833333334,
+          12.908854166666666,
+          14.38671875
+        ],
+        "min": 11.055989583333334,
+        "median": 12.908854166666666,
+        "p95": 14.38671875,
+        "max": 14.38671875
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          11321.333333333334,
+          11530.666666666666,
+          13152.0,
+          14288.0,
+          14221.333333333334,
+          13218.666666666666,
+          14732.0
+        ],
+        "min": 11321.333333333334,
+        "median": 13218.666666666666,
+        "p95": 14732.0,
+        "max": 14732.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.12392500000000001,
+      "p95_source_realtime_utilization_pct": 0.1381125,
+      "expected_output_frames_total": 35280,
+      "minimum_output_frames_total": 33516,
+      "maximum_output_frames_total": 37044,
+      "output_frames_total_per_trial": [
+        34692,
+        34692,
+        34692,
+        34692,
+        34692,
+        34692,
+        34692
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 3528,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=trait_process_direct;frames=512;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          11.830729166666666,
+          12.256510416666666,
+          12.549479166666666,
+          14.16015625,
+          13.875,
+          13.23828125,
+          12.432291666666666
+        ],
+        "min": 11.830729166666666,
+        "median": 12.549479166666666,
+        "p95": 14.16015625,
+        "max": 14.16015625
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          12114.666666666666,
+          12550.666666666666,
+          12850.666666666666,
+          14500.0,
+          14208.0,
+          13556.0,
+          12730.666666666666
+        ],
+        "min": 12114.666666666666,
+        "median": 12850.666666666666,
+        "p95": 14500.0,
+        "max": 14500.0
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.12047500000000001,
+      "p95_source_realtime_utilization_pct": 0.13593750000000002,
+      "expected_output_frames_total": 35280,
+      "minimum_output_frames_total": 33516,
+      "maximum_output_frames_total": 37044,
+      "output_frames_total_per_trial": [
+        34692,
+        34692,
+        34692,
+        34692,
+        34692,
+        34692,
+        34692
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 3528,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=process_checked;frames=1024;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          13.438151041666666,
+          10.845703125,
+          14.317708333333334,
+          13.957682291666666,
+          12.764973958333334,
+          13.511067708333334,
+          13.214192708333334
+        ],
+        "min": 10.845703125,
+        "median": 13.438151041666666,
+        "p95": 14.317708333333334,
+        "max": 14.317708333333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          27521.333333333332,
+          22212.0,
+          29322.666666666668,
+          28585.333333333332,
+          26142.666666666668,
+          27670.666666666668,
+          27062.666666666668
+        ],
+        "min": 22212.0,
+        "median": 27521.333333333332,
+        "p95": 29322.666666666668,
+        "max": 29322.666666666668
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.12900625,
+      "p95_source_realtime_utilization_pct": 0.13745000000000002,
+      "expected_output_frames_total": 70560,
+      "minimum_output_frames_total": 67032,
+      "maximum_output_frames_total": 74088,
+      "output_frames_total_per_trial": [
+        70560,
+        70560,
+        70560,
+        70560,
+        70560,
+        70560,
+        70560
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 7644,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=music_48k_to_44k1;api=trait_process_direct;frames=1024;from=48000;to=44100;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "music_48k_to_44k1",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 44100,
+      "ns_per_input_sample": {
+        "samples": [
+          12.865885416666666,
+          13.54296875,
+          13.654296875,
+          14.202473958333334,
+          13.039713541666666,
+          13.882161458333334,
+          14.451171875
+        ],
+        "min": 12.865885416666666,
+        "median": 13.654296875,
+        "p95": 14.451171875,
+        "max": 14.451171875
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          26349.333333333332,
+          27736.0,
+          27964.0,
+          29086.666666666668,
+          26705.333333333332,
+          28430.666666666668,
+          29596.0
+        ],
+        "min": 26349.333333333332,
+        "median": 27964.0,
+        "p95": 29596.0,
+        "max": 29596.0
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.13108125,
+      "p95_source_realtime_utilization_pct": 0.13873125,
+      "expected_output_frames_total": 70560,
+      "minimum_output_frames_total": 67032,
+      "maximum_output_frames_total": 74088,
+      "output_frames_total_per_trial": [
+        70560,
+        70560,
+        70560,
+        70560,
+        70560,
+        70560,
+        70560
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 7644,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=process_checked;frames=128;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          11.84375,
+          11.515625,
+          11.635416666666666,
+          11.807291666666666,
+          9.979166666666666,
+          9.885416666666666,
+          10.09375
+        ],
+        "min": 9.885416666666666,
+        "median": 11.515625,
+        "p95": 11.84375,
+        "max": 11.84375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          3032.0,
+          2948.0,
+          2978.6666666666665,
+          3022.6666666666665,
+          2554.6666666666665,
+          2530.6666666666665,
+          2584.0
+        ],
+        "min": 2530.6666666666665,
+        "median": 2948.0,
+        "p95": 3032.0,
+        "max": 3032.0
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.11055000000000001,
+      "p95_source_realtime_utilization_pct": 0.1137,
+      "expected_output_frames_total": 19200,
+      "minimum_output_frames_total": 18240,
+      "maximum_output_frames_total": 20160,
+      "output_frames_total_per_trial": [
+        18432,
+        18432,
+        18432,
+        18432,
+        18432,
+        18432,
+        18432
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 2048,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=trait_process_direct;frames=128;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 128,
+      "input_samples": 256,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.213541666666666,
+          10.03125,
+          10.546875,
+          10.1875,
+          10.588541666666666,
+          10.010416666666666,
+          10.458333333333334
+        ],
+        "min": 10.010416666666666,
+        "median": 10.213541666666666,
+        "p95": 10.588541666666666,
+        "max": 10.588541666666666
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          2614.6666666666665,
+          2568.0,
+          2700.0,
+          2608.0,
+          2710.6666666666665,
+          2562.6666666666665,
+          2677.3333333333335
+        ],
+        "min": 2562.6666666666665,
+        "median": 2614.6666666666665,
+        "p95": 2710.6666666666665,
+        "max": 2710.6666666666665
+      },
+      "source_buffer_duration_ns": 2666666.6666666665,
+      "median_source_realtime_utilization_pct": 0.09805,
+      "p95_source_realtime_utilization_pct": 0.10165,
+      "expected_output_frames_total": 19200,
+      "minimum_output_frames_total": 18240,
+      "maximum_output_frames_total": 20160,
+      "output_frames_total_per_trial": [
+        18432,
+        18432,
+        18432,
+        18432,
+        18432,
+        18432,
+        18432
+      ],
+      "consumed_frames_total_per_trial": [
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600,
+        9600
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 1024,
+        "expected_consumed_frames": 1024,
+        "produced_frames": 2048,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=process_checked;frames=256;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.453125,
+          10.515625,
+          9.260416666666666,
+          9.479166666666666,
+          10.9296875,
+          10.932291666666666,
+          10.8515625
+        ],
+        "min": 9.260416666666666,
+        "median": 10.515625,
+        "p95": 10.932291666666666,
+        "max": 10.932291666666666
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          5352.0,
+          5384.0,
+          4741.333333333333,
+          4853.333333333333,
+          5596.0,
+          5597.333333333333,
+          5556.0
+        ],
+        "min": 4741.333333333333,
+        "median": 5384.0,
+        "p95": 5597.333333333333,
+        "max": 5597.333333333333
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.10095,
+      "p95_source_realtime_utilization_pct": 0.10495000000000002,
+      "expected_output_frames_total": 38400,
+      "minimum_output_frames_total": 36480,
+      "maximum_output_frames_total": 40320,
+      "output_frames_total_per_trial": [
+        36864,
+        36864,
+        36864,
+        36864,
+        36864,
+        36864,
+        36864
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=trait_process_direct;frames=256;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 256,
+      "input_samples": 512,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.395833333333334,
+          10.505208333333334,
+          10.486979166666666,
+          11.0859375,
+          9.833333333333334,
+          10.583333333333334,
+          9.768229166666666
+        ],
+        "min": 9.768229166666666,
+        "median": 10.486979166666666,
+        "p95": 11.0859375,
+        "max": 11.0859375
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          5322.666666666667,
+          5378.666666666667,
+          5369.333333333333,
+          5676.0,
+          5034.666666666667,
+          5418.666666666667,
+          5001.333333333333
+        ],
+        "min": 5001.333333333333,
+        "median": 5369.333333333333,
+        "p95": 5676.0,
+        "max": 5676.0
+      },
+      "source_buffer_duration_ns": 5333333.333333333,
+      "median_source_realtime_utilization_pct": 0.100675,
+      "p95_source_realtime_utilization_pct": 0.106425,
+      "expected_output_frames_total": 38400,
+      "minimum_output_frames_total": 36480,
+      "maximum_output_frames_total": 40320,
+      "output_frames_total_per_trial": [
+        36864,
+        36864,
+        36864,
+        36864,
+        36864,
+        36864,
+        36864
+      ],
+      "consumed_frames_total_per_trial": [
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200,
+        19200
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 2048,
+        "expected_consumed_frames": 2048,
+        "produced_frames": 4096,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=process_checked;frames=512;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.783854166666666,
+          10.252604166666666,
+          9.944010416666666,
+          10.23046875,
+          10.56640625,
+          10.11328125,
+          11.305989583333334
+        ],
+        "min": 9.944010416666666,
+        "median": 10.252604166666666,
+        "p95": 11.305989583333334,
+        "max": 11.305989583333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          11042.666666666666,
+          10498.666666666666,
+          10182.666666666666,
+          10476.0,
+          10820.0,
+          10356.0,
+          11577.333333333334
+        ],
+        "min": 10182.666666666666,
+        "median": 10498.666666666666,
+        "p95": 11577.333333333334,
+        "max": 11577.333333333334
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.09842500000000001,
+      "p95_source_realtime_utilization_pct": 0.10853750000000002,
+      "expected_output_frames_total": 76800,
+      "minimum_output_frames_total": 72960,
+      "maximum_output_frames_total": 80640,
+      "output_frames_total_per_trial": [
+        75776,
+        75776,
+        75776,
+        75776,
+        75776,
+        75776,
+        75776
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 8192,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=trait_process_direct;frames=512;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 512,
+      "input_samples": 1024,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          11.705729166666666,
+          11.946614583333334,
+          11.596354166666666,
+          10.77734375,
+          10.661458333333334,
+          10.744791666666666,
+          11.666666666666666
+        ],
+        "min": 10.661458333333334,
+        "median": 11.596354166666666,
+        "p95": 11.946614583333334,
+        "max": 11.946614583333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          11986.666666666666,
+          12233.333333333334,
+          11874.666666666666,
+          11036.0,
+          10917.333333333334,
+          11002.666666666666,
+          11946.666666666666
+        ],
+        "min": 10917.333333333334,
+        "median": 11874.666666666666,
+        "p95": 12233.333333333334,
+        "max": 12233.333333333334
+      },
+      "source_buffer_duration_ns": 10666666.666666666,
+      "median_source_realtime_utilization_pct": 0.11132500000000001,
+      "p95_source_realtime_utilization_pct": 0.11468750000000001,
+      "expected_output_frames_total": 76800,
+      "minimum_output_frames_total": 72960,
+      "maximum_output_frames_total": 80640,
+      "output_frames_total_per_trial": [
+        75776,
+        75776,
+        75776,
+        75776,
+        75776,
+        75776,
+        75776
+      ],
+      "consumed_frames_total_per_trial": [
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400,
+        38400
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 4096,
+        "expected_consumed_frames": 4096,
+        "produced_frames": 8192,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=process_checked;frames=1024;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "process_checked",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          9.342447916666666,
+          9.656901041666666,
+          9.861328125,
+          9.302734375,
+          10.7578125,
+          10.813802083333334,
+          11.2265625
+        ],
+        "min": 9.302734375,
+        "median": 9.861328125,
+        "p95": 11.2265625,
+        "max": 11.2265625
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          19133.333333333332,
+          19777.333333333332,
+          20196.0,
+          19052.0,
+          22032.0,
+          22146.666666666668,
+          22992.0
+        ],
+        "min": 19052.0,
+        "median": 20196.0,
+        "p95": 22992.0,
+        "max": 22992.0
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.09466875000000001,
+      "p95_source_realtime_utilization_pct": 0.10777500000000001,
+      "expected_output_frames_total": 153600,
+      "minimum_output_frames_total": 145920,
+      "maximum_output_frames_total": 161280,
+      "output_frames_total_per_trial": [
+        153600,
+        153600,
+        153600,
+        153600,
+        153600,
+        153600,
+        153600
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 16384,
+        "all_output_samples_finite": true
+      }
+    },
+    {
+      "case_key": "scenario=upsample_48k_to_96k;api=trait_process_direct;frames=1024;from=48000;to=96000;algorithm=rubato_streaming_native_interleaved_halfband2x_fft_sinc_direct_integer_and_prefix_budget_ring_fifo",
+      "scenario": "upsample_48k_to_96k",
+      "api": "trait_process_direct",
+      "algorithm": "rubato native-interleaved exact-2x High half-band plus FFT/sinc routing with ring FIFOs and integer-ratio plus prefix-budget non-integer direct output",
+      "frames": 1024,
+      "input_samples": 2048,
+      "from_rate_hz": 48000,
+      "to_rate_hz": 96000,
+      "ns_per_input_sample": {
+        "samples": [
+          10.61328125,
+          9.912760416666666,
+          11.200520833333334,
+          10.671223958333334,
+          10.073567708333334,
+          11.004557291666666,
+          10.580729166666666
+        ],
+        "min": 9.912760416666666,
+        "median": 10.61328125,
+        "p95": 11.200520833333334,
+        "max": 11.200520833333334
+      },
+      "ns_per_input_buffer": {
+        "samples": [
+          21736.0,
+          20301.333333333332,
+          22938.666666666668,
+          21854.666666666668,
+          20630.666666666668,
+          22537.333333333332,
+          21669.333333333332
+        ],
+        "min": 20301.333333333332,
+        "median": 21736.0,
+        "p95": 22938.666666666668,
+        "max": 22938.666666666668
+      },
+      "source_buffer_duration_ns": 21333333.333333332,
+      "median_source_realtime_utilization_pct": 0.1018875,
+      "p95_source_realtime_utilization_pct": 0.10752500000000001,
+      "expected_output_frames_total": 153600,
+      "minimum_output_frames_total": 145920,
+      "maximum_output_frames_total": 161280,
+      "output_frames_total_per_trial": [
+        153600,
+        153600,
+        153600,
+        153600,
+        153600,
+        153600,
+        153600
+      ],
+      "consumed_frames_total_per_trial": [
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800,
+        76800
+      ],
+      "work_validation": {
+        "valid": true,
+        "validation_buffers": 8,
+        "consumed_frames": 8192,
+        "expected_consumed_frames": 8192,
+        "produced_frames": 16384,
+        "all_output_samples_finite": true
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}

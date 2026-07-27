@@ -310,8 +310,8 @@ while generated < max_tail_frames {
 ### 1. Scope / Trigger
 
 Apply this scenario when changing `StreamingResampler`, a backend adapter,
-Rubato or nonlinear engine/channel construction, reusable resampler memory
-accounting, phase behavior, or the Rubato routing policy.
+SoXR/Rubato or nonlinear engine/channel construction, reusable resampler
+memory accounting, phase behavior, or a resampler routing policy.
 
 ### 2. Signatures
 
@@ -342,9 +342,11 @@ MonoBackend::new_interleaved(
 
 ### 3. Contracts
 
-* Feature precedence remains `soxr` first. SoXR constructs one native mono
-  stream per channel and owns the adapter's preallocated deinterleave,
-  per-channel output, and reinterleave scratch.
+* Feature precedence remains `soxr` first. Exactly two channels select one
+  native `Soxr<Stereo<f64>>` stream and pass validated caller-owned interleaved
+  frames directly to process/drain. Other channel counts retain one native mono
+  stream per channel plus setup-allocated deinterleave, per-channel output, and
+  reinterleave scratch. The fallback must reject divergent channel progress.
 * A pure `rubato` build constructs exactly one complete interleaved backend for
   the configured channel count. `PhaseResponse::Linear` uses one Rubato engine;
   `Minimum` and `Maximum` use one setup-designed rational FIR bank and one
@@ -369,9 +371,10 @@ MonoBackend::new_interleaved(
   optimization must not broaden half-band routing, change this threshold
   without evidence, or fall back to a Linear engine.
 * `working_buffer_bytes` accounts for reusable adapter-owned PCM scratch, not
-  opaque backend engine allocations. It therefore returns the exact SoXR
-  scratch capacity in bytes and zero for pure Rubato. Output-render setup
-  allocation measurements capture Rubato's internal engine memory.
+  opaque backend engine allocations. It returns zero for the direct stereo
+  SoXR path and pure Rubato, and the exact deinterleave/per-channel/reinterleave
+  scratch capacity for the SoXR mono fallback. Setup-allocation measurements
+  capture opaque native or Rubato engine memory separately.
 * Backend consumed/produced values are frame counts. Interleaved slice lengths
   must be divisible by the configured channel count before division or
   slicing, and returned progress must be checked against caller frame
@@ -406,7 +409,8 @@ MonoBackend::new_interleaved(
 | A Rubato FIFO push exceeds fixed capacity | static backend error; no overwrite, resize, or log |
 | A direct process route returns `N` frames | cumulative caller-visible `emitted` advances by exactly `N`; later drain excludes those frames |
 | Pure-Rubato `working_buffer_bytes` with valid geometry | `Ok(0)` |
-| SoXR `working_buffer_bytes` with valid geometry | exact sum of output scratch plus every channel input/output capacity |
+| Stereo SoXR `working_buffer_bytes` with valid geometry | `Ok(0)` because the native interleaved path owns no adapter PCM scratch |
+| Non-stereo SoXR `working_buffer_bytes` with valid geometry | exact sum of deinterleave, per-channel output, and reinterleave scratch capacities |
 | Exact-2x Linear High upsampling | one half-band engine; shared delay skip, emitted accounting, and drain lifecycle |
 | UltraHigh at a common audio ratio | FFT engine with one sub-chunk (2x longer FIR than High) |
 | Minimum/Maximum with reduced `up <= 16` | one interleaved spectral nonlinear engine |
@@ -418,6 +422,8 @@ MonoBackend::new_interleaved(
 * Good: stereo linear Rubato uses one two-channel engine, produces the same
   duration and channel samples as two independent mono reference engines within
   the measured floating-point bound, and allocates nothing after setup.
+* Good: stereo SoXR uses one native interleaved stream, remains bit-exact with
+  two independent mono reference streams, and owns no adapter PCM scratch.
 * Good: 48-to-96 Linear/High uses the half-band engine while 48-to-96
   Linear/Standard remains FFT and Linear/UltraHigh uses the one-sub-chunk FFT.
 * Good: 48-to-96 Minimum/Maximum stays spectral (`up = 2`), while 44.1-to-48
@@ -429,8 +435,9 @@ MonoBackend::new_interleaved(
 * Good: a wrapped two-chunk Rubato input ring still exposes the next complete
   backend chunk contiguously, while output wrap preserves sample order and
   allocation-free strict backpressure.
-* Base: SoXR keeps independent native streams because that backend exposes the
-  established mono adapter contract; channel progress must remain identical.
+* Base: mono and non-stereo SoXR layouts use the independent-stream fallback;
+  every channel must report identical consumed/produced progress before output
+  is interleaved.
 * Bad: report zero total setup memory because pure Rubato has zero adapter
   scratch; the engine still allocates internal tables and FIFOs during setup.
 * Bad: retain a hidden environment variable that switches between mono and
@@ -446,6 +453,10 @@ MonoBackend::new_interleaved(
 
 * Build and test both backend selections: default/all-features SoXR and
   `--no-default-features --features rubato`.
+* For SoXR, compare the native stereo stream with independent mono references
+  bit-for-bit, assert one backend and zero adapter working bytes for stereo,
+  retain non-stereo fallback progress checks, and cover arbitrary chunks,
+  terminal drain, reset/fresh equivalence, and process/finish no-allocation.
 * Compare one native multichannel Rubato engine against independent mono
   engines for High FFT, exact-2x High half-band, and UltraHigh one-sub-chunk
   FFT. Assert
@@ -466,9 +477,9 @@ MonoBackend::new_interleaved(
 * For each direct-to-caller optimization, force the same complete stream
   through a constrained staged-output route and assert equal length plus
   bit-exact samples for representative upsampling and downsampling engines.
-* Assert `working_buffer_bytes` equals compiled adapter capacities under SoXR
-  and zero under pure Rubato. Measure total Rubato setup memory in the
-  output-render benchmark instead of adding opaque engine estimates.
+* Assert `working_buffer_bytes` is zero for stereo SoXR and pure Rubato, and
+  equals compiled adapter capacities for the SoXR mono fallback. Measure total
+  setup memory instead of adding opaque engine estimates.
 * Run quality, output-render, and streaming benchmarks after a channel
   architecture change; update the streaming algorithm identifier so stale
   baselines cannot compare as the same implementation. The hybrid route uses
