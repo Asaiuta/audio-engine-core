@@ -4,7 +4,7 @@
 //! streaming semantics the SoXR backend provides natively:
 //!
 //! - **Arbitrary input granularity.** Caller input of any size is staged in a
-//!   pre-allocated input FIFO; rubato only ever sees exact `CHUNK_IN`-frame
+//!   pre-allocated input FIFO; rubato only ever sees exact setup-selected
 //!   chunks, so the produced sample sequence is independent of how the caller
 //!   splits its input (chunked and single-feed runs are bitwise identical).
 //! - **Linear delay compensation.** The rubato FFT and sinc engines used for
@@ -29,9 +29,9 @@
 //! dedicated symmetric half-band FIR. Other common reduced sample-rate ratios
 //! use the much faster rubato FFT engine at every quality tier: UltraHigh
 //! selects a single FFT sub-chunk (a 2x longer internal FIR) while Low through
-//! High use two sub-chunks. Only ratios that would create pathological FFT
-//! blocks fall back to sinc, where the quality mapping selects sinc length /
-//! oversampling rather than a SoX recipe. For
+//! High batch two FFT sub-chunks in each 1024-frame call. Only ratios that
+//! would create pathological FFT blocks fall back to sinc, where the quality
+//! mapping selects sinc length / oversampling rather than a SoX recipe. For
 //! [`PhaseResponse::Minimum`] and [`PhaseResponse::Maximum`], reduced
 //! interpolation factors up to [`SPECTRAL_NONLINEAR_MAX_UP`] use the exact
 //! spectral rational resampler whose complex kernel spectrum comes from the
@@ -42,8 +42,10 @@
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use rubato::{
-    audioadapter_buffers::direct::InterleavedSlice, Async, Fft, FixedAsync, FixedSync, Resampler,
-    SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    audioadapter::{Adapter, AdapterMut},
+    audioadapter_buffers::direct::InterleavedSlice,
+    Async, Fft, FixedAsync, FixedSync, Indexing, Resampler, SincInterpolationParameters,
+    SincInterpolationType, WindowFunction,
 };
 
 use super::{
@@ -54,8 +56,7 @@ use super::{
 
 pub(super) const BACKEND_NAME: &str = "rubato";
 
-/// Fixed rubato input chunk size in frames. The FIFO adaptation makes this an
-/// internal detail; changing it changes latency smoothing granularity only.
+/// Default fixed input chunk in frames for every Rubato route.
 const CHUNK_IN: usize = 1024;
 
 /// Maximum numerator and denominator of the reduced sample-rate ratio routed
@@ -66,17 +67,13 @@ const CHUNK_IN: usize = 1024;
 /// Only pathological reduced ratios fall back to the sinc engine.
 const MAX_FFT_REDUCED_RATE: u32 = 1024;
 
-/// FFT sub-chunk count is the quality knob for the FFT route: one sub-chunk
-/// doubles the FFT unit and therefore the internal FIR length. UltraHigh uses
-/// the single-sub-chunk (2x longer) filter; the 2026-07-25 same-machine quality
-/// harness shows it beats both the High two-sub-chunk route and the previous
-/// UltraHigh sinc engine on passband flatness and alias attenuation. Low
-/// through High keep the two-sub-chunk configuration selected by the retained
-/// 2026-07-22 same-machine sweep.
-fn fft_sub_chunks(quality: ResampleQuality) -> usize {
+/// Select coupled caller-chunk/sub-chunk geometry. Low through High batch two
+/// quality-equivalent FFT units per call; UltraHigh retains the longer 1024/1
+/// filter selected by quality evidence.
+fn fft_geometry(quality: ResampleQuality) -> (usize, usize) {
     match quality {
-        ResampleQuality::UltraHigh => 1,
-        _ => 2,
+        ResampleQuality::UltraHigh => (CHUNK_IN, 1),
+        _ => (CHUNK_IN, 2),
     }
 }
 
@@ -248,6 +245,460 @@ impl SampleRing {
     }
 }
 
+/// Rubato input view composed from an already-staged FIFO prefix and a caller
+/// suffix. Rubato reads one channel at a time, so the channel-copy override
+/// keeps that operation to two bounded interleaved loops instead of dispatching
+/// one trait-object sample read per frame.
+struct SplitInterleavedInput<'a> {
+    prefix: &'a [f64],
+    suffix: &'a [f64],
+    channels: usize,
+    prefix_frames: usize,
+    frames: usize,
+}
+
+impl<'a> SplitInterleavedInput<'a> {
+    fn new(prefix: &'a [f64], suffix: &'a [f64], channels: usize) -> Result<Self, &'static str> {
+        if channels == 0
+            || !prefix.len().is_multiple_of(channels)
+            || !suffix.len().is_multiple_of(channels)
+        {
+            return Err("resampler split input received invalid geometry");
+        }
+        let prefix_frames = prefix.len() / channels;
+        let suffix_frames = suffix.len() / channels;
+        let frames = prefix_frames
+            .checked_add(suffix_frames)
+            .ok_or("resampler split input frame count overflowed")?;
+        Ok(Self {
+            prefix,
+            suffix,
+            channels,
+            prefix_frames,
+            frames,
+        })
+    }
+
+    #[inline]
+    fn copy_interleaved_channel(
+        source: &[f64],
+        channels: usize,
+        channel: usize,
+        start_frame: usize,
+        output: &mut [f64],
+    ) {
+        let start = start_frame * channels;
+        let end = start + output.len() * channels;
+        let source = &source[start..end];
+        match channels {
+            1 => output.copy_from_slice(source),
+            2 => {
+                for (frame, target) in source.chunks_exact(2).zip(output.iter_mut()) {
+                    unsafe {
+                        *target = *frame.get_unchecked(channel);
+                    }
+                }
+            }
+            _ => {
+                for (frame, target) in source.chunks_exact(channels).zip(output.iter_mut()) {
+                    unsafe {
+                        *target = *frame.get_unchecked(channel);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// SAFETY: construction fixes the reported dimensions for the adapter's
+// lifetime and validates that both backing slices contain complete frames.
+unsafe impl Adapter<f64> for SplitInterleavedInput<'_> {
+    unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f64 {
+        if frame < self.prefix_frames {
+            let index = frame * self.channels + channel;
+            unsafe { *self.prefix.get_unchecked(index) }
+        } else {
+            let index = (frame - self.prefix_frames) * self.channels + channel;
+            unsafe { *self.suffix.get_unchecked(index) }
+        }
+    }
+
+    fn channels(&self) -> usize {
+        self.channels
+    }
+
+    fn frames(&self) -> usize {
+        self.frames
+    }
+
+    fn copy_from_channel_to_slice(&self, channel: usize, skip: usize, slice: &mut [f64]) -> usize {
+        if channel >= self.channels || skip >= self.frames {
+            return 0;
+        }
+        let frames = slice.len().min(self.frames - skip);
+        let end = skip + frames;
+        let prefix_end = end.min(self.prefix_frames);
+        let prefix_frames = prefix_end.saturating_sub(skip);
+        if prefix_frames > 0 {
+            Self::copy_interleaved_channel(
+                self.prefix,
+                self.channels,
+                channel,
+                skip,
+                &mut slice[..prefix_frames],
+            );
+        }
+        if prefix_frames < frames {
+            let suffix_start = skip.max(self.prefix_frames) - self.prefix_frames;
+            Self::copy_interleaved_channel(
+                self.suffix,
+                self.channels,
+                channel,
+                suffix_start,
+                &mut slice[prefix_frames..frames],
+            );
+        }
+        frames
+    }
+}
+
+/// Contiguous interleaved Rubato output with channel-wise bulk writes. Rubato
+/// produces planar channel slices, so overriding the trait helper avoids one
+/// virtual `write_sample_unchecked` dispatch per output frame.
+struct DirectInterleavedOutput<'a> {
+    output: &'a mut [f64],
+    channels: usize,
+    frames: usize,
+}
+
+impl<'a> DirectInterleavedOutput<'a> {
+    fn new(output: &'a mut [f64], channels: usize, frames: usize) -> Result<Self, &'static str> {
+        let samples = channels
+            .checked_mul(frames)
+            .ok_or("resampler direct output length overflowed")?;
+        if channels == 0 || output.len() < samples {
+            return Err("resampler direct output received invalid geometry");
+        }
+        Ok(Self {
+            output: &mut output[..samples],
+            channels,
+            frames,
+        })
+    }
+}
+
+// SAFETY: construction fixes the reported dimensions and validates the exact
+// backing prefix for the adapter's lifetime.
+unsafe impl Adapter<f64> for DirectInterleavedOutput<'_> {
+    unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f64 {
+        let index = frame * self.channels + channel;
+        unsafe { *self.output.get_unchecked(index) }
+    }
+
+    fn channels(&self) -> usize {
+        self.channels
+    }
+
+    fn frames(&self) -> usize {
+        self.frames
+    }
+}
+
+// SAFETY: all mapped writes stay inside the fixed dimensions validated by
+// `new`; Rubato supplies in-bounds channel/frame pairs.
+unsafe impl AdapterMut<f64> for DirectInterleavedOutput<'_> {
+    unsafe fn write_sample_unchecked(&mut self, channel: usize, frame: usize, value: &f64) -> bool {
+        let index = frame * self.channels + channel;
+        unsafe {
+            *self.output.get_unchecked_mut(index) = *value;
+        }
+        false
+    }
+
+    fn copy_from_slice_to_channel(
+        &mut self,
+        channel: usize,
+        skip: usize,
+        slice: &[f64],
+    ) -> (usize, usize) {
+        if channel >= self.channels || skip >= self.frames {
+            return (0, 0);
+        }
+        let frames = slice.len().min(self.frames - skip);
+        let start = skip * self.channels;
+        let end = start + frames * self.channels;
+        let output = &mut self.output[start..end];
+        match self.channels {
+            1 => output.copy_from_slice(&slice[..frames]),
+            2 => {
+                for (frame, value) in output.chunks_exact_mut(2).zip(&slice[..frames]) {
+                    unsafe {
+                        *frame.get_unchecked_mut(channel) = *value;
+                    }
+                }
+            }
+            channels => {
+                for (frame, value) in output.chunks_exact_mut(channels).zip(&slice[..frames]) {
+                    unsafe {
+                        *frame.get_unchecked_mut(channel) = *value;
+                    }
+                }
+            }
+        }
+        (frames, 0)
+    }
+}
+
+/// FFT output view for the final duration-completing drain step. Native
+/// leading delay and output beyond the exact caller-visible duration are
+/// discarded in place, so a terminal tail is never copied into spill storage
+/// only to be cleared immediately afterwards.
+struct TerminalInterleavedOutput<'a> {
+    output: &'a mut [f64],
+    channels: usize,
+    native_frames: usize,
+    drop_frames: usize,
+    direct_frames: usize,
+}
+
+impl<'a> TerminalInterleavedOutput<'a> {
+    fn new(
+        output: &'a mut [f64],
+        channels: usize,
+        native_frames: usize,
+        drop_frames: usize,
+        direct_frames: usize,
+    ) -> Result<Self, &'static str> {
+        if channels == 0
+            || drop_frames > native_frames
+            || direct_frames > native_frames - drop_frames
+        {
+            return Err("resampler terminal output received invalid geometry");
+        }
+        let direct_samples = direct_frames
+            .checked_mul(channels)
+            .ok_or("resampler terminal output length overflowed")?;
+        if output.len() < direct_samples {
+            return Err("resampler terminal output backing storage was too small");
+        }
+        Ok(Self {
+            output: &mut output[..direct_samples],
+            channels,
+            native_frames,
+            drop_frames,
+            direct_frames,
+        })
+    }
+}
+
+// SAFETY: construction validates the fixed native dimensions and the exact
+// caller-visible backing prefix. Discarded native frames never index output.
+unsafe impl Adapter<f64> for TerminalInterleavedOutput<'_> {
+    unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f64 {
+        if frame < self.drop_frames || frame >= self.drop_frames + self.direct_frames {
+            return 0.0;
+        }
+        let index = (frame - self.drop_frames) * self.channels + channel;
+        unsafe { *self.output.get_unchecked(index) }
+    }
+
+    fn channels(&self) -> usize {
+        self.channels
+    }
+
+    fn frames(&self) -> usize {
+        self.native_frames
+    }
+}
+
+// SAFETY: native frames outside the validated direct interval are deliberately
+// discarded; mapped writes stay inside the exact output prefix from `new`.
+unsafe impl AdapterMut<f64> for TerminalInterleavedOutput<'_> {
+    unsafe fn write_sample_unchecked(&mut self, channel: usize, frame: usize, value: &f64) -> bool {
+        if frame < self.drop_frames || frame >= self.drop_frames + self.direct_frames {
+            return false;
+        }
+        let index = (frame - self.drop_frames) * self.channels + channel;
+        unsafe {
+            *self.output.get_unchecked_mut(index) = *value;
+        }
+        false
+    }
+
+    fn copy_from_slice_to_channel(
+        &mut self,
+        channel: usize,
+        skip: usize,
+        slice: &[f64],
+    ) -> (usize, usize) {
+        if channel >= self.channels || skip >= self.native_frames {
+            return (0, 0);
+        }
+        let frames = slice.len().min(self.native_frames - skip);
+        let source_end = skip + frames;
+        let direct_start = skip.max(self.drop_frames);
+        let direct_end = source_end.min(self.drop_frames + self.direct_frames);
+        if direct_start < direct_end {
+            let source_start = direct_start - skip;
+            let source_frames = direct_end - direct_start;
+            let output_start = (direct_start - self.drop_frames) * self.channels;
+            let output_end = output_start + source_frames * self.channels;
+            let output = &mut self.output[output_start..output_end];
+            let source = &slice[source_start..source_start + source_frames];
+            match self.channels {
+                1 => output.copy_from_slice(source),
+                2 => {
+                    for (frame, value) in output.chunks_exact_mut(2).zip(source) {
+                        unsafe {
+                            *frame.get_unchecked_mut(channel) = *value;
+                        }
+                    }
+                }
+                channels => {
+                    for (frame, value) in output.chunks_exact_mut(channels).zip(source) {
+                        unsafe {
+                            *frame.get_unchecked_mut(channel) = *value;
+                        }
+                    }
+                }
+            }
+        }
+        (frames, 0)
+    }
+}
+
+/// Rubato output view that discards the native leading-delay prefix, writes
+/// the caller-authorized prefix directly, and sends only the remaining tail to
+/// preallocated spill storage. Its dimensions and backing slice lengths are
+/// validated once before Rubato receives the trait object.
+struct SplitInterleavedOutput<'a> {
+    direct: &'a mut [f64],
+    spill: &'a mut [f64],
+    channels: usize,
+    native_frames: usize,
+    drop_frames: usize,
+    direct_frames: usize,
+}
+
+impl<'a> SplitInterleavedOutput<'a> {
+    fn new(
+        direct: &'a mut [f64],
+        spill: &'a mut [f64],
+        channels: usize,
+        native_frames: usize,
+        drop_frames: usize,
+        direct_frames: usize,
+    ) -> Result<Self, &'static str> {
+        if channels == 0 || drop_frames > native_frames {
+            return Err("resampler split output received invalid geometry");
+        }
+        let kept_frames = native_frames - drop_frames;
+        if direct_frames > kept_frames {
+            return Err("resampler split output direct prefix exceeded native output");
+        }
+        let direct_samples = direct_frames
+            .checked_mul(channels)
+            .ok_or("resampler split output direct length overflowed")?;
+        let spill_samples = (kept_frames - direct_frames)
+            .checked_mul(channels)
+            .ok_or("resampler split output spill length overflowed")?;
+        if direct.len() < direct_samples || spill.len() < spill_samples {
+            return Err("resampler split output backing storage was too small");
+        }
+        Ok(Self {
+            direct: &mut direct[..direct_samples],
+            spill: &mut spill[..spill_samples],
+            channels,
+            native_frames,
+            drop_frames,
+            direct_frames,
+        })
+    }
+}
+
+// SAFETY: construction fixes the reported dimensions for the adapter's
+// lifetime and validates that both backing slices cover every mapped sample.
+unsafe impl Adapter<f64> for SplitInterleavedOutput<'_> {
+    unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f64 {
+        if frame < self.drop_frames {
+            return 0.0;
+        }
+        let kept_frame = frame - self.drop_frames;
+        if kept_frame < self.direct_frames {
+            let index = kept_frame * self.channels + channel;
+            unsafe { *self.direct.get_unchecked(index) }
+        } else {
+            let index = (kept_frame - self.direct_frames) * self.channels + channel;
+            unsafe { *self.spill.get_unchecked(index) }
+        }
+    }
+
+    fn channels(&self) -> usize {
+        self.channels
+    }
+
+    fn frames(&self) -> usize {
+        self.native_frames
+    }
+}
+
+// SAFETY: `write_sample_unchecked` uses the same validated, fixed mapping as
+// the `Adapter` implementation. Rubato supplies in-bounds channel/frame pairs.
+unsafe impl AdapterMut<f64> for SplitInterleavedOutput<'_> {
+    unsafe fn write_sample_unchecked(&mut self, channel: usize, frame: usize, value: &f64) -> bool {
+        if frame < self.drop_frames {
+            return false;
+        }
+        let kept_frame = frame - self.drop_frames;
+        if kept_frame < self.direct_frames {
+            let index = kept_frame * self.channels + channel;
+            unsafe {
+                *self.direct.get_unchecked_mut(index) = *value;
+            }
+        } else {
+            let index = (kept_frame - self.direct_frames) * self.channels + channel;
+            unsafe {
+                *self.spill.get_unchecked_mut(index) = *value;
+            }
+        }
+        false
+    }
+
+    fn copy_from_slice_to_channel(
+        &mut self,
+        channel: usize,
+        skip: usize,
+        slice: &[f64],
+    ) -> (usize, usize) {
+        if channel >= self.channels || skip >= self.native_frames {
+            return (0, 0);
+        }
+        let frames = slice.len().min(self.native_frames - skip);
+        let source_end = skip + frames;
+        let direct_native_start = skip.max(self.drop_frames);
+        let direct_native_end = source_end.min(self.drop_frames + self.direct_frames);
+        for native_frame in direct_native_start..direct_native_end {
+            let source_index = native_frame - skip;
+            let direct_frame = native_frame - self.drop_frames;
+            let direct_index = direct_frame * self.channels + channel;
+            unsafe {
+                *self.direct.get_unchecked_mut(direct_index) = *slice.get_unchecked(source_index);
+            }
+        }
+
+        let spill_native_start = skip.max(self.drop_frames + self.direct_frames);
+        for native_frame in spill_native_start..source_end {
+            let source_index = native_frame - skip;
+            let spill_frame = native_frame - self.drop_frames - self.direct_frames;
+            let spill_index = spill_frame * self.channels + channel;
+            unsafe {
+                *self.spill.get_unchecked_mut(spill_index) = *slice.get_unchecked(source_index);
+            }
+        }
+        (frames, 0)
+    }
+}
+
 enum NonlinearEngine {
     Spectral(SpectralNonlinearResampler),
     Polyphase(ContiguousPolyphaseResampler),
@@ -321,7 +772,7 @@ impl RubatoEngine {
         phase: PhaseResponse,
         quality: ResampleQuality,
         channels: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<(Self, usize), String> {
         if !matches!(phase, PhaseResponse::Linear) {
             let nonlinear = if nonlinear_uses_spectral(from_rate, to_rate) {
                 SpectralNonlinearResampler::new(
@@ -334,23 +785,25 @@ impl RubatoEngine {
                 )
                 .map(NonlinearEngine::Polyphase)
             }?;
-            return Ok(Self::Nonlinear(nonlinear));
+            return Ok((Self::Nonlinear(nonlinear), CHUNK_IN));
         }
         if should_use_halfband_2x(from_rate, to_rate, phase, quality) {
-            return Halfband2xResampler::new(channels, CHUNK_IN).map(Self::Halfband);
+            return Halfband2xResampler::new(channels, CHUNK_IN)
+                .map(|engine| (Self::Halfband(engine), CHUNK_IN));
         }
         if should_use_fft(from_rate, to_rate, quality) {
+            let (chunk_in, sub_chunks) = fft_geometry(quality);
             Fft::<f64>::new_custom(
                 from_rate as usize,
                 to_rate as usize,
-                CHUNK_IN,
-                fft_sub_chunks(quality),
+                chunk_in,
+                sub_chunks,
                 channels,
                 WindowFunction::BlackmanHarris2,
                 FixedSync::Input,
             )
             .map(Box::new)
-            .map(Self::Fft)
+            .map(|engine| (Self::Fft(engine), chunk_in))
             .map_err(|error| format!("{error}"))
         } else {
             let ratio = to_rate as f64 / from_rate as f64;
@@ -363,7 +816,7 @@ impl RubatoEngine {
                 channels,
                 FixedAsync::Input,
             )
-            .map(Self::Sinc)
+            .map(|engine| (Self::Sinc(engine), CHUNK_IN))
             .map_err(|error| format!("{error}"))
         }
     }
@@ -374,6 +827,13 @@ impl RubatoEngine {
             Self::Sinc(resampler) => resampler.output_frames_max(),
             Self::Fft(resampler) => resampler.output_frames_max(),
             Self::Nonlinear(resampler) => resampler.output_frames_max(),
+        }
+    }
+
+    fn fft_output_frames_next(&self) -> Option<usize> {
+        match self {
+            Self::Fft(resampler) => Some(resampler.output_frames_next()),
+            _ => None,
         }
     }
 
@@ -421,14 +881,31 @@ impl RubatoEngine {
             Self::Fft(resampler) => {
                 let input_frames = input.len() / channels;
                 let output_frames = output.len() / channels;
-                let input = InterleavedSlice::new(input, channels, input_frames)
-                    .map_err(|_| "resampler backend input view failed")?;
-                let mut output = InterleavedSlice::new_mut(output, channels, output_frames)
-                    .map_err(|_| "resampler backend output view failed")?;
-                resampler.process_into_buffer(&input, &mut output, None)
+                let input = SplitInterleavedInput::new(input, &[], channels)?;
+                if input.frames() != input_frames {
+                    return Err("resampler backend input view changed frame count");
+                }
+                let mut output = DirectInterleavedOutput::new(output, channels, output_frames)?;
+                return resampler
+                    .process_into_buffer(&input, &mut output, None)
+                    .map_err(|_| "resampler backend process failed");
             }
         }
         .map_err(|_| "resampler backend process failed")
+    }
+
+    fn process_fft_adapters(
+        &mut self,
+        input: &dyn Adapter<f64>,
+        output: &mut dyn AdapterMut<f64>,
+        indexing: Option<&Indexing>,
+    ) -> Result<(usize, usize), &'static str> {
+        let Self::Fft(resampler) = self else {
+            return Err("resampler split input requires the FFT engine");
+        };
+        resampler
+            .process_into_buffer(input, output, indexing)
+            .map_err(|_| "resampler backend process failed")
     }
 
     fn reset(&mut self) {
@@ -443,8 +920,9 @@ impl RubatoEngine {
 
 pub(super) struct MonoBackend {
     engine: RubatoEngine,
+    chunk_in: usize,
     channels: usize,
-    /// Staged caller input; rubato consumes exact CHUNK_IN prefixes of this.
+    /// Staged caller input; rubato consumes exact `chunk_in` prefixes of this.
     in_fifo: SampleRing,
     /// Per-engine interleaved output stage.
     out_stage: Vec<f64>,
@@ -472,25 +950,41 @@ pub(super) struct MonoBackend {
     draining: bool,
     from_rate: u32,
     to_rate: u32,
+    #[cfg(test)]
+    direct_input_chunks: u64,
+    #[cfg(test)]
+    direct_drain_chunks: u64,
+    #[cfg(test)]
+    split_input_chunks: u64,
+    #[cfg(test)]
+    split_input_enabled: bool,
+    #[cfg(test)]
+    partial_zero_drain_enabled: bool,
+    #[cfg(test)]
+    partial_zero_drain_chunks: u64,
+    #[cfg(test)]
+    terminal_truncate_drain_enabled: bool,
+    #[cfg(test)]
+    terminal_truncate_drain_chunks: u64,
 }
 
-fn process_fifo_chunk_into(
+fn process_chunk_into(
     engine: &mut RubatoEngine,
-    in_fifo: &mut SampleRing,
+    input: &[f64],
     output: &mut [f64],
+    chunk_in: usize,
     channels: usize,
     delay_remaining: &mut usize,
 ) -> Result<usize, &'static str> {
-    let chunk_samples = CHUNK_IN * channels;
-    let input = in_fifo
-        .front_contiguous(chunk_samples)
-        .ok_or("resampler backend input FIFO lost chunk contiguity")?;
+    let chunk_samples = chunk_in * channels;
+    if input.len() != chunk_samples {
+        return Err("resampler backend received an invalid native input chunk");
+    }
     let (input_used, output_written) = engine.process_chunk(input, output, channels)?;
     let output_capacity_frames = output.len() / channels;
-    if input_used != CHUNK_IN || output_written > output_capacity_frames {
+    if input_used != chunk_in || output_written > output_capacity_frames {
         return Err("resampler backend reported out-of-bounds progress");
     }
-    in_fifo.consume(chunk_samples)?;
 
     let skip = (*delay_remaining).min(output_written);
     *delay_remaining -= skip;
@@ -499,6 +993,262 @@ fn process_fifo_chunk_into(
         output.copy_within(skip * channels..output_written * channels, 0);
     }
     Ok(emitted)
+}
+
+fn process_fifo_chunk_into(
+    engine: &mut RubatoEngine,
+    in_fifo: &mut SampleRing,
+    output: &mut [f64],
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+) -> Result<usize, &'static str> {
+    let chunk_samples = chunk_in * channels;
+    let input = in_fifo
+        .front_contiguous(chunk_samples)
+        .ok_or("resampler backend input FIFO lost chunk contiguity")?;
+    let emitted = process_chunk_into(engine, input, output, chunk_in, channels, delay_remaining)?;
+    in_fifo.consume(chunk_samples)?;
+    Ok(emitted)
+}
+
+fn process_fft_adapter_into(
+    engine: &mut RubatoEngine,
+    input: &dyn Adapter<f64>,
+    output: &mut [f64],
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+) -> Result<usize, &'static str> {
+    if input.channels() != channels
+        || input.frames() != chunk_in
+        || !output.len().is_multiple_of(channels)
+    {
+        return Err("resampler backend FFT adapter received invalid geometry");
+    }
+    let output_frames = output.len() / channels;
+    let (input_used, output_written) = {
+        let mut output_view = DirectInterleavedOutput::new(output, channels, output_frames)?;
+        engine.process_fft_adapters(input, &mut output_view, None)?
+    };
+    if input_used != chunk_in || output_written > output_frames {
+        return Err("resampler backend FFT adapter reported out-of-bounds progress");
+    }
+
+    let skip = (*delay_remaining).min(output_written);
+    *delay_remaining -= skip;
+    let emitted = output_written - skip;
+    if skip > 0 && emitted > 0 {
+        output.copy_within(skip * channels..output_written * channels, 0);
+    }
+    Ok(emitted)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_fft_chunk_into_split(
+    engine: &mut RubatoEngine,
+    input: &[f64],
+    output: &mut [f64],
+    out_stage: &mut [f64],
+    out_fifo: &mut SampleRing,
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+    emitted: &mut u64,
+    authorized_total: u64,
+) -> Result<Option<usize>, &'static str> {
+    if input.len() != chunk_in * channels {
+        return Err("resampler backend FFT split received invalid input geometry");
+    }
+    let input = SplitInterleavedInput::new(input, &[], channels)?;
+    process_fft_adapter_into_split(
+        engine,
+        &input,
+        output,
+        out_stage,
+        out_fifo,
+        chunk_in,
+        channels,
+        delay_remaining,
+        emitted,
+        authorized_total,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_fft_adapter_into_split(
+    engine: &mut RubatoEngine,
+    input: &dyn Adapter<f64>,
+    output: &mut [f64],
+    out_stage: &mut [f64],
+    out_fifo: &mut SampleRing,
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+    emitted: &mut u64,
+    authorized_total: u64,
+    indexing: Option<&Indexing>,
+) -> Result<Option<usize>, &'static str> {
+    let Some(native_frames) = engine.fft_output_frames_next() else {
+        return Ok(None);
+    };
+    let required_input_frames = if let Some(indexing) = indexing {
+        if indexing.output_offset != 0 || indexing.active_channels_mask.is_some() {
+            return Err("resampler backend FFT split received unsupported indexing");
+        }
+        let partial_frames = indexing.partial_len.unwrap_or(chunk_in);
+        if partial_frames > chunk_in {
+            return Err("resampler backend FFT split partial input exceeded native chunk");
+        }
+        indexing
+            .input_offset
+            .checked_add(partial_frames)
+            .ok_or("resampler backend FFT split input length overflowed")?
+    } else {
+        chunk_in
+    };
+    if input.channels() != channels
+        || input.frames() < required_input_frames
+        || (indexing.is_none() && input.frames() != chunk_in)
+        || !output.len().is_multiple_of(channels)
+    {
+        return Err("resampler backend FFT split received invalid geometry");
+    }
+
+    let budget = authorized_total
+        .saturating_sub(*emitted)
+        .min(usize::MAX as u64) as usize;
+    let caller_frames = output.len() / channels;
+    let pending_frames = out_fifo.len() / channels;
+    let pending_direct = pending_frames.min(budget).min(caller_frames);
+    let drop_frames = (*delay_remaining).min(native_frames);
+    let kept_frames = native_frames - drop_frames;
+    let current_direct = kept_frames
+        .min(budget.saturating_sub(pending_direct))
+        .min(caller_frames.saturating_sub(pending_direct));
+    let spill_frames = kept_frames - current_direct;
+
+    let pending_samples = pending_direct
+        .checked_mul(channels)
+        .ok_or("resampler backend pending output length overflowed")?;
+    let spill_samples = spill_frames
+        .checked_mul(channels)
+        .ok_or("resampler backend spill output length overflowed")?;
+    let available_after_pending = out_fifo
+        .free()
+        .checked_add(pending_samples)
+        .ok_or("resampler backend output capacity overflowed")?;
+    if spill_samples > available_after_pending || spill_samples > out_stage.len() {
+        return Ok(None);
+    }
+
+    let direct_samples = current_direct * channels;
+    let direct_start = pending_samples;
+    let direct_end = direct_start + direct_samples;
+    let (input_used, output_written) = {
+        let mut split_output = SplitInterleavedOutput::new(
+            &mut output[direct_start..direct_end],
+            &mut out_stage[..spill_samples],
+            channels,
+            native_frames,
+            drop_frames,
+            current_direct,
+        )?;
+        engine.process_fft_adapters(input, &mut split_output, indexing)?
+    };
+    if input_used != chunk_in || output_written != native_frames {
+        return Err("resampler backend FFT split output reported invalid progress");
+    }
+
+    *delay_remaining -= drop_frames;
+    let emitted_pending = out_fifo.pop_into(&mut output[..pending_samples]) / channels;
+    if emitted_pending != pending_direct {
+        return Err("resampler backend pending split output changed unexpectedly");
+    }
+    *emitted = emitted
+        .checked_add((emitted_pending + current_direct) as u64)
+        .ok_or("resampler backend emitted output count overflowed")?;
+    if spill_samples > 0 {
+        out_fifo.push(&out_stage[..spill_samples])?;
+    }
+    Ok(Some(emitted_pending + current_direct))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_fft_partial_zero_into_split(
+    engine: &mut RubatoEngine,
+    output: &mut [f64],
+    out_stage: &mut [f64],
+    out_fifo: &mut SampleRing,
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+    emitted: &mut u64,
+    authorized_total: u64,
+) -> Result<Option<usize>, &'static str> {
+    let input = SplitInterleavedInput::new(&[], &[], channels)?;
+    let indexing = Indexing::new().partial_len(0);
+    process_fft_adapter_into_split(
+        engine,
+        &input,
+        output,
+        out_stage,
+        out_fifo,
+        chunk_in,
+        channels,
+        delay_remaining,
+        emitted,
+        authorized_total,
+        Some(&indexing),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_fft_partial_zero_into_terminal(
+    engine: &mut RubatoEngine,
+    output: &mut [f64],
+    chunk_in: usize,
+    channels: usize,
+    delay_remaining: &mut usize,
+    emitted: &mut u64,
+    expected_total: u64,
+) -> Result<Option<usize>, &'static str> {
+    let Some(native_frames) = engine.fft_output_frames_next() else {
+        return Ok(None);
+    };
+    if !output.len().is_multiple_of(channels) {
+        return Err("resampler terminal output received incomplete frames");
+    }
+    let remaining = usize::try_from(expected_total.saturating_sub(*emitted))
+        .map_err(|_| "resampler terminal output length exceeded usize")?;
+    let drop_frames = (*delay_remaining).min(native_frames);
+    let kept_frames = native_frames - drop_frames;
+    if remaining == 0 || remaining > kept_frames || remaining > output.len() / channels {
+        return Ok(None);
+    }
+
+    let input = SplitInterleavedInput::new(&[], &[], channels)?;
+    let indexing = Indexing::new().partial_len(0);
+    let (input_used, output_written) = {
+        let mut output = TerminalInterleavedOutput::new(
+            output,
+            channels,
+            native_frames,
+            drop_frames,
+            remaining,
+        )?;
+        engine.process_fft_adapters(&input, &mut output, Some(&indexing))?
+    };
+    if input_used != chunk_in || output_written != native_frames {
+        return Err("resampler terminal FFT output reported invalid progress");
+    }
+
+    *delay_remaining -= drop_frames;
+    *emitted = emitted
+        .checked_add(remaining as u64)
+        .ok_or("resampler backend emitted output count overflowed")?;
+    Ok(Some(remaining))
 }
 
 impl MonoBackend {
@@ -521,12 +1271,12 @@ impl MonoBackend {
         if channels == 0 {
             return Err("channel count must be >= 1".to_string());
         }
-        let engine = RubatoEngine::new(from_rate, to_rate, phase, quality, channels)?;
+        let (engine, chunk_in) = RubatoEngine::new(from_rate, to_rate, phase, quality, channels)?;
         let out_max = engine.output_frames_max();
         let initial_delay = engine.output_delay();
         let out_fifo_capacity = out_max * 2 * channels;
         let duration_stable =
-            (CHUNK_IN as u128 * to_rate as u128).is_multiple_of(from_rate.max(1) as u128);
+            (chunk_in as u128 * to_rate as u128).is_multiple_of(from_rate.max(1) as u128);
         // The FFT engine's cumulative post-delay output tracks the exact
         // rational duration within one frame per chunk, and the spectral and
         // contiguous-polyphase nonlinear engines pace output exactly
@@ -537,11 +1287,12 @@ impl MonoBackend {
             !duration_stable && matches!(engine, RubatoEngine::Fft(_) | RubatoEngine::Nonlinear(_));
         Ok(Self {
             engine,
+            chunk_in,
             channels,
-            in_fifo: SampleRing::new(CHUNK_IN * 2 * channels),
+            in_fifo: SampleRing::new(chunk_in * 2 * channels),
             out_stage: vec![0.0; out_max * channels],
             out_fifo: SampleRing::new(out_fifo_capacity),
-            zero_chunk: vec![0.0; CHUNK_IN * channels],
+            zero_chunk: vec![0.0; chunk_in * channels],
             total_input: 0,
             processed_real_input: 0,
             prefix_budget_direct,
@@ -552,16 +1303,33 @@ impl MonoBackend {
             draining: false,
             from_rate,
             to_rate,
+            #[cfg(test)]
+            direct_input_chunks: 0,
+            #[cfg(test)]
+            direct_drain_chunks: 0,
+            #[cfg(test)]
+            split_input_chunks: 0,
+            #[cfg(test)]
+            split_input_enabled: true,
+            #[cfg(test)]
+            partial_zero_drain_enabled: true,
+            #[cfg(test)]
+            partial_zero_drain_chunks: 0,
+            #[cfg(test)]
+            terminal_truncate_drain_enabled: true,
+            #[cfg(test)]
+            terminal_truncate_drain_chunks: 0,
         })
     }
 
-    /// Run rubato over the first CHUNK_IN frames of `in_fifo` and append the
+    /// Run rubato over the first `chunk_in` frames of `in_fifo` and append the
     /// produced frames to `out_fifo`.
     fn run_chunk(&mut self) -> Result<(), &'static str> {
         let emitted = process_fifo_chunk_into(
             &mut self.engine,
             &mut self.in_fifo,
             &mut self.out_stage,
+            self.chunk_in,
             self.channels,
             &mut self.delay_remaining,
         )?;
@@ -570,7 +1338,7 @@ impl MonoBackend {
     }
 
     fn direct_output_is_duration_stable(&self) -> bool {
-        (CHUNK_IN as u128 * self.to_rate as u128).is_multiple_of(self.from_rate as u128)
+        (self.chunk_in as u128 * self.to_rate as u128).is_multiple_of(self.from_rate as u128)
     }
 
     /// Caller-visible frames still authorized by real backend-processed input
@@ -585,6 +1353,188 @@ impl MonoBackend {
         allowed_total
             .saturating_sub(self.emitted)
             .min(usize::MAX as u64) as usize
+    }
+
+    /// Process one aligned FFT input chunk through a split Rubato output view.
+    /// Pending earlier spill is reserved at the front of `output`; the current
+    /// authorized prefix follows it directly and only the new overflow tail is
+    /// staged for the ring. `None` keeps the generic full-native-output path.
+    fn process_aligned_fft_chunk(
+        &mut self,
+        input: &[f64],
+        output: &mut [f64],
+    ) -> Result<Option<usize>, &'static str> {
+        // Let the generic direct-native path handle an entire Rubato output
+        // block. Its ordinary interleaved adapter avoids the per-sample split
+        // mapping; this adapter is only beneficial when caller capacity forces
+        // delay/spill scattering.
+        if output.len() / self.channels >= self.engine.output_frames_max() {
+            return Ok(None);
+        }
+        let next_total_input = self
+            .total_input
+            .checked_add(self.chunk_in as u64)
+            .ok_or("resampler backend input count overflowed")?;
+        let next_processed_real_input = self
+            .processed_real_input
+            .checked_add(self.chunk_in as u64)
+            .ok_or("resampler backend processed input count overflowed")?;
+        let authorized_total = if self.prefix_budget_direct {
+            expected_output_frames(next_processed_real_input, self.from_rate, self.to_rate)
+        } else {
+            u64::MAX
+        };
+        let produced = process_fft_chunk_into_split(
+            &mut self.engine,
+            input,
+            output,
+            &mut self.out_stage,
+            &mut self.out_fifo,
+            self.chunk_in,
+            self.channels,
+            &mut self.delay_remaining,
+            &mut self.emitted,
+            authorized_total,
+        )?;
+        if produced.is_none() {
+            return Ok(None);
+        }
+        self.total_input = next_total_input;
+        self.processed_real_input = next_processed_real_input;
+        #[cfg(test)]
+        {
+            self.direct_input_chunks += 1;
+        }
+        Ok(produced)
+    }
+
+    /// Complete one staged partial FFT chunk directly from caller memory.
+    /// The FIFO prefix was counted when it was accepted; only the suffix is
+    /// newly consumed here. Unsupported engines or insufficient output spill
+    /// capacity fall back to the ordinary FIFO path.
+    fn process_split_input_fft_chunk(
+        &mut self,
+        suffix: &[f64],
+        output: &mut [f64],
+    ) -> Result<Option<(usize, usize)>, &'static str> {
+        #[cfg(test)]
+        if !self.split_input_enabled {
+            return Ok(None);
+        }
+        if !matches!(&self.engine, RubatoEngine::Fft(_))
+            || self.in_fifo.is_empty()
+            || !suffix.len().is_multiple_of(self.channels)
+        {
+            return Ok(None);
+        }
+        let prefix_frames = self.in_fifo.len() / self.channels;
+        if prefix_frames >= self.chunk_in {
+            return Ok(None);
+        }
+        let suffix_frames = suffix.len() / self.channels;
+        let needed_frames = self.chunk_in - prefix_frames;
+        if suffix_frames < needed_frames {
+            return Ok(None);
+        }
+
+        let next_total_input = self
+            .total_input
+            .checked_add(needed_frames as u64)
+            .ok_or("resampler backend input count overflowed")?;
+        let next_processed_real_input = self
+            .processed_real_input
+            .checked_add(self.chunk_in as u64)
+            .ok_or("resampler backend processed input count overflowed")?;
+        let authorized_total = if self.prefix_budget_direct {
+            expected_output_frames(next_processed_real_input, self.from_rate, self.to_rate)
+        } else {
+            u64::MAX
+        };
+        let prefix_samples = prefix_frames * self.channels;
+        let suffix_samples = needed_frames * self.channels;
+        let output_frames = output.len() / self.channels;
+        let native_output_frames = self.engine.output_frames_max();
+        let duration_stable = self.direct_output_is_duration_stable();
+
+        let produced = {
+            let prefix = self
+                .in_fifo
+                .front_contiguous(prefix_samples)
+                .ok_or("resampler backend split input FIFO lost prefix contiguity")?;
+            let input =
+                SplitInterleavedInput::new(prefix, &suffix[..suffix_samples], self.channels)?;
+            if input.frames() != self.chunk_in {
+                return Err("resampler backend split input did not complete a native chunk");
+            }
+
+            if output_frames < native_output_frames {
+                process_fft_adapter_into_split(
+                    &mut self.engine,
+                    &input,
+                    output,
+                    &mut self.out_stage,
+                    &mut self.out_fifo,
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                    &mut self.emitted,
+                    authorized_total,
+                    None,
+                )?
+            } else if (duration_stable || self.prefix_budget_direct) && self.out_fifo.is_empty() {
+                let direct_samples = native_output_frames * self.channels;
+                let chunk_frames = process_fft_adapter_into(
+                    &mut self.engine,
+                    &input,
+                    &mut output[..direct_samples],
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                )?;
+                let budget = authorized_total
+                    .saturating_sub(self.emitted)
+                    .min(usize::MAX as u64) as usize;
+                let direct = if duration_stable {
+                    chunk_frames
+                } else {
+                    let budgeted = chunk_frames.min(budget);
+                    self.out_fifo
+                        .push(&output[budgeted * self.channels..chunk_frames * self.channels])?;
+                    budgeted
+                };
+                self.emitted = self
+                    .emitted
+                    .checked_add(direct as u64)
+                    .ok_or("resampler backend emitted output count overflowed")?;
+                Some(direct)
+            } else if self.out_fifo.free() >= self.out_stage.len() {
+                let chunk_frames = process_fft_adapter_into(
+                    &mut self.engine,
+                    &input,
+                    &mut self.out_stage,
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                )?;
+                self.out_fifo
+                    .push(&self.out_stage[..chunk_frames * self.channels])?;
+                Some(0)
+            } else {
+                None
+            }
+        };
+        let Some(produced) = produced else {
+            return Ok(None);
+        };
+
+        self.in_fifo.consume(prefix_samples)?;
+        self.total_input = next_total_input;
+        self.processed_real_input = next_processed_real_input;
+        #[cfg(test)]
+        {
+            self.split_input_chunks += 1;
+        }
+        Ok(Some((needed_frames, produced)))
     }
 
     /// Move up to `max` pending frames into `output`, returning the count.
@@ -618,12 +1568,114 @@ impl MonoBackend {
         let mut produced = 0usize;
         let input_frames = input.len() / self.channels;
         let output_frames = output.len() / self.channels;
+
+        // The representative callback supplies one setup-selected FFT chunk.
+        // The split adapter already preserves pending-output order, delay
+        // discard, exact-duration authorization, and bounded spill, so avoid
+        // entering the generic FIFO/progress loop for this complete case.
+        if self.in_fifo.is_empty() && input_frames == self.chunk_in {
+            if let Some(output_frames) = self.process_aligned_fft_chunk(input, output)? {
+                return Ok(BackendProgress {
+                    input_frames,
+                    output_frames,
+                });
+            }
+        }
+
         loop {
             let before = (consumed, produced);
             produced += self.emit_up_to(
                 &mut output[produced * self.channels..],
                 self.process_emit_budget(),
             );
+
+            let remaining_input = input_frames - consumed;
+            let remaining_output = output_frames - produced;
+            if let Some((input_used, output_written)) = self.process_split_input_fft_chunk(
+                &input[consumed * self.channels..],
+                &mut output[produced * self.channels..],
+            )? {
+                consumed += input_used;
+                produced += output_written;
+                if consumed == input_frames && produced == output_frames {
+                    break;
+                }
+                continue;
+            }
+            if self.in_fifo.is_empty() && remaining_input >= self.chunk_in {
+                let input_start = consumed * self.channels;
+                let input_end = (consumed + self.chunk_in) * self.channels;
+                let input_chunk = &input[input_start..input_end];
+                if let Some(scattered) = self.process_aligned_fft_chunk(
+                    input_chunk,
+                    &mut output[produced * self.channels..],
+                )? {
+                    consumed += self.chunk_in;
+                    produced += scattered;
+                    if consumed == input_frames {
+                        break;
+                    }
+                    continue;
+                }
+                let duration_stable = self.direct_output_is_duration_stable();
+                if (duration_stable || self.prefix_budget_direct)
+                    && self.out_fifo.is_empty()
+                    && remaining_output >= self.engine.output_frames_max()
+                {
+                    let direct_samples = self.engine.output_frames_max() * self.channels;
+                    let output_start = produced * self.channels;
+                    let output_end = output_start + direct_samples;
+                    let chunk_frames = process_chunk_into(
+                        &mut self.engine,
+                        input_chunk,
+                        &mut output[output_start..output_end],
+                        self.chunk_in,
+                        self.channels,
+                        &mut self.delay_remaining,
+                    )?;
+                    consumed += self.chunk_in;
+                    self.total_input += self.chunk_in as u64;
+                    self.processed_real_input += self.chunk_in as u64;
+                    #[cfg(test)]
+                    {
+                        self.direct_input_chunks += 1;
+                    }
+                    let direct = if duration_stable {
+                        chunk_frames
+                    } else {
+                        let budgeted = chunk_frames.min(self.process_emit_budget());
+                        let spill_start = output_start + budgeted * self.channels;
+                        let spill_end = output_start + chunk_frames * self.channels;
+                        self.out_fifo.push(&output[spill_start..spill_end])?;
+                        budgeted
+                    };
+                    self.emitted += direct as u64;
+                    produced += direct;
+                    continue;
+                }
+
+                if self.out_fifo.free() >= self.out_stage.len() {
+                    let chunk_frames = process_chunk_into(
+                        &mut self.engine,
+                        input_chunk,
+                        &mut self.out_stage,
+                        self.chunk_in,
+                        self.channels,
+                        &mut self.delay_remaining,
+                    )?;
+                    consumed += self.chunk_in;
+                    self.total_input += self.chunk_in as u64;
+                    self.processed_real_input += self.chunk_in as u64;
+                    #[cfg(test)]
+                    {
+                        self.direct_input_chunks += 1;
+                    }
+                    self.out_fifo
+                        .push(&self.out_stage[..chunk_frames * self.channels])?;
+                    continue;
+                }
+            }
+
             let free = self.in_fifo.free() / self.channels;
             let take = free.min(input_frames - consumed);
             if take > 0 {
@@ -633,7 +1685,7 @@ impl MonoBackend {
                 consumed += take;
                 self.total_input += take as u64;
             }
-            while self.in_fifo.len() / self.channels >= CHUNK_IN
+            while self.in_fifo.len() / self.channels >= self.chunk_in
                 && self.out_fifo.free() >= self.out_stage.len()
             {
                 let remaining_output = output_frames - produced;
@@ -648,10 +1700,11 @@ impl MonoBackend {
                         &mut self.in_fifo,
                         &mut output
                             [produced * self.channels..produced * self.channels + direct_samples],
+                        self.chunk_in,
                         self.channels,
                         &mut self.delay_remaining,
                     )?;
-                    self.processed_real_input += CHUNK_IN as u64;
+                    self.processed_real_input += self.chunk_in as u64;
                     let direct = if duration_stable {
                         chunk_frames
                     } else {
@@ -669,7 +1722,7 @@ impl MonoBackend {
                     continue;
                 }
                 self.run_chunk()?;
-                self.processed_real_input += CHUNK_IN as u64;
+                self.processed_real_input += self.chunk_in as u64;
             }
             produced += self.emit_up_to(
                 &mut output[produced * self.channels..],
@@ -717,15 +1770,94 @@ impl MonoBackend {
             }
             // Reaching this point implies out_fifo is empty (emit was bounded
             // only by its length), so one full chunk of output always fits.
-            // Flush staged real input first, then pad with zeros for the tail.
+            // Flush staged real input first. Once the FIFO is empty, Rubato's
+            // partial-input contract advances FFT state with implicit silence,
+            // avoiding a zero-block FIFO copy and per-channel input copy.
             let staged_frames = self.in_fifo.len() / self.channels;
-            if staged_frames < CHUNK_IN {
-                let pad_samples = (CHUNK_IN - staged_frames) * self.channels;
-                self.in_fifo.push(&self.zero_chunk[..pad_samples])?;
+            let use_partial_zero =
+                staged_frames == 0 && matches!(&self.engine, RubatoEngine::Fft(_));
+            #[cfg(test)]
+            let use_partial_zero = use_partial_zero && self.partial_zero_drain_enabled;
+            let use_terminal_truncate = use_partial_zero;
+            #[cfg(test)]
+            let use_terminal_truncate =
+                use_terminal_truncate && self.terminal_truncate_drain_enabled;
+            if use_terminal_truncate {
+                if let Some(direct) = process_fft_partial_zero_into_terminal(
+                    &mut self.engine,
+                    &mut output[produced * self.channels..],
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                    &mut self.emitted,
+                    self.expected_total,
+                )? {
+                    produced += direct;
+                    #[cfg(test)]
+                    {
+                        self.direct_drain_chunks += 1;
+                        self.partial_zero_drain_chunks += 1;
+                        self.terminal_truncate_drain_chunks += 1;
+                    }
+                    continue;
+                }
             }
             let before_fifo = self.out_fifo.len();
-            self.run_chunk()?;
-            if self.out_fifo.len() == before_fifo {
+            let before_emitted = self.emitted;
+            let direct = if use_partial_zero {
+                process_fft_partial_zero_into_split(
+                    &mut self.engine,
+                    &mut output[produced * self.channels..],
+                    &mut self.out_stage,
+                    &mut self.out_fifo,
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                    &mut self.emitted,
+                    self.expected_total,
+                )?
+            } else {
+                if staged_frames < self.chunk_in {
+                    let pad_samples = (self.chunk_in - staged_frames) * self.channels;
+                    self.in_fifo.push(&self.zero_chunk[..pad_samples])?;
+                }
+                let chunk_samples = self.chunk_in * self.channels;
+                let input = self
+                    .in_fifo
+                    .front_contiguous(chunk_samples)
+                    .ok_or("resampler backend drain input FIFO lost chunk contiguity")?;
+                process_fft_chunk_into_split(
+                    &mut self.engine,
+                    input,
+                    &mut output[produced * self.channels..],
+                    &mut self.out_stage,
+                    &mut self.out_fifo,
+                    self.chunk_in,
+                    self.channels,
+                    &mut self.delay_remaining,
+                    &mut self.emitted,
+                    self.expected_total,
+                )?
+            };
+            if let Some(direct) = direct {
+                if !use_partial_zero {
+                    self.in_fifo.consume(self.chunk_in * self.channels)?;
+                }
+                produced += direct;
+                #[cfg(test)]
+                {
+                    self.direct_drain_chunks += 1;
+                    if use_partial_zero {
+                        self.partial_zero_drain_chunks += 1;
+                    }
+                }
+            } else {
+                if use_partial_zero {
+                    self.in_fifo.push(&self.zero_chunk)?;
+                }
+                self.run_chunk()?;
+            }
+            if self.out_fifo.len() == before_fifo && self.emitted == before_emitted {
                 stall_rounds += 1;
                 if stall_rounds > MAX_DRAIN_STALL_ROUNDS {
                     return Err("resampler backend drain stalled");
@@ -746,6 +1878,14 @@ impl MonoBackend {
         self.expected_total = 0;
         self.delay_remaining = self.initial_delay;
         self.draining = false;
+        #[cfg(test)]
+        {
+            self.direct_input_chunks = 0;
+            self.direct_drain_chunks = 0;
+            self.split_input_chunks = 0;
+            self.partial_zero_drain_chunks = 0;
+            self.terminal_truncate_drain_chunks = 0;
+        }
         Ok(())
     }
 
@@ -795,6 +1935,78 @@ mod tests {
         assert!(ring.is_empty());
     }
 
+    #[test]
+    fn split_interleaved_input_bulk_copy_crosses_the_boundary_without_allocating() {
+        let prefix = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        let suffix = [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0];
+        let input = SplitInterleavedInput::new(&prefix, &suffix, 2).unwrap();
+        let mut left = [-1.0; 7];
+        let mut right = [-1.0; 4];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            assert_eq!(input.copy_from_channel_to_slice(0, 0, &mut left), 7);
+            assert_eq!(input.copy_from_channel_to_slice(1, 2, &mut right), 4);
+        });
+
+        assert_eq!(left, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0]);
+        assert_eq!(right, [5.0, 7.0, 9.0, 11.0]);
+        assert_eq!(input.read_sample(1, 6), Some(13.0));
+        assert_eq!(input.copy_from_channel_to_slice(2, 0, &mut left), 0);
+        assert_eq!(input.copy_from_channel_to_slice(0, 7, &mut left), 0);
+    }
+
+    #[test]
+    fn direct_interleaved_output_bulk_copy_preserves_layout_without_allocating() {
+        let mut output = [-1.0; 10];
+        {
+            let mut adapter = DirectInterleavedOutput::new(&mut output, 2, 5).unwrap();
+
+            assert_no_alloc::assert_no_alloc(|| {
+                assert_eq!(
+                    adapter.copy_from_slice_to_channel(0, 0, &[0.0, 2.0, 4.0, 6.0, 8.0]),
+                    (5, 0)
+                );
+                assert_eq!(
+                    adapter.copy_from_slice_to_channel(1, 0, &[1.0, 3.0, 5.0, 7.0, 9.0]),
+                    (5, 0)
+                );
+            });
+
+            let mut short = [11.0, 13.0, 15.0, 17.0];
+            assert_eq!(adapter.copy_from_channel_to_slice(1, 2, &mut short), 3);
+            assert_eq!(short, [5.0, 7.0, 9.0, 17.0]);
+        }
+        assert_eq!(output, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    }
+
+    #[test]
+    fn terminal_interleaved_output_discards_delay_and_suffix_without_allocating() {
+        let mut output = [-1.0; 6];
+        {
+            let mut adapter = TerminalInterleavedOutput::new(&mut output, 2, 7, 2, 3).unwrap();
+
+            assert_no_alloc::assert_no_alloc(|| {
+                assert_eq!(
+                    adapter.copy_from_slice_to_channel(
+                        0,
+                        0,
+                        &[0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0],
+                    ),
+                    (7, 0)
+                );
+                assert_eq!(
+                    adapter.copy_from_slice_to_channel(
+                        1,
+                        0,
+                        &[1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0],
+                    ),
+                    (7, 0)
+                );
+            });
+        }
+        assert_eq!(output, [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    }
+
     fn render_backend(backend: &mut MonoBackend, input: &[f64], channels: usize) -> Vec<f64> {
         render_backend_with_output_frames(backend, input, channels, CHUNK_IN * 4)
     }
@@ -805,11 +2017,27 @@ mod tests {
         channels: usize,
         output_frames: usize,
     ) -> Vec<f64> {
+        render_backend_with_patterns(
+            backend,
+            input,
+            channels,
+            output_frames,
+            &[127, 509, 31, 1_024],
+        )
+    }
+
+    fn render_backend_with_patterns(
+        backend: &mut MonoBackend,
+        input: &[f64],
+        channels: usize,
+        output_frames: usize,
+        input_chunk_pattern: &[usize],
+    ) -> Vec<f64> {
+        assert!(!input_chunk_pattern.is_empty());
         let input_frames = input.len() / channels;
         let mut output = Vec::new();
         let mut output_scratch = vec![0.0; output_frames * channels];
         let mut input_cursor = 0;
-        let input_chunk_pattern = [127, 509, 31, 1_024];
         let mut pattern_cursor = 0;
 
         while input_cursor < input_frames {
@@ -959,15 +2187,16 @@ mod tests {
                 ResampleQuality::High,
                 2,
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             RubatoEngine::Halfband(_)
         ));
     }
 
     #[test]
     fn ultra_high_routes_common_ratios_to_fft_and_pathological_ratios_to_sinc() {
-        assert_eq!(fft_sub_chunks(ResampleQuality::UltraHigh), 1);
-        assert_eq!(fft_sub_chunks(ResampleQuality::High), 2);
+        assert_eq!(fft_geometry(ResampleQuality::UltraHigh), (CHUNK_IN, 1));
+        assert_eq!(fft_geometry(ResampleQuality::High), (CHUNK_IN, 2));
         assert!(matches!(
             RubatoEngine::new(
                 44_100,
@@ -976,7 +2205,8 @@ mod tests {
                 ResampleQuality::High,
                 1,
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             RubatoEngine::Fft(_)
         ));
         assert!(matches!(
@@ -987,12 +2217,13 @@ mod tests {
                 ResampleQuality::UltraHigh,
                 1,
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             RubatoEngine::Fft(_)
         ));
         // UltraHigh's one-sub-chunk FFT unit is twice the High unit, so its
         // per-call output block and leading delay differ from High.
-        let high = RubatoEngine::new(
+        let (high, high_chunk_in) = RubatoEngine::new(
             44_100,
             48_000,
             PhaseResponse::Linear,
@@ -1000,7 +2231,7 @@ mod tests {
             1,
         )
         .unwrap();
-        let ultra = RubatoEngine::new(
+        let (ultra, ultra_chunk_in) = RubatoEngine::new(
             44_100,
             48_000,
             PhaseResponse::Linear,
@@ -1008,10 +2239,14 @@ mod tests {
             1,
         )
         .unwrap();
+        assert_eq!(high_chunk_in, CHUNK_IN);
+        assert_eq!(ultra_chunk_in, CHUNK_IN);
         assert!(ultra.output_delay() > high.output_delay());
         for quality in [ResampleQuality::High, ResampleQuality::UltraHigh] {
             assert!(matches!(
-                RubatoEngine::new(44_100, 44_101, PhaseResponse::Linear, quality, 1).unwrap(),
+                RubatoEngine::new(44_100, 44_101, PhaseResponse::Linear, quality, 1)
+                    .unwrap()
+                    .0,
                 RubatoEngine::Sinc(_)
             ));
         }
@@ -1023,6 +2258,403 @@ mod tests {
         assert_interleaved_matches_independent_mono(44_100, 48_000, ResampleQuality::UltraHigh);
         assert_interleaved_matches_independent_mono(48_000, 96_000, ResampleQuality::UltraHigh);
         assert_interleaved_matches_independent_mono(48_000, 96_000, ResampleQuality::High);
+    }
+
+    #[test]
+    fn aligned_complete_chunks_bypass_the_input_fifo_without_allocating() {
+        const CHANNELS: usize = 2;
+        let mut backend = MonoBackend::new_interleaved(
+            44_100,
+            48_000,
+            PhaseResponse::Linear,
+            ResampleQuality::High,
+            CHANNELS,
+        )
+        .unwrap();
+        let input_frames = backend.chunk_in * 2;
+        let input = (0..input_frames)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [(frame * 0.031).sin() * 0.6, (frame * 0.047).cos() * 0.5]
+            })
+            .collect::<Vec<_>>();
+        let mut output = vec![0.0; backend.engine.output_frames_max() * 2 * CHANNELS];
+        let mut progress = None;
+
+        assert_no_alloc::assert_no_alloc(|| {
+            progress = Some(backend.process(&input, &mut output).unwrap());
+        });
+
+        let progress = progress.unwrap();
+        assert_eq!(progress.input_frames, input_frames);
+        assert_eq!(backend.direct_input_chunks, 2);
+        assert!(backend.in_fifo.is_empty());
+
+        backend.clear().unwrap();
+        let chunk_in = backend.chunk_in;
+        let mut constrained_output = vec![0.0; 257 * CHANNELS];
+        assert_no_alloc::assert_no_alloc(|| {
+            let progress = backend
+                .process(&input[..chunk_in * CHANNELS], &mut constrained_output)
+                .unwrap();
+            assert_eq!(progress.input_frames, chunk_in);
+        });
+        assert_eq!(backend.direct_input_chunks, 1);
+        assert!(backend.in_fifo.is_empty());
+    }
+
+    #[test]
+    fn fft_split_input_completion_matches_fifo_for_128_256_and_512_callers() {
+        const CHANNELS: usize = 2;
+        const INPUT_FRAMES: usize = 8_193;
+        let input = (0..INPUT_FRAMES)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [
+                    (frame * 0.011).sin() * 0.51 + (frame * 0.037).cos() * 0.08,
+                    (frame * 0.023 + 0.2).cos() * 0.47 - (frame * 0.005).sin() * 0.11,
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        for (from_rate, to_rate) in [(44_100, 48_000), (48_000, 44_100)] {
+            for caller_frames in [128, 256, 512] {
+                let make = || {
+                    MonoBackend::new_interleaved(
+                        from_rate,
+                        to_rate,
+                        PhaseResponse::Linear,
+                        ResampleQuality::High,
+                        CHANNELS,
+                    )
+                    .unwrap()
+                };
+                let mut split = make();
+                let mut fifo = make();
+                fifo.split_input_enabled = false;
+
+                let split_output = render_backend_with_patterns(
+                    &mut split,
+                    &input,
+                    CHANNELS,
+                    257,
+                    &[caller_frames],
+                );
+                let fifo_output = render_backend_with_patterns(
+                    &mut fifo,
+                    &input,
+                    CHANNELS,
+                    257,
+                    &[caller_frames],
+                );
+
+                assert!(
+                    split.split_input_chunks > 0,
+                    "{from_rate}->{to_rate} with {caller_frames}-frame callers missed split input"
+                );
+                assert_eq!(fifo.split_input_chunks, 0);
+                assert_bits_equal(
+                    &split_output,
+                    &fifo_output,
+                    "FFT split input vs FIFO completion",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fft_split_input_completion_is_allocation_free_and_reset_fresh_exact() {
+        const CHANNELS: usize = 2;
+        let make = || {
+            MonoBackend::new_interleaved(
+                44_100,
+                48_000,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+                CHANNELS,
+            )
+            .unwrap()
+        };
+        let mut backend = make();
+        let input = (0..backend.chunk_in)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [(frame * 0.017).sin() * 0.5, (frame * 0.031).cos() * 0.4]
+            })
+            .collect::<Vec<_>>();
+        let mut output = vec![0.0; 257 * CHANNELS];
+        let prefix_frames = backend.chunk_in / 2;
+        let prefix = &input[..prefix_frames * CHANNELS];
+        let suffix = &input[prefix_frames * CHANNELS..];
+        let first = backend.process(prefix, &mut output).unwrap();
+        assert_eq!(first.input_frames, prefix_frames);
+        assert_eq!(first.output_frames, 0);
+
+        let mut second = None;
+        assert_no_alloc::assert_no_alloc(|| {
+            second = Some(backend.process(suffix, &mut output).unwrap());
+        });
+        let second = second.unwrap();
+        assert_eq!(second.input_frames, prefix_frames);
+        assert!(second.output_frames > 0);
+        assert_eq!(backend.split_input_chunks, 1);
+
+        let stream = (0..4_097)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [(frame * 0.013).sin() * 0.5, (frame * 0.019).cos() * 0.4]
+            })
+            .collect::<Vec<_>>();
+        backend.clear().unwrap();
+        let first = render_backend_with_patterns(&mut backend, &stream, CHANNELS, 257, &[512]);
+        assert!(backend.split_input_chunks > 0);
+        backend.clear().unwrap();
+        let after_reset =
+            render_backend_with_patterns(&mut backend, &stream, CHANNELS, 257, &[512]);
+        let mut fresh = make();
+        let fresh_output = render_backend_with_patterns(&mut fresh, &stream, CHANNELS, 257, &[512]);
+        assert_bits_equal(&first, &after_reset, "FFT split input reset");
+        assert_bits_equal(&after_reset, &fresh_output, "FFT split input fresh");
+    }
+
+    #[test]
+    fn fft_partial_zero_drain_matches_explicit_zero_fifo_path_bit_exactly() {
+        const CHANNELS: usize = 2;
+        const INPUT_FRAMES: usize = CHUNK_IN * 4;
+        let input = (0..INPUT_FRAMES)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [
+                    (frame * 0.013).sin() * 0.51 + (frame * 0.003).cos() * 0.07,
+                    (frame * 0.019).cos() * 0.43 - (frame * 0.005).sin() * 0.09,
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        for (from_rate, to_rate) in [(44_100, 48_000), (48_000, 44_100)] {
+            for caller_frames in [128, 256, 512] {
+                let make = || {
+                    MonoBackend::new_interleaved(
+                        from_rate,
+                        to_rate,
+                        PhaseResponse::Linear,
+                        ResampleQuality::High,
+                        CHANNELS,
+                    )
+                    .unwrap()
+                };
+                let mut partial_zero = make();
+                let mut explicit_zero = make();
+                explicit_zero.partial_zero_drain_enabled = false;
+
+                let partial_output = render_backend_with_patterns(
+                    &mut partial_zero,
+                    &input,
+                    CHANNELS,
+                    257,
+                    &[caller_frames],
+                );
+                let explicit_output = render_backend_with_patterns(
+                    &mut explicit_zero,
+                    &input,
+                    CHANNELS,
+                    257,
+                    &[caller_frames],
+                );
+
+                assert!(
+                    partial_zero.partial_zero_drain_chunks > 0,
+                    "{from_rate}->{to_rate} with {caller_frames}-frame callers missed partial-zero drain"
+                );
+                assert_eq!(explicit_zero.partial_zero_drain_chunks, 0);
+                assert_bits_equal(
+                    &explicit_output,
+                    &partial_output,
+                    "FFT partial-zero vs explicit-zero drain",
+                );
+                let mut terminal = vec![0.0; 257 * CHANNELS];
+                assert_eq!(partial_zero.drain(&mut terminal).unwrap(), 0);
+                assert_eq!(explicit_zero.drain(&mut terminal).unwrap(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn fft_terminal_truncate_drain_matches_split_spill_bit_exactly() {
+        const CHANNELS: usize = 2;
+        const INPUT_FRAMES: usize = CHUNK_IN * 4;
+        let input = (0..INPUT_FRAMES)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [(frame * 0.011).sin() * 0.5, (frame * 0.029).cos() * 0.4]
+            })
+            .collect::<Vec<_>>();
+
+        for (from_rate, to_rate) in [(44_100, 48_000), (48_000, 44_100)] {
+            let make = || {
+                MonoBackend::new_interleaved(
+                    from_rate,
+                    to_rate,
+                    PhaseResponse::Linear,
+                    ResampleQuality::High,
+                    CHANNELS,
+                )
+                .unwrap()
+            };
+            let mut terminal = make();
+            let mut split_spill = make();
+            split_spill.terminal_truncate_drain_enabled = false;
+            let output_frames = terminal.engine.output_frames_max();
+
+            let terminal_output = render_backend_with_patterns(
+                &mut terminal,
+                &input,
+                CHANNELS,
+                output_frames,
+                &[512],
+            );
+            let split_output = render_backend_with_patterns(
+                &mut split_spill,
+                &input,
+                CHANNELS,
+                output_frames,
+                &[512],
+            );
+
+            assert!(terminal.terminal_truncate_drain_chunks > 0);
+            assert_eq!(split_spill.terminal_truncate_drain_chunks, 0);
+            assert!(split_spill.partial_zero_drain_chunks > 0);
+            assert_bits_equal(
+                &split_output,
+                &terminal_output,
+                "FFT terminal truncate vs split spill drain",
+            );
+            let mut repeated = vec![0.0; output_frames * CHANNELS];
+            assert_eq!(terminal.drain(&mut repeated).unwrap(), 0);
+            assert_eq!(split_spill.drain(&mut repeated).unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn fft_partial_zero_drain_is_allocation_free_with_constrained_output() {
+        const CHANNELS: usize = 2;
+        let mut backend = MonoBackend::new_interleaved(
+            44_100,
+            48_000,
+            PhaseResponse::Linear,
+            ResampleQuality::High,
+            CHANNELS,
+        )
+        .unwrap();
+        let input = (0..CHUNK_IN * 4)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [(frame * 0.017).sin() * 0.5, (frame * 0.023).cos() * 0.4]
+            })
+            .collect::<Vec<_>>();
+        let mut process_output = vec![0.0; backend.engine.output_frames_max() * CHANNELS];
+        for chunk in input.chunks_exact(CHUNK_IN * CHANNELS) {
+            let progress = backend.process(chunk, &mut process_output).unwrap();
+            assert_eq!(progress.input_frames, CHUNK_IN);
+        }
+        assert!(backend.in_fifo.is_empty());
+
+        let mut drain_output = vec![0.0; 257 * CHANNELS];
+        let mut terminal = false;
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..64 {
+                if backend.drain(&mut drain_output).unwrap() == 0 {
+                    terminal = true;
+                    break;
+                }
+            }
+        });
+        assert!(terminal, "partial-zero drain did not terminate");
+        assert!(backend.partial_zero_drain_chunks > 0);
+        assert_eq!(backend.drain(&mut drain_output).unwrap(), 0);
+    }
+
+    #[test]
+    fn fft_terminal_truncate_drain_is_allocation_free() {
+        const CHANNELS: usize = 2;
+        let mut backend = MonoBackend::new_interleaved(
+            44_100,
+            48_000,
+            PhaseResponse::Linear,
+            ResampleQuality::High,
+            CHANNELS,
+        )
+        .unwrap();
+        let input = vec![0.25; CHUNK_IN * 4 * CHANNELS];
+        let output_frames = backend.engine.output_frames_max();
+        let mut output = vec![0.0; output_frames * CHANNELS];
+        for chunk in input.chunks_exact(CHUNK_IN * CHANNELS) {
+            let progress = backend.process(chunk, &mut output).unwrap();
+            assert_eq!(progress.input_frames, CHUNK_IN);
+        }
+        assert!(backend.in_fifo.is_empty());
+
+        let mut terminal = false;
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..8 {
+                if backend.drain(&mut output).unwrap() == 0 {
+                    terminal = true;
+                    break;
+                }
+            }
+        });
+        assert!(terminal);
+        assert!(backend.terminal_truncate_drain_chunks > 0);
+        assert_eq!(backend.drain(&mut output).unwrap(), 0);
+    }
+
+    #[test]
+    fn fft_split_output_matches_forced_fifo_staging_bit_exactly() {
+        const CHANNELS: usize = 2;
+        const INPUT_FRAMES: usize = 8_192;
+        let input = (0..INPUT_FRAMES)
+            .flat_map(|frame| {
+                let frame = frame as f64;
+                [
+                    (frame * 0.019).sin() * 0.55 + (frame * 0.003).cos() * 0.12,
+                    (frame * 0.029 + 0.4).cos() * 0.48 - (frame * 0.007).sin() * 0.09,
+                ]
+            })
+            .collect::<Vec<_>>();
+        let make = || {
+            MonoBackend::new_interleaved(
+                44_100,
+                48_000,
+                PhaseResponse::Linear,
+                ResampleQuality::High,
+                CHANNELS,
+            )
+            .unwrap()
+        };
+        let mut split = make();
+        let mut staged = make();
+        let caller_output_frames = 622;
+
+        let split_output = render_backend_with_patterns(
+            &mut split,
+            &input,
+            CHANNELS,
+            caller_output_frames,
+            &[CHUNK_IN],
+        );
+        let staged_output = render_backend_with_patterns(
+            &mut staged,
+            &input,
+            CHANNELS,
+            caller_output_frames,
+            &[1, CHUNK_IN - 1],
+        );
+
+        assert!(split.direct_input_chunks > 0);
+        assert_eq!(staged.direct_input_chunks, 0);
+        assert!(split.direct_drain_chunks > 0);
+        assert!(staged.direct_drain_chunks > 0);
+        assert_bits_equal(&split_output, &staged_output, "FFT split vs staged output");
     }
 
     #[test]
@@ -1253,18 +2885,24 @@ mod tests {
                 assert!(nonlinear_uses_spectral(48_000, 96_000));
                 assert!(nonlinear_uses_spectral(96_000, 48_000));
                 assert!(matches!(
-                    RubatoEngine::new(48_000, 96_000, phase, quality, 2).unwrap(),
+                    RubatoEngine::new(48_000, 96_000, phase, quality, 2)
+                        .unwrap()
+                        .0,
                     RubatoEngine::Nonlinear(NonlinearEngine::Spectral(_))
                 ));
                 // Reduced up = 160 / 147: contiguous polyphase.
                 assert!(!nonlinear_uses_spectral(44_100, 48_000));
                 assert!(!nonlinear_uses_spectral(48_000, 44_100));
                 assert!(matches!(
-                    RubatoEngine::new(44_100, 48_000, phase, quality, 2).unwrap(),
+                    RubatoEngine::new(44_100, 48_000, phase, quality, 2)
+                        .unwrap()
+                        .0,
                     RubatoEngine::Nonlinear(NonlinearEngine::Polyphase(_))
                 ));
                 assert!(matches!(
-                    RubatoEngine::new(48_000, 44_100, phase, quality, 2).unwrap(),
+                    RubatoEngine::new(48_000, 44_100, phase, quality, 2)
+                        .unwrap()
+                        .0,
                     RubatoEngine::Nonlinear(NonlinearEngine::Polyphase(_))
                 ));
                 // Pathological reduced components stay rejected, never linear.
