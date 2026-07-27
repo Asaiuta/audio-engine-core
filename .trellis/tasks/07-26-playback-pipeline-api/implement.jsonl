@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend pre-development checklist and quality requirements for public Rust API work."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Callback-safe behavior and control/audio-thread separation for the proposed facade."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Required process, backpressure, drain, reset, and end-of-stream semantics."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed error and public error-context conventions."}

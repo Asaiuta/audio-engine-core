@@ -137,8 +137,9 @@ fn open_http_media_source(
     match RangeStream::new(url.to_string(), owned_creds, cancel_token.clone()) {
         Ok(stream) if stream.is_usable_range_stream() => {
             log::info!("HTTP URL supports Range requests, streaming: {}", url);
+            let hint = hint_from_url_and_content_type(url, stream.content_type.as_deref());
             let mss = MediaSourceStream::new(Box::new(stream), Default::default());
-            Ok((mss, hint_from_url(url)))
+            Ok((mss, hint))
         }
         Err(DecoderError::Canceled) => Err(DecoderError::Canceled),
         _ => {
@@ -146,11 +147,45 @@ fn open_http_media_source(
                 "HTTP URL does not support Range, falling back to full download: {}",
                 url
             );
-            let cursor = download_full_source(url, credentials, cancel_token.as_ref())?;
+            let (cursor, content_type) =
+                download_full_source(url, credentials, cancel_token.as_ref())?;
+            let hint = hint_from_url_and_content_type(url, content_type.as_deref());
             let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-            Ok((mss, hint_from_url(url)))
+            Ok((mss, hint))
         }
     }
+}
+
+/// Extract the probe-relevant media type essence from a Content-Type value.
+///
+/// Strips parameters and rejects generic types that carry no format signal.
+#[cfg(feature = "http")]
+fn probe_mime_essence(content_type: &str) -> Option<&str> {
+    let essence = content_type.split(';').next().unwrap_or("").trim();
+    if essence.is_empty()
+        || essence.eq_ignore_ascii_case("application/octet-stream")
+        || essence.eq_ignore_ascii_case("binary/octet-stream")
+        || essence.eq_ignore_ascii_case("text/plain")
+    {
+        None
+    } else {
+        Some(essence)
+    }
+}
+
+/// Build a probe hint from the URL extension plus the server Content-Type.
+///
+/// The Content-Type header is the more reliable signal for extensionless
+/// stream URLs and signed CDN paths; the URL extension remains as a second
+/// hint. Generic or parameterized media types carry no format information and
+/// are ignored.
+#[cfg(feature = "http")]
+fn hint_from_url_and_content_type(url: &str, content_type: Option<&str>) -> Hint {
+    let mut hint = hint_from_url(url);
+    if let Some(mime) = content_type.and_then(probe_mime_essence) {
+        hint.mime_type(mime);
+    }
+    hint
 }
 
 #[cfg(feature = "http")]
@@ -172,7 +207,7 @@ fn download_full_source(
     url: &str,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<&DecodeCancelToken>,
-) -> Result<Cursor<Vec<u8>>, DecoderError> {
+) -> Result<(Cursor<Vec<u8>>, Option<String>), DecoderError> {
     let (_, max_memory_bytes) = configured_decode_memory_limit();
     let max_download_bytes = max_memory_bytes / NON_RANGE_DOWNLOAD_MEMORY_DIVISOR;
 
@@ -189,7 +224,7 @@ fn download_full_source(
 
     let content_length = with_network_retry("HTTP full-download HEAD", || {
         if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
-            return Err(NetworkError::Other("Decode cancelled".to_string()));
+            return Err(NetworkError::Cancelled);
         }
         let mut head_req = client.head(url);
         if let Some(creds) = credentials {
@@ -219,7 +254,7 @@ fn download_full_source(
 
     let response = with_network_retry("HTTP full-download GET", || {
         if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
-            return Err(NetworkError::Other("Decode cancelled".to_string()));
+            return Err(NetworkError::Cancelled);
         }
         let mut req = client.get(url);
         if let Some(creds) = credentials {
@@ -237,6 +272,7 @@ fn download_full_source(
         content_length.or(response.content_length()),
         max_download_bytes,
     )?;
+    let content_type = header_string(response.headers(), "content-type");
     let mut stream = response;
     let mut buffer = Vec::with_capacity(download_capacity.unwrap_or(RANGE_PREFETCH));
     let mut chunk = [0_u8; 64 * 1024];
@@ -268,7 +304,16 @@ fn download_full_source(
         buffer.len(),
         download_capacity.unwrap_or(RANGE_PREFETCH)
     );
-    Ok(Cursor::new(buffer))
+    Ok((Cursor::new(buffer), content_type))
+}
+
+/// Copy one response header into an owned string, if present and valid UTF-8.
+#[cfg(feature = "http")]
+fn header_string(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
 }
 
 #[cfg(feature = "http")]
@@ -314,7 +359,7 @@ pub(super) fn fetch_range_once(
         return Ok(Vec::new());
     }
     if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
-        return Err(NetworkError::Other("Decode cancelled".to_string()));
+        return Err(NetworkError::Cancelled);
     }
 
     let end = start
@@ -335,7 +380,7 @@ pub(super) fn fetch_range_once(
 
     let bytes = response.bytes().map_err(NetworkError::from)?;
     if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
-        return Err(NetworkError::Other("Decode cancelled".to_string()));
+        return Err(NetworkError::Cancelled);
     }
 
     Ok(bytes.to_vec())
@@ -351,6 +396,9 @@ struct RangeStream {
     pos: u64,
     content_length: Option<u64>,
     supports_range: bool,
+    /// Server-reported Content-Type from stream initialization, used as a
+    /// format probe hint for extensionless URLs.
+    content_type: Option<String>,
     cancel_token: Option<DecodeCancelToken>,
 }
 
@@ -372,13 +420,13 @@ impl RangeStream {
                 )))
             })?;
 
-        let (content_length, supports_range) =
+        let (content_length, supports_range, content_type) =
             with_network_retry("HTTP stream initialization", || {
                 if cancel_token
                     .as_ref()
                     .is_some_and(DecodeCancelToken::is_cancelled)
                 {
-                    return Err(NetworkError::Other("Decode cancelled".to_string()));
+                    return Err(NetworkError::Cancelled);
                 }
 
                 let mut head_req = client.head(&url);
@@ -402,6 +450,9 @@ impl RangeStream {
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse().ok())
                 });
+                let mut content_type = head_response
+                    .as_ref()
+                    .and_then(|r| header_string(r.headers(), "content-type"));
                 let mut supports_range = head_response
                     .as_ref()
                     .map(|r| {
@@ -418,7 +469,7 @@ impl RangeStream {
                         .as_ref()
                         .is_some_and(DecodeCancelToken::is_cancelled)
                     {
-                        return Err(NetworkError::Other("Decode cancelled".to_string()));
+                        return Err(NetworkError::Cancelled);
                     }
                     let mut range_req = client.get(&url).header("Range", "bytes=0-0");
                     if let Some(ref creds) = credentials {
@@ -439,6 +490,9 @@ impl RangeStream {
                         .get("content-length")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse().ok());
+                    if content_type.is_none() {
+                        content_type = header_string(range_response.headers(), "content-type");
+                    }
 
                     if range_status.as_u16() == 206 || range_content_total.is_some() {
                         supports_range = true;
@@ -448,7 +502,7 @@ impl RangeStream {
                     }
                 }
 
-                Ok((content_length, supports_range))
+                Ok((content_length, supports_range, content_type))
             })
             .map_err(network_error_to_decoder_error)?;
 
@@ -480,6 +534,7 @@ impl RangeStream {
             pos: 0,
             content_length,
             supports_range,
+            content_type,
             cancel_token,
         })
     }
@@ -515,9 +570,14 @@ impl RangeStream {
         if fetch_len == 0 {
             return Ok(());
         }
-        let data = self
-            .fetch_range(self.pos, fetch_len)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let data = self.fetch_range(self.pos, fetch_len).map_err(|e| match e {
+            // Keep cancellation structurally identifiable, matching the
+            // Interrupted signal used by the Read entry point.
+            DecoderError::Canceled => {
+                std::io::Error::new(std::io::ErrorKind::Interrupted, "Decode cancelled")
+            }
+            other => std::io::Error::other(other.to_string()),
+        })?;
         self.buf_start = self.pos;
         self.buf = data;
         Ok(())
@@ -609,6 +669,7 @@ mod tests {
             pos: 0,
             content_length: Some(1024),
             supports_range: true,
+            content_type: None,
             cancel_token: None,
         };
         assert!(stream.is_usable_range_stream());
@@ -625,5 +686,21 @@ mod tests {
             ..no_range
         };
         assert!(!no_len.is_usable_range_stream());
+    }
+
+    #[test]
+    fn content_type_probe_essence_filters_generic_and_parameterized_types() {
+        assert_eq!(probe_mime_essence("audio/flac"), Some("audio/flac"));
+        assert_eq!(
+            probe_mime_essence("audio/mpeg; charset=binary"),
+            Some("audio/mpeg")
+        );
+        assert_eq!(probe_mime_essence(" audio/ogg "), Some("audio/ogg"));
+        assert_eq!(probe_mime_essence("application/octet-stream"), None);
+        assert_eq!(probe_mime_essence("Application/Octet-Stream"), None);
+        assert_eq!(probe_mime_essence("binary/octet-stream"), None);
+        assert_eq!(probe_mime_essence("text/plain; charset=utf-8"), None);
+        assert_eq!(probe_mime_essence(""), None);
+        assert_eq!(probe_mime_essence(";"), None);
     }
 }

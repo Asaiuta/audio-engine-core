@@ -23,6 +23,32 @@
 //! eq.process(&mut buffer);
 //! ```
 //!
+//! # Callback playback facade
+//!
+//! ```
+//! use audio_engine_core::{CallbackSpec, PlaybackConfig, PlaybackPipeline};
+//!
+//! # fn main() -> Result<(), audio_engine_core::ProcessError> {
+//! let spec = CallbackSpec::stereo(48_000, 512)?;
+//! let (mut pipeline, controller) = PlaybackPipeline::builder(spec)
+//!     .configure(PlaybackConfig::transparent())
+//!     .build()?;
+//!
+//! // The controller owns the private single-consumer convolver lease and is
+//! // the high-level path for loading impulse responses; its
+//! // `PlaybackParameters` clone is safe to give UI/remote control code.
+//! let parameters = controller.parameters();
+//! parameters.set_volume(0.8);
+//! parameters.set_crossfeed(true, 0.25, 800.0);
+//!
+//! // Audio callback: handle the typed result without logging or panicking here.
+//! let mut samples = [0.0_f64; 512 * 2];
+//! let progress = pipeline.process(&mut samples)?;
+//! # let _ = progress;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! Realtime adapters use the unified streaming contract. Blocks borrow the
 //! caller's interleaved `f64` storage, and [`process_checked`] validates exact
 //! consumed/produced progress without allocating:
@@ -57,6 +83,12 @@
 #[global_allocator]
 static TEST_ALLOC_GUARD: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
+// Compile-check every Rust code block in README.md as a doctest so the
+// published quick-start examples cannot drift from the real public API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 pub mod channel_layout;
 pub mod config;
 pub mod decoder;
@@ -68,7 +100,11 @@ pub mod runtime;
 pub use channel_layout::{ChannelLayout, ChannelPosition};
 pub use config::{LoudnessConfig, NormalizationMode};
 pub use decoder::StreamingDecoder;
-pub use pipeline::RingBuffer;
+pub use pipeline::{
+    CallbackSpec, DynamicLoudnessTelemetry, PlaybackBuilder, PlaybackConfig, PlaybackController,
+    PlaybackCrossfeedConfig, PlaybackDynamicLoudnessConfig, PlaybackNoiseShapingConfig,
+    PlaybackParameters, PlaybackPipeline, PlaybackSaturationConfig, PlaybackTiming, RingBuffer,
+};
 pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,
     canonical_output_stage_descriptors, canonical_post_render_analysis_descriptors, finish_checked,

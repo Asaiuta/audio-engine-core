@@ -1,12 +1,15 @@
 //! Audio Processor Module
 //!
-//! High-performance audio processing pipeline using Rayon for parallelization.
-//! Restored SoX VHQ Resampler and High-Order Noise Shaping for f64 Hi-Fi path.
+//! Realtime-safe DSP building blocks with lock-free parameter passing.
+//! Resampling is backend-selectable at compile time: native SoXR (SoX VHQ)
+//! via the `soxr` feature or the pure-Rust quality-routed backend via the
+//! `rubato` feature. Offline multi-channel resampling parallelizes across
+//! channels; the realtime paths are single-threaded and allocation-free.
 //!
 //! # Modules
 //!
 //! ## Core Processors
-//! - [`StreamingResampler`] and [`Resampler`] - SoX VHQ polyphase resampling
+//! - [`StreamingResampler`] and [`Resampler`] - backend-selectable resampling (SoXR or pure Rust)
 //! - [`Equalizer`] and [`BiquadSection`] - 10-band parametric IIR equalizer
 //! - [`VolumeController`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`SpectrumAnalyzer`] - FFT spectrum analyzer
