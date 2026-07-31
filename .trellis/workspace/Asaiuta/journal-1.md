@@ -60,7 +60,11 @@ Started the P1 quality-gates task (corrected the auto-selected current-task poin
 
 ### Main Changes
 
-(Add details)
+- Marked 11 completed non-codebase tasks as `completed` and moved them to
+  `.trellis/tasks/archive/2026-07/`.
+- Kept the codebase maintainability audit and its 11 remediation tasks active.
+- Preserved all existing dirty source, spec, benchmark, documentation, and
+  unrelated untracked files.
 
 ### Git Commits
 
@@ -794,6 +798,55 @@ Added hybrid nonlinear routing with a contiguous polyphase backend for reduced u
 ### Testing
 
 - [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 22: Archive completed non-codebase tasks
+
+**Date**: 2026-07-31
+**Task**: Archive completed non-codebase tasks
+
+### Summary
+
+Archived 11 completed convolver, resampler, benchmark, and playback tasks; preserved the 12 codebase-audit tasks and all dirty source work.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9d1eecc` | perf(convolver): spread long IR tail work |
+| `abc05e4` | feat(resampler): implement nonlinear Rubato phases |
+| `6e619ea` | perf(resampler): specialize exact 2x linear high upsampling |
+| `705f8d7` | docs(resampler): record half-band routing and evidence |
+| `0760265` | feat(bench): add resampler configuration matrix benchmark |
+| `1d889a1` | perf(resampler): direct prefix-budget output for noninteger ratios |
+| `80ee693` | perf(resampler): spectral FFT engine for nonlinear phases |
+| `1798833` | perf(resampler): route UltraHigh Linear to single-subchunk FFT |
+| `3da9a94` | bench(audio): complete performance coverage and resampler comparisons |
+| `f0c0445` | perf(resampler): optimize stereo SoXR and Rubato adapters |
+| `83753ce` | feat(playback): expose high-level playback pipeline |
+| `0c62feb` | docs(audio): record benchmark, playback, and resampler evidence |
+
+### Testing
+
+- [OK] `cargo fmt --all -- --check`
+- [OK] `git diff --check` (line-ending warnings only)
+- [OK] Both supported strict Clippy matrices
+- [OK] `cargo test --all-features`: 450 library tests plus support and doctests
+- [OK] Rubato-only tests: 484 library tests plus support and doctests
+- [OK] All 11 archive records report `status=completed` and
+  `completedAt=2026-07-31`; only the 12 codebase-audit tasks remain active
 
 ### Status
 
