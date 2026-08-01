@@ -406,7 +406,8 @@ impl PeakLimiter {
     /// comparison false, so the limiter would silently stop limiting.
     ///
     /// No published-range clamp is applied here. The facade owns
-    /// [`LIMITER_THRESHOLD_DB_MIN`]..=[`LIMITER_THRESHOLD_DB_MAX`] for what a
+    /// [`LIMITER_THRESHOLD_DB_MIN`](crate::processor::LIMITER_THRESHOLD_DB_MIN)..=[`LIMITER_THRESHOLD_DB_MAX`](crate::processor::LIMITER_THRESHOLD_DB_MAX)
+    /// for what a
     /// *user* may ask for; the adapter then drives this core below that range
     /// on purpose, because the intersample-peak guard subtracts its additive
     /// bound from the user's ceiling before it reaches the limiter.

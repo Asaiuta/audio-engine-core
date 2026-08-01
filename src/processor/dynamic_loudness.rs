@@ -596,8 +596,8 @@ impl DynamicLoudness {
         }
     }
 
-    /// Set reference volume level in dB, clamped to
-    /// [`REFERENCE_VOLUME_DB_MIN`]..=[`REFERENCE_VOLUME_DB_MAX`].
+    /// Set reference volume level in dB, clamped to the internal
+    /// `REFERENCE_VOLUME_DB_MIN`..=`REFERENCE_VOLUME_DB_MAX` range.
     /// A non-finite value is ignored.
     pub fn set_reference_volume_db(&mut self, ref_db: f64) {
         if let Some(ref_db) = sanitized(ref_db, REFERENCE_VOLUME_DB_MIN, REFERENCE_VOLUME_DB_MAX) {
@@ -605,11 +605,12 @@ impl DynamicLoudness {
         }
     }
 
-    /// Set transition range in dB, clamped to
-    /// [`TRANSITION_DB_MIN`]..=[`TRANSITION_DB_MAX`].
+    /// Set transition range in dB, clamped to the internal
+    /// `TRANSITION_DB_MIN`..=`TRANSITION_DB_MAX` range.
     ///
     /// A non-finite value is ignored; it would otherwise become the divisor in
-    /// [`Self::update_loudness_factor`] and make every band gain `NaN`.
+    /// the internal `update_loudness_factor` step and make every band gain
+    /// `NaN`.
     pub fn set_transition_db(&mut self, transition_db: f64) {
         if let Some(transition_db) = sanitized(transition_db, TRANSITION_DB_MIN, TRANSITION_DB_MAX)
         {
