@@ -50,6 +50,73 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --no-deps --all-features
 
+  # Prove the MSRV declared in Cargo.toml, which is a SemVer-relevant promise.
+  # This checks the library only, not --all-targets: dev-dependencies (notably
+  # the public-api baseline tooling) carry their own, higher minimums, and the
+  # MSRV is a promise to consumers, who build the library and nothing else.
+  msrv:
+    name: msrv (declared rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          version="$(sed -n 's/^rust-version *= *"\(.*\)"/\1/p' Cargo.toml)"
+          if [ -z "$version" ]; then
+            echo "Cargo.toml declares no rust-version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install the declared MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check (all features)
+        run: cargo check --all-features
+
+      - name: Check (pure Rust backend)
+        run: cargo check --no-default-features --features rubato
+
+  # Compare the public surface of both supported feature matrices against the
+  # snapshots committed under tests/. Rustdoc JSON is nightly-only and its
+  # format is unstable, so the toolchain date is pinned; it must be kept in sync
+  # with PINNED_NIGHTLY in tests/public_api.rs.
+  public-api:
+    name: public API baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libsoxr
+        run: sudo apt-get update && sudo apt-get install -y libsoxr-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install the pinned nightly used to emit rustdoc JSON
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-09
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The test skips when the pinned toolchain is absent, which would make a
+      # broken install look green. Fail loudly here instead.
+      - name: Verify the pinned nightly is installed
+        run: rustup run nightly-2026-07-09 rustdoc --version
+
+      - name: Public API surface matches the committed baseline
+        run: cargo test --test public_api
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
