@@ -74,15 +74,15 @@ the surface stops moving.
 
 ## Acceptance Criteria
 
-- [ ] `tests/public-api-all-features.txt` and `tests/public-api-rubato.txt`
+- [x] `tests/public-api-all-features.txt` and `tests/public-api-rubato.txt`
       are committed and correspond to the current surface.
-- [ ] Deliberately adding a public item without refreshing the baseline fails
+- [x] Deliberately adding a public item without refreshing the baseline fails
       the test; refreshing makes it pass and produces a readable text diff.
-- [ ] The test skips, not fails, on a stable-only toolchain, and says why.
-- [ ] A CI job builds both feature matrices on the declared MSRV toolchain and
+- [x] The test skips, not fails, on a stable-only toolchain, and says why.
+- [x] A CI job builds both feature matrices on the declared MSRV toolchain and
       fails if that toolchain cannot build them.
-- [ ] The MSRV named in `Cargo.toml` is the one CI proves.
-- [ ] `CONTRIBUTING.md` lists the refresh command among its quick commands,
+- [x] The MSRV named in `Cargo.toml` is the one CI proves.
+- [x] `CONTRIBUTING.md` lists the refresh command among its quick commands,
       states the MSRV policy, and no longer miscounts its own quick commands or
       overstates which checks run on three operating systems.
 
