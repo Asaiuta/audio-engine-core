@@ -55,6 +55,8 @@ rubato = ["dep:rubato"]
 [dev-dependencies]
 assert_no_alloc = "1.1"
 libloading = "0.8"
+public-api = "0.52.1"
+rustdoc-json = "0.9.10"
 serde_json = "1"
 sha2 = "0.10"
 
