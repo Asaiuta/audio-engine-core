@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend quality gate and supported feature paths."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review that URL removal precedes every reqwest classification/stringification path."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Review that credentials, userinfo, path tokens, query, and fragment cannot reach logs."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review test evidence and strict Clippy/test matrices."}
+{"file":".trellis/tasks/07-28-redact-http-source-diagnostics/prd.md","reason":"Acceptance criteria and explicit public-API boundaries."}

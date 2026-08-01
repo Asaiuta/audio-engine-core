@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"Review against backend routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify every public EQ rejection uses the typed ProcessError contract."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"Verify no rejected write can reach coefficients, target gains, or smoothing state."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Verify the callback-side EQ parameter sync gained no Result, validation cost, or allocation."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run and interpret complete quality gates."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify the change stays within the EQ and parameter module owners."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review the shell/kernel split for useful cleanup without over-abstraction."}
+{"file":".trellis/tasks/07-29-reject-invalid-eq-band-index-at-public-boundaries/research/revalidation-and-refactor.md","reason":"Check implementation against adopted and explicitly rejected refactors."}

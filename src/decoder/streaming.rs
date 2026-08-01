@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use symphonia::core::audio::{Channels, Position};
+use symphonia::core::audio::Channels;
 use symphonia::core::codecs::audio::well_known::{CODEC_ID_MP3, CODEC_ID_VORBIS};
 use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::codecs::CodecParameters;
@@ -8,13 +8,12 @@ use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Time, TimeBase, Timestamp};
 
+use super::channel_layout::layout_from_codec;
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, AudioInfo};
 use super::source::{
     bytes_to_mib, configured_decode_memory_limit, HttpCredentials, OpenedMediaSource,
-    F64_SAMPLE_BYTES,
 };
-use crate::channel_layout::{ChannelLayout, ChannelPosition};
 
 /// Streaming audio decoder using Symphonia.
 ///
@@ -36,7 +35,10 @@ pub struct StreamingDecoder {
     track_id: u32,
     track_time_base: Option<TimeBase>,
     track_start_ts: Timestamp,
-    pub info: AudioInfo,
+    /// Observed track metadata. Private because the decoder also trusts these
+    /// fields for staging geometry, gapless counters, allocation, seek math,
+    /// and position; see [`StreamingDecoder::info`].
+    info: AudioInfo,
     sample_buf: Option<Vec<f64>>,
     raw_total_frames: Option<u64>,
     gapless_owner: GaplessOwner,
@@ -52,6 +54,70 @@ pub struct StreamingDecoder {
 }
 
 const DEFAULT_MAX_DECODED_PACKET_FRAMES: u64 = 65_536;
+const DECODED_SAMPLE_BYTES: usize = std::mem::size_of::<f64>();
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DecodedBufferSizePlan {
+    samples: usize,
+    bytes: usize,
+}
+
+impl DecodedBufferSizePlan {
+    fn from_frames(frames: u64, channels: usize) -> Result<Self, DecoderError> {
+        let frames = usize::try_from(frames).map_err(|_| decoded_buffer_size_overflow())?;
+        let samples = frames
+            .checked_mul(channels)
+            .ok_or_else(decoded_buffer_size_overflow)?;
+        Self::from_samples(samples)
+    }
+
+    fn from_samples(samples: usize) -> Result<Self, DecoderError> {
+        let bytes = samples
+            .checked_mul(DECODED_SAMPLE_BYTES)
+            .ok_or_else(decoded_buffer_size_overflow)?;
+        Ok(Self { samples, bytes })
+    }
+
+    fn after_append(current_samples: usize, incoming_samples: usize) -> Result<Self, DecoderError> {
+        let samples = current_samples
+            .checked_add(incoming_samples)
+            .ok_or_else(decoded_buffer_size_overflow)?;
+        Self::from_samples(samples)
+    }
+}
+
+fn decoded_buffer_size_overflow() -> DecoderError {
+    DecoderError::Decoder("decoded buffer size overflow".to_string())
+}
+
+fn reserve_decoded_samples(samples: &mut Vec<f64>, additional: usize) -> Result<(), DecoderError> {
+    samples.try_reserve_exact(additional).map_err(|error| {
+        DecoderError::Decoder(format!(
+            "failed to reserve decoded buffer capacity: {error}"
+        ))
+    })
+}
+
+fn append_decoded_samples_within_budget(
+    destination: &mut Vec<f64>,
+    incoming: &[f64],
+    max_memory_mb: usize,
+    max_memory_bytes: usize,
+) -> Result<(), DecoderError> {
+    let next_size = DecodedBufferSizePlan::after_append(destination.len(), incoming.len())?;
+    if next_size.bytes > max_memory_bytes {
+        return Err(DecoderError::Decoder(format!(
+            "Memory limit exceeded during decode: {} MB (limit: {} MB). \
+             File may be corrupted or extremely long.",
+            bytes_to_mib(next_size.bytes),
+            max_memory_mb
+        )));
+    }
+
+    reserve_decoded_samples(destination, incoming.len())?;
+    destination.extend_from_slice(incoming);
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GaplessOwner {
@@ -94,7 +160,9 @@ pub struct StreamingDecoderBuilder {
     track_id: u32,
     track_time_base: Option<TimeBase>,
     track_start_ts: Timestamp,
-    pub info: AudioInfo,
+    /// Observed track metadata. Private for the same reason as
+    /// [`StreamingDecoder::info`]; read it through [`Self::info`].
+    info: AudioInfo,
     raw_total_frames: Option<u64>,
     gapless_owner: GaplessOwner,
     staging_frames: u64,
@@ -102,6 +170,11 @@ pub struct StreamingDecoderBuilder {
 }
 
 impl StreamingDecoderBuilder {
+    /// Observed track metadata for the probed source.
+    pub fn info(&self) -> &AudioInfo {
+        &self.info
+    }
+
     /// Exact fixed interleaved `f64` staging payload allocated by [`Self::build`].
     pub fn staging_buffer_bytes(&self) -> Result<usize, DecoderError> {
         usize::try_from(self.staging_frames)
@@ -160,6 +233,30 @@ impl StreamingDecoderBuilder {
 }
 
 impl StreamingDecoder {
+    /// Observed track metadata: format geometry, duration, gapless counters,
+    /// and tags.
+    ///
+    /// Read-only by design. The decoder trusts these same fields for staging
+    /// geometry, gapless trimming, buffer sizing, seek arithmetic, and reported
+    /// position, so a caller-supplied edit would be an unvalidated control
+    /// channel into decode state rather than an observation.
+    pub fn info(&self) -> &AudioInfo {
+        &self.info
+    }
+
+    /// Inject synthetic gapless counters for tests.
+    ///
+    /// WAV fixtures carry no encoder delay or end padding, so the trimming
+    /// tests have to supply them. This exists instead of a public mutable
+    /// `info` field: it names exactly the two fields a test may override,
+    /// keeps every other field observation-only, and cannot be reached from
+    /// outside the crate.
+    #[cfg(test)]
+    pub(crate) fn set_gapless_counters_for_test(&mut self, encoder_delay: u32, end_padding: u32) {
+        self.info.encoder_delay = encoder_delay;
+        self.info.end_padding = end_padding;
+    }
+
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DecoderError> {
         Self::open_with_credentials(path, None)
     }
@@ -478,39 +575,36 @@ impl StreamingDecoder {
     pub fn decode_all(&mut self) -> Result<Vec<f64>, DecoderError> {
         let (max_memory_mb, max_memory_bytes) = configured_decode_memory_limit();
 
-        let initial_capacity = if let Some(total_frames) = self.raw_total_frames {
-            let estimated_bytes = total_frames as usize * self.info.channels * F64_SAMPLE_BYTES;
-            if estimated_bytes > max_memory_bytes {
-                let estimated_mb = bytes_to_mib(estimated_bytes);
+        let initial_size = if let Some(total_frames) = self.raw_total_frames {
+            let size = DecodedBufferSizePlan::from_frames(total_frames, self.info.channels)?;
+            if size.bytes > max_memory_bytes {
                 return Err(DecoderError::Decoder(format!(
                     "File too large to decode into memory: estimated {} MB (limit: {} MB). \
                      Use streaming mode instead or increase DECODE_MAX_MEMORY_MB env var.",
-                    estimated_mb, max_memory_mb
+                    bytes_to_mib(size.bytes),
+                    max_memory_mb
                 )));
             }
 
-            let total_samples = total_frames as usize * self.info.channels;
             log::info!(
                 "Pre-allocating buffer for {} samples (~{} MB)",
-                total_samples,
-                bytes_to_mib(total_samples * F64_SAMPLE_BYTES)
+                size.samples,
+                bytes_to_mib(size.bytes)
             );
-            total_samples
+            size
         } else {
-            0
+            DecodedBufferSizePlan::from_samples(0)?
         };
 
-        let mut all_samples = Vec::with_capacity(initial_capacity);
-        while self.decode_next_into(&mut all_samples)?.is_some() {
-            let current_bytes = all_samples.len() * F64_SAMPLE_BYTES;
-            if current_bytes > max_memory_bytes {
-                let current_mb = bytes_to_mib(current_bytes);
-                return Err(DecoderError::Decoder(format!(
-                    "Memory limit exceeded during decode: {} MB (limit: {} MB). \
-                     File may be corrupted or extremely long.",
-                    current_mb, max_memory_mb
-                )));
-            }
+        let mut all_samples = Vec::new();
+        reserve_decoded_samples(&mut all_samples, initial_size.samples)?;
+        while let Some(samples) = self.decode_next_borrowed()? {
+            append_decoded_samples_within_budget(
+                &mut all_samples,
+                samples,
+                max_memory_mb,
+                max_memory_bytes,
+            )?;
         }
 
         let delay_trimmed = self.info.encoder_delay;
@@ -612,53 +706,6 @@ fn map_probe_error(e: symphonia::core::errors::Error) -> DecoderError {
     }
 }
 
-/// Derive a positional [`ChannelLayout`] from the container's channel mask.
-///
-/// Symphonia reports channels in ascending channel-mask bit order, which is the
-/// same order it interleaves decoded samples, so we walk the known positions in
-/// that order. If the mask contains channels we do not classify (e.g. height
-/// channels) the derived count would be shorter than the actual interleave, so
-/// we fall back to a count-based layout to stay consistent with the buffer.
-fn layout_from_codec(channels: Option<&Channels>, count: usize) -> ChannelLayout {
-    let Some(Channels::Positioned(channels)) = channels else {
-        return ChannelLayout::from_count(count);
-    };
-
-    // Ascending channel-mask bit order == Symphonia's interleave order.
-    let ordered = [
-        (Position::FRONT_LEFT, ChannelPosition::FrontLeft),
-        (Position::FRONT_RIGHT, ChannelPosition::FrontRight),
-        (Position::FRONT_CENTER, ChannelPosition::FrontCenter),
-        (Position::LFE1, ChannelPosition::LowFrequency),
-        (Position::REAR_LEFT, ChannelPosition::RearLeft),
-        (Position::REAR_RIGHT, ChannelPosition::RearRight),
-        (
-            Position::FRONT_LEFT_CENTER,
-            ChannelPosition::FrontLeftCenter,
-        ),
-        (
-            Position::FRONT_RIGHT_CENTER,
-            ChannelPosition::FrontRightCenter,
-        ),
-        (Position::REAR_CENTER, ChannelPosition::RearCenter),
-        (Position::SIDE_LEFT, ChannelPosition::SideLeft),
-        (Position::SIDE_RIGHT, ChannelPosition::SideRight),
-    ];
-
-    let mut positions = Vec::with_capacity(count);
-    for (flag, position) in ordered {
-        if channels.contains(flag) {
-            positions.push(position);
-        }
-    }
-
-    if positions.len() == count {
-        ChannelLayout::from_positions(positions)
-    } else {
-        ChannelLayout::from_count(count)
-    }
-}
-
 /// Map a Symphonia seek failure to a typed [`DecoderError`].
 ///
 /// Unsupported/unseekable streams surface as [`DecoderError::UnsupportedFormat`]
@@ -696,7 +743,10 @@ fn timestamp_to_frame_offset(
 
 #[cfg(test)]
 mod streaming_tests {
-    use super::{timestamp_to_frame_offset, GaplessOwner};
+    use super::{
+        append_decoded_samples_within_budget, timestamp_to_frame_offset, DecodedBufferSizePlan,
+        GaplessOwner,
+    };
     use symphonia::core::codecs::audio::well_known::{
         CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_PCM_S16LE,
         CODEC_ID_VORBIS,
@@ -716,6 +766,40 @@ mod streaming_tests {
             ),
             Some(48_000)
         );
+    }
+
+    #[test]
+    fn decoded_buffer_size_plan_computes_exact_interleaved_geometry() {
+        let plan = DecodedBufferSizePlan::from_frames(128, 6).expect("valid geometry");
+
+        assert_eq!(plan.samples, 768);
+        assert_eq!(plan.bytes, 6_144);
+    }
+
+    #[test]
+    fn decoded_buffer_size_plan_rejects_frame_and_channel_overflow() {
+        assert!(DecodedBufferSizePlan::from_frames(u64::MAX, 2).is_err());
+
+        let overflowing_frames = (usize::MAX as u64 / 2) + 1;
+        assert!(DecodedBufferSizePlan::from_frames(overflowing_frames, 2).is_err());
+        assert!(DecodedBufferSizePlan::from_samples(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn decoded_buffer_budget_rejection_does_not_mutate_destination() {
+        let mut destination = vec![0.25];
+        let original = destination.clone();
+
+        let error = append_decoded_samples_within_budget(
+            &mut destination,
+            &[0.5, 0.75],
+            0,
+            2 * std::mem::size_of::<f64>(),
+        )
+        .expect_err("three samples exceed the two-sample budget");
+
+        assert!(error.to_string().contains("Memory limit exceeded"));
+        assert_eq!(destination, original);
     }
 
     #[test]

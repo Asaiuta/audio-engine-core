@@ -4,6 +4,10 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::config::{LoudnessConfig, NormalizationMode};
+use crate::processor::traits::{
+    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
+    ProcessError,
+};
 
 use super::atomic_state::AtomicLoudnessState;
 use super::info::LoudnessInfo;
@@ -27,7 +31,17 @@ pub struct LoudnessNormalizer {
 }
 
 impl LoudnessNormalizer {
-    pub fn new(channels: usize, sample_rate: u32, config: LoudnessConfig) -> Self {
+    pub fn new(
+        channels: usize,
+        sample_rate: u32,
+        config: LoudnessConfig,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("LoudnessNormalizer", sample_rate)?;
+        Ok(Self::new_validated(channels, sample_rate, config))
+    }
+
+    pub(crate) fn new_validated(channels: usize, sample_rate: u32, config: LoudnessConfig) -> Self {
         let atomic_state = Arc::new(AtomicLoudnessState::new(
             config.smoothing_time_ms,
             sample_rate,
@@ -37,7 +51,7 @@ impl LoudnessNormalizer {
 
         Self {
             meter: LoudnessMeter::new(channels, sample_rate),
-            limiter: PeakLimiter::new(
+            limiter: PeakLimiter::new_validated(
                 channels,
                 sample_rate,
                 config.true_peak_limit_db,
@@ -232,7 +246,14 @@ impl LoudnessNormalizer {
     }
 
     /// Process interleaved f64 samples in-place
-    pub fn process(&mut self, samples: &mut [f64]) {
+    pub fn process(&mut self, samples: &mut [f64], channels: usize) -> Result<(), ProcessError> {
+        let block = AudioBlockMut::new(samples, channels)?;
+        validate_processor_channels("LoudnessNormalizer", Some(self.channels), channels)?;
+        self.process_validated(block.into_samples());
+        Ok(())
+    }
+
+    fn process_validated(&mut self, samples: &mut [f64]) {
         if !self.atomic_state.enabled.load(Ordering::Relaxed) {
             return;
         }
@@ -263,7 +284,7 @@ impl LoudnessNormalizer {
         }
 
         // Apply peak limiting
-        self.limiter.process(samples);
+        self.limiter.process_validated(samples);
     }
 
     pub fn get_loudness_info(&self) -> LoudnessInfo {
@@ -290,6 +311,20 @@ impl LoudnessNormalizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::traits::AudioBlockError;
+
+    fn loudness_info_bits(info: &LoudnessInfo) -> [u64; 8] {
+        [
+            info.integrated_lufs.to_bits(),
+            info.short_term_lufs.to_bits(),
+            info.momentary_lufs.to_bits(),
+            info.loudness_range.to_bits(),
+            info.true_peak_dbtp.to_bits(),
+            info.current_gain_db.to_bits(),
+            info.target_gain_db.to_bits(),
+            info.preamp_db.to_bits(),
+        ]
+    }
 
     const MODES: [NormalizationMode; 5] = [
         NormalizationMode::Track,
@@ -306,7 +341,7 @@ mod tests {
             mode: NormalizationMode::Album,
             ..LoudnessConfig::default()
         };
-        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config);
+        let mut normalizer = LoudnessNormalizer::new_validated(2, 48_000, config);
         let state = normalizer.atomic_state();
 
         assert!(!state.enabled.load(Ordering::Relaxed));
@@ -314,13 +349,14 @@ mod tests {
 
         let mut samples = vec![0.25; 128 * 2];
         let expected = samples.clone();
-        normalizer.process(&mut samples);
+        normalizer.process_validated(&mut samples);
         assert_eq!(samples, expected);
     }
 
     #[test]
     fn config_and_explicit_setters_round_trip_all_modes() {
-        let mut normalizer = LoudnessNormalizer::new(2, 48_000, LoudnessConfig::default());
+        let mut normalizer =
+            LoudnessNormalizer::new_validated(2, 48_000, LoudnessConfig::default());
 
         for (index, mode) in MODES.into_iter().enumerate() {
             let enabled = index % 2 == 0;
@@ -347,6 +383,79 @@ mod tests {
         assert_eq!(
             normalizer.atomic_state.get_mode(),
             NormalizationMode::ReplayGainAlbum
+        );
+    }
+
+    #[test]
+    fn raw_normalizer_rejects_invalid_setup_and_block_geometry_atomically() {
+        assert!(matches!(
+            LoudnessNormalizer::new(0, 48_000, LoudnessConfig::default()),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            LoudnessNormalizer::new(2, 0, LoudnessConfig::default()),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "LoudnessNormalizer",
+                sample_rate_hz: 0,
+            })
+        ));
+
+        let config = LoudnessConfig {
+            mode: NormalizationMode::Streaming,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config.clone()).unwrap();
+        let mut reference = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        let mut warm = [0.25; 128];
+        let mut reference_warm = warm;
+        normalizer.process(&mut warm, 2).unwrap();
+        reference.process(&mut reference_warm, 2).unwrap();
+        assert_eq!(warm, reference_warm);
+        let state = loudness_info_bits(&normalizer.get_loudness_info());
+
+        let mut zero_channels = [0.25; 4];
+        let zero_channels_before = zero_channels;
+        let mut incomplete = [0.25; 3];
+        let incomplete_before = incomplete;
+        let mut mismatch = [0.25; 4];
+        let mismatch_before = mismatch;
+        assert_no_alloc::assert_no_alloc(|| {
+            assert_eq!(
+                normalizer.process(&mut zero_channels, 0),
+                Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+            );
+            assert_eq!(
+                normalizer.process(&mut incomplete, 2),
+                Err(ProcessError::InvalidBlock(
+                    AudioBlockError::IncompleteFrame {
+                        samples: 3,
+                        channels: 2,
+                    }
+                ))
+            );
+            assert_eq!(
+                normalizer.process(&mut mismatch, 1),
+                Err(ProcessError::ChannelCountMismatch {
+                    processor: "LoudnessNormalizer",
+                    expected_channels: 2,
+                    actual_channels: 1,
+                })
+            );
+        });
+
+        assert_eq!(zero_channels, zero_channels_before);
+        assert_eq!(incomplete, incomplete_before);
+        assert_eq!(mismatch, mismatch_before);
+        assert_eq!(loudness_info_bits(&normalizer.get_loudness_info()), state);
+
+        let mut next = [0.125; 128];
+        let mut reference_next = next;
+        normalizer.process(&mut next, 2).unwrap();
+        reference.process(&mut reference_next, 2).unwrap();
+        assert_eq!(next, reference_next);
+        assert_eq!(
+            loudness_info_bits(&normalizer.get_loudness_info()),
+            loudness_info_bits(&reference.get_loudness_info())
         );
     }
 }

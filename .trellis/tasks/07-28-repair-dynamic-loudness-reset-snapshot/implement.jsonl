@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend package index"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "Control, smoother, signal-history, and reset ownership contracts"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Reset and logically new stream contract"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Callback-path allocation and synchronization prohibitions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Required Rust matrices and evidence policy"}
+{"file": ".trellis/tasks/07-28-repair-dynamic-loudness-reset-snapshot/research/reset-snapshot-revalidation.md", "reason": "Revalidated defect and bounded refactor decision"}

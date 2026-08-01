@@ -25,6 +25,14 @@
 use atomic_float::AtomicF32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::lockfree_params::{
+    sanitized, DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN,
+    DYNAMIC_LOUDNESS_VOLUME_MAX, DYNAMIC_LOUDNESS_VOLUME_MIN,
+};
+use super::traits::{
+    validate_processor_channels, validated_channel_count, AudioBlockMut, ProcessError,
+};
+
 // ============================================================================
 // Biquad Filter Types
 // ============================================================================
@@ -377,12 +385,26 @@ pub const LOUDNESS_BANDS: [(f64, f64, f64); 7] = [
     (12000.0, 6.0, 0.0), // High shelf
 ];
 
-pub const LOUDNESS_BANDS_N: usize = 7;
+/// Number of dynamic-loudness bands, derived from [`LOUDNESS_BANDS`] so adding
+/// or removing a band cannot leave a stale count behind.
+pub const LOUDNESS_BANDS_N: usize = LOUDNESS_BANDS.len();
 
 /// Block size for coefficient updates (CPU optimization)
 const BLOCK_SIZE: usize = 64;
 const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
 const BAND_ACTIVE_EPSILON_DB: f64 = 0.0001;
+
+// Reference-curve bounds owned by this model rather than by the published
+// facade contract in `lockfree_params`: no public control exposes either value,
+// so they are not a second encoding of a published range.
+/// Quietest listening reference the compensation curve is calibrated for.
+const REFERENCE_VOLUME_DB_MIN: f64 = -30.0;
+/// Loudest listening reference, at which no compensation is applied.
+const REFERENCE_VOLUME_DB_MAX: f64 = 0.0;
+/// Narrowest span over which compensation ramps from none to full.
+const TRANSITION_DB_MIN: f64 = 10.0;
+/// Widest such span.
+const TRANSITION_DB_MAX: f64 = 40.0;
 
 /// Dynamic Loudness Compensation processor
 ///
@@ -420,7 +442,13 @@ pub struct DynamicLoudness {
 
 impl DynamicLoudness {
     /// Create a new DynamicLoudness processor
-    pub fn new(channels: usize, sample_rate: f64) -> Self {
+    pub fn new(channels: usize, sample_rate: f64) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        Self::validate_sample_rate(sample_rate)?;
+        Ok(Self::new_validated(channels, sample_rate))
+    }
+
+    pub(crate) fn new_validated(channels: usize, sample_rate: f64) -> Self {
         let filters: Vec<[BiquadFilter; LOUDNESS_BANDS_N]> = (0..channels)
             .map(|_| Self::build_channel_filters(sample_rate))
             .collect();
@@ -507,8 +535,11 @@ impl DynamicLoudness {
     }
 
     /// Set user volume as linear value (0.0 - 1.0)
-    /// This is the main control input
+    /// This is the main control input. A non-finite value is ignored.
     pub fn set_volume(&mut self, linear_volume: f64) {
+        if !linear_volume.is_finite() {
+            return;
+        }
         let volume_db = if linear_volume > 0.0 {
             20.0 * linear_volume.log10()
         } else {
@@ -518,13 +549,17 @@ impl DynamicLoudness {
         self.update_loudness_factor(volume_db);
     }
 
-    /// Set user volume as percentage (0 - 100)
+    /// Set user volume as percentage (0 - 100). A non-finite value is ignored.
     pub fn set_volume_percent(&mut self, percent: f64) {
         self.set_volume(percent / 100.0);
     }
 
-    /// Set user volume as dB
+    /// Set user volume as dB. A non-finite value is ignored, because it would
+    /// otherwise reach the compensation-factor arithmetic below.
     pub fn set_volume_db(&mut self, volume_db: f64) {
+        if !volume_db.is_finite() {
+            return;
+        }
         self.update_loudness_factor(volume_db);
     }
 
@@ -544,23 +579,42 @@ impl DynamicLoudness {
         }
     }
 
-    /// Set strength (0.0 - 1.0, scales all compensation)
+    /// Set compensation strength, clamped to the published
+    /// [`DYNAMIC_LOUDNESS_STRENGTH_MIN`]..=[`DYNAMIC_LOUDNESS_STRENGTH_MAX`]
+    /// range. A non-finite value is ignored.
     pub fn set_strength(&mut self, strength: f64) {
-        let strength = strength.clamp(0.0, 1.0);
+        let Some(strength) = sanitized(
+            strength,
+            DYNAMIC_LOUDNESS_STRENGTH_MIN,
+            DYNAMIC_LOUDNESS_STRENGTH_MAX,
+        ) else {
+            return;
+        };
         if (self.strength - strength).abs() > 0.0001 {
             self.strength = strength;
             self.refresh_smoother_targets();
         }
     }
 
-    /// Set reference volume level in dB
+    /// Set reference volume level in dB, clamped to
+    /// [`REFERENCE_VOLUME_DB_MIN`]..=[`REFERENCE_VOLUME_DB_MAX`].
+    /// A non-finite value is ignored.
     pub fn set_reference_volume_db(&mut self, ref_db: f64) {
-        self.ref_volume_db = ref_db.clamp(-30.0, 0.0);
+        if let Some(ref_db) = sanitized(ref_db, REFERENCE_VOLUME_DB_MIN, REFERENCE_VOLUME_DB_MAX) {
+            self.ref_volume_db = ref_db;
+        }
     }
 
-    /// Set transition range in dB
+    /// Set transition range in dB, clamped to
+    /// [`TRANSITION_DB_MIN`]..=[`TRANSITION_DB_MAX`].
+    ///
+    /// A non-finite value is ignored; it would otherwise become the divisor in
+    /// [`Self::update_loudness_factor`] and make every band gain `NaN`.
     pub fn set_transition_db(&mut self, transition_db: f64) {
-        self.transition_db = transition_db.clamp(10.0, 40.0);
+        if let Some(transition_db) = sanitized(transition_db, TRANSITION_DB_MIN, TRANSITION_DB_MAX)
+        {
+            self.transition_db = transition_db;
+        }
     }
 
     /// Enable or disable processing
@@ -582,7 +636,8 @@ impl DynamicLoudness {
     }
 
     /// Update sample rate
-    pub fn set_sample_rate(&mut self, sample_rate: f64) {
+    pub fn set_sample_rate(&mut self, sample_rate: f64) -> Result<(), ProcessError> {
+        Self::validate_sample_rate(sample_rate)?;
         if (self.sample_rate - sample_rate).abs() > 1.0 {
             self.sample_rate = sample_rate;
 
@@ -605,6 +660,7 @@ impl DynamicLoudness {
                 self.apply_band_gain_if_changed(band, self.smoothers[band].current);
             }
         }
+        Ok(())
     }
 
     /// Process interleaved audio buffer
@@ -616,7 +672,14 @@ impl DynamicLoudness {
     /// with only the final block's coefficients. Total smoother advancement is
     /// unchanged (Σ chunk_frames == frames), so end-of-buffer state matches the
     /// previous behavior; buffers ≤ BLOCK_SIZE are filtered as a single block.
-    pub fn process(&mut self, buffer: &mut [f64]) {
+    pub fn process(&mut self, buffer: &mut [f64], channels: usize) -> Result<(), ProcessError> {
+        let block = AudioBlockMut::new(buffer, channels)?;
+        validate_processor_channels("DynamicLoudness", Some(self.channels), channels)?;
+        self.process_validated(block.into_samples());
+        Ok(())
+    }
+
+    pub(crate) fn process_validated(&mut self, buffer: &mut [f64]) {
         if !self.enabled || self.can_bypass_for_zero_strength() {
             return;
         }
@@ -639,6 +702,17 @@ impl DynamicLoudness {
 
             self.process_samples_range(buffer, chunk_start, chunk_end);
         }
+    }
+
+    fn validate_sample_rate(sample_rate: f64) -> Result<(), ProcessError> {
+        if !sample_rate.is_finite() || sample_rate <= 0.0 {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "DynamicLoudness",
+                operation: "configure sample rate",
+                message: "sample rate must be finite and greater than zero",
+            });
+        }
+        Ok(())
     }
 
     /// Internal: apply pre-gain and active-band filtering to `[start_frame, end_frame)`.
@@ -726,15 +800,29 @@ impl AtomicDynamicLoudnessState {
         }
     }
 
-    /// Set volume (call from UI thread)
+    /// Set volume (call from UI thread), clamped to the published
+    /// [`DYNAMIC_LOUDNESS_VOLUME_MIN`]..=[`DYNAMIC_LOUDNESS_VOLUME_MAX`] range.
     pub fn set_volume(&self, volume: f32) {
-        self.volume.store(volume.clamp(0.0, 1.0), Ordering::Relaxed);
+        self.volume.store(
+            volume.clamp(
+                DYNAMIC_LOUDNESS_VOLUME_MIN as f32,
+                DYNAMIC_LOUDNESS_VOLUME_MAX as f32,
+            ),
+            Ordering::Relaxed,
+        );
     }
 
-    /// Set strength (call from UI thread)
+    /// Set strength (call from UI thread), clamped to the published
+    /// [`DYNAMIC_LOUDNESS_STRENGTH_MIN`]..=[`DYNAMIC_LOUDNESS_STRENGTH_MAX`]
+    /// range.
     pub fn set_strength(&self, strength: f32) {
-        self.strength
-            .store(strength.clamp(0.0, 1.0), Ordering::Relaxed);
+        self.strength.store(
+            strength.clamp(
+                DYNAMIC_LOUDNESS_STRENGTH_MIN as f32,
+                DYNAMIC_LOUDNESS_STRENGTH_MAX as f32,
+            ),
+            Ordering::Relaxed,
+        );
     }
 
     /// Set enabled (call from UI thread)

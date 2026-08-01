@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend spec routing and pre-development ownership map."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Public checked shells and private kernels must preserve callback prohibitions."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Canonical audio-block, channel mismatch, and typed process error contracts."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"State must not mutate when geometry validation rejects a block."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Use existing allocation-free typed errors rather than panic or logging."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Strict feature matrices and regression evidence requirements."}
+{"file":".trellis/tasks/07-29-harden-raw-dsp-geometry-boundaries/research/geometry-boundary-revalidation.md","reason":"Live finding calibration, chosen boundary refactor, and rejected alternatives."}

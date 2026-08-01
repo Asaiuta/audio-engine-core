@@ -8,12 +8,24 @@ use crate::decoder::{DecodeCancelToken, HttpCredentials, StreamingDecoder};
 use crate::processor::LoudnessMeter;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 
 const ANALYSIS_VERSION: u32 = 2;
 const DEFAULT_MAX_ANALYZE_TIME_SEC: f64 = 60.0;
 const MIN_ANALYZE_TIME_SEC: f64 = 5.0;
 const MAX_ANALYZE_TIME_SEC: f64 = 300.0;
 const ENVELOPE_RATE: f64 = 50.0;
+/// Longest container-declared duration this analysis will treat as real.
+///
+/// The declared duration comes from untrusted container metadata but sizes the
+/// whole-track [`AutomixAnalysis::energy_profile`], one slot per
+/// [`ENERGY_PROFILE_RATE`]. Without a bound, a file declaring an absurd
+/// duration would ask for an allocation proportional to it, which `vec!` cannot
+/// fail gracefully. Twenty-four hours is far beyond any mixable track and still
+/// caps the profile at well under ten megabytes.
+const MAX_DECLARED_DURATION_SEC: f64 = 24.0 * 60.0 * 60.0;
+/// Slots per second in the whole-track energy profile.
+const ENERGY_PROFILE_RATE: f64 = 10.0;
 const WINDOW_SIZE_MS: usize = 20;
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
 const MIN_TEMPO_BPM: f64 = 55.0;
@@ -72,6 +84,13 @@ pub struct AutomixAnalysis {
     pub mix_center_pos: f64,
     pub mix_start_pos: f64,
     pub mix_end_pos: f64,
+    /// Whole-track energy envelope, one slot per [`ENERGY_PROFILE_RATE`]
+    /// seconds, indexed by absolute track time.
+    ///
+    /// Only the analyzed head and tail windows carry evidence; the interval
+    /// between them stays zero. The length follows [`Self::duration`], which is
+    /// itself bounded by [`MAX_DECLARED_DURATION_SEC`], so a file declaring an
+    /// absurd duration cannot size this vector.
     pub energy_profile: Vec<f64>,
     pub drop_pos: Option<f64>,
     pub vocal_in_pos: Option<f64>,
@@ -123,12 +142,64 @@ impl AutomixAnalysisOptions {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FrameWindow {
+    start: u64,
+    end: u64,
+}
+
+impl FrameWindow {
+    fn len(self) -> u64 {
+        self.end.saturating_sub(self.start)
+    }
+
+    fn start_time(self, sample_rate: u32) -> f64 {
+        self.start as f64 / sample_rate.max(1) as f64
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AnalysisWindowPlan {
+    head: FrameWindow,
+    tail: Option<FrameWindow>,
+}
+
+impl AnalysisWindowPlan {
+    fn new(mode: AutomixAnalysisMode, track_frames: Option<u64>, window_frames: u64) -> Self {
+        let window_frames = window_frames.max(1);
+        let head_end = track_frames.map_or(window_frames, |frames| frames.min(window_frames));
+        let head = FrameWindow {
+            start: 0,
+            end: head_end,
+        };
+        let tail = track_frames.and_then(|frames| {
+            (mode.includes_tail() && frames > head.end).then(|| FrameWindow {
+                start: head.end.max(frames.saturating_sub(window_frames)),
+                end: frames,
+            })
+        });
+
+        Self { head, tail }
+    }
+}
+
 #[derive(Default)]
 struct AnalysisSegment {
+    start_time: f64,
+    frames_analyzed: u64,
     envelope: Vec<f32>,
     low_envelope: Vec<f32>,
     vocal_ratio: Vec<f32>,
     spectral_flux: Vec<f32>,
+}
+
+impl AnalysisSegment {
+    fn at(start_time: f64) -> Self {
+        Self {
+            start_time,
+            ..Self::default()
+        }
+    }
 }
 
 struct EnvelopeAccumulator {
@@ -204,6 +275,67 @@ struct SpectralFluxAccumulator {
     fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
 }
 
+struct SegmentAnalyzer {
+    channels: usize,
+    env_acc: EnvelopeAccumulator,
+    low_acc: EnvelopeAccumulator,
+    vocal_acc: EnvelopeAccumulator,
+    low_filter: FirstOrderFilter,
+    vocal_lowpass: FirstOrderFilter,
+    vocal_highpass: FirstOrderFilter,
+    spectral: SpectralFluxAccumulator,
+}
+
+impl SegmentAnalyzer {
+    fn new(sample_rate: u32, channels: usize) -> Self {
+        let window_size = (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1);
+        Self {
+            channels,
+            env_acc: EnvelopeAccumulator::new(window_size),
+            low_acc: EnvelopeAccumulator::new(window_size),
+            vocal_acc: EnvelopeAccumulator::new(window_size),
+            low_filter: FirstOrderFilter::new(sample_rate, 150.0, false),
+            vocal_lowpass: FirstOrderFilter::new(sample_rate, 3_000.0, false),
+            vocal_highpass: FirstOrderFilter::new(sample_rate, 200.0, true),
+            spectral: SpectralFluxAccumulator::new(),
+        }
+    }
+
+    fn process(
+        &mut self,
+        samples: &[f64],
+        meter: &mut LoudnessMeter,
+        segment: &mut AnalysisSegment,
+    ) {
+        meter.process(samples);
+
+        for frame in samples.chunks_exact(self.channels) {
+            let mono = (frame.iter().sum::<f64>() / self.channels as f64) as f32;
+            let low = self.low_filter.process(mono);
+            let vocal = self
+                .vocal_lowpass
+                .process(self.vocal_highpass.process(mono));
+
+            if let Some(rms) = self.env_acc.process(mono) {
+                segment.envelope.push(rms);
+            }
+            if let Some(rms) = self.low_acc.process(low) {
+                segment.low_envelope.push(rms);
+            }
+            if let Some(rms) = self.vocal_acc.process(vocal) {
+                let base = segment.envelope.last().copied().unwrap_or(1.0);
+                segment
+                    .vocal_ratio
+                    .push(if base > 0.0001 { rms / base } else { 0.0 });
+            }
+            if let Some(flux) = self.spectral.process(mono) {
+                segment.spectral_flux.push(flux);
+            }
+            segment.frames_analyzed += 1;
+        }
+    }
+}
+
 impl SpectralFluxAccumulator {
     fn new() -> Self {
         let mut planner = FftPlanner::<f32>::new();
@@ -267,31 +399,55 @@ pub fn analyze_automix_with_cancel(
     )
     .map_err(|e| format!("Failed to open file for AutoMix analysis: {}", e))?;
 
-    let sample_rate = decoder.info.sample_rate;
-    let channels = decoder.info.channels.max(1);
-    let duration = decoder.info.duration_secs.unwrap_or(0.0);
+    let sample_rate = decoder.info().sample_rate;
+    let channels = decoder.info().channels.max(1);
+    let declared_duration = decoder.info().duration_secs.filter(is_plausible_duration);
+    let track_frames = decoder
+        .info()
+        .total_frames
+        .filter(|frames| is_plausible_duration(&frames_to_seconds(*frames, sample_rate)))
+        .or_else(|| {
+            declared_duration.and_then(|duration| frames_for_duration(duration, sample_rate))
+        });
+    let duration = declared_duration
+        .or_else(|| track_frames.map(|frames| frames_to_seconds(frames, sample_rate)))
+        .unwrap_or(0.0);
+    let window_frames = frames_for_duration(options.max_analyze_time_sec, sample_rate)
+        .unwrap_or(1)
+        .max(1);
+    let plan = AnalysisWindowPlan::new(options.mode, track_frames, window_frames);
     let mut meter = LoudnessMeter::new(channels, sample_rate);
-    let mut head = AnalysisSegment::default();
+    let mut head = AnalysisSegment::at(plan.head.start_time(sample_rate));
     let mut tail = AnalysisSegment::default();
 
     decode_segment(
         &mut decoder,
         &mut meter,
         &mut head,
-        options.max_analyze_time_sec,
+        0,
+        plan.head.len(),
         cancel_token.as_ref(),
     )?;
 
-    if options.mode.includes_tail() && duration > options.max_analyze_time_sec * 2.0 {
+    if let Some(tail_window) = plan.tail {
         check_cancel(cancel_token.as_ref())?;
         decoder
-            .seek((duration - options.max_analyze_time_sec).max(0.0))
+            .seek(tail_window.start_time(sample_rate))
             .map_err(|e| format!("Failed to seek tail for AutoMix analysis: {}", e))?;
+        let realized_start = decoder.current_frame();
+        let skip_frames = tail_window.start.checked_sub(realized_start).ok_or_else(|| {
+            format!(
+                "AutoMix tail seek landed after the planned start: planned frame {}, realized frame {}",
+                tail_window.start, realized_start
+            )
+        })?;
+        tail = AnalysisSegment::at(tail_window.start_time(sample_rate));
         decode_segment(
             &mut decoder,
             &mut meter,
             &mut tail,
-            options.max_analyze_time_sec,
+            skip_frames,
+            tail_window.len(),
             cancel_token.as_ref(),
         )?;
     }
@@ -311,24 +467,19 @@ fn decode_segment(
     decoder: &mut StreamingDecoder,
     meter: &mut LoudnessMeter,
     segment: &mut AnalysisSegment,
-    max_time_sec: f64,
+    skip_frames: u64,
+    take_frames: u64,
     cancel_token: Option<&DecodeCancelToken>,
 ) -> Result<(), String> {
-    let sample_rate = decoder.info.sample_rate;
-    let channels = decoder.info.channels.max(1);
-    let max_frames = (sample_rate as f64 * max_time_sec).ceil() as usize;
+    let sample_rate = decoder.info().sample_rate;
+    let channels = decoder.info().channels.max(1);
     let window_size = (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1);
-    let mut frames_processed = 0usize;
     let mut chunk = Vec::with_capacity(window_size * channels);
-    let mut env_acc = EnvelopeAccumulator::new(window_size);
-    let mut low_acc = EnvelopeAccumulator::new(window_size);
-    let mut vocal_acc = EnvelopeAccumulator::new(window_size);
-    let mut low_filter = FirstOrderFilter::new(sample_rate, 150.0, false);
-    let mut vocal_lowpass = FirstOrderFilter::new(sample_rate, 3_000.0, false);
-    let mut vocal_highpass = FirstOrderFilter::new(sample_rate, 200.0, true);
-    let mut spectral = SpectralFluxAccumulator::new();
+    let mut analyzer = SegmentAnalyzer::new(sample_rate, channels);
+    let mut skip_remaining = skip_frames;
+    let mut take_remaining = take_frames;
 
-    while frames_processed < max_frames {
+    while take_remaining > 0 {
         check_cancel(cancel_token)?;
         chunk.clear();
         let Some(sample_count) = decoder
@@ -340,37 +491,53 @@ fn decode_segment(
         if sample_count == 0 {
             continue;
         }
-
-        meter.process(&chunk);
-
-        for frame in chunk.chunks_exact(channels) {
-            if frames_processed >= max_frames {
-                break;
-            }
-            let mono = (frame.iter().sum::<f64>() / channels as f64) as f32;
-            let low = low_filter.process(mono);
-            let vocal = vocal_lowpass.process(vocal_highpass.process(mono));
-
-            if let Some(rms) = env_acc.process(mono) {
-                segment.envelope.push(rms);
-            }
-            if let Some(rms) = low_acc.process(low) {
-                segment.low_envelope.push(rms);
-            }
-            if let Some(rms) = vocal_acc.process(vocal) {
-                let base = segment.envelope.last().copied().unwrap_or(1.0);
-                segment
-                    .vocal_ratio
-                    .push(if base > 0.0001 { rms / base } else { 0.0 });
-            }
-            if let Some(flux) = spectral.process(mono) {
-                segment.spectral_flux.push(flux);
-            }
-            frames_processed += 1;
-        }
+        let packet_frames = chunk.len() / channels;
+        let Some(frame_range) =
+            select_packet_frames(packet_frames, &mut skip_remaining, take_remaining)
+        else {
+            continue;
+        };
+        let sample_range = frame_range.start * channels..frame_range.end * channels;
+        let selected_frames = (frame_range.end - frame_range.start) as u64;
+        analyzer.process(&chunk[sample_range], meter, segment);
+        take_remaining -= selected_frames;
     }
 
     Ok(())
+}
+
+fn select_packet_frames(
+    packet_frames: usize,
+    skip_remaining: &mut u64,
+    take_remaining: u64,
+) -> Option<Range<usize>> {
+    let skipped = (*skip_remaining).min(packet_frames as u64) as usize;
+    *skip_remaining -= skipped as u64;
+    let available = packet_frames - skipped;
+    let selected = take_remaining.min(available as u64) as usize;
+    (selected > 0).then_some(skipped..skipped + selected)
+}
+
+fn frames_for_duration(duration: f64, sample_rate: u32) -> Option<u64> {
+    if !duration.is_finite() || duration < 0.0 || sample_rate == 0 {
+        return None;
+    }
+    let frames = duration * sample_rate as f64;
+    (frames.is_finite() && frames <= u64::MAX as f64).then(|| frames.ceil() as u64)
+}
+
+fn frames_to_seconds(frames: u64, sample_rate: u32) -> f64 {
+    frames as f64 / sample_rate.max(1) as f64
+}
+
+/// Whether a container-declared track duration may be used as the analysis
+/// timeline.
+///
+/// An implausible value is discarded rather than clamped: clamping would report
+/// a confident timeline the file never supported, whereas discarding falls back
+/// to the duration actually measured from decoded head evidence.
+fn is_plausible_duration(duration: &f64) -> bool {
+    duration.is_finite() && *duration > 0.0 && *duration <= MAX_DECLARED_DURATION_SEC
 }
 
 fn check_cancel(cancel_token: Option<&DecodeCancelToken>) -> Result<(), String> {
@@ -393,15 +560,13 @@ fn finalize_analysis(
     let effective_duration = if duration.is_finite() && duration > 0.0 {
         duration
     } else {
-        head.envelope.len() as f64 / ENVELOPE_RATE
+        head.start_time + head.frames_analyzed as f64 / sample_rate.max(1) as f64
     };
-    let (fade_in, fade_out) = detect_silence(
+    let tail = (mode.includes_tail() && tail.frames_analyzed > 0).then_some(tail);
+    let (fade_in, fade_out) = detect_silence_at(
         &head.envelope,
-        if mode.includes_tail() {
-            &tail.envelope
-        } else {
-            &[]
-        },
+        tail.map_or(&[], |segment| segment.envelope.as_slice()),
+        tail.map(|segment| segment.start_time),
         effective_duration,
         ENVELOPE_RATE,
         SILENCE_THRESHOLD_DB,
@@ -416,24 +581,8 @@ fn finalize_analysis(
     };
     let (bpm, bpm_confidence, first_beat) = detect_bpm(tempo_values, tempo_rate);
     let drop_pos = detect_drop(&head.envelope, ENVELOPE_RATE);
-    let (vocal_in, vocal_out, vocal_last_in) = detect_vocals(
-        &head.envelope,
-        &head.vocal_ratio,
-        if mode.includes_tail() {
-            &tail.envelope
-        } else {
-            &[]
-        },
-        if mode.includes_tail() {
-            &tail.vocal_ratio
-        } else {
-            &[]
-        },
-        effective_duration,
-        ENVELOPE_RATE,
-        fade_in,
-        fade_out,
-    );
+    let (vocal_in, vocal_out, vocal_last_in) =
+        detect_vocals(head, tail, ENVELOPE_RATE, fade_in, fade_out);
     let cut_in = calculate_smart_cut_in(
         bpm,
         first_beat,
@@ -457,15 +606,7 @@ fn finalize_analysis(
     let mix_duration = bpm.map_or(20.0, |b| (240.0 / b * 8.0).clamp(15.0, 30.0));
     let mix_start = (mix_center - mix_duration / 2.0).max(0.0);
     let mix_end = (mix_center + mix_duration / 2.0).min(effective_duration);
-    let energy_profile = build_energy_profile(
-        &head.envelope,
-        if mode.includes_tail() {
-            &tail.envelope
-        } else {
-            &[]
-        },
-        effective_duration,
-    );
+    let energy_profile = build_energy_profile(head, tail, effective_duration);
     let loudness = finite_measurement(meter.integrated_loudness());
     let true_peak_dbtp = finite_measurement(meter.true_peak());
 
@@ -493,21 +634,10 @@ fn finalize_analysis(
         energy_profile,
         drop_pos,
         vocal_in_pos: vocal_in,
-        vocal_out_pos: if mode.includes_tail() {
-            vocal_out
-        } else {
-            None
-        },
-        vocal_last_in_pos: if mode.includes_tail() {
-            vocal_last_in
-        } else {
-            None
-        },
-        outro_energy_level: if mode.includes_tail() {
-            calculate_outro_energy(&tail.envelope, ENVELOPE_RATE)
-        } else {
-            None
-        },
+        vocal_out_pos: tail.and(vocal_out),
+        vocal_last_in_pos: tail.and(vocal_last_in),
+        outro_energy_level: tail
+            .and_then(|segment| calculate_outro_energy(&segment.envelope, ENVELOPE_RATE)),
         key_status: AutomixKeyStatus::Unsupported,
         key_root: None,
         key_mode: None,
@@ -519,6 +649,18 @@ fn finalize_analysis(
 pub fn detect_silence(
     head: &[f32],
     tail: &[f32],
+    duration: f64,
+    rate: f64,
+    db_thresh: f32,
+) -> (f64, f64) {
+    let tail_start = (!tail.is_empty()).then(|| (duration - tail.len() as f64 / rate).max(0.0));
+    detect_silence_at(head, tail, tail_start, duration, rate, db_thresh)
+}
+
+fn detect_silence_at(
+    head: &[f32],
+    tail: &[f32],
+    tail_start: Option<f64>,
     duration: f64,
     rate: f64,
     db_thresh: f32,
@@ -535,8 +677,7 @@ pub fn detect_silence(
             .map_or(duration, |idx| (idx + 1) as f64 / rate)
             .min(duration)
     } else {
-        let tail_duration = tail.len() as f64 / rate;
-        let tail_start = (duration - tail_duration).max(0.0);
+        let tail_start = tail_start.unwrap_or(0.0);
         tail.iter()
             .rposition(|value| *value > threshold)
             .map_or(duration, |idx| tail_start + (idx + 1) as f64 / rate)
@@ -681,35 +822,35 @@ fn detect_drop(envelope: &[f32], rate: f64) -> Option<f64> {
     (best_ratio > 1.5).then_some(best_idx as f64 / rate)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn detect_vocals(
-    head_env: &[f32],
-    head_ratio: &[f32],
-    tail_env: &[f32],
-    tail_ratio: &[f32],
-    duration: f64,
+    head: &AnalysisSegment,
+    tail: Option<&AnalysisSegment>,
     rate: f64,
     fade_in: f64,
     fade_out: f64,
 ) -> (Option<f64>, Option<f64>, Option<f64>) {
     let is_vocal = |ratio: f32, env: f32| ratio > 0.4 && env > 0.02;
-    let vocal_in = head_ratio
+    let vocal_in = head
+        .vocal_ratio
         .iter()
-        .zip(head_env.iter())
+        .zip(head.envelope.iter())
         .enumerate()
         .skip((fade_in * rate) as usize)
         .find(|(_, (ratio, env))| is_vocal(**ratio, **env))
         .map(|(idx, _)| idx as f64 / rate);
 
-    let (scan_env, scan_ratio, base_time) = if tail_env.is_empty() {
-        (head_env, head_ratio, 0.0)
-    } else {
-        (
-            tail_env,
-            tail_ratio,
-            (duration - tail_env.len() as f64 / rate).max(0.0),
-        )
-    };
+    let (scan_env, scan_ratio, base_time) = tail
+        .filter(|segment| !segment.envelope.is_empty())
+        .map_or_else(
+            || (head.envelope.as_slice(), head.vocal_ratio.as_slice(), 0.0),
+            |segment| {
+                (
+                    segment.envelope.as_slice(),
+                    segment.vocal_ratio.as_slice(),
+                    segment.start_time,
+                )
+            },
+        );
     let limit = ((fade_out - base_time) * rate).max(0.0) as usize;
     let vocal_out = scan_ratio
         .iter()
@@ -777,14 +918,33 @@ fn snap_time(time: f64, bpm: f64, first_beat: f64, grid: f64) -> f64 {
     (first_beat + units * grid_sec).max(0.0)
 }
 
-fn build_energy_profile(head: &[f32], tail: &[f32], duration: f64) -> Vec<f64> {
-    let profile_rate = 10.0;
-    let len = ((duration * profile_rate).ceil() as usize).max(1);
+fn build_energy_profile(
+    head: &AnalysisSegment,
+    tail: Option<&AnalysisSegment>,
+    duration: f64,
+) -> Vec<f64> {
+    let profile_rate = ENERGY_PROFILE_RATE;
+    // The caller already discards an implausible declared duration, but this is
+    // the allocation site, so it enforces the same ceiling itself rather than
+    // trusting every present and future caller to have done so.
+    let bounded_duration = duration.clamp(0.0, MAX_DECLARED_DURATION_SEC);
+    let len = ((bounded_duration * profile_rate).ceil() as usize).max(1);
     let mut profile = vec![0.0; len];
-    fill_energy_profile(&mut profile, head, 0.0, ENVELOPE_RATE, profile_rate);
-    if !tail.is_empty() {
-        let tail_start = (duration - tail.len() as f64 / ENVELOPE_RATE).max(0.0);
-        fill_energy_profile(&mut profile, tail, tail_start, ENVELOPE_RATE, profile_rate);
+    fill_energy_profile(
+        &mut profile,
+        &head.envelope,
+        head.start_time,
+        ENVELOPE_RATE,
+        profile_rate,
+    );
+    if let Some(tail) = tail {
+        fill_energy_profile(
+            &mut profile,
+            &tail.envelope,
+            tail.start_time,
+            ENVELOPE_RATE,
+            profile_rate,
+        );
     }
     profile
 }
@@ -851,6 +1011,96 @@ fn mean_square(values: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static TEMP_AUDIO_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    struct TempAudio {
+        path: PathBuf,
+    }
+
+    impl TempAudio {
+        fn wav(bytes: &[u8]) -> Self {
+            let id = TEMP_AUDIO_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "aec_automix_test_{}_{}.wav",
+                std::process::id(),
+                id
+            ));
+            let mut file = std::fs::File::create(&path).expect("create AutoMix fixture");
+            file.write_all(bytes).expect("write AutoMix fixture");
+            file.flush().expect("flush AutoMix fixture");
+            Self { path }
+        }
+
+        fn path_string(&self) -> String {
+            self.path
+                .to_str()
+                .expect("UTF-8 AutoMix fixture path")
+                .to_owned()
+        }
+    }
+
+    impl Drop for TempAudio {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn synth_wav<F: Fn(u64) -> f64>(sample_rate: u32, frames: u64, sample: F) -> Vec<u8> {
+        let channels = 1_u16;
+        let bits_per_sample = 16_u16;
+        let block_align = channels * (bits_per_sample / 8);
+        let byte_rate = sample_rate * u32::from(block_align);
+        let data_len = frames as usize * usize::from(block_align);
+        let mut bytes = Vec::with_capacity(44 + data_len);
+
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&byte_rate.to_le_bytes());
+        bytes.extend_from_slice(&block_align.to_le_bytes());
+        bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for frame in 0..frames {
+            let value = sample(frame).clamp(-1.0, 1.0);
+            bytes.extend_from_slice(&((value * i16::MAX as f64).round() as i16).to_le_bytes());
+        }
+
+        bytes
+    }
+
+    fn analyze_tail_fixture(duration_secs: u64) -> AutomixAnalysis {
+        let sample_rate = 8_000_u32;
+        let frames = duration_secs * u64::from(sample_rate);
+        let active_end = frames - u64::from(sample_rate) * 2 / 5;
+        let wav = synth_wav(sample_rate, frames, |frame| {
+            if frame < active_end {
+                0.25
+            } else {
+                0.0
+            }
+        });
+        let fixture = TempAudio::wav(&wav);
+
+        analyze_automix(
+            fixture.path_string(),
+            None,
+            AutomixAnalysisOptions {
+                mode: AutomixAnalysisMode::Full,
+                max_analyze_time_sec: MIN_ANALYZE_TIME_SEC,
+            },
+        )
+        .expect("analyze tail fixture")
+    }
 
     fn pulse_train(rate: f64, bpm: f64, duration_seconds: f64) -> Vec<f32> {
         let len = (rate * duration_seconds).ceil() as usize;
@@ -879,6 +1129,197 @@ mod tests {
             &head,
             &AnalysisSegment::default(),
         )
+    }
+
+    #[test]
+    fn window_plan_keeps_head_and_tail_disjoint_at_boundaries() {
+        let window = 60;
+        let cases = [
+            (60, None),
+            (61, Some(FrameWindow { start: 60, end: 61 })),
+            (
+                120,
+                Some(FrameWindow {
+                    start: 60,
+                    end: 120,
+                }),
+            ),
+            (
+                121,
+                Some(FrameWindow {
+                    start: 61,
+                    end: 121,
+                }),
+            ),
+        ];
+
+        for (track_frames, expected_tail) in cases {
+            let plan =
+                AnalysisWindowPlan::new(AutomixAnalysisMode::Full, Some(track_frames), window);
+            assert_eq!(plan.head, FrameWindow { start: 0, end: 60 });
+            assert_eq!(plan.tail, expected_tail);
+            if let Some(tail) = plan.tail {
+                assert!(plan.head.end <= tail.start);
+            }
+        }
+
+        assert_eq!(
+            AnalysisWindowPlan::new(AutomixAnalysisMode::Head, Some(121), window).tail,
+            None
+        );
+        assert_eq!(
+            AnalysisWindowPlan::new(AutomixAnalysisMode::Full, None, window),
+            AnalysisWindowPlan {
+                head: FrameWindow {
+                    start: 0,
+                    end: window,
+                },
+                tail: None,
+            }
+        );
+    }
+
+    #[test]
+    fn packet_selection_slices_once_before_all_metric_consumers() {
+        let sample_rate = 8_000;
+        let channels = 2;
+        let packet_frames = 1_400;
+        let mut packet = Vec::with_capacity(packet_frames * channels);
+        for frame in 0..packet_frames {
+            let value = frame as f64 / packet_frames as f64 * 0.5;
+            packet.extend_from_slice(&[value, value]);
+        }
+        let mut skip_remaining = 128;
+        let frame_range = select_packet_frames(packet_frames, &mut skip_remaining, 1_024)
+            .expect("packet should contain selected frames");
+
+        assert_eq!(frame_range, 128..1_152);
+        assert_eq!(skip_remaining, 0);
+        let sample_range = frame_range.start * channels..frame_range.end * channels;
+        let selected = &packet[sample_range];
+        assert_eq!(selected.len(), 1_024 * channels);
+        assert_eq!(selected[0], packet[128 * channels]);
+        assert_eq!(selected[selected.len() - 1], packet[1_152 * channels - 1]);
+
+        let mut meter = LoudnessMeter::new(channels, sample_rate);
+        let mut segment = AnalysisSegment::default();
+        SegmentAnalyzer::new(sample_rate, channels).process(selected, &mut meter, &mut segment);
+
+        assert_eq!(meter.samples_processed(), 1_024);
+        assert_eq!(segment.frames_analyzed, 1_024);
+        assert_eq!(segment.envelope.len(), 6);
+        assert_eq!(segment.low_envelope.len(), 6);
+        assert_eq!(segment.vocal_ratio.len(), 6);
+        assert_eq!(segment.spectral_flux.len(), 1);
+    }
+
+    #[test]
+    fn segment_start_time_is_the_single_tail_timeline_origin() {
+        let sample_rate = 8_000;
+        let meter = LoudnessMeter::new(1, sample_rate);
+        let head = AnalysisSegment {
+            frames_analyzed: 5 * u64::from(sample_rate),
+            envelope: vec![0.25; 250],
+            ..AnalysisSegment::default()
+        };
+        let tail = AnalysisSegment {
+            start_time: 12.0,
+            frames_analyzed: 2 * u64::from(sample_rate),
+            envelope: vec![0.25; 100],
+            ..AnalysisSegment::default()
+        };
+
+        let analysis = finalize_analysis(
+            AutomixAnalysisMode::Full,
+            5.0,
+            20.0,
+            sample_rate,
+            &meter,
+            &head,
+            &tail,
+        );
+
+        assert!((analysis.fade_out_pos - 14.0).abs() < 0.001);
+        assert!(analysis.energy_profile[120] > 0.0);
+        assert_eq!(analysis.energy_profile[180], 0.0);
+    }
+
+    #[test]
+    fn an_absurd_declared_duration_cannot_size_the_energy_profile() {
+        // A container may declare any duration. Before the ceiling, this asked
+        // for `1e12 * ENERGY_PROFILE_RATE` slots and aborted the process.
+        let sample_rate = 8_000_u32;
+        let head = AnalysisSegment {
+            frames_analyzed: 5 * u64::from(sample_rate),
+            envelope: vec![0.25; 250],
+            ..AnalysisSegment::default()
+        };
+
+        let profile = build_energy_profile(&head, None, 1.0e12);
+
+        assert_eq!(
+            profile.len(),
+            (MAX_DECLARED_DURATION_SEC * ENERGY_PROFILE_RATE) as usize
+        );
+        assert!(profile[0] > 0.0, "head evidence still lands at its origin");
+    }
+
+    #[test]
+    fn an_implausible_declared_duration_falls_back_to_measured_head_evidence() {
+        // Discarded rather than clamped: the analysis reports the five seconds
+        // it actually decoded, not a confident 24-hour timeline it never saw.
+        assert!(!is_plausible_duration(&(MAX_DECLARED_DURATION_SEC + 1.0)));
+        assert!(!is_plausible_duration(&f64::INFINITY));
+        assert!(!is_plausible_duration(&0.0));
+        assert!(is_plausible_duration(&MAX_DECLARED_DURATION_SEC));
+
+        let sample_rate = 8_000;
+        let meter = LoudnessMeter::new(1, sample_rate);
+        let head = AnalysisSegment {
+            frames_analyzed: 5 * u64::from(sample_rate),
+            envelope: vec![0.25; 250],
+            ..AnalysisSegment::default()
+        };
+
+        // `duration = 0.0` is what the caller passes once it rejects the
+        // declared value, so `finalize_analysis` derives the timeline itself.
+        let analysis = finalize_analysis(
+            AutomixAnalysisMode::Head,
+            5.0,
+            0.0,
+            sample_rate,
+            &meter,
+            &head,
+            &AnalysisSegment::default(),
+        );
+
+        assert!((analysis.duration - 5.0).abs() < 0.001);
+        assert_eq!(
+            analysis.energy_profile.len(),
+            (5.0 * ENERGY_PROFILE_RATE) as usize
+        );
+    }
+
+    #[test]
+    fn full_analysis_uses_absolute_tail_positions_at_window_boundaries() {
+        for duration_secs in [6_u64, 10, 11] {
+            let analysis = analyze_tail_fixture(duration_secs);
+            let expected_end = duration_secs as f64 - 0.4;
+            assert_eq!(
+                analysis.bpm, None,
+                "fixture must not exercise beat snapping"
+            );
+            for (name, actual) in [
+                ("fade_out", analysis.fade_out_pos),
+                ("cut_out", analysis.cut_out_pos.expect("Full mode cut-out")),
+                ("mix_center", analysis.mix_center_pos),
+            ] {
+                assert!(
+                    (actual - expected_end).abs() <= 0.05,
+                    "{duration_secs}s {name}: expected {expected_end:.3}s, got {actual:.3}s"
+                );
+            }
+        }
     }
 
     #[test]

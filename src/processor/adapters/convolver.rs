@@ -10,10 +10,10 @@ pub use control::{ConvolverControl, ConvolverStatus, DEFAULT_CONVOLVER_SAMPLE_RA
 use control::{ConsumerLease, PublishedConvolver};
 use handoff::AudioOwned;
 
-use super::{process_fixed_1_to_1, validate_channels, validate_sample_rate, FixedLifecycle};
+use super::{process_fixed_1_to_1, validate_sample_rate, FixedLifecycle};
 use crate::processor::traits::{
-    AudioBlockMut, ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
-    StreamingProcessor, TailSpec,
+    validate_processor_channels, AudioBlockMut, ProcessBufferParts, ProcessBuffers, ProcessError,
+    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 const CONVOLVER_ACTIVATION_MS: u32 = 5;
@@ -149,7 +149,7 @@ impl ConvolverProcessor {
             return process_fixed_1_to_1("Convolver", false, None, buffers, |_, _| Ok(()));
         }
         let channels = owned.get().kernel.channels();
-        validate_channels("Convolver", Some(channels), buffers.channels())?;
+        validate_processor_channels("Convolver", Some(channels), buffers.channels())?;
         match buffers.into_parts() {
             ProcessBufferParts::InPlace(mut block) => {
                 let frames = block.frames();
@@ -446,7 +446,7 @@ impl StreamingProcessor for ConvolverProcessor {
             .as_ref()
             .filter(|convolver| convolver.get().sample_rate_hz == self.sample_rate_hz)
             .map(|convolver| convolver.get().kernel.channels());
-        validate_channels("Convolver", channels, output.channels())?;
+        validate_processor_channels("Convolver", channels, output.channels())?;
 
         if !already_finishing {
             self.lifecycle.begin_finish();

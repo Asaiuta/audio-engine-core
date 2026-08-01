@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend review index"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "Verify cached controls survive reset correctly"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Verify reset re-arms a logically new stream"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Verify reset adoption remains callback-safe"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify required matrices and evidence"}
+{"file": ".trellis/tasks/07-28-repair-dynamic-loudness-reset-snapshot/research/reset-snapshot-revalidation.md", "reason": "Verify implementation against current defect"}

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend spec routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"The audio callback no-allocation, no-lock, no-log contract."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Logging is limited to non-realtime setup and diagnostics paths."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required supported feature, Clippy, and evidence gates."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Keep runtime helpers in their established top-level owner."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Bound cfg cleanup without inventing an unjustified abstraction."}
+{"file":".trellis/tasks/07-29-make-audio-thread-init-realtime-safe/research/revalidation-and-refactor.md","reason":"Source-backed finding revalidation and adopted/rejected refactor decisions."}

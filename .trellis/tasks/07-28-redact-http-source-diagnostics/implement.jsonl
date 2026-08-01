@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend entry point and supported validation matrices."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"NetworkError conversion, typed propagation, and retry classification contract."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Explicit prohibition on HTTP credentials and tokens in non-RT logs."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Focused regression and supported feature-matrix evidence requirements."}
+{"file":".trellis/tasks/07-28-redact-http-source-diagnostics/research/diagnostic-secret-boundary.md","reason":"Revalidated exposure paths, reqwest dependency evidence, and bounded refactor decision."}

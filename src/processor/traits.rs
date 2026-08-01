@@ -26,6 +26,10 @@ pub enum AudioBlockError {
     },
 }
 
+pub(crate) fn validated_channel_count(channels: usize) -> Result<NonZeroUsize, AudioBlockError> {
+    NonZeroUsize::new(channels).ok_or(AudioBlockError::ZeroChannels)
+}
+
 /// Zero-copy view over a complete interleaved `f64` input block.
 #[derive(Debug, Clone, Copy)]
 pub struct AudioBlockRef<'a> {
@@ -37,7 +41,7 @@ pub struct AudioBlockRef<'a> {
 impl<'a> AudioBlockRef<'a> {
     /// Validate and borrow an interleaved sample slice.
     pub fn new(samples: &'a [f64], channels: usize) -> Result<Self, AudioBlockError> {
-        let channels = NonZeroUsize::new(channels).ok_or(AudioBlockError::ZeroChannels)?;
+        let channels = validated_channel_count(channels)?;
         if !samples.len().is_multiple_of(channels.get()) {
             return Err(AudioBlockError::IncompleteFrame {
                 samples: samples.len(),
@@ -89,7 +93,7 @@ pub struct AudioBlockMut<'a> {
 impl<'a> AudioBlockMut<'a> {
     /// Validate and mutably borrow an interleaved sample slice.
     pub fn new(samples: &'a mut [f64], channels: usize) -> Result<Self, AudioBlockError> {
-        let channels = NonZeroUsize::new(channels).ok_or(AudioBlockError::ZeroChannels)?;
+        let channels = validated_channel_count(channels)?;
         if !samples.len().is_multiple_of(channels.get()) {
             return Err(AudioBlockError::IncompleteFrame {
                 samples: samples.len(),
@@ -602,6 +606,14 @@ pub enum ProcessError {
         processor: &'static str,
         message: &'static str,
     },
+    /// A control-thread parameter write was rejected before it could reach DSP
+    /// state, for example a non-finite value that would poison filter history.
+    #[error("processor {processor} rejected parameter {parameter}: {message}")]
+    InvalidParameter {
+        processor: &'static str,
+        parameter: &'static str,
+        message: &'static str,
+    },
     #[error(
         "processor {processor} expected {expected_sample_rate_hz} Hz input but received {actual_sample_rate_hz} Hz"
     )]
@@ -637,6 +649,36 @@ pub enum ProcessError {
         operation: &'static str,
         message: String,
     },
+}
+
+pub(crate) fn validate_processor_channels(
+    processor: &'static str,
+    expected_channels: Option<usize>,
+    actual_channels: usize,
+) -> Result<(), ProcessError> {
+    if let Some(expected_channels) = expected_channels {
+        if expected_channels != actual_channels {
+            return Err(ProcessError::ChannelCountMismatch {
+                processor,
+                expected_channels,
+                actual_channels,
+            });
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_sample_rate_hz(
+    processor: &'static str,
+    sample_rate_hz: u32,
+) -> Result<(), ProcessError> {
+    if sample_rate_hz == 0 {
+        return Err(ProcessError::InvalidSampleRate {
+            processor,
+            sample_rate_hz,
+        });
+    }
+    Ok(())
 }
 
 /// Unified object-safe streaming DSP lifecycle.
@@ -689,7 +731,26 @@ pub trait StreamingProcessor: Send {
         false
     }
 
+    /// Whether [`Self::set_enabled`] can transparently bypass this stage.
+    ///
+    /// Most effects can. Two classes cannot, and return `false`:
+    ///
+    /// - a stage that is not an effect at all, such as rate conversion, which is
+    ///   graph geometry rather than something a listener can switch off;
+    /// - a stage whose "off" state is expressed through a different control,
+    ///   such as volume muting.
+    ///
+    /// A `false` here means [`Self::set_enabled`] is a documented no-op, so a
+    /// scheduler or UI can hide or reject the operation instead of publishing a
+    /// request that is silently dropped.
+    fn supports_bypass(&self) -> bool {
+        true
+    }
+
     /// Enable or transparently bypass this processor.
+    ///
+    /// This is a no-op when [`Self::supports_bypass`] returns `false`; check that
+    /// first rather than assuming every stage honors the request.
     fn set_enabled(&mut self, enabled: bool);
 
     /// Map the current graph rate through this stage.

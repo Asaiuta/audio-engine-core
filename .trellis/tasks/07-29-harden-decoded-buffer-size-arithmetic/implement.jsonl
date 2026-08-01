@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend spec routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/decoder-correctness.md","reason":"Decoder metadata, geometry, and test-matrix contracts."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Preserve the existing typed decoder error model."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Preserve fixed decoder staging and distinguish decode-side allocation from callback rules."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Keep decoder behavior and tests in their established module boundary."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required supported feature, Clippy, and evidence gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Evaluate and bound the proposed size-planning abstraction."}
+{"file":".trellis/tasks/07-29-harden-decoded-buffer-size-arithmetic/research/revalidation-and-refactor.md","reason":"Source-backed finding revalidation and adopted/rejected refactor decisions."}

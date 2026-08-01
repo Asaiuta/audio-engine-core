@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Quality-check entry point and the required fmt/clippy/test validation commands."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Review that request consumption, fade ramp, in-callback drain, and reset stay free of allocation, locks, logging, and unbounded work, and that no-allocation tests run on fresh threads."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Review lifecycle/state-machine behavior against the validation-and-error matrix and the required test list."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review typed error usage and public diagnostics for the new validation paths."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Evidence policy, forbidden/required patterns, and the review checklist applied before completion."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"Review that sanitized parameter writes and runtime saturation changes preserve state ownership and coefficient-publication rules."}
+{"file":".trellis/tasks/07-28-playback-facade-robustness-and-lifecycle-command-channel/prd.md","reason":"Acceptance criteria and ADR-lite decisions this change is checked against."}

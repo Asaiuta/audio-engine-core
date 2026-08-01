@@ -113,6 +113,18 @@ struct TimingSamples {
     hashes: Vec<String>,
 }
 
+/// A fixture that was present and attempted but whose correctness probe could
+/// not produce a verdict.
+///
+/// This is deliberately not folded into `skipped`: `skipped` records work the
+/// run never owed (an absent fixture), while this records work that was owed and
+/// failed. Keeping them apart is what lets `--enforce` stay honest.
+#[derive(Debug, Serialize)]
+struct ProbeFailure {
+    path: String,
+    error: String,
+}
+
 #[derive(Debug, Serialize)]
 struct Report {
     schema_version: u32,
@@ -124,6 +136,7 @@ struct Report {
     validations: Vec<DecodeValidation>,
     cases: Vec<TimingCase>,
     comparisons: Vec<ComparisonCase>,
+    probe_failures: Vec<ProbeFailure>,
     skipped: Vec<String>,
 }
 
@@ -197,6 +210,7 @@ fn main() -> Result<(), String> {
     let mut validations = Vec::new();
     let mut cases = Vec::new();
     let mut comparisons = Vec::new();
+    let mut probe_failures = Vec::new();
     let mut skipped = Vec::new();
 
     if fixtures.is_empty() {
@@ -217,10 +231,10 @@ fn main() -> Result<(), String> {
         match validate_fixture(&path) {
             Ok(validation) => validations.push(validation),
             Err(error) => {
-                skipped.push(format!(
-                    "{}: correctness probe failed: {error}",
-                    path.display()
-                ));
+                probe_failures.push(ProbeFailure {
+                    path: path.display().to_string(),
+                    error,
+                });
                 continue;
             }
         }
@@ -300,6 +314,7 @@ fn main() -> Result<(), String> {
         validations,
         cases,
         comparisons,
+        probe_failures,
         skipped,
     };
 
@@ -569,8 +584,8 @@ fn validate_fixture(path: &Path) -> Result<DecodeValidation, String> {
 fn decode_project_full(path: &Path) -> Result<DecodeOutput, String> {
     let mut decoder =
         StreamingDecoder::open(path).map_err(|error| format!("project open: {error:?}"))?;
-    let sample_rate = decoder.info.sample_rate;
-    let channels = decoder.info.channels;
+    let sample_rate = decoder.info().sample_rate;
+    let channels = decoder.info().channels;
     let samples = decoder
         .decode_all()
         .map_err(|error| format!("project decode: {error:?}"))?;
@@ -645,7 +660,7 @@ fn consume_project(decoder: &mut StreamingDecoder) -> Result<ConsumeOutput, Stri
         hash = fnv1a_extend(hash, chunk);
         black_box(chunk.len());
     }
-    let channels = decoder.info.channels.max(1);
+    let channels = decoder.info().channels.max(1);
     Ok(ConsumeOutput {
         frames: samples / channels,
         hash,
@@ -926,9 +941,10 @@ fn timestamp_to_frame_offset(
 
 fn print_report(report: &Report) {
     println!(
-        "audio_gapless_comparison_perf mode={} fixtures={} warmups={} trials={}",
+        "audio_gapless_comparison_perf mode={} verified_fixtures={} probe_failed={} warmups={} trials={}",
         report.mode.as_str(),
         report.validations.len(),
+        report.probe_failures.len(),
         report.conditions.warmups_per_mode,
         report.conditions.timed_trials_per_mode
     );
@@ -971,12 +987,29 @@ fn print_report(report: &Report) {
             (comparison.native_first_decode_ratio.median - 1.0) * 100.0,
         );
     }
+    for failure in &report.probe_failures {
+        println!("probe-failed path={} error={}", failure.path, failure.error);
+    }
     for skipped in &report.skipped {
         println!("skipped {skipped}");
     }
 }
 
 fn enforce_report(report: &Report) -> Result<(), String> {
+    if !report.probe_failures.is_empty() {
+        // An attempted fixture that could not be verified is a correctness
+        // result, not absent work. Reporting it as skipped would let one
+        // succeeding fixture turn a failed probe into a green run.
+        return Err(format!(
+            "gapless correctness probes failed: {}",
+            report
+                .probe_failures
+                .iter()
+                .map(|failure| format!("{} ({})", failure.path, failure.error))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
     if report.validations.is_empty() {
         return Err("gapless comparison has no validation fixtures".to_string());
     }

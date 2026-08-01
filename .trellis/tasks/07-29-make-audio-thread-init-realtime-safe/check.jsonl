@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Review against backend routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Verify every target-specific initializer body is callback-safe."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Verify no logger path remains reachable from audio-thread initialization."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run and interpret complete quality gates."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify the change stays within the runtime helper owner."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review the cfg split for useful cleanup without over-abstraction."}
+{"file":".trellis/tasks/07-29-make-audio-thread-init-realtime-safe/research/revalidation-and-refactor.md","reason":"Check implementation against adopted and explicitly rejected refactors."}

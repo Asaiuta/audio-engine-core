@@ -665,8 +665,8 @@ fn steady_trial(path: &Path) -> Result<SteadyTrial, String> {
         .ok_or_else(|| "steady decoder fixture has no first packet".to_string())?;
     black_box(first);
 
-    let channels = decoder.info.channels.max(1);
-    let sample_rate_hz = decoder.info.sample_rate;
+    let channels = decoder.info().channels.max(1);
+    let sample_rate_hz = decoder.info().sample_rate;
     let sample_rate = sample_rate_hz as f64;
     let staging_bytes = decoder.staging_buffer_bytes();
     let mut decoded_frames = 0u64;
@@ -707,9 +707,9 @@ fn steady_trial(path: &Path) -> Result<SteadyTrial, String> {
 fn decode_full(path: &Path) -> Result<DecoderWorkValidation, String> {
     let mut decoder = StreamingDecoder::open(path)
         .map_err(|error| format!("fixture decoder open failed: {error}"))?;
-    let channels = decoder.info.channels.max(1);
-    let sample_rate_hz = decoder.info.sample_rate;
-    let expected_frames = decoder.info.total_frames.unwrap_or(0);
+    let channels = decoder.info().channels.max(1);
+    let sample_rate_hz = decoder.info().sample_rate;
+    let expected_frames = decoder.info().total_frames.unwrap_or(0);
     let mut decoded_frames = 0u64;
     let mut packet_count = 0usize;
     let mut first_packet_samples = 0usize;
@@ -831,7 +831,7 @@ fn allocation_evidence(
 }
 
 fn seek_error_frames(decoder: &StreamingDecoder, target_seconds: f64) -> u64 {
-    let target = (target_seconds * decoder.info.sample_rate as f64).round() as u64;
+    let target = (target_seconds * decoder.info().sample_rate as f64).round() as u64;
     decoder.current_frame().abs_diff(target)
 }
 

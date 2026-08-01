@@ -21,6 +21,10 @@
 
 use super::meter::{true_peak_fir, TruePeakDetector, TRUE_PEAK_DELAY};
 use crate::processor::dsp::{db_to_linear, linear_to_db};
+use crate::processor::traits::{
+    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
+    ProcessError,
+};
 
 /// Peak detection strategy for [`PeakLimiter`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -180,8 +184,26 @@ impl PeakLimiter {
         threshold_db: f64,
         lookahead_ms: f64,
         release_ms: f64,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("PeakLimiter", sample_rate)?;
+        Ok(Self::new_validated(
+            channels,
+            sample_rate,
+            threshold_db,
+            lookahead_ms,
+            release_ms,
+        ))
+    }
+
+    pub(crate) fn new_validated(
+        channels: usize,
+        sample_rate: u32,
+        threshold_db: f64,
+        lookahead_ms: f64,
+        release_ms: f64,
     ) -> Self {
-        Self::with_mode(
+        Self::with_mode_validated(
             channels,
             sample_rate,
             threshold_db,
@@ -193,6 +215,26 @@ impl PeakLimiter {
 
     /// Create a new peak limiter with an explicit detection [`LimiterMode`].
     pub fn with_mode(
+        channels: usize,
+        sample_rate: u32,
+        threshold_db: f64,
+        lookahead_ms: f64,
+        release_ms: f64,
+        mode: LimiterMode,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("PeakLimiter", sample_rate)?;
+        Ok(Self::with_mode_validated(
+            channels,
+            sample_rate,
+            threshold_db,
+            lookahead_ms,
+            release_ms,
+            mode,
+        ))
+    }
+
+    pub(crate) fn with_mode_validated(
         channels: usize,
         sample_rate: u32,
         threshold_db: f64,
@@ -270,7 +312,14 @@ impl PeakLimiter {
     /// - No heap allocations
     /// - No system calls
     /// - O(n) complexity where n = number of samples
-    pub fn process(&mut self, samples: &mut [f64]) {
+    pub fn process(&mut self, samples: &mut [f64], channels: usize) -> Result<(), ProcessError> {
+        let block = AudioBlockMut::new(samples, channels)?;
+        validate_processor_channels("PeakLimiter", Some(self.channels), channels)?;
+        self.process_validated(block.into_samples());
+        Ok(())
+    }
+
+    pub(crate) fn process_validated(&mut self, samples: &mut [f64]) {
         let total_samples = samples.len();
         let frames = total_samples / self.channels;
         if frames == 0 {
@@ -351,18 +400,36 @@ impl PeakLimiter {
         self.global_frame = self.global_frame.wrapping_add(1);
     }
 
-    /// Set threshold in dB
+    /// Set threshold in dB.
+    ///
+    /// A non-finite value is dropped: a `NaN` threshold makes every gain
+    /// comparison false, so the limiter would silently stop limiting.
+    ///
+    /// No published-range clamp is applied here. The facade owns
+    /// [`LIMITER_THRESHOLD_DB_MIN`]..=[`LIMITER_THRESHOLD_DB_MAX`] for what a
+    /// *user* may ask for; the adapter then drives this core below that range
+    /// on purpose, because the intersample-peak guard subtracts its additive
+    /// bound from the user's ceiling before it reaches the limiter.
     pub fn set_threshold_db(&mut self, threshold_db: f64) {
-        self.threshold = db_to_linear(threshold_db);
+        self.set_threshold(threshold_db);
     }
 
     /// Update threshold in-place without reallocating lookahead buffer.
+    /// Non-finite input is dropped, as in [`Self::set_threshold_db`].
     pub fn set_threshold(&mut self, threshold_db: f64) {
-        self.threshold = db_to_linear(threshold_db);
+        if threshold_db.is_finite() {
+            self.threshold = db_to_linear(threshold_db);
+        }
     }
 
     /// Update release time in-place without reallocating lookahead buffer.
+    ///
+    /// Non-finite input is dropped; the existing `max(1.0)` floor keeps the
+    /// coefficient finite for any remaining value.
     pub fn set_release_ms(&mut self, release_ms: f64) {
+        if !release_ms.is_finite() {
+            return;
+        }
         let release_samples = (release_ms / 1000.0) * self.sample_rate;
         self.release_coeff = (-1.0 / release_samples.max(1.0)).exp();
     }
@@ -395,6 +462,87 @@ impl PeakLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::lockfree_params::LIMITER_THRESHOLD_DB_MIN;
+    use crate::processor::traits::AudioBlockError;
+
+    /// A `NaN` threshold makes every `peak > threshold` comparison false, so
+    /// the limiter would silently stop limiting rather than fail loudly.
+    #[test]
+    fn limiter_setters_drop_non_finite_writes() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -3.0, 5.0, 120.0).unwrap();
+        let threshold = limiter.threshold;
+        let release_coeff = limiter.release_coeff;
+
+        for poison in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            limiter.set_threshold_db(poison);
+            limiter.set_threshold(poison);
+            limiter.set_release_ms(poison);
+            assert_eq!(limiter.threshold, threshold, "threshold survived {poison}");
+            assert_eq!(
+                limiter.release_coeff, release_coeff,
+                "release survived {poison}"
+            );
+        }
+    }
+
+    /// The core must stay drivable outside the facade's published range: the
+    /// intersample-peak guard in `PeakLimiterProcessor` subtracts its additive
+    /// bound from the user's ceiling, so a user ceiling at the published
+    /// minimum reaches this core *below* that minimum. Clamping here would
+    /// silently disable that guard.
+    #[test]
+    fn limiter_threshold_is_drivable_below_the_published_user_range() {
+        let mut limiter = PeakLimiter::new(2, 48_000, -3.0, 5.0, 120.0).unwrap();
+        let guarded_db = LIMITER_THRESHOLD_DB_MIN - 0.25;
+
+        limiter.set_threshold(guarded_db);
+
+        assert!((limiter.threshold - db_to_linear(guarded_db)).abs() < 1e-12);
+        assert!(limiter.threshold < db_to_linear(LIMITER_THRESHOLD_DB_MIN));
+        assert!(limiter.threshold > 0.0);
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct PeakLimiterState {
+        delay_buffer: Vec<u64>,
+        detector_peaks: Vec<u64>,
+        queue_indices: Vec<u64>,
+        queue_peaks: Vec<u64>,
+        queue_head: usize,
+        queue_tail: usize,
+        queue_len: usize,
+        global_frame: u64,
+        write_pos: usize,
+        gain_reduction: u64,
+    }
+
+    fn peak_limiter_state(limiter: &PeakLimiter) -> PeakLimiterState {
+        PeakLimiterState {
+            delay_buffer: limiter
+                .delay_buffer
+                .iter()
+                .map(|value| value.to_bits())
+                .collect(),
+            detector_peaks: limiter
+                .true_peak_detectors
+                .iter()
+                .map(|detector| detector.max_true_peak().to_bits())
+                .collect(),
+            queue_indices: limiter.peak_queue.indices.to_vec(),
+            queue_peaks: limiter
+                .peak_queue
+                .peaks
+                .iter()
+                .map(|value| value.to_bits())
+                .collect(),
+            queue_head: limiter.peak_queue.head,
+            queue_tail: limiter.peak_queue.tail,
+            queue_len: limiter.peak_queue.len,
+            global_frame: limiter.global_frame,
+            write_pos: limiter.write_pos,
+            gain_reduction: limiter.gain_reduction.to_bits(),
+        }
+    }
 
     struct LegacyPeakLimiter {
         threshold: f64,
@@ -508,12 +656,12 @@ mod tests {
     #[test]
     fn monotonic_queue_matches_legacy_scan_for_transient_corpus() {
         let mut limiter =
-            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
+            PeakLimiter::with_mode_validated(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut legacy = LegacyPeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = deterministic_transient_corpus(2_000, 2);
         let mut expected = samples.clone();
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
         legacy.process(&mut expected);
 
         assert_samples_eq(&samples, &expected);
@@ -525,12 +673,12 @@ mod tests {
         let mut one_shot = source.clone();
         let mut chunked = source.clone();
 
-        let mut one_shot_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
-        let mut chunked_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut one_shot_limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
+        let mut chunked_limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
 
-        one_shot_limiter.process(&mut one_shot);
+        one_shot_limiter.process_validated(&mut one_shot);
         for chunk in chunked.chunks_mut(64 * 2) {
-            chunked_limiter.process(chunk);
+            chunked_limiter.process_validated(chunk);
         }
 
         assert_samples_eq(&chunked, &one_shot);
@@ -539,10 +687,10 @@ mod tests {
     #[test]
     fn monotonic_queue_handles_sustained_pre_clipping() {
         let mut limiter =
-            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
+            PeakLimiter::with_mode_validated(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut samples = vec![1.2; 2_000 * 2];
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
 
         let expected_gain = db_to_linear(-1.0) / 1.2;
         assert!((limiter.gain_reduction - expected_gain).abs() < 1e-12);
@@ -553,10 +701,10 @@ mod tests {
 
     #[test]
     fn monotonic_queue_resets_state() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = deterministic_transient_corpus(1_000, 2);
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
         assert!(limiter.peak_queue.current_peak() > 0.0);
 
         limiter.reset();
@@ -570,12 +718,12 @@ mod tests {
     #[test]
     fn lookahead_one_frame_matches_legacy_scan() {
         let mut limiter =
-            PeakLimiter::with_mode(2, 1_000, -1.0, 1.0, 10.0, LimiterMode::SamplePeak);
+            PeakLimiter::with_mode_validated(2, 1_000, -1.0, 1.0, 10.0, LimiterMode::SamplePeak);
         let mut legacy = LegacyPeakLimiter::new(2, 1_000, -1.0, 1.0, 10.0);
         let mut samples = deterministic_transient_corpus(128, 2);
         let mut expected = samples.clone();
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
         legacy.process(&mut expected);
 
         assert_samples_eq(&samples, &expected);
@@ -584,17 +732,17 @@ mod tests {
     #[test]
     fn non_finite_samples_do_not_poison_queue_peak() {
         let mut limiter =
-            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
+            PeakLimiter::with_mode_validated(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak);
         let mut samples = vec![0.2; 64 * 2];
         samples[4] = f64::NAN;
         samples[9] = f64::INFINITY;
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
 
         assert!(limiter.peak_queue.current_peak().is_infinite());
 
         let mut finite_samples = vec![0.25; 600 * 2];
-        limiter.process(&mut finite_samples);
+        limiter.process_validated(&mut finite_samples);
 
         assert!(limiter.peak_queue.current_peak().is_finite());
         assert_eq!(limiter.peak_queue.current_peak(), 0.25);
@@ -602,12 +750,12 @@ mod tests {
 
     #[test]
     fn process_is_steady_state_no_alloc() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = deterministic_transient_corpus(64, 2);
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..1_000 {
-                limiter.process(&mut samples);
+                limiter.process_validated(&mut samples);
             }
         });
     }
@@ -651,7 +799,7 @@ mod tests {
 
     #[test]
     fn default_mode_is_true_peak() {
-        let limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         assert_eq!(limiter.mode(), LimiterMode::TruePeak);
     }
 
@@ -663,8 +811,8 @@ mod tests {
         // Sample peak is below the ceiling, so the input alone looks "safe".
         assert!(sample_peak(&samples) < ceiling);
 
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
-        limiter.process(&mut samples);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
+        limiter.process_validated(&mut samples);
 
         // Ignore the leading delay (zeros) when judging steady-state output.
         let steady = &samples[2 * limiter.delay_frames..];
@@ -682,10 +830,10 @@ mod tests {
         let mut sp = intersample_stress(4_000, 2, 1.0);
         let mut tp = sp.clone();
 
-        PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak)
-            .process(&mut sp);
-        PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::TruePeak)
-            .process(&mut tp);
+        PeakLimiter::with_mode_validated(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak)
+            .process_validated(&mut sp);
+        PeakLimiter::with_mode_validated(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::TruePeak)
+            .process_validated(&mut tp);
 
         // Sample-peak mode never engages (sample peak < ceiling) and leaves the
         // intersample peak above the ceiling; true-peak mode pulls it under.
@@ -698,8 +846,8 @@ mod tests {
         let ceiling = db_to_linear(-1.0);
         for channels in [1usize, 2, 6] {
             let mut samples = intersample_stress(4_000, channels, 1.0);
-            let mut limiter = PeakLimiter::new(channels, 48_000, -1.0, 10.0, 100.0);
-            limiter.process(&mut samples);
+            let mut limiter = PeakLimiter::new_validated(channels, 48_000, -1.0, 10.0, 100.0);
+            limiter.process_validated(&mut samples);
 
             let steady = &samples[channels * limiter.delay_frames..];
             let out_tp = measure_true_peak(steady, channels);
@@ -716,12 +864,12 @@ mod tests {
         let mut one_shot = source.clone();
         let mut chunked = source;
 
-        let mut one_shot_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
-        let mut chunked_limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut one_shot_limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
+        let mut chunked_limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
 
-        one_shot_limiter.process(&mut one_shot);
+        one_shot_limiter.process_validated(&mut one_shot);
         for chunk in chunked.chunks_mut(64 * 2) {
-            chunked_limiter.process(chunk);
+            chunked_limiter.process_validated(chunk);
         }
 
         assert_samples_eq(&chunked, &one_shot);
@@ -729,10 +877,10 @@ mod tests {
 
     #[test]
     fn true_peak_resets_all_state() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = intersample_stress(1_000, 2, 1.0);
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
         assert!(limiter.peak_queue.current_peak() > 0.0);
         assert!(limiter.gain_reduction < 1.0);
 
@@ -749,10 +897,10 @@ mod tests {
 
     #[test]
     fn true_peak_silence_stays_silent_and_unity_gain() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = vec![0.0; 2_000 * 2];
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
 
         assert!(samples.iter().all(|s| *s == 0.0));
         assert_eq!(limiter.gain_reduction, 1.0);
@@ -765,8 +913,8 @@ mod tests {
         // Both sample peak and true peak are over the ceiling here.
         assert!(sample_peak(&samples) > ceiling);
 
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
-        limiter.process(&mut samples);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
+        limiter.process_validated(&mut samples);
 
         let steady = &samples[2 * limiter.delay_frames..];
         assert!(measure_true_peak(steady, 2) <= ceiling * db_to_linear(0.1));
@@ -774,17 +922,17 @@ mod tests {
 
     #[test]
     fn true_peak_recovers_after_non_finite_samples() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = vec![0.2; 64 * 2];
         samples[4] = f64::NAN;
         samples[9] = f64::INFINITY;
 
         // Policy: non-finite input is not sanitized, but must not panic and the
         // detector/queue must recover to a finite state once it flushes through.
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
 
         let mut finite = vec![0.25; 4_000 * 2];
-        limiter.process(&mut finite);
+        limiter.process_validated(&mut finite);
 
         assert!(limiter.peak_queue.current_peak().is_finite());
         assert!(limiter.gain_reduction.is_finite());
@@ -792,19 +940,19 @@ mod tests {
 
     #[test]
     fn true_peak_process_is_steady_state_no_alloc() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         let mut samples = intersample_stress(64, 2, 1.0);
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..1_000 {
-                limiter.process(&mut samples);
+                limiter.process_validated(&mut samples);
             }
         });
     }
 
     #[test]
     fn set_mode_is_allocation_free_and_switches_active_delay() {
-        let mut limiter = PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 48_000, -1.0, 10.0, 100.0);
         assert_eq!(limiter.mode(), LimiterMode::TruePeak);
         let true_peak_delay = limiter.delay_frames;
 
@@ -815,9 +963,9 @@ mod tests {
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..100 {
                 limiter.set_mode(LimiterMode::SamplePeak);
-                limiter.process(&mut samples);
+                limiter.process_validated(&mut samples);
                 limiter.set_mode(LimiterMode::TruePeak);
-                limiter.process(&mut samples);
+                limiter.process_validated(&mut samples);
             }
         });
 
@@ -828,5 +976,61 @@ mod tests {
         let before = limiter.delay_frames;
         limiter.set_mode(LimiterMode::SamplePeak);
         assert_eq!(limiter.delay_frames, before);
+    }
+
+    #[test]
+    fn raw_peak_limiter_rejects_invalid_setup_and_block_geometry_atomically() {
+        assert!(matches!(
+            PeakLimiter::new(0, 48_000, -1.0, 10.0, 100.0),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            PeakLimiter::with_mode(2, 0, -1.0, 10.0, 100.0, LimiterMode::SamplePeak),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "PeakLimiter",
+                sample_rate_hz: 0,
+            })
+        ));
+
+        let mut limiter =
+            PeakLimiter::with_mode(2, 48_000, -1.0, 10.0, 100.0, LimiterMode::SamplePeak).unwrap();
+        let mut warm = [0.25; 16];
+        limiter.process(&mut warm, 2).unwrap();
+        let state = peak_limiter_state(&limiter);
+
+        let mut zero_channels = [0.25; 4];
+        let zero_channels_before = zero_channels;
+        let mut incomplete = [0.25; 3];
+        let incomplete_before = incomplete;
+        let mut mismatch = [0.25; 4];
+        let mismatch_before = mismatch;
+        assert_no_alloc::assert_no_alloc(|| {
+            assert_eq!(
+                limiter.process(&mut zero_channels, 0),
+                Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+            );
+            assert_eq!(
+                limiter.process(&mut incomplete, 2),
+                Err(ProcessError::InvalidBlock(
+                    AudioBlockError::IncompleteFrame {
+                        samples: 3,
+                        channels: 2,
+                    }
+                ))
+            );
+            assert_eq!(
+                limiter.process(&mut mismatch, 1),
+                Err(ProcessError::ChannelCountMismatch {
+                    processor: "PeakLimiter",
+                    expected_channels: 2,
+                    actual_channels: 1,
+                })
+            );
+        });
+
+        assert_eq!(zero_channels, zero_channels_before);
+        assert_eq!(incomplete, incomplete_before);
+        assert_eq!(mismatch, mismatch_before);
+        assert_eq!(peak_limiter_state(&limiter), state);
     }
 }

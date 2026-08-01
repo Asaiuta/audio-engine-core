@@ -1,0 +1,7 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend package index and governing decoder conventions"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Private decoder module placement and curation rules"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Downstream loudness and downmix callback invariants"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Required Rust feature matrices and evidence policy"}
+{"file": ".trellis/tasks/07-28-preserve-decoder-channel-layout-semantics/research/channel-layout-boundary.md", "reason": "Revalidated dependency semantics and refactor decision"}
+{"file": ".trellis/spec/backend/decoder-correctness.md", "reason": "Executable decoder channel-layout boundary contract"}

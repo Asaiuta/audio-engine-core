@@ -1,3 +1,4 @@
+#[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
 thread_local! {
     static AUDIO_THREAD_FLOAT_MODE_INITIALIZED: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
@@ -9,13 +10,16 @@ thread_local! {
 /// thread-local CPU flags. Set them from the actual callback/playback thread so
 /// biquad tails cannot fall into slow subnormal arithmetic.
 pub fn audio_thread_init() {
-    AUDIO_THREAD_FLOAT_MODE_INITIALIZED.with(|initialized| {
-        if initialized.get() {
-            return;
-        }
-        set_audio_thread_float_mode();
-        initialized.set(true);
-    });
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+    {
+        AUDIO_THREAD_FLOAT_MODE_INITIALIZED.with(|initialized| {
+            if initialized.get() {
+                return;
+            }
+            set_audio_thread_float_mode();
+            initialized.set(true);
+        });
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -62,11 +66,6 @@ fn set_audio_thread_float_mode() {
         fpcr |= 1 << 24;
         std::arch::asm!("msr fpcr, {fpcr}", fpcr = in(reg) fpcr);
     }
-}
-
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
-fn set_audio_thread_float_mode() {
-    log::warn!("Audio thread FTZ/DAZ mode is unsupported on this CPU architecture");
 }
 
 #[cfg(any(test, debug_assertions))]
@@ -120,5 +119,32 @@ pub fn flush_subnormal_sample(sample: f64) -> f64 {
         } else {
             sample
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{audio_thread_float_mode_is_enabled, audio_thread_init};
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+    #[test]
+    fn supported_audio_thread_init_is_idempotent_and_enables_float_mode() {
+        audio_thread_init();
+        audio_thread_init();
+
+        assert!(audio_thread_float_mode_is_enabled());
+    }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+    #[test]
+    fn unsupported_audio_thread_init_is_a_noop_with_software_subnormal_fallback() {
+        use super::flush_subnormal_sample;
+
+        audio_thread_init();
+        audio_thread_init();
+
+        assert!(!audio_thread_float_mode_is_enabled());
+        assert_eq!(flush_subnormal_sample(f64::from_bits(1)), 0.0);
+        assert_eq!(flush_subnormal_sample(1.0), 1.0);
     }
 }

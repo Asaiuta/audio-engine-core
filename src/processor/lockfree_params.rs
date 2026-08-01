@@ -12,6 +12,7 @@
 //! reclaimed only by the control-side publisher, so the audio thread never
 //! allocates, deallocates, or becomes the last owner of a published snapshot.
 
+use super::traits::ProcessError;
 use std::ptr;
 use std::sync::{
     atomic::{AtomicPtr, AtomicU64, Ordering},
@@ -27,6 +28,98 @@ use super::crossfeed::{
     DEFAULT_CUTOFF_HZ as CROSSFEED_DEFAULT_CUTOFF_HZ, DEFAULT_MIX as CROSSFEED_DEFAULT_MIX,
     MAX_CUTOFF_HZ as CROSSFEED_MAX_CUTOFF_HZ, MIN_CUTOFF_HZ as CROSSFEED_MIN_CUTOFF_HZ,
 };
+use super::dynamic_loudness::LOUDNESS_BANDS_N;
+
+// ============================================================================
+// Published control-value ranges
+// ============================================================================
+//
+// These are the single source of truth for what a control thread may publish.
+// Every setter below clamps to them, and the high-level playback facade
+// re-exports them so a UI can bound its own widgets.
+
+/// Smallest publishable callback volume multiplier.
+pub const VOLUME_MIN: f64 = 0.0;
+/// Largest publishable callback volume multiplier: the callback stage
+/// attenuates only, so positive gain belongs upstream.
+pub const VOLUME_MAX: f64 = 1.0;
+/// Smallest publishable equalizer band gain, in dB.
+pub const EQ_BAND_GAIN_DB_MIN: f64 = -15.0;
+/// Largest publishable equalizer band gain, in dB.
+pub const EQ_BAND_GAIN_DB_MAX: f64 = 15.0;
+/// Smallest publishable limiter threshold, in dB.
+pub const LIMITER_THRESHOLD_DB_MIN: f64 = -20.0;
+/// Largest publishable limiter threshold, in dB.
+pub const LIMITER_THRESHOLD_DB_MAX: f64 = 0.0;
+/// Smallest publishable limiter release, in milliseconds.
+pub const LIMITER_RELEASE_MS_MIN: f64 = 10.0;
+/// Largest publishable limiter release, in milliseconds.
+pub const LIMITER_RELEASE_MS_MAX: f64 = 1_000.0;
+/// Smallest publishable saturation drive.
+pub const SATURATION_DRIVE_MIN: f64 = 0.0;
+/// Largest publishable saturation drive.
+pub const SATURATION_DRIVE_MAX: f64 = 2.0;
+/// Smallest publishable saturation onset threshold (linear).
+pub const SATURATION_THRESHOLD_MIN: f64 = 0.0;
+/// Largest publishable saturation onset threshold (linear).
+pub const SATURATION_THRESHOLD_MAX: f64 = 1.0;
+/// Smallest publishable saturation dry/wet mix (linear).
+pub const SATURATION_MIX_MIN: f64 = 0.0;
+/// Largest publishable saturation dry/wet mix (linear).
+pub const SATURATION_MIX_MAX: f64 = 1.0;
+/// Smallest publishable saturation high-pass cutoff, in Hz.
+pub const SATURATION_HIGHPASS_CUTOFF_HZ_MIN: f64 = 1_000.0;
+/// Largest publishable saturation high-pass cutoff, in Hz.
+pub const SATURATION_HIGHPASS_CUTOFF_HZ_MAX: f64 = 12_000.0;
+/// Smallest publishable saturation input/output makeup gain, in dB.
+pub const SATURATION_GAIN_DB_MIN: f64 = -24.0;
+/// Largest publishable saturation input/output makeup gain, in dB.
+pub const SATURATION_GAIN_DB_MAX: f64 = 24.0;
+/// Smallest publishable crossfeed dry/wet mix (linear).
+pub const CROSSFEED_MIX_MIN: f64 = 0.0;
+/// Largest publishable crossfeed dry/wet mix (linear).
+pub const CROSSFEED_MIX_MAX: f64 = 1.0;
+/// Smallest publishable crossfeed low-pass cutoff, in Hz.
+pub const CROSSFEED_CUTOFF_HZ_MIN: f64 = CROSSFEED_MIN_CUTOFF_HZ;
+/// Largest publishable crossfeed low-pass cutoff, in Hz.
+pub const CROSSFEED_CUTOFF_HZ_MAX: f64 = CROSSFEED_MAX_CUTOFF_HZ;
+/// The crossfeed core's own starting mix, so a facade config that has not been
+/// given an explicit mix cannot describe a different profile than the stage it
+/// builds.
+pub(crate) const CROSSFEED_MIX_DEFAULT: f64 = CROSSFEED_DEFAULT_MIX;
+/// The crossfeed core's own starting cutoff, in Hz; see
+/// [`CROSSFEED_MIX_DEFAULT`].
+pub(crate) const CROSSFEED_CUTOFF_HZ_DEFAULT: f64 = CROSSFEED_DEFAULT_CUTOFF_HZ;
+/// Smallest publishable dynamic-loudness compensation strength.
+pub const DYNAMIC_LOUDNESS_STRENGTH_MIN: f64 = 0.0;
+/// Largest publishable dynamic-loudness compensation strength.
+pub const DYNAMIC_LOUDNESS_STRENGTH_MAX: f64 = 1.0;
+/// Smallest publishable dynamic-loudness listening volume (linear).
+pub const DYNAMIC_LOUDNESS_VOLUME_MIN: f64 = 0.0;
+/// Largest publishable dynamic-loudness listening volume (linear).
+pub const DYNAMIC_LOUDNESS_VOLUME_MAX: f64 = 1.0;
+/// Smallest publishable noise-shaper target bit depth.
+pub const NOISE_SHAPER_BITS_MIN: u32 = 8;
+/// Largest publishable noise-shaper target bit depth.
+pub const NOISE_SHAPER_BITS_MAX: u32 = 32;
+
+/// Clamp a control value into its published range, rejecting non-finite input.
+///
+/// `f64::clamp` returns `NaN` unchanged, so a `NaN` reaching a DSP stage
+/// permanently poisons its filter state. Every control-thread setter therefore
+/// routes through this helper and simply keeps the previously published value
+/// when the caller supplies `NaN` or an infinity.
+///
+/// This is the single shared policy for both parameter layers: the atomic
+/// publishers here, and the infallible setters on the standalone DSP cores.
+/// Fallible entry points such as [`Equalizer::set_band_gain`] instead report
+/// the rejection; see the crate's parameter-validation spec.
+///
+/// [`Equalizer::set_band_gain`]: super::eq::Equalizer::set_band_gain
+#[inline]
+pub(crate) fn sanitized(value: f64, min: f64, max: f64) -> Option<f64> {
+    value.is_finite().then(|| value.clamp(min, max))
+}
 
 struct RealtimeSnapshotControl<T> {
     readers: Vec<Arc<AtomicPtr<T>>>,
@@ -270,6 +363,20 @@ impl<T: Copy> SharedParams<T> {
         f(&mut snapshot);
         self.publish_locked(snapshot);
     }
+
+    /// Guarded read-modify-publish that may decline to publish.
+    ///
+    /// Use this when the decision to publish depends on the current snapshot.
+    /// Deciding outside the writer lock and then publishing a locally mutated
+    /// copy would overwrite any concurrent update.
+    fn update_if(&self, mut f: impl FnMut(&mut T) -> bool) {
+        let _writer = lock_unpoisoned(&self.writer);
+        let mut snapshot = **self.current.load();
+        if !f(&mut snapshot) {
+            return;
+        }
+        self.publish_locked(snapshot);
+    }
 }
 
 macro_rules! impl_default_via_new {
@@ -362,6 +469,27 @@ macro_rules! impl_enabled_reader {
 /// EQ band count constant
 pub const EQ_BANDS: usize = 10;
 
+/// Reject an equalizer band index outside `0..EQ_BANDS`.
+///
+/// A band index is an address, not a value: unlike a gain it cannot be clamped
+/// into range without silently editing a different band than the caller asked
+/// for. Every public EQ entry point that returns a `Result` rejects it here, so
+/// the playback facade and the raw [`Equalizer`](crate::processor::Equalizer)
+/// report the same parameter identity for the same mistake.
+pub(crate) fn validate_eq_band_index(
+    processor: &'static str,
+    band: usize,
+) -> Result<(), ProcessError> {
+    if band < EQ_BANDS {
+        return Ok(());
+    }
+    Err(ProcessError::InvalidParameter {
+        processor,
+        parameter: "eq band index",
+        message: "band index must be below EQ_BANDS",
+    })
+}
+
 /// EQ parameter snapshot for audio thread
 #[derive(Debug, Clone, Copy)]
 pub struct EqParamsSnapshot {
@@ -394,9 +522,20 @@ impl AtomicEqParams {
     }
 
     /// Publish all EQ parameters as a complete snapshot.
+    ///
+    /// Gains are clamped to the published band-gain range so a later read
+    /// reports what the equalizer actually applies. A non-finite gain rejects
+    /// the whole write and keeps the previous snapshot.
     pub fn write(&self, gains: &[f64; EQ_BANDS], enabled: bool) {
+        let mut clamped = [0.0; EQ_BANDS];
+        for (slot, gain) in clamped.iter_mut().zip(gains.iter()) {
+            let Some(gain) = sanitized(*gain, EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX) else {
+                return;
+            };
+            *slot = gain;
+        }
         self.shared.publish(EqParamsSnapshot {
-            gains: *gains,
+            gains: clamped,
             enabled,
         });
     }
@@ -409,12 +548,22 @@ impl AtomicEqParams {
     impl_snapshot_accessors!(EqParamsSnapshot);
 
     /// Update a single band gain by patching and publishing a new snapshot.
+    ///
+    /// Like every setter on this type this is infallible. A band index at or
+    /// above [`EQ_BANDS`], or a non-finite gain, publishes nothing and leaves
+    /// the previously published snapshot in effect, so an advanced caller
+    /// cannot poison callback-side filter state. Use
+    /// [`PlaybackParameters::set_eq_band_gain_db`](crate::PlaybackParameters::set_eq_band_gain_db)
+    /// when the rejection has to be reported back to a user or persisted.
     pub fn set_band_gain(&self, band: usize, gain_db: f64) {
         if band >= EQ_BANDS {
             return;
         }
+        let Some(gain_db) = sanitized(gain_db, EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX) else {
+            return;
+        };
         self.shared.update(|snap| {
-            snap.gains[band] = gain_db.clamp(-15.0, 15.0);
+            snap.gains[band] = gain_db;
         });
     }
 
@@ -437,8 +586,18 @@ impl_default_via_new!(AtomicEqParams);
 
 /// Saturation type enumeration for lock-free parameter passing.
 ///
-/// M-4 fix: Provides bidirectional conversion with SaturationType
-/// from the saturation module, eliminating unsafe string-based mapping.
+/// Provides bidirectional conversion with `SaturationType` from the saturation
+/// module, eliminating unsafe string-based mapping. Both directions are
+/// exhaustive `match`es, so adding a variant to either enum is a compile error
+/// until the mapping is completed; `saturation_representations_round_trip`
+/// pins the identity.
+///
+/// There is deliberately no `From<u8>`. A snapshot is published as a whole
+/// `Copy` value rather than packed into an atomic word, so a byte decoding never
+/// occurs; the previous one mapped every unknown byte to the default variant,
+/// which would have turned a future encoding mistake into silent wrong audio
+/// instead of a compile or runtime error. A wire format, if ever needed, belongs
+/// in a `TryFrom` that rejects unknown bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum SaturationTypeValue {
@@ -446,17 +605,6 @@ pub enum SaturationTypeValue {
     Tape = 0,
     Tube = 1,
     Transistor = 2,
-}
-
-impl From<u8> for SaturationTypeValue {
-    fn from(v: u8) -> Self {
-        match v {
-            0 => Self::Tape,
-            1 => Self::Tube,
-            2 => Self::Transistor,
-            _ => Self::default(),
-        }
-    }
 }
 
 impl From<crate::processor::SaturationType> for SaturationTypeValue {
@@ -480,6 +628,9 @@ impl From<SaturationTypeValue> for crate::processor::SaturationType {
 }
 
 /// Saturation processing quality for lock-free parameter passing.
+///
+/// Like [`SaturationTypeValue`], this converts only to and from its saturation
+/// module counterpart, never from a raw byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum SaturationQualityValue {
@@ -487,17 +638,6 @@ pub enum SaturationQualityValue {
     Direct = 0,
     Oversampled2x = 1,
     Oversampled4x = 2,
-}
-
-impl From<u8> for SaturationQualityValue {
-    fn from(v: u8) -> Self {
-        match v {
-            0 => Self::Direct,
-            1 => Self::Oversampled2x,
-            2 => Self::Oversampled4x,
-            _ => Self::default(),
-        }
-    }
 }
 
 impl From<crate::processor::SaturationQuality> for SaturationQualityValue {
@@ -516,31 +656,6 @@ impl From<SaturationQualityValue> for crate::processor::SaturationQuality {
             SaturationQualityValue::Direct => Self::Direct,
             SaturationQualityValue::Oversampled2x => Self::Oversampled2x,
             SaturationQualityValue::Oversampled4x => Self::Oversampled4x,
-        }
-    }
-}
-
-impl From<super::dsp::NoiseShaperCurve> for u8 {
-    fn from(curve: super::dsp::NoiseShaperCurve) -> Self {
-        match curve {
-            super::dsp::NoiseShaperCurve::Lipshitz5 => 0,
-            super::dsp::NoiseShaperCurve::FWeighted9 => 1,
-            super::dsp::NoiseShaperCurve::ModifiedE9 => 2,
-            super::dsp::NoiseShaperCurve::ImprovedE9 => 3,
-            super::dsp::NoiseShaperCurve::TpdfOnly => 4,
-        }
-    }
-}
-
-impl From<u8> for super::dsp::NoiseShaperCurve {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => super::dsp::NoiseShaperCurve::Lipshitz5,
-            1 => super::dsp::NoiseShaperCurve::FWeighted9,
-            2 => super::dsp::NoiseShaperCurve::ModifiedE9,
-            3 => super::dsp::NoiseShaperCurve::ImprovedE9,
-            4 => super::dsp::NoiseShaperCurve::TpdfOnly,
-            _ => super::dsp::NoiseShaperCurve::Lipshitz5,
         }
     }
 }
@@ -593,37 +708,89 @@ impl AtomicSaturationParams {
     }
 
     /// Publish all saturation settings as one coherent snapshot.
+    ///
+    /// A non-finite field rejects the whole write so the previous snapshot
+    /// survives.
     #[inline]
     pub fn write(&self, snapshot: SaturationParamsSnapshot) {
         let mut snapshot = snapshot;
-        snapshot.drive = snapshot.drive.clamp(0.0, 2.0);
-        snapshot.threshold = snapshot.threshold.clamp(0.0, 1.0);
-        snapshot.mix = snapshot.mix.clamp(0.0, 1.0);
-        snapshot.highpass_cutoff = snapshot.highpass_cutoff.clamp(1000.0, 12000.0);
+        let (
+            Some(drive),
+            Some(threshold),
+            Some(mix),
+            Some(highpass_cutoff),
+            Some(input_gain_db),
+            Some(output_gain_db),
+        ) = (
+            sanitized(snapshot.drive, SATURATION_DRIVE_MIN, SATURATION_DRIVE_MAX),
+            sanitized(
+                snapshot.threshold,
+                SATURATION_THRESHOLD_MIN,
+                SATURATION_THRESHOLD_MAX,
+            ),
+            sanitized(snapshot.mix, SATURATION_MIX_MIN, SATURATION_MIX_MAX),
+            sanitized(
+                snapshot.highpass_cutoff,
+                SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
+                SATURATION_HIGHPASS_CUTOFF_HZ_MAX,
+            ),
+            sanitized(
+                snapshot.input_gain_db,
+                SATURATION_GAIN_DB_MIN,
+                SATURATION_GAIN_DB_MAX,
+            ),
+            sanitized(
+                snapshot.output_gain_db,
+                SATURATION_GAIN_DB_MIN,
+                SATURATION_GAIN_DB_MAX,
+            ),
+        )
+        else {
+            return;
+        };
+        snapshot.drive = drive;
+        snapshot.threshold = threshold;
+        snapshot.mix = mix;
+        snapshot.highpass_cutoff = highpass_cutoff;
+        snapshot.input_gain_db = input_gain_db;
+        snapshot.output_gain_db = output_gain_db;
         self.shared.publish(snapshot);
     }
 
     /// Set drive amount (0.0 - 2.0)
     #[inline]
     pub fn set_drive(&self, drive: f64) {
+        let Some(drive) = sanitized(drive, SATURATION_DRIVE_MIN, SATURATION_DRIVE_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.drive = drive.clamp(0.0, 2.0);
+            snapshot.drive = drive;
         });
     }
 
     /// Set threshold (0.0 - 1.0)
     #[inline]
     pub fn set_threshold(&self, threshold: f64) {
+        let Some(threshold) = sanitized(
+            threshold,
+            SATURATION_THRESHOLD_MIN,
+            SATURATION_THRESHOLD_MAX,
+        ) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.threshold = threshold.clamp(0.0, 1.0);
+            snapshot.threshold = threshold;
         });
     }
 
     /// Set mix amount (0.0 - 1.0)
     #[inline]
     pub fn set_mix(&self, mix: f64) {
+        let Some(mix) = sanitized(mix, SATURATION_MIX_MIN, SATURATION_MIX_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.mix = mix.clamp(0.0, 1.0);
+            snapshot.mix = mix;
         });
     }
 
@@ -644,18 +811,64 @@ impl AtomicSaturationParams {
     }
 
     /// Set input gain (dB)
+    ///
+    /// Changing both makeup gains as one control operation must use
+    /// [`Self::set_gains_db`]: two separate setter calls are two separately
+    /// observable snapshots, and the callback can adopt the intermediate one.
     #[inline]
     pub fn set_input_gain(&self, gain_db: f64) {
+        let Some(gain_db) = sanitized(gain_db, SATURATION_GAIN_DB_MIN, SATURATION_GAIN_DB_MAX)
+        else {
+            return;
+        };
         self.shared.update(|snapshot| {
             snapshot.input_gain_db = gain_db;
         });
     }
 
     /// Set output gain (dB)
+    ///
+    /// See [`Self::set_input_gain`] for the paired-update rule.
     #[inline]
     pub fn set_output_gain(&self, gain_db: f64) {
+        let Some(gain_db) = sanitized(gain_db, SATURATION_GAIN_DB_MIN, SATURATION_GAIN_DB_MAX)
+        else {
+            return;
+        };
         self.shared.update(|snapshot| {
             snapshot.output_gain_db = gain_db;
+        });
+    }
+
+    /// Publish both makeup gains (dB) as one coherent snapshot.
+    ///
+    /// Input and output makeup gain are one semantic control operation: the
+    /// pair is normally moved in opposite directions to keep the stage's
+    /// output level while changing how hard the nonlinearity is driven. Patching
+    /// both fields inside a single guarded publication stops the callback from
+    /// running a block with the new input gain against the old output gain.
+    ///
+    /// A non-finite gain in either position rejects the whole write and leaves
+    /// the previous snapshot in effect, matching every other setter here.
+    #[inline]
+    pub fn set_gains_db(&self, input_gain_db: f64, output_gain_db: f64) {
+        let (Some(input_gain_db), Some(output_gain_db)) = (
+            sanitized(
+                input_gain_db,
+                SATURATION_GAIN_DB_MIN,
+                SATURATION_GAIN_DB_MAX,
+            ),
+            sanitized(
+                output_gain_db,
+                SATURATION_GAIN_DB_MIN,
+                SATURATION_GAIN_DB_MAX,
+            ),
+        ) else {
+            return;
+        };
+        self.shared.update(|snapshot| {
+            snapshot.input_gain_db = input_gain_db;
+            snapshot.output_gain_db = output_gain_db;
         });
     }
 
@@ -670,8 +883,15 @@ impl AtomicSaturationParams {
     /// Set highpass cutoff frequency
     #[inline]
     pub fn set_highpass_cutoff(&self, hz: f64) {
+        let Some(hz) = sanitized(
+            hz,
+            SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
+            SATURATION_HIGHPASS_CUTOFF_HZ_MAX,
+        ) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.highpass_cutoff = hz.clamp(1000.0, 12000.0);
+            snapshot.highpass_cutoff = hz;
         });
     }
 
@@ -734,26 +954,40 @@ impl AtomicCrossfeedParams {
     }
 
     /// Publish crossfeed settings as one coherent snapshot.
+    ///
+    /// A non-finite mix or cutoff rejects the whole write.
     #[inline]
     pub fn write(&self, enabled: bool, mix: f64, cutoff_hz: f64) {
+        let (Some(mix), Some(cutoff_hz)) = (
+            sanitized(mix, CROSSFEED_MIX_MIN, CROSSFEED_MIX_MAX),
+            sanitized(cutoff_hz, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_CUTOFF_HZ_MAX),
+        ) else {
+            return;
+        };
         self.shared.publish(CrossfeedParamsSnapshot {
             enabled,
-            mix: mix.clamp(0.0, 1.0),
-            cutoff_hz: cutoff_hz.clamp(CROSSFEED_MIN_CUTOFF_HZ, CROSSFEED_MAX_CUTOFF_HZ),
+            mix,
+            cutoff_hz,
         });
     }
 
     #[inline]
     pub fn set_mix(&self, mix: f64) {
+        let Some(mix) = sanitized(mix, CROSSFEED_MIX_MIN, CROSSFEED_MIX_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.mix = mix.clamp(0.0, 1.0);
+            snapshot.mix = mix;
         });
     }
 
     #[inline]
     pub fn set_cutoff(&self, hz: f64) {
+        let Some(hz) = sanitized(hz, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_CUTOFF_HZ_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.cutoff_hz = hz.clamp(CROSSFEED_MIN_CUTOFF_HZ, CROSSFEED_MAX_CUTOFF_HZ);
+            snapshot.cutoff_hz = hz;
         });
     }
 
@@ -809,15 +1043,21 @@ impl AtomicPeakLimiterParams {
 
     #[inline]
     pub fn set_threshold(&self, db: f64) {
+        let Some(db) = sanitized(db, LIMITER_THRESHOLD_DB_MIN, LIMITER_THRESHOLD_DB_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.threshold_db = db.clamp(-20.0, 0.0);
+            snapshot.threshold_db = db;
         });
     }
 
     #[inline]
     pub fn set_release(&self, ms: f64) {
+        let Some(ms) = sanitized(ms, LIMITER_RELEASE_MS_MIN, LIMITER_RELEASE_MS_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.release_ms = ms.clamp(10.0, 1000.0);
+            snapshot.release_ms = ms;
         });
     }
 
@@ -880,10 +1120,15 @@ impl AtomicVolumeParams {
     }
 
     /// Set volume (0.0 = silence, 1.0 = full)
+    ///
+    /// A non-finite value keeps the previous volume.
     #[inline]
     pub fn set_volume(&self, vol: f64) {
+        let Some(vol) = sanitized(vol, VOLUME_MIN, VOLUME_MAX) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.volume = vol.clamp(0.0, 1.0);
+            snapshot.volume = vol;
         });
     }
 
@@ -956,7 +1201,7 @@ impl AtomicNoiseShaperParams {
     pub fn write(&self, enabled: bool, bits: u32, curve: super::dsp::NoiseShaperCurve) {
         self.shared.publish(NoiseShaperParamsSnapshot {
             enabled,
-            bits: bits.clamp(8, 32),
+            bits: bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX),
             curve,
         });
     }
@@ -966,7 +1211,7 @@ impl AtomicNoiseShaperParams {
     #[inline]
     pub fn set_bits(&self, bits: u32) {
         self.shared.update(|snapshot| {
-            snapshot.bits = bits.clamp(8, 32);
+            snapshot.bits = bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX);
         });
     }
 
@@ -1037,12 +1282,28 @@ impl AtomicDynamicLoudnessParams {
 
     /// Publish current listening volume and compensation strength as one
     /// coherent snapshot. `volume` is linear, where 1.0 is 0 dBFS.
+    ///
+    /// A non-finite volume or strength rejects the whole write.
     #[inline]
     pub fn write(&self, enabled: bool, volume: f64, strength: f64) {
+        let (Some(volume), Some(strength)) = (
+            sanitized(
+                volume,
+                DYNAMIC_LOUDNESS_VOLUME_MIN,
+                DYNAMIC_LOUDNESS_VOLUME_MAX,
+            ),
+            sanitized(
+                strength,
+                DYNAMIC_LOUDNESS_STRENGTH_MIN,
+                DYNAMIC_LOUDNESS_STRENGTH_MAX,
+            ),
+        ) else {
+            return;
+        };
         self.shared.publish(DynamicLoudnessParamsSnapshot {
             enabled,
-            volume: volume.clamp(0.0, 1.0),
-            strength: strength.clamp(0.0, 1.0),
+            volume,
+            strength,
             ref_volume_db: None,
         });
     }
@@ -1051,30 +1312,55 @@ impl AtomicDynamicLoudnessParams {
 
     #[inline]
     pub fn set_volume(&self, vol: f64) {
+        let Some(vol) = sanitized(
+            vol,
+            DYNAMIC_LOUDNESS_VOLUME_MIN,
+            DYNAMIC_LOUDNESS_VOLUME_MAX,
+        ) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.volume = vol.clamp(0.0, 1.0);
+            snapshot.volume = vol;
             snapshot.ref_volume_db = None;
         });
     }
 
     /// Set the reference volume in dB and publish the derived linear volume.
+    ///
+    /// The read, the conversion, and the publication all happen inside the
+    /// writer lock, so a concurrent `set_strength`/`set_enabled`/`set_volume`
+    /// cannot be overwritten by a stale snapshot copy.
     #[inline]
     pub fn set_ref_volume_db(&self, db: f64) {
-        let mut snapshot = self.shared.read();
-        if snapshot.ref_volume_db == Some(db) {
+        if !db.is_finite() {
             return;
         }
-        snapshot.ref_volume_db = Some(db);
-        // Convert dB to linear (0dB = 1.0, -20dB = 0.1, etc.)
-        snapshot.volume = 10f64.powf(db / 20.0).clamp(0.0, 1.0);
-        self.shared.publish(snapshot);
+        // Converted here so the guarded closure stays allocation- and math-free
+        // beyond the field assignment.
+        let volume =
+            (10f64.powf(db / 20.0)).clamp(DYNAMIC_LOUDNESS_VOLUME_MIN, DYNAMIC_LOUDNESS_VOLUME_MAX);
+        self.shared.update_if(|snapshot| {
+            if snapshot.ref_volume_db == Some(db) {
+                return false;
+            }
+            snapshot.ref_volume_db = Some(db);
+            snapshot.volume = volume;
+            true
+        });
     }
 
     /// Set strength (0.0 - 1.0)
     #[inline]
     pub fn set_strength(&self, strength: f64) {
+        let Some(strength) = sanitized(
+            strength,
+            DYNAMIC_LOUDNESS_STRENGTH_MIN,
+            DYNAMIC_LOUDNESS_STRENGTH_MAX,
+        ) else {
+            return;
+        };
         self.shared.update(|snapshot| {
-            snapshot.strength = strength.clamp(0.0, 1.0);
+            snapshot.strength = strength;
         });
     }
 
@@ -1102,7 +1388,7 @@ impl_default_via_new!(AtomicDynamicLoudnessParams);
 /// for UI/state query without touching real-time processor internals.
 pub struct AtomicDynamicLoudnessTelemetry {
     factor: AtomicF64,
-    band_gains: [AtomicF64; 7],
+    band_gains: [AtomicF64; LOUDNESS_BANDS_N],
 }
 
 impl AtomicDynamicLoudnessTelemetry {
@@ -1114,7 +1400,7 @@ impl AtomicDynamicLoudnessTelemetry {
     }
 
     #[inline]
-    pub fn update(&self, factor: f64, band_gains: [f64; 7]) {
+    pub fn update(&self, factor: f64, band_gains: [f64; LOUDNESS_BANDS_N]) {
         self.factor.store(factor, Ordering::Release);
         for (dst, gain) in self.band_gains.iter().zip(band_gains.iter().copied()) {
             dst.store(gain, Ordering::Release);
@@ -1127,7 +1413,7 @@ impl AtomicDynamicLoudnessTelemetry {
     }
 
     #[inline]
-    pub fn band_gains(&self) -> [f64; 7] {
+    pub fn band_gains(&self) -> [f64; LOUDNESS_BANDS_N] {
         let _ = self.factor.load(Ordering::Acquire);
         std::array::from_fn(|i| self.band_gains[i].load(Ordering::Relaxed))
     }
@@ -1139,6 +1425,68 @@ impl_default_via_new!(AtomicDynamicLoudnessTelemetry);
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
+
+    /// The snapshot enums and their saturation-module counterparts are two
+    /// hand-written tables. Both directions are exhaustive matches, so a new
+    /// variant fails to compile; this pins that the mapping is also an identity
+    /// rather than merely total.
+    #[test]
+    fn saturation_representations_round_trip() {
+        use crate::processor::{SaturationQuality, SaturationType};
+
+        for domain in [
+            SaturationType::Tape,
+            SaturationType::Tube,
+            SaturationType::Transistor,
+        ] {
+            let value = SaturationTypeValue::from(domain);
+            assert_eq!(SaturationType::from(value), domain);
+        }
+
+        for value in [
+            SaturationTypeValue::Tape,
+            SaturationTypeValue::Tube,
+            SaturationTypeValue::Transistor,
+        ] {
+            let domain = SaturationType::from(value);
+            assert_eq!(SaturationTypeValue::from(domain), value);
+        }
+
+        for domain in [
+            SaturationQuality::Direct,
+            SaturationQuality::Oversampled2x,
+            SaturationQuality::Oversampled4x,
+        ] {
+            let value = SaturationQualityValue::from(domain);
+            assert_eq!(SaturationQuality::from(value), domain);
+        }
+
+        for value in [
+            SaturationQualityValue::Direct,
+            SaturationQualityValue::Oversampled2x,
+            SaturationQualityValue::Oversampled4x,
+        ] {
+            let domain = SaturationQuality::from(value);
+            assert_eq!(SaturationQualityValue::from(domain), value);
+        }
+    }
+
+    /// The telemetry array must stay sized by the model, not by a repeated
+    /// literal, so adding a band cannot silently drop its gain from the readout.
+    #[test]
+    fn dynamic_loudness_telemetry_is_sized_by_the_band_model() {
+        assert_eq!(
+            LOUDNESS_BANDS_N,
+            super::super::dynamic_loudness::LOUDNESS_BANDS.len()
+        );
+
+        let telemetry = AtomicDynamicLoudnessTelemetry::new();
+        let gains = std::array::from_fn::<f64, LOUDNESS_BANDS_N, _>(|i| i as f64 + 1.0);
+        telemetry.update(0.5, gains);
+
+        assert_eq!(telemetry.factor(), 0.5);
+        assert_eq!(telemetry.band_gains(), gains);
+    }
 
     #[test]
     fn test_eq_params_write_read() {
@@ -1195,6 +1543,80 @@ mod tests {
         assert!((snapshot.mix - 0.7).abs() < 1e-10);
         assert_eq!(snapshot.quality, SaturationQualityValue::Oversampled4x);
         assert!(snapshot.enabled);
+    }
+
+    #[test]
+    fn paired_saturation_gains_publish_once_and_reject_non_finite_atomically() {
+        let params = AtomicSaturationParams::new();
+        params.set_gains_db(-4.0, 4.0);
+        let (_, before) = params.load_with_generation();
+
+        params.set_gains_db(-9.0, 9.0);
+        let (snapshot, after) = params.load_with_generation();
+        assert_eq!(after, before + 1, "one paired write is one publication");
+        assert!((snapshot.input_gain_db + 9.0).abs() < 1e-10);
+        assert!((snapshot.output_gain_db - 9.0).abs() < 1e-10);
+
+        params.set_gains_db(f64::NAN, 2.0);
+        params.set_gains_db(2.0, f64::INFINITY);
+        let (snapshot, rejected) = params.load_with_generation();
+        assert_eq!(rejected, after, "a rejected pair must not publish");
+        assert!((snapshot.input_gain_db + 9.0).abs() < 1e-10);
+        assert!((snapshot.output_gain_db - 9.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn reference_volume_writes_cannot_lose_a_concurrent_strength_update() {
+        use std::sync::atomic::AtomicBool as Flag;
+
+        const ITERATIONS: usize = 20_000;
+        let params = Arc::new(AtomicDynamicLoudnessParams::new());
+        // The default snapshot starts at full strength, so seed the floor the
+        // strength writer will climb from.
+        params.set_strength(DYNAMIC_LOUDNESS_STRENGTH_MIN);
+        let stop = Arc::new(Flag::new(false));
+
+        let writer_params = Arc::clone(&params);
+        let reference_writer = std::thread::spawn(move || {
+            for iteration in 0..ITERATIONS {
+                // Alternate so the unchanged-value short circuit does not
+                // silence the writer.
+                writer_params.set_ref_volume_db(if iteration % 2 == 0 { -12.0 } else { -6.0 });
+            }
+        });
+
+        let strength_params = Arc::clone(&params);
+        let strength_writer = std::thread::spawn(move || {
+            for iteration in 1..=ITERATIONS {
+                strength_params.set_strength(iteration as f64 / ITERATIONS as f64);
+            }
+        });
+
+        let observer_params = Arc::clone(&params);
+        let observer_stop = Arc::clone(&stop);
+        let observer = std::thread::spawn(move || {
+            let mut highest = 0.0_f64;
+            while !observer_stop.load(Ordering::Acquire) {
+                let strength = observer_params.read().strength;
+                // Strength is written strictly increasing. A published snapshot
+                // carrying an older strength means a reference-volume write
+                // resurrected a stale copy and lost that update.
+                assert!(
+                    strength >= highest,
+                    "strength regressed from {highest} to {strength}"
+                );
+                highest = strength;
+            }
+        });
+
+        reference_writer.join().unwrap();
+        strength_writer.join().unwrap();
+        stop.store(true, Ordering::Release);
+        observer.join().unwrap();
+
+        let snapshot = params.read();
+        assert!((snapshot.strength - 1.0).abs() < 1e-10);
+        assert!(snapshot.ref_volume_db.is_some());
     }
 
     #[test]
@@ -1316,8 +1738,11 @@ mod tests {
             std::hint::spin_loop();
         }
         start.store(true, Ordering::Release);
+        // The marker must stay inside the published band-gain range, because
+        // `write` now clamps gains so a reader sees what the EQ applies.
         for update in 1..=UPDATES {
-            params.write(&[update as f64; EQ_BANDS], update & 1 == 0);
+            let marker = (update % 15) as f64;
+            params.write(&[marker; EQ_BANDS], (marker as u64) & 1 == 0);
         }
         publishing_done.store(true, Ordering::Release);
 
@@ -1326,7 +1751,7 @@ mod tests {
             generation, UPDATES,
             "reader stopped after {attempts} attempts"
         );
-        assert_eq!(snapshot.gains, [UPDATES as f64; EQ_BANDS]);
+        assert_eq!(snapshot.gains, [(UPDATES % 15) as f64; EQ_BANDS]);
         assert!(snapshot.enabled);
     }
 }

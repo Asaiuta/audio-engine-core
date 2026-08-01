@@ -28,6 +28,12 @@ pub enum NetworkError {
     ConnectionReset,
     /// The server returned a non-success status code.
     HttpStatus(u16),
+    /// The server returned a successful response but ignored a byte-range
+    /// request. Callers may use a bounded full-download fallback.
+    RangeNotSupported { status: u16 },
+    /// The server claimed partial-content support but returned invalid or
+    /// mismatched range metadata/body geometry.
+    InvalidRangeResponse(String),
     /// DNS resolution failed for the request host.
     DnsFailure(String),
     /// The TLS handshake or certificate validation failed.
@@ -47,6 +53,7 @@ impl NetworkError {
         match self {
             NetworkError::HttpTimeout | NetworkError::ConnectionReset => true,
             NetworkError::HttpStatus(status) => matches!(status, 408 | 429 | 500..=504),
+            NetworkError::RangeNotSupported { .. } | NetworkError::InvalidRangeResponse(_) => false,
             NetworkError::DnsFailure(_)
             | NetworkError::TlsError(_)
             | NetworkError::Cancelled
@@ -57,7 +64,10 @@ impl NetworkError {
     pub(super) fn from_io(e: std::io::Error) -> Self {
         match classify_io_error_kind(e.kind()) {
             Some(classified) => classified,
-            None => NetworkError::Other(e.to_string()),
+            // HTTP body I/O errors can wrap dependency errors whose rendered
+            // text is not a stable or secret-free contract. Keep the
+            // structured kind without reflecting the dependency message.
+            None => NetworkError::Other(format!("I/O error ({:?})", e.kind())),
         }
     }
 }
@@ -90,7 +100,11 @@ pub(super) fn network_error_to_decoder_error(error: NetworkError) -> DecoderErro
 
 #[cfg(feature = "http")]
 impl From<reqwest::Error> for NetworkError {
-    fn from(e: reqwest::Error) -> Self {
+    fn from(error: reqwest::Error) -> Self {
+        // reqwest errors may retain the complete request URL, including
+        // userinfo and signed query parameters. Strip it before any branch can
+        // inspect, stringify, store, return, or log the error.
+        let e = error.without_url();
         if e.is_timeout() {
             return NetworkError::HttpTimeout;
         }
@@ -143,6 +157,15 @@ impl std::fmt::Display for NetworkError {
             NetworkError::HttpTimeout => write!(f, "HTTP timeout"),
             NetworkError::ConnectionReset => write!(f, "connection reset"),
             NetworkError::HttpStatus(status) => write!(f, "HTTP status {}", status),
+            NetworkError::RangeNotSupported { status } => {
+                write!(
+                    f,
+                    "server ignored byte-range request (HTTP status {status})"
+                )
+            }
+            NetworkError::InvalidRangeResponse(error) => {
+                write!(f, "invalid HTTP Range response: {error}")
+            }
             NetworkError::DnsFailure(e) => write!(f, "DNS failure: {}", e),
             NetworkError::TlsError(e) => write!(f, "TLS error: {}", e),
             NetworkError::Cancelled => write!(f, "Decode cancelled"),
@@ -152,16 +175,36 @@ impl std::fmt::Display for NetworkError {
 }
 
 /// Cooperative cancellation handle shared with a running decode operation.
-#[derive(Clone, Debug)]
+///
+/// The token owns the cancel protocol: clone it to whichever thread should be
+/// able to stop the decode and call [`Self::cancel`]. Callers do not need to
+/// build or share an `AtomicBool` themselves, and cannot observe or mutate the
+/// flag through any other path.
+#[derive(Clone, Debug, Default)]
 pub struct DecodeCancelToken {
     cancelled: Arc<AtomicBool>,
 }
 
 impl DecodeCancelToken {
-    /// Wrap a shared cancellation flag for use with the decoder open/decode
-    /// entry points.
-    pub fn new(cancelled: Arc<AtomicBool>) -> Self {
+    /// Create a fresh, uncancelled token.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adopt an existing shared cancellation flag.
+    ///
+    /// Only for interoperating with a caller that already owns the flag — for
+    /// example an application-wide task registry. Prefer [`Self::new`], which
+    /// keeps the flag private to the token.
+    pub fn from_flag(cancelled: Arc<AtomicBool>) -> Self {
         Self { cancelled }
+    }
+
+    /// Signal every holder of this token to stop as soon as possible.
+    ///
+    /// Cancellation is one-way; a token cannot be un-cancelled.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
     }
 
     /// Returns `true` once the underlying flag has been set, signalling that
@@ -193,6 +236,18 @@ pub enum DecoderError {
     /// Format probing failed.
     #[error("Probe error: {0}")]
     Probe(String),
+    /// The source kind was recognized but the build does not include the crate
+    /// feature that implements it.
+    ///
+    /// This is a build-configuration outcome, not a property of the media, so it
+    /// is deliberately distinct from [`Self::UnsupportedFormat`] and
+    /// [`Self::Probe`]: retrying, re-encoding, or probing differently can never
+    /// make it succeed.
+    #[error("{source_kind} sources require the `{feature}` feature of audio-engine-core")]
+    FeatureUnavailable {
+        source_kind: &'static str,
+        feature: &'static str,
+    },
     /// The decode was cancelled via a [`DecodeCancelToken`].
     #[error("Decode cancelled")]
     Canceled,

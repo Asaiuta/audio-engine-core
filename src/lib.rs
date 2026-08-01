@@ -11,22 +11,28 @@
 //! ```
 //! use audio_engine_core::Equalizer;
 //!
+//! # fn main() -> Result<(), audio_engine_core::ProcessError> {
 //! let sample_rate = 48_000.0;
 //! let mut eq = Equalizer::new(2, sample_rate);
 //!
-//! // Boost the lowest band by +6 dB, leave the rest flat.
-//! eq.set_band_gain(0, 6.0, sample_rate);
+//! // Boost the lowest band by +6 dB, leave the rest flat. An out-of-range band
+//! // index or a non-finite gain is rejected instead of silently ignored.
+//! eq.set_band_gain(0, 6.0, sample_rate)?;
 //! eq.set_enabled(true);
 //!
 //! // Interleaved L/R samples; `process` filters in place.
 //! let mut buffer = vec![0.1_f64; 2 * 512];
 //! eq.process(&mut buffer);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Callback playback facade
 //!
 //! ```
-//! use audio_engine_core::{CallbackSpec, PlaybackConfig, PlaybackPipeline};
+//! use audio_engine_core::{
+//!     CallbackSpec, PlaybackConfig, PlaybackLifecycleState, PlaybackPipeline,
+//! };
 //!
 //! # fn main() -> Result<(), audio_engine_core::ProcessError> {
 //! let spec = CallbackSpec::stereo(48_000, 512)?;
@@ -37,14 +43,24 @@
 //! // The controller owns the private single-consumer convolver lease and is
 //! // the high-level path for loading impulse responses; its
 //! // `PlaybackParameters` clone is safe to give UI/remote control code.
+//! // A non-finite value is rejected; a finite out-of-range value is clamped.
 //! let parameters = controller.parameters();
-//! parameters.set_volume(0.8);
-//! parameters.set_crossfeed(true, 0.25, 800.0);
+//! parameters.set_volume(0.8)?;
+//! parameters.set_crossfeed(true, 0.25, 800.0)?;
 //!
 //! // Audio callback: handle the typed result without logging or panicking here.
 //! let mut samples = [0.0_f64; 512 * 2];
 //! let progress = pipeline.process(&mut samples)?;
 //! # let _ = progress;
+//!
+//! // Track change from a control thread while the pipeline stays in the
+//! // callback: fade out, drain the tail, then re-arm.
+//! controller.request_stop_with_fade(20)?;
+//! while pipeline.lifecycle_state() != PlaybackLifecycleState::Idle {
+//!     let _ = pipeline.process(&mut samples)?;
+//! }
+//! controller.request_reset();
+//! let _ = pipeline.process(&mut samples)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -102,8 +118,9 @@ pub use config::{LoudnessConfig, NormalizationMode};
 pub use decoder::StreamingDecoder;
 pub use pipeline::{
     CallbackSpec, DynamicLoudnessTelemetry, PlaybackBuilder, PlaybackConfig, PlaybackController,
-    PlaybackCrossfeedConfig, PlaybackDynamicLoudnessConfig, PlaybackNoiseShapingConfig,
-    PlaybackParameters, PlaybackPipeline, PlaybackSaturationConfig, PlaybackTiming, RingBuffer,
+    PlaybackCrossfeedConfig, PlaybackDynamicLoudnessConfig, PlaybackLifecycleState,
+    PlaybackLifecycleStatus, PlaybackNoiseShapingConfig, PlaybackParameters, PlaybackPipeline,
+    PlaybackSaturationConfig, PlaybackTiming, RingBuffer, MAX_STOP_FADE_MS,
 };
 pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,

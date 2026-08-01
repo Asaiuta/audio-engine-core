@@ -5,6 +5,14 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::lockfree_params::{
+    sanitized, NOISE_SHAPER_BITS_MAX, NOISE_SHAPER_BITS_MIN, VOLUME_MAX, VOLUME_MIN,
+};
+use super::traits::{
+    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
+    ProcessError,
+};
+
 const VOLUME_SMOOTHING_TIME_MS: f64 = 20.0;
 const INV_U64_MAX: f64 = 1.0 / u64::MAX as f64;
 
@@ -43,14 +51,19 @@ pub struct VolumeController {
 impl VolumeController {
     /// Create a new VolumeController with default sample rate (44100 Hz)
     pub fn new() -> Self {
-        Self::with_sample_rate(44100)
+        Self::with_valid_sample_rate(44_100)
     }
 
     /// Create a new VolumeController with specified sample rate
     ///
     /// FIX for Defect 36: Calculate smoothing coefficient based on sample rate
     /// to maintain consistent ~20ms smoothing time.
-    pub fn with_sample_rate(sample_rate: u32) -> Self {
+    pub fn with_sample_rate(sample_rate: u32) -> Result<Self, ProcessError> {
+        validate_sample_rate_hz("VolumeController", sample_rate)?;
+        Ok(Self::with_valid_sample_rate(sample_rate))
+    }
+
+    fn with_valid_sample_rate(sample_rate: u32) -> Self {
         // Target: ~20ms smoothing time
         // smoothing = exp(-1 / tau) where tau = samples for 20ms
         let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
@@ -67,17 +80,27 @@ impl VolumeController {
     }
 
     /// Update sample rate (recalculates smoothing coefficient)
-    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+    pub fn set_sample_rate(&mut self, sample_rate: u32) -> Result<(), ProcessError> {
+        validate_sample_rate_hz("VolumeController", sample_rate)?;
         if sample_rate != self.sample_rate {
             self.sample_rate = sample_rate;
             let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
             self.smoothing = (-1.0 / smoothing_samples).exp();
             self.one_minus_smoothing = 1.0 - self.smoothing;
         }
+        Ok(())
     }
 
+    /// Retarget the smoothed callback volume, clamped to the published
+    /// [`VOLUME_MIN`]..=[`VOLUME_MAX`] range.
+    ///
+    /// A non-finite value is dropped rather than clamped: `f64::clamp` passes
+    /// `NaN` through, and a `NaN` target would propagate into every subsequent
+    /// smoothed sample.
     pub fn set_target(&mut self, volume: f64) {
-        self.target = volume.clamp(0.0, 1.0);
+        if let Some(volume) = sanitized(volume, VOLUME_MIN, VOLUME_MAX) {
+            self.target = volume;
+        }
     }
 
     #[inline(always)]
@@ -87,7 +110,13 @@ impl VolumeController {
     }
 
     #[inline]
-    pub fn process(&mut self, buffer: &mut [f64], channels: usize) {
+    pub fn process(&mut self, buffer: &mut [f64], channels: usize) -> Result<(), ProcessError> {
+        let block = AudioBlockMut::new(buffer, channels)?;
+        self.process_validated(block.into_samples(), channels);
+        Ok(())
+    }
+
+    pub(crate) fn process_validated(&mut self, buffer: &mut [f64], channels: usize) {
         let frames = buffer.len() / channels;
         for frame in 0..frames {
             let vol = self.next_volume();
@@ -179,7 +208,7 @@ impl NoiseShaperCurve {
     /// to two integer LSBs, TPDF is strictly below one LSB, and rounding adds
     /// at most half an LSB.
     pub fn quantization_error_bound(self, bits: u32) -> f64 {
-        let bits = bits.clamp(8, 32);
+        let bits = bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX);
         let coefficient_l1 = self
             .coeffs()
             .iter()
@@ -256,10 +285,16 @@ const NOISE_SHAPER_RNG_SEED: u64 = 0x1234_5678_9ABC_DEF0;
 
 impl NoiseShaper {
     /// Create new NoiseShaper with auto-selected curve
-    pub fn new(channels: usize, sample_rate: u32, bits: u32) -> Self {
+    pub fn new(channels: usize, sample_rate: u32, bits: u32) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("NoiseShaper", sample_rate)?;
+        Ok(Self::new_validated(channels, sample_rate, bits))
+    }
+
+    pub(crate) fn new_validated(channels: usize, sample_rate: u32, bits: u32) -> Self {
         let curve = NoiseShaperCurve::auto_select(sample_rate);
         let coeffs = curve.coeffs();
-        let bits = bits.clamp(8, 32);
+        let bits = bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX);
         let (cached_scale, cached_lsb) = Self::scale_for_bits(bits);
 
         Self {
@@ -357,12 +392,14 @@ impl NoiseShaper {
     }
 
     /// Update sample rate (triggers curve auto-selection)
-    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+    pub fn set_sample_rate(&mut self, sample_rate: u32) -> Result<(), ProcessError> {
+        validate_sample_rate_hz("NoiseShaper", sample_rate)?;
         if sample_rate != self.sample_rate {
             self.sample_rate = sample_rate;
             let new_curve = NoiseShaperCurve::auto_select(sample_rate);
             self.set_curve(new_curve);
         }
+        Ok(())
     }
 
     /// xorshift64 PRNG for channel `ch` - fast, deterministic, period 2^64-1
@@ -397,7 +434,18 @@ impl NoiseShaper {
     /// # Returns
     /// * Quantized sample in `[-1, 1 - LSB]` for the selected signed bit depth
     #[inline(always)]
-    pub fn process_sample(&mut self, sample: f64, ch: usize) -> f64 {
+    pub fn process_sample(&mut self, sample: f64, ch: usize) -> Result<f64, ProcessError> {
+        if ch >= self.rng_state.len() {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "NoiseShaper",
+                operation: "process sample",
+                message: "channel index is outside the configured channel count",
+            });
+        }
+        Ok(self.process_sample_validated(sample, ch))
+    }
+
+    fn process_sample_validated(&mut self, sample: f64, ch: usize) -> f64 {
         match self.active_taps {
             0 => self.process_sample_with_taps::<0>(sample, ch),
             5 => self.process_sample_with_taps::<5>(sample, ch),
@@ -545,7 +593,14 @@ impl NoiseShaper {
     }
 
     /// Process a buffer of samples (convenience method)
-    pub fn process(&mut self, buffer: &mut [f64], channels: usize) {
+    pub fn process(&mut self, buffer: &mut [f64], channels: usize) -> Result<(), ProcessError> {
+        let block = AudioBlockMut::new(buffer, channels)?;
+        validate_processor_channels("NoiseShaper", Some(self.rng_state.len()), channels)?;
+        self.process_validated(block.into_samples(), channels);
+        Ok(())
+    }
+
+    pub(crate) fn process_validated(&mut self, buffer: &mut [f64], channels: usize) {
         if !self.enabled {
             return;
         }
@@ -598,6 +653,35 @@ impl NoiseShaper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::traits::AudioBlockError;
+
+    /// A `NaN` target would propagate through the smoother into every later
+    /// sample, so the setter drops a non-finite write instead of clamping it.
+    #[test]
+    fn volume_target_drops_non_finite_writes() {
+        let mut volume = VolumeController::with_sample_rate(48_000).unwrap();
+        volume.set_target(0.5);
+
+        for poison in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            volume.set_target(poison);
+            assert_eq!(volume.target, 0.5, "target survived {poison}");
+        }
+
+        for _ in 0..64 {
+            assert!(volume.next_volume().is_finite());
+        }
+    }
+
+    type NoiseShaperState = (Vec<[f64; 9]>, Vec<[f64; 18]>, Vec<usize>, Vec<u64>);
+
+    fn noise_shaper_state(noise_shaper: &NoiseShaper) -> NoiseShaperState {
+        (
+            noise_shaper.error_history.clone(),
+            noise_shaper.error_history_9tap.clone(),
+            noise_shaper.error_history_9tap_heads.clone(),
+            noise_shaper.rng_state.clone(),
+        )
+    }
 
     fn active_history(ns: &NoiseShaper, ch: usize) -> Vec<f64> {
         match ns.active_taps {
@@ -633,7 +717,7 @@ mod tests {
     #[test]
     fn test_tpdf_distribution() {
         // TPDF should have triangular distribution centered at 0
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
         let n_samples = 100_000;
         let mut sum = 0.0;
         let mut sum_sq = 0.0;
@@ -669,12 +753,12 @@ mod tests {
     #[test]
     fn test_stability_with_full_scale() {
         // Full-scale square wave should not cause error divergence
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
 
         for i in 0..44100 {
             // Alternating full-scale signal (worst case for stability)
             let sample = if i % 2 == 0 { 1.0 } else { -1.0 };
-            let out = ns.process_sample(sample, 0);
+            let out = ns.process_sample_validated(sample, 0);
 
             // Output must stay inside the signed target range.
             let maximum = 1.0 - ns.cached_lsb;
@@ -690,11 +774,11 @@ mod tests {
 
     #[test]
     fn test_curve_switch_clears_history() {
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
 
         // Process some samples to build up error history
         for i in 0..100 {
-            ns.process_sample(0.5 * (i as f64 / 100.0).sin(), 0);
+            ns.process_sample_validated(0.5 * (i as f64 / 100.0).sin(), 0);
         }
 
         // Verify history is non-zero
@@ -712,11 +796,11 @@ mod tests {
 
     #[test]
     fn test_curve_switch_clears_9tap_ring_history() {
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
         ns.set_curve(NoiseShaperCurve::FWeighted9);
 
         for i in 0..100 {
-            ns.process_sample(0.5 * (i as f64 / 100.0).sin(), 0);
+            ns.process_sample_validated(0.5 * (i as f64 / 100.0).sin(), 0);
         }
 
         assert!(ns.error_history_9tap[0].iter().any(|&e| e != 0.0));
@@ -729,14 +813,14 @@ mod tests {
 
     #[test]
     fn very_low_level_input_is_dithered_and_quantized() {
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
         let n_samples = 44100;
         let mut samples = Vec::with_capacity(n_samples);
 
         let low_level = 1.0e-7; // -140 dBFS, below the removed -120 dBFS gate.
 
         for _ in 0..n_samples {
-            samples.push(ns.process_sample(low_level, 0));
+            samples.push(ns.process_sample_validated(low_level, 0));
         }
 
         let non_zero_count = samples.iter().filter(|&&x| x != 0.0).count();
@@ -765,10 +849,10 @@ mod tests {
 
     #[test]
     fn digital_silence_receives_signal_independent_tpdf() {
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
         ns.set_curve(NoiseShaperCurve::TpdfOnly);
         let samples = (0..16_384)
-            .map(|_| ns.process_sample(0.0, 0))
+            .map(|_| ns.process_sample_validated(0.0, 0))
             .collect::<Vec<_>>();
 
         let non_zero = samples.iter().filter(|sample| **sample != 0.0).count();
@@ -786,15 +870,15 @@ mod tests {
             NoiseShaperCurve::ImprovedE9,
             NoiseShaperCurve::TpdfOnly,
         ] {
-            let mut optimized = NoiseShaper::new(2, 44100, 16);
-            let mut legacy = NoiseShaper::new(2, 44100, 16);
+            let mut optimized = NoiseShaper::new_validated(2, 44100, 16);
+            let mut legacy = NoiseShaper::new_validated(2, 44100, 16);
             optimized.set_curve(curve);
             legacy.set_curve(curve);
 
             for frame in 0..256 {
                 for ch in 0..2 {
                     let sample = ((frame * 2 + ch + 1) as f64 * 0.037).sin() * 0.4;
-                    let optimized_out = optimized.process_sample(sample, ch);
+                    let optimized_out = optimized.process_sample_validated(sample, ch);
                     let legacy_out = legacy_process_sample(&mut legacy, sample, ch);
 
                     assert_eq!(
@@ -820,12 +904,12 @@ mod tests {
 
     #[test]
     fn test_tpdf_only_does_not_update_error_history() {
-        let mut ns = NoiseShaper::new(1, 96_000, 24);
+        let mut ns = NoiseShaper::new_validated(1, 96_000, 24);
         ns.set_curve(NoiseShaperCurve::TpdfOnly);
 
         for i in 0..128 {
             let sample = ((i + 1) as f64 * 0.031).sin() * 0.5;
-            let _ = ns.process_sample(sample, 0);
+            let _ = ns.process_sample_validated(sample, 0);
         }
 
         assert!(ns.error_history[0].iter().all(|&e| e == 0.0));
@@ -833,16 +917,16 @@ mod tests {
 
     #[test]
     fn test_noise_shaper_non_finite_recovery_is_channel_local() {
-        let mut ns = NoiseShaper::new(2, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(2, 44100, 24);
 
         for _ in 0..16 {
-            ns.process_sample(0.25, 0);
-            ns.process_sample(-0.25, 1);
+            ns.process_sample_validated(0.25, 0);
+            ns.process_sample_validated(-0.25, 1);
         }
         assert!(ns.error_history[0].iter().any(|&e| e != 0.0));
         assert!(ns.error_history[1].iter().any(|&e| e != 0.0));
 
-        assert_eq!(ns.process_sample(f64::NAN, 0), 0.0);
+        assert_eq!(ns.process_sample_validated(f64::NAN, 0), 0.0);
 
         assert!(ns.error_history[0].iter().all(|&e| e == 0.0));
         assert!(ns.error_history[1].iter().any(|&e| e != 0.0));
@@ -850,17 +934,17 @@ mod tests {
 
     #[test]
     fn test_noise_shaper_9tap_non_finite_recovery_is_channel_local() {
-        let mut ns = NoiseShaper::new(2, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(2, 44100, 24);
         ns.set_curve(NoiseShaperCurve::FWeighted9);
 
         for _ in 0..16 {
-            ns.process_sample(0.25, 0);
-            ns.process_sample(-0.25, 1);
+            ns.process_sample_validated(0.25, 0);
+            ns.process_sample_validated(-0.25, 1);
         }
         assert!(ns.error_history_9tap[0].iter().any(|&e| e != 0.0));
         assert!(ns.error_history_9tap[1].iter().any(|&e| e != 0.0));
 
-        assert_eq!(ns.process_sample(f64::INFINITY, 0), 0.0);
+        assert_eq!(ns.process_sample_validated(f64::INFINITY, 0), 0.0);
 
         assert!(ns.error_history_9tap[0].iter().all(|&e| e == 0.0));
         assert_eq!(ns.error_history_9tap_heads[0], 0);
@@ -869,7 +953,7 @@ mod tests {
 
     #[test]
     fn test_noise_shaper_cached_scale_updates_with_bits() {
-        let mut ns = NoiseShaper::new(1, 44100, 24);
+        let mut ns = NoiseShaper::new_validated(1, 44100, 24);
         assert_eq!(ns.cached_scale, 2.0_f64.powi(23));
         assert_eq!(ns.cached_lsb, 1.0 / 2.0_f64.powi(23));
 
@@ -887,16 +971,16 @@ mod tests {
     #[test]
     fn test_channel_dither_streams_use_independent_seeds() {
         // Same channel is reproducible across fresh instances (deterministic seed).
-        let mut a = NoiseShaper::new(2, 44_100, 24);
-        let mut b = NoiseShaper::new(2, 44_100, 24);
+        let mut a = NoiseShaper::new_validated(2, 44_100, 24);
+        let mut b = NoiseShaper::new_validated(2, 44_100, 24);
         assert_eq!(a.tpdf(0).to_bits(), b.tpdf(0).to_bits());
 
         // Different channels must draw from independently seeded streams. A single
         // shared RNG would make channel 1's first draw equal channel 0's, leaving
         // the two channels' dither correlated.
-        let mut c = NoiseShaper::new(2, 44_100, 24);
+        let mut c = NoiseShaper::new_validated(2, 44_100, 24);
         let ch0_first = c.tpdf(0);
-        let mut d = NoiseShaper::new(2, 44_100, 24);
+        let mut d = NoiseShaper::new_validated(2, 44_100, 24);
         let ch1_first = d.tpdf(1);
         assert!(
             (ch0_first - ch1_first).abs() > 1e-12,
@@ -906,10 +990,10 @@ mod tests {
 
     #[test]
     fn test_volume_controller_one_minus_smoothing_updates_with_sample_rate() {
-        let mut volume = VolumeController::with_sample_rate(44_100);
+        let mut volume = VolumeController::with_valid_sample_rate(44_100);
         let initial = volume.one_minus_smoothing;
 
-        volume.set_sample_rate(96_000);
+        volume.set_sample_rate(96_000).unwrap();
 
         assert_ne!(volume.one_minus_smoothing, initial);
         assert_eq!(volume.one_minus_smoothing, 1.0 - volume.smoothing);
@@ -925,14 +1009,14 @@ mod tests {
             NoiseShaperCurve::ImprovedE9,
             NoiseShaperCurve::TpdfOnly,
         ] {
-            let mut ns = NoiseShaper::new(1, 44100, 24);
+            let mut ns = NoiseShaper::new_validated(1, 44100, 24);
             ns.set_curve(curve);
 
             // Process 1 second of full-scale sine wave
             for i in 0..44100 {
                 let t = i as f64 / 44100.0;
                 let sample = 0.9 * (2.0 * std::f64::consts::PI * 440.0 * t).sin();
-                let out = ns.process_sample(sample, 0);
+                let out = ns.process_sample_validated(sample, 0);
                 assert!(out.abs() <= 1.0, "Curve {:?} diverged: {}", curve, out);
             }
         }
@@ -947,7 +1031,7 @@ mod tests {
             NoiseShaperCurve::ImprovedE9,
             NoiseShaperCurve::TpdfOnly,
         ] {
-            let mut ns = NoiseShaper::new(1, 44_100, 16);
+            let mut ns = NoiseShaper::new_validated(1, 44_100, 16);
             ns.set_curve(curve);
             let maximum = 1.0 - ns.cached_lsb;
             let mut seed = 0xD1B5_4A32_D192_ED03_u64;
@@ -965,7 +1049,7 @@ mod tests {
                     4 => -4.0,
                     _ => unit * 2.4 - 1.2,
                 };
-                let output = ns.process_sample(sample, 0);
+                let output = ns.process_sample_validated(sample, 0);
                 assert!(output.is_finite(), "{curve:?} produced {output} at {index}");
                 assert!(
                     (-1.0..=maximum).contains(&output),
@@ -977,18 +1061,149 @@ mod tests {
 
     #[test]
     fn noise_shaper_processing_is_allocation_free_after_setup() {
-        let mut ns = NoiseShaper::new(2, 48_000, 24);
+        let mut ns = NoiseShaper::new_validated(2, 48_000, 24);
         ns.set_curve(NoiseShaperCurve::ImprovedE9);
         let mut buffer = vec![0.0; 512 * 2];
         for (index, sample) in buffer.iter_mut().enumerate() {
             *sample = ((index + 1) as f64 * 0.017).sin() * 0.9;
         }
-        ns.process(&mut buffer, 2);
+        ns.process_validated(&mut buffer, 2);
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..32 {
-                ns.process(&mut buffer, 2);
+                ns.process_validated(&mut buffer, 2);
             }
         });
+    }
+
+    #[test]
+    fn raw_volume_geometry_rejection_is_atomic_and_allocation_free() {
+        assert!(matches!(
+            VolumeController::with_sample_rate(0),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "VolumeController",
+                sample_rate_hz: 0,
+            })
+        ));
+
+        let mut volume = VolumeController::with_sample_rate(48_000).unwrap();
+        volume.set_target(0.25);
+        let mut warm = [0.5; 8];
+        volume.process(&mut warm, 2).unwrap();
+        let state = (
+            volume.current.to_bits(),
+            volume.smoothing.to_bits(),
+            volume.one_minus_smoothing.to_bits(),
+            volume.sample_rate,
+        );
+
+        let mut zero_channels = [0.25; 4];
+        let zero_channels_before = zero_channels;
+        let mut incomplete = [0.25; 3];
+        let incomplete_before = incomplete;
+        assert_no_alloc::assert_no_alloc(|| {
+            assert_eq!(
+                volume.process(&mut zero_channels, 0),
+                Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+            );
+            assert_eq!(
+                volume.process(&mut incomplete, 2),
+                Err(ProcessError::InvalidBlock(
+                    AudioBlockError::IncompleteFrame {
+                        samples: 3,
+                        channels: 2,
+                    }
+                ))
+            );
+            assert_eq!(
+                volume.set_sample_rate(0),
+                Err(ProcessError::InvalidSampleRate {
+                    processor: "VolumeController",
+                    sample_rate_hz: 0,
+                })
+            );
+        });
+
+        assert_eq!(zero_channels, zero_channels_before);
+        assert_eq!(incomplete, incomplete_before);
+        assert_eq!(
+            (
+                volume.current.to_bits(),
+                volume.smoothing.to_bits(),
+                volume.one_minus_smoothing.to_bits(),
+                volume.sample_rate,
+            ),
+            state
+        );
+    }
+
+    #[test]
+    fn raw_noise_shaper_rejects_invalid_setup_and_block_geometry_atomically() {
+        assert!(matches!(
+            NoiseShaper::new(0, 48_000, 24),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            NoiseShaper::new(2, 0, 24),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "NoiseShaper",
+                sample_rate_hz: 0,
+            })
+        ));
+
+        let mut noise_shaper = NoiseShaper::new(2, 48_000, 24).unwrap();
+        let mut warm = [0.25, -0.25, 0.5, -0.5];
+        noise_shaper.process(&mut warm, 2).unwrap();
+        let state = noise_shaper_state(&noise_shaper);
+
+        let mut zero_channels = [0.25; 4];
+        let zero_channels_before = zero_channels;
+        let mut incomplete = [0.25; 3];
+        let incomplete_before = incomplete;
+        let mut mismatch = [0.25; 4];
+        let mismatch_before = mismatch;
+        assert_no_alloc::assert_no_alloc(|| {
+            assert_eq!(
+                noise_shaper.process(&mut zero_channels, 0),
+                Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+            );
+            assert_eq!(
+                noise_shaper.process(&mut incomplete, 2),
+                Err(ProcessError::InvalidBlock(
+                    AudioBlockError::IncompleteFrame {
+                        samples: 3,
+                        channels: 2,
+                    }
+                ))
+            );
+            assert_eq!(
+                noise_shaper.process(&mut mismatch, 1),
+                Err(ProcessError::ChannelCountMismatch {
+                    processor: "NoiseShaper",
+                    expected_channels: 2,
+                    actual_channels: 1,
+                })
+            );
+            assert!(matches!(
+                noise_shaper.process_sample(0.25, 2),
+                Err(ProcessError::InvalidGeometry {
+                    processor: "NoiseShaper",
+                    operation: "process sample",
+                    ..
+                })
+            ));
+            assert_eq!(
+                noise_shaper.set_sample_rate(0),
+                Err(ProcessError::InvalidSampleRate {
+                    processor: "NoiseShaper",
+                    sample_rate_hz: 0,
+                })
+            );
+        });
+
+        assert_eq!(zero_channels, zero_channels_before);
+        assert_eq!(incomplete, incomplete_before);
+        assert_eq!(mismatch, mismatch_before);
+        assert_eq!(noise_shaper_state(&noise_shaper), state);
     }
 }

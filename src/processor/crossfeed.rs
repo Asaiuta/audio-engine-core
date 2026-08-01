@@ -13,6 +13,8 @@
 //! The reference profile uses a 4.5 dB low-frequency feed level. `mix` is the
 //! dry/reference strength, not a mislabeled raw cross-channel coefficient.
 
+use super::lockfree_params::{CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN};
+
 const DEFAULT_SAMPLE_RATE_HZ: f64 = 44_100.0;
 pub(super) const DEFAULT_CUTOFF_HZ: f64 = 700.0;
 pub(super) const DEFAULT_MIX: f64 = 0.35;
@@ -246,7 +248,7 @@ impl Crossfeed {
 
     fn sanitize_mix(mix: f64) -> f64 {
         if mix.is_finite() {
-            mix.clamp(0.0, 1.0)
+            mix.clamp(CROSSFEED_MIX_MIN, CROSSFEED_MIX_MAX)
         } else {
             DEFAULT_MIX
         }

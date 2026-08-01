@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Review against backend routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Verify one control operation yields exactly one coherent callback-visible snapshot."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"Verify the adopted snapshot cannot mix fields from two different control writes."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify non-finite paired input still rejects without publishing."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run and interpret complete quality gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review the new publisher for reuse of the existing guarded update primitive."}
+{"file":".trellis/tasks/07-29-publish-paired-control-updates-as-one-coherent-snapshot/research/revalidation-and-refactor.md","reason":"Check implementation against adopted and explicitly rejected refactors."}

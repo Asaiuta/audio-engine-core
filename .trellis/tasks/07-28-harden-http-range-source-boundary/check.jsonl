@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend quality gate and supported feature paths."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review typed protocol errors, non-retriable classification, and feature gating."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review evidence quality and required formatting, lint, and test matrices."}
+{"file":".trellis/tasks/07-28-harden-http-range-source-boundary/prd.md","reason":"Acceptance criteria and deliberately bounded scope for the first audit remediation."}
+{"file":".trellis/tasks/07-28-harden-http-range-source-boundary/research/range-response-contract.md","reason":"Source-backed protocol contract and adversarial fixture matrix."}

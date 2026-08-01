@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Review the change against the backend ownership map."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Verify valid and rejected callback paths remain realtime-safe."}
+{"file":".trellis/spec/backend/streaming-lifecycle.md","reason":"Verify zero, incomplete, and mismatch errors match the canonical block contract."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"Verify rejected calls do not partially mutate samples or DSP history."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify errors remain typed and allocation-free on the hot path."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run both supported strict Clippy/test matrices and focused regressions."}
+{"file":".trellis/tasks/07-29-harden-raw-dsp-geometry-boundaries/research/geometry-boundary-revalidation.md","reason":"Check implementation and refactor scope against the revalidated evidence."}

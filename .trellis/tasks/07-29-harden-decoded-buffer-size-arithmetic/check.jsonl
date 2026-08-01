@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/index.md","reason":"Review against backend routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/decoder-correctness.md","reason":"Verify decoder geometry, failure behavior, and both supported test matrices."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify failures remain typed and feature-compatible."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Verify fixed staging and decode-side allocation ownership remain intact."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Verify implementation remains within the decoder/diagnostics owners."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run and interpret complete quality gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review whether the abstraction removes real duplication without over-generalizing."}
+{"file":".trellis/tasks/07-29-harden-decoded-buffer-size-arithmetic/research/revalidation-and-refactor.md","reason":"Check implementation against adopted and explicitly rejected refactors."}

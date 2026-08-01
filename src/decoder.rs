@@ -3,6 +3,7 @@
 //! The public `crate::decoder::*` API stays here while implementation details
 //! live in focused submodules.
 
+mod channel_layout;
 mod error;
 mod metadata;
 mod source;

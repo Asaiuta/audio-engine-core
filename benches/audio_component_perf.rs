@@ -275,18 +275,28 @@ fn benchmark_spectrum(
     let mut samples = Vec::with_capacity(trials);
     let mut checksum = 0.0;
     for _ in 0..trials {
-        let mut analyzer = SpectrumAnalyzer::new(fft_size, bins);
-        black_box(analyzer.analyze(&input, SAMPLE_RATE_HZ));
+        let mut analyzer =
+            SpectrumAnalyzer::new(fft_size, bins).map_err(|error| error.to_string())?;
+        black_box(
+            analyzer
+                .analyze(&input, SAMPLE_RATE_HZ)
+                .map_err(|error| error.to_string())?,
+        );
         let start = Instant::now();
         for iteration in 0..iterations {
-            let output = analyzer.analyze(black_box(&input), SAMPLE_RATE_HZ);
+            let output = analyzer
+                .analyze(black_box(&input), SAMPLE_RATE_HZ)
+                .map_err(|error| error.to_string())?;
             checksum += f64::from(output[iteration % output.len()]);
             black_box(output);
         }
         samples.push(ns_per_work(start, iterations * fft_size));
     }
-    let mut validation_analyzer = SpectrumAnalyzer::new(fft_size, bins);
-    let validation = validation_analyzer.analyze(&input, SAMPLE_RATE_HZ);
+    let mut validation_analyzer =
+        SpectrumAnalyzer::new(fft_size, bins).map_err(|error| error.to_string())?;
+    let validation = validation_analyzer
+        .analyze(&input, SAMPLE_RATE_HZ)
+        .map_err(|error| error.to_string())?;
     let finite = validation.iter().all(|value| value.is_finite());
     let nontrivial = validation.iter().any(|value| *value > 0.0);
     component_case(ComponentCaseInput {

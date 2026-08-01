@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend spec routing and crate-wide invariants."}
+{"file":".trellis/spec/backend/realtime-safety.md","reason":"Control-to-callback snapshot publication contract and hot-path prohibitions."}
+{"file":".trellis/spec/backend/dsp-state-correctness.md","reason":"Config publication and adopted control-snapshot contracts for stateful stages."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed rejection policy for the paired-gain validation path."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Required supported feature, Clippy, and evidence gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse SharedParams::update instead of inventing a second publication primitive."}
+{"file":".trellis/tasks/07-28-codebase-maintainability-audit/research/01-public-api-and-control-boundaries.md","reason":"Original audit finding 10 evidence and remediation direction."}

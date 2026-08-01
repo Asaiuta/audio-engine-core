@@ -31,8 +31,8 @@
 //! ```
 
 use super::traits::{
-    finish_checked, process_checked, AudioBlockMut, FrameDuration, ProcessBuffers, ProcessError,
-    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    finish_checked, process_checked, validate_sample_rate_hz, AudioBlockMut, FrameDuration,
+    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 /// Policy used by [`DspChain::finish`] for processors with asymptotic tails.
@@ -60,7 +60,12 @@ impl ChainFinishPolicy {
         }
     }
 
-    fn validate(self) -> Result<Self, ProcessError> {
+    /// Reject a policy that cannot bound a tail.
+    ///
+    /// Exposed to the crate so a builder can reject a preset before any DSP
+    /// state exists; the first [`DspChain::finish_with_policy`] call still
+    /// validates, because a chain can also be driven directly.
+    pub(crate) fn validate(self) -> Result<Self, ProcessError> {
         if !self.energy_threshold_dbfs.is_finite() || self.energy_threshold_dbfs > 0.0 {
             return Err(ProcessError::InvalidRenderPolicy {
                 message: "chain finish energy threshold must be finite and no greater than 0 dBFS",
@@ -95,6 +100,16 @@ impl Default for ChainFinishPolicy {
 ///
 /// Manages multiple audio processors in sequence.
 /// All processors share the same buffer, processed in-place.
+///
+/// # Accepted processor class
+///
+/// The chain drives one fixed in-place 1:1 topology at a single sample rate. It
+/// owns no variable-rate scratch buffer, by design: allocating one would break
+/// the callback's allocation-free contract. [`Self::add`] therefore only accepts
+/// a processor that maps the chain rate to itself, so a rate-transforming stage
+/// is rejected at build time instead of failing inside the audio callback. The
+/// offline [`OutputRenderChain`](super::output_chain::OutputRenderChain) owns the
+/// resampler boundary.
 pub struct DspChain {
     /// Processors in execution order
     processors: Vec<Box<dyn StreamingProcessor>>,
@@ -147,10 +162,31 @@ impl DspChain {
         }
     }
 
-    /// Add a processor to the end of the chain
-    pub fn add<P: StreamingProcessor + 'static>(&mut self, processor: P) -> &mut Self {
+    /// Add a processor to the end of the chain.
+    ///
+    /// Rejects a processor the chain cannot honor, rather than accepting it and
+    /// failing later on the audio thread:
+    ///
+    /// - a chain whose sample rate is zero, because no stage timing could then
+    ///   be expressed in a frame domain;
+    /// - a stage that does not map the chain rate to itself, because the chain
+    ///   drives a fixed in-place 1:1 topology (see the type-level docs).
+    pub fn add<P: StreamingProcessor + 'static>(
+        &mut self,
+        processor: P,
+    ) -> Result<&mut Self, ProcessError> {
+        validate_sample_rate_hz("DspChain", self.sample_rate_hz)?;
+        let stage_output_rate = processor.output_sample_rate_hz(self.sample_rate_hz)?;
+        if stage_output_rate != self.sample_rate_hz {
+            return Err(ProcessError::UnsupportedOperation {
+                processor: processor.name(),
+                operation: "DspChain::add",
+                message: "DspChain drives a fixed in-place 1:1 topology at one rate; a \
+                          rate-transforming stage belongs in the offline OutputRenderChain",
+            });
+        }
         self.processors.push(Box::new(processor));
-        self
+        Ok(self)
     }
 
     /// Process audio through all processors
@@ -544,6 +580,13 @@ impl DspChain {
 
     /// Composed semantic tail. Unknown/infinite tails dominate finite sums.
     pub fn tail(&self) -> TailSpec {
+        // A chain with no stages has no tail. Deriving this from the frame
+        // arithmetic below would instead report `Unknown` whenever the chain
+        // rate is zero, which reads as "an unbounded tail" rather than "nothing
+        // to drain".
+        if self.processors.is_empty() {
+            return TailSpec::None;
+        }
         let mut finite_frames = 0.0_f64;
         for processor in &self.processors {
             match processor.tail() {
