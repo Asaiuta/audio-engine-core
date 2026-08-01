@@ -14,8 +14,12 @@ Cargo.lock
 .agents/
 .claude/
 .codex/
+.pi-subagents/
 .snow/
 AGENTS.md
+
+# Scratch space for local tooling runs (semver baselines, throwaway artifacts).
+/.tmp/
 
 # Optional local EBU Tech 3341/3342 reference corpus. The quality benchmark
 # discovers this checkout at libebur128/test, but the corpus is not distributed
