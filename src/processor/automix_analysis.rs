@@ -84,13 +84,13 @@ pub struct AutomixAnalysis {
     pub mix_center_pos: f64,
     pub mix_start_pos: f64,
     pub mix_end_pos: f64,
-    /// Whole-track energy envelope, one slot per [`ENERGY_PROFILE_RATE`]
-    /// seconds, indexed by absolute track time.
+    /// Whole-track energy envelope at the fixed internal `ENERGY_PROFILE_RATE`
+    /// of 10 slots per second, indexed by absolute track time.
     ///
     /// Only the analyzed head and tail windows carry evidence; the interval
     /// between them stays zero. The length follows [`Self::duration`], which is
-    /// itself bounded by [`MAX_DECLARED_DURATION_SEC`], so a file declaring an
-    /// absurd duration cannot size this vector.
+    /// itself bounded by an internal 24-hour `MAX_DECLARED_DURATION_SEC` cap, so
+    /// a file declaring an absurd duration cannot size this vector.
     pub energy_profile: Vec<f64>,
     pub drop_pos: Option<f64>,
     pub vocal_in_pos: Option<f64>,
