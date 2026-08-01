@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Owns the CI gate matrix, the release checklist, and the supported feature-set invariant that the new baseline and MSRV jobs must extend rather than contradict."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Establishes where tests and committed artifacts belong, so the baseline snapshots land in the layout this crate already documents."}
