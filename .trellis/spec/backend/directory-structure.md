@@ -22,11 +22,15 @@ src/
 ├── config.rs         # LoudnessConfig, NormalizationMode
 ├── decoder.rs        # decoder module root (StreamingDecoder)
 ├── diagnostics.rs    # diagnostic helpers
-├── pipeline.rs       # RingBuffer streaming primitive
-├── runtime.rs        # runtime helpers
+├── pipeline.rs       # PlaybackPipeline callback facade, PlaybackBuilder/Controller/
+│                     #   Parameters, lifecycle channel, RingBuffer
+├── runtime.rs        # runtime helpers (audio_thread_init)
 ├── decoder/
+│   ├── channel_layout.rs # Symphonia channel metadata -> domain layout adapter
 │   ├── error.rs      # DecoderError, NetworkError, DecodeCancelToken
-│   ├── source.rs     # input sources (local file, optional http)
+│   ├── source.rs     # MediaLocation + local/remote source entry coordination
+│   ├── source/
+│   │   └── http.rs  # optional HTTP Range trust boundary + bounded fallback
 │   ├── streaming.rs  # StreamingDecoder: probe, decode_next(_into), seek, gapless trim
 │   ├── metadata.rs   # stream info / metadata extraction
 │   └── tests.rs      # decoder unit tests
@@ -35,14 +39,29 @@ src/
     ├── dsp.rs        # db<->linear, VolumeController, NoiseShaper
     ├── eq.rs         # 10-band IIR (BiquadSection, Equalizer)
     ├── fir_eq.rs     # FIR EQ design (FirEq, FirPhaseMode, STANDARD_BANDS)
+    ├── fir_design.rs # minimum-phase FIR design helpers
     ├── crossfeed.rs  # Bauer binaural crossfeed
     ├── saturation.rs # tape/tube/transistor waveshaping + highpass exciter + optional oversampled antialiasing
+    ├── saturation/
+    │   └── tests.rs
     ├── convolver.rs  # FFTConvolver: overlap-save short IRs + partitioned long IRs
+    ├── convolver/
+    │   └── tests.rs
     ├── dynamic_loudness.rs # ISO 226 Fletcher-Munson compensation
+    ├── dynamic_loudness/
+    │   └── tests.rs
     ├── spectrum.rs   # FFT spectrum analyzer
-    ├── resampler.rs  # SoX VHQ Resampler / StreamingResampler
+    ├── resampler/    # Resampler / StreamingResampler facade + backends
+    │   ├── mod.rs                          # public facade, engine dispatch, sizing helpers
+    │   ├── soxr_backend.rs                 # optional `soxr` feature
+    │   ├── rubato_backend.rs               # optional `rubato` feature
+    │   ├── halfband_backend.rs             # specialized 2x paths
+    │   ├── polyphase_backend.rs            # slow reference oracle
+    │   ├── contiguous_polyphase_backend.rs # contiguous-ring polyphase
+    │   └── spectral_backend.rs             # spectral nonlinear route
     ├── automix_analysis.rs # offline automix analysis
-    ├── lockfree_params.rs  # atomic parameter snapshots (RT boundary)
+    ├── lockfree_params.rs  # atomic parameter snapshots (RT boundary) + published
+    │                       #   control ranges and the shared `sanitized` policy
     ├── adapters.rs   # shared fixed-stage helpers + non-Convolver adapters
     ├── adapters/
     │   ├── convolver.rs          # Convolver RT state machine
@@ -52,14 +71,22 @@ src/
     │   │   └── tests.rs          # private ownership/lifecycle races
     │   └── tests.rs              # remaining adapter tests
     ├── downmix.rs    # Downmixer + DownmixCoefficients (pre-chain layout mapping)
-    ├── dsp_chain.rs  # DspChain: composable processing chain
+    ├── dsp_chain.rs  # DspChain: fixed in-place 1:1 callback chain + finish policy
+    ├── dsp_chain/
+    │   └── tests.rs
+    ├── output_chain.rs # canonical stage manifest, OutputChainBuilder,
+    │                   #   OutputRenderChain (offline), OfflineRenderPolicy
+    ├── output_chain/
+    │   └── tests.rs
     ├── traits.rs     # StreamingProcessor lifecycle, block/progress/timing/error types
+    ├── traits/
+    │   └── tests.rs
     ├── loudness_db.rs        # optional `loudness-db` feature (SQLite)
     ├── loudness.rs   # loudness module root + public re-exports
     └── loudness/
         ├── meter.rs      # EBU R128 LoudnessMeter + TruePeakDetector
         ├── normalizer.rs # LoudnessNormalizer
-        ├── limiter.rs    # PeakLimiter (lookahead sample-peak; see audit)
+        ├── limiter.rs    # PeakLimiter (lookahead; selectable true-peak/sample-peak)
         ├── ramp.rs       # GainRamp
         ├── info.rs       # LoudnessInfo
         └── atomic_state.rs # AtomicLoudnessState

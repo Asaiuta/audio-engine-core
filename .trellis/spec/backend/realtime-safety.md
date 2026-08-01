@@ -98,6 +98,49 @@ The following are **forbidden** inside the hot path:
 - Recomputing coefficients on a parameter change — but do it on the control
   thread / on the snapshot swap, not per sample.
 
+## Audio-Thread Floating-Point Initialization
+
+`runtime::audio_thread_init()` is part of the realtime boundary because callers
+invoke it from the actual callback/playback thread. Its public signature stays
+infallible and idempotent on every target, but the compiled work is
+architecture-specific:
+
+- x86/x86_64 and aarch64 compile a thread-local once gate around the existing
+  MXCSR/FPCR register update. The gate, register read, and register write must
+  remain allocation-free, lock-free, I/O-free, panic-free, and logging-free.
+- Other architectures compile the initializer to an empty body and do not
+  compile its TLS flag. Per-sample correctness comes from the existing
+  `flush_subnormal_sample` software fallback, which maps finite subnormal `f64`
+  values to zero.
+- Do not emit an unsupported-target warning from this function or a private
+  helper it calls. If an application eventually needs a capability notice, it
+  belongs in an explicit control/setup-side query with a real consumer, not in
+  the callback initializer.
+- Supported-target tests call the initializer twice and assert the hardware
+  mode remains enabled. Unsupported-target cfg tests assert repeated init is a
+  no-op, hardware mode reports false, and the software flush still handles a
+  smallest-positive subnormal.
+
+Wrong:
+
+```rust
+fn set_audio_thread_float_mode() {
+    log::warn!("unsupported"); // formatting/dispatch on the callback
+}
+```
+
+Correct:
+
+```rust
+pub fn audio_thread_init() {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+    AUDIO_THREAD_FLOAT_MODE_INITIALIZED.with(|initialized| {
+        // one register update per actual audio thread
+    });
+    // unsupported target: empty compiled body; software sample flush remains
+}
+```
+
 ## How Parameters Cross The Boundary
 
 Tunable parameters are pushed into the callback without locks via the atomic
@@ -109,6 +152,34 @@ about 13 ns on the recorded Windows/x86_64 environment and materially faster
 than rebuilding a split-atomic snapshot; see `audio_lockfree_params_perf`.
 Control/reporting code may retain the `ArcSwap` `load` APIs. New callback
 tunables must use the realtime reader rather than acquiring an ArcSwap guard.
+
+### One Validation Policy For Both Parameter Layers
+
+`f64::clamp` returns `NaN` unchanged. A `NaN` that reaches a filter, smoother,
+or coefficient does not merely produce one bad sample — it poisons that stage's
+history for the rest of the stream, and no later in-range write repairs it. So
+clamping alone is never sufficient validation for a control value.
+
+The single shared policy is `lockfree_params::sanitized(value, min, max)`:
+reject non-finite input, clamp the rest into the published range. It is
+`pub(crate)` precisely so the standalone DSP cores use the same policy as the
+atomic publishers, instead of each core re-encoding bounds.
+
+- **Infallible setter** (`fn set_x(&mut self, v: f64)`, and every atomic
+  publisher) — drop a non-finite write and keep the previous value. Silence is
+  correct here: these are callback-adjacent and cannot return an error.
+- **Fallible setter** (`fn set_x(...) -> Result<(), ProcessError>`, e.g.
+  `Equalizer::set_band_gain`) — report the rejection with
+  `ProcessError::InvalidParameter`. Do not clamp an out-of-range *index*; that
+  would edit a different band than the caller asked for.
+- **Published range vs core range** — the constants in `lockfree_params.rs`
+  bound what a *facade user* may request. A core may still be driven outside
+  them by internal machinery, and clamping in the core would silently break
+  that. `PeakLimiter::set_threshold` is the worked example: the intersample-peak
+  guard subtracts its additive bound from the user's ceiling, so the core
+  legitimately receives a value below `LIMITER_THRESHOLD_DB_MIN`. Cores whose
+  range genuinely is the published one (saturation, volume, crossfeed, dynamic
+  loudness) must import the constants rather than repeat the literals.
 
 ## Verifying
 

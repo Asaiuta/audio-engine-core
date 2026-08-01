@@ -1099,8 +1099,10 @@ engine.process_fft_adapters(&input, &mut output, Some(&indexing))?;
 - [ ] Hot path: no alloc/lock/log/IO/panic/unbounded work.
 - [ ] Claims in docs/README backed by a test, current bench output, or a
       limitation note.
-- [ ] Feature-gated code builds under `--no-default-features` and each feature
-      toggled individually.
+- [ ] Feature-gated code builds with each optional feature toggled individually
+      on top of a minimal resampler backend (`--no-default-features --features
+      rubato[,...]`). Bare `--no-default-features` must still fail the backend
+      guard; see the Testing Requirements section.
 - [ ] New tunables use the lock-free snapshot mechanism.
 - [ ] Tests cover continuity/reset/edge cases, plus a no-alloc assertion.
 
@@ -1118,11 +1120,15 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 
 ### 2. Signatures
 
-- Feature checks:
+- Feature checks. Every combination carries a resampler backend, because
+  enabling neither is a deliberate compile error rather than a supported build:
   - `cargo build`
-  - `cargo build --no-default-features`
-  - `cargo build --no-default-features --features http`
-  - `cargo build --no-default-features --features loudness-db`
+  - `cargo build --no-default-features --features rubato`
+  - `cargo build --no-default-features --features soxr`
+  - `cargo build --no-default-features --features rubato,http`
+  - `cargo build --no-default-features --features rubato,loudness-db`
+  - `cargo build --no-default-features` — must fail on the missing-backend
+    guard. A successful build here means the guard regressed.
 - Docs/package checks:
   - `cargo doc --no-deps`
   - `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`
@@ -1159,16 +1165,22 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 
 ### 5. Good/Base/Bad Cases
 
-- Good: "`default-features = false` removes HTTP and SQLite dependencies; SoXR
-  remains required because resampling is core."
-- Base: "Both Cargo features are default-on and can be disabled independently."
-- Bad: "`default-features = false` creates a dependency-free DSP-only build" or
-  "building without resampling avoids libsoxr" while `soxr` is still required.
+- Good: "`default-features = false, features = [\"rubato\"]` removes the HTTP,
+  SQLite, and native libsoxr dependencies; a resampler backend is still required
+  because resampling is core."
+- Base: "`http` and `loudness-db` are default-on and can be disabled
+  independently; the resampler backend is chosen, not omitted."
+- Bad: "`default-features = false` creates a dependency-free DSP-only build",
+  "building without resampling avoids libsoxr", or "SoXR remains required" now
+  that `rubato` is a supported pure-Rust backend.
 
 ### 6. Tests Required
 
-- Build default, no-default, and each optional feature independently.
-- Run all-features tests and no-default-features tests before publishing.
+- Build the default profile and each optional feature independently on top of a
+  minimal backend. Assert that bare `--no-default-features` still fails.
+- Run `cargo test --all-features` and
+  `cargo test --no-default-features --features rubato` before publishing; these
+  are the two supported backend paths.
 - When changing dependencies, run `cargo rustc --lib -- -D unused-crate-dependencies`
   so dead direct dependencies fail the check instead of remaining in the manifest.
 - Run examples listed in the README.

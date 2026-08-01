@@ -25,6 +25,21 @@ pub fn detect_bpm(
     observation_rate_hz: f64,
 ) -> (Option<f64>, Option<f64>, Option<f64>);
 
+AnalysisWindowPlan::new(
+    mode: AutomixAnalysisMode,
+    track_frames: Option<u64>,
+    window_frames: u64,
+) -> AnalysisWindowPlan;
+
+decode_segment(
+    decoder: &mut StreamingDecoder,
+    meter: &mut LoudnessMeter,
+    segment: &mut AnalysisSegment,
+    skip_frames: u64,
+    take_frames: u64,
+    cancel_token: Option<&DecodeCancelToken>,
+) -> Result<(), String>;
+
 #[non_exhaustive]
 pub enum AutomixKeyStatus {
     Unsupported,
@@ -84,6 +99,48 @@ Do not add a `Detected` or low-confidence status from synthetic chords alone.
 A real detector requires independently labeled music-corpus evidence, tuning
 and harmonic/segmentation policy, and calibrated confidence behavior.
 
+### Bounded analysis interval ownership
+
+AutoMix plans head and tail in integer frames. `AudioInfo::total_frames` is the
+authoritative track length when present; a finite positive duration converted
+to frames is only the fallback. The head is
+`[0, min(track_frames, window_frames))`. Full mode adds a tail whenever the
+known track extends beyond the head, with
+`tail.start = max(head.end, track_frames - window_frames)` and
+`tail.end = track_frames`. The two intervals never overlap. Unknown or invalid
+track length remains bounded head-only because an end-relative seek is not
+defined.
+
+`StreamingDecoder::seek` is coarse. After seeking, compute preroll from
+`current_frame()` and skip it before analysis. A decoder position after the
+planned start is an error rather than permission to analyze the wrong interval.
+For every packet, apply leading skip and trailing take bounds once to the
+interleaved frame range; only that selected slice may reach `LoudnessMeter`,
+RMS/low/vocal envelopes, or spectral flux.
+
+`AnalysisSegment.start_time` owns the absolute timeline origin. Silence,
+vocal, and energy-profile placement reuse it; they must not reconstruct a tail
+origin from the declared duration and a feature-vector length because 20 ms
+accumulators intentionally omit incomplete blocks. `frames_analyzed` records
+the realized selected frame count and is the duration fallback when container
+duration is unavailable.
+
+### Declared duration is untrusted input
+
+`AudioInfo::duration_secs` and `AudioInfo::total_frames` come from container
+metadata that no one has verified. They also size `energy_profile`, which is a
+whole-track vector at `ENERGY_PROFILE_RATE` slots per second, so an absurd
+declared value asks for an allocation proportional to it — and `vec![0.0; n]`
+aborts rather than returning an error.
+
+A declared duration is therefore accepted only when finite, positive, and no
+greater than `MAX_DECLARED_DURATION_SEC` (24 hours). An implausible value is
+**discarded, not clamped**: clamping would report a confident 24-hour timeline
+the file never supported, while discarding falls back to the duration actually
+measured from decoded head evidence. `build_energy_profile` enforces the same
+ceiling itself, because it is the allocation site and must not depend on every
+present and future caller having filtered first.
+
 ### FIR magnitude and phase
 
 * A one-tap FIR is the pure scalar at the existing 1 kHz reference. Flat 0 dB
@@ -121,6 +178,12 @@ overlap-save routing; absolute nanoseconds remain report-only.
 | Observation rate is zero, negative, NaN, or infinite | `(None, None, None)` |
 | Input is short or has negligible positive-flux energy | No fabricated BPM |
 | Analysis version 2 has no key estimator | `unsupported` plus four null payload fields |
+| Known track ends at or before one window | Head covers the available frames; no tail |
+| Full track is just over one window or exactly two windows | Tail starts at `head.end`; no overlap or uncovered suffix |
+| Full track exceeds two windows | Tail is the final full window; the middle gap remains intentionally unanalyzed |
+| Coarse seek lands before the tail start | Skip exact preroll frames before every metric |
+| Coarse seek reports a frame after the planned tail start | Return a named analysis error; do not shift the interval silently |
+| Decoder packet crosses a skip/take boundary | Slice once, then give every metric the identical selected frames |
 | One tap, flat 0 dB | Exact finite unit impulse |
 | One tap, uniform +/-6 dB | Scalar error `<= 1e-12` against `10^(g/20)` |
 | Multi-tap uniform +/-6 dB | Response error `<= 1e-9 dB` at representative probes |
@@ -135,6 +198,12 @@ overlap-save routing; absolute nanoseconds remain report-only.
   within the declared 2% integer-lag tolerance.
 * Base: a flat/short track returns no tempo, and schema v2 explicitly reports
   key analysis as unsupported.
+* Good: with a 60-second window, 61/120/121-second tracks plan tails at
+  `[60,61)`, `[60,120)`, and `[61,121)` seconds respectively.
+* Base: Head mode or unknown track length analyzes only the bounded head.
+* Bad: decode a tail only when `duration > 2 * window`, seek the last full
+  window for shorter tracks and overlap the head, or feed a complete final
+  packet to loudness before truncating the other metrics.
 * Good: a uniform +6 dB curve measures +6 dB in both linear- and minimum-phase
   modes; minimum-phase energy is materially earlier than linear-phase energy.
 * Bad: passing the envelope's 50 Hz rate for spectral flux, because it turns a
@@ -152,6 +221,16 @@ overlap-save routing; absolute nanoseconds remain report-only.
   50 Hz for a 44.1 kHz spectral fixture.
 * Serialization asserts schema version 2, `key_status = "unsupported"`, and
   null root/mode/confidence/Camelot payloads.
+* Pure planner tests cover at/below one window, just above one window, exactly
+  two windows, above two windows, Head mode, and unknown length; every planned
+  head/tail pair is disjoint.
+* Packet-boundary tests place both leading skip and trailing take inside one
+  packet and assert loudness frame count plus every feature accumulator count
+  describe the selected slice.
+* End-to-end PCM WAV fixtures at just above one window, exactly two windows,
+  and above two windows contain a known final silent suffix and assert absolute
+  fade-out, cut-out, and mix-center positions. A separate segment-origin test
+  uses a vector length that cannot reconstruct the declared tail start.
 * FIR tests cover one-tap flat/non-uniform/uniform gain in both phase modes,
   independent DFT response probes, taper direction/endpoints, and energy
   centroid ordering.
@@ -169,6 +248,12 @@ overlap-save routing; absolute nanoseconds remain report-only.
 // Spectral frames do not arrive at the 50 Hz envelope rate.
 let tempo = detect_bpm(&head.spectral_flux, ENVELOPE_RATE);
 
+if duration > 2.0 * window {
+    decoder.seek(duration - window)?; // skips valid shorter tails
+}
+meter.process(&packet); // other metrics later truncate this packet
+let tail_start = duration - tail.envelope.len() as f64 / ENVELOPE_RATE;
+
 // Erases a uniform requested gain.
 let normalization = 10.0_f64.powf(-gain_at_1khz / 20.0);
 ir.iter_mut().for_each(|sample| *sample *= normalization);
@@ -182,6 +267,24 @@ let weight = 0.5 * (1.0 + ((last - index) as f64 / half as f64 * PI).cos());
 ```rust
 let spectral_rate = sample_rate as f64 / SPECTRAL_HOP_SIZE as f64;
 let tempo = detect_bpm(&head.spectral_flux, spectral_rate);
+
+let plan = AnalysisWindowPlan::new(mode, track_frames, window_frames);
+if let Some(tail) = plan.tail {
+    let preroll = tail
+        .start
+        .checked_sub(decoder.current_frame())
+        .ok_or("coarse seek landed after planned tail start")?;
+    let selected = &packet[frame_start * channels..frame_end * channels];
+    analyzer.process(selected, meter, segment); // every metric sees this slice
+}
+
+fill_energy_profile(
+    &mut profile,
+    &tail.envelope,
+    tail.start_time,
+    ENVELOPE_RATE,
+    profile_rate,
+);
 
 // Preserve the absolute designed magnitude; no inverse-reference scaling.
 self.cached_ir = designed_ir;

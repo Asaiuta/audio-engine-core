@@ -67,6 +67,36 @@ OutputRenderChain::render_with_policy_and_block_frames(
 
 FFTConvolver::new(ir_data: &[f64], channels: usize)
     -> Result<FFTConvolver, ProcessError>
+
+VolumeController::with_sample_rate(sample_rate_hz: u32)
+    -> Result<VolumeController, ProcessError>
+VolumeController::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+
+NoiseShaper::new(channels: usize, sample_rate_hz: u32, bits: u32)
+    -> Result<NoiseShaper, ProcessError>
+NoiseShaper::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+
+DynamicLoudness::new(channels: usize, sample_rate_hz: f64)
+    -> Result<DynamicLoudness, ProcessError>
+DynamicLoudness::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+
+PeakLimiter::new(channels: usize, sample_rate_hz: u32, ...)
+    -> Result<PeakLimiter, ProcessError>
+PeakLimiter::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+
+LoudnessNormalizer::new(channels: usize, sample_rate_hz: u32, config: LoudnessConfig)
+    -> Result<LoudnessNormalizer, ProcessError>
+LoudnessNormalizer::process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+
+SpectrumAnalyzer::new(fft_size: usize, num_bins: usize)
+    -> Result<SpectrumAnalyzer, ProcessError>
+SpectrumAnalyzer::analyze(&mut self, samples: &[f64], sample_rate_hz: u32)
+    -> Result<&[f32], ProcessError>
 ```
 
 `StreamingProcessor` supplies `process`, `finish`, `reset`, `latency`, `tail`,
@@ -127,6 +157,22 @@ pub struct RenderedOutput {
 * An adapter whose internal state was configured for a fixed channel count
   rejects a different block channel count before entering its DSP kernel.
   Channel-generic stages (currently volume and crossfeed) use the block count.
+* Exported raw slice processors are checked shells over `AudioBlockMut`. They
+  reject zero channels, incomplete frames, and configured-channel mismatches
+  before changing samples or DSP history. Fixed-channel raw APIs always receive
+  the process-time channel count explicitly; they never infer success by
+  truncating a partial final frame.
+* The configured-versus-actual channel check has one crate-level implementation
+  shared by raw shells and adapters. Inner `process_validated` kernels are
+  crate-private. An adapter may call one only after its typed block driver has
+  enforced the same geometry, so callback work does not validate twice.
+* Geometry-dependent constructors validate channels and sample rate before
+  allocating DSP state or registering realtime snapshot readers. Internal
+  constructors named `*_validated` are crate-private setup kernels, not public
+  unchecked compatibility APIs.
+* `SpectrumAnalyzer` requires `fft_size >= 4` and `num_bins > 0`. `analyze`
+  rejects a zero sample rate before touching FFT scratch, magnitude bins, cached
+  bin ranges, or the reusable result buffer.
 * `DspChain` holds `Box<dyn StreamingProcessor>`, drives every stage through
   `process_checked`, and returns full-block progress. The chain is marked
   bypassed only when it is empty or every stage reported transparent bypass.
@@ -199,6 +245,11 @@ pub struct RenderedOutput {
 | `samples.len() % channels != 0` | `AudioBlockError::IncompleteFrame` |
 | out-of-place channel counts differ | `AudioBlockError::ChannelMismatch` |
 | block channel count differs from configured processor count | `ProcessError::ChannelCountMismatch` |
+| raw constructor receives zero channels | `ProcessError::InvalidBlock(AudioBlockError::ZeroChannels)` before DSP allocation |
+| raw constructor or sample-rate update receives zero Hz | typed `ProcessError` before state mutation |
+| `DynamicLoudness` receives a non-finite or non-positive `f64` sample rate | `ProcessError::InvalidGeometry` before state mutation |
+| `SpectrumAnalyzer::new` receives `fft_size < 4` or `num_bins == 0` | `ProcessError::InvalidGeometry`; do not plan an FFT or allocate analyzer buffers |
+| `SpectrumAnalyzer::analyze` receives zero Hz | `ProcessError::InvalidSampleRate`; cached FFT/bin/result state remains unchanged |
 | consumed/produced exceeds capacity | `ProcessError::InvalidProgress` |
 | non-empty input/output with zero progress | `ProcessError::Stalled` |
 | partial or `NeedOutput` in-place | `ProcessError::InvalidProgress` |
@@ -227,6 +278,14 @@ pub struct RenderedOutput {
 * Good: a fixed out-of-place stage fills a short output, returns equal
   consumed/produced prefix counts with `NeedOutput`, and resumes from the
   caller-advanced input without replaying overwritten data.
+* Good: a standalone `NoiseShaper` configured for stereo rejects a mono block
+  with `ChannelCountMismatch`; samples, RNG streams, and error history remain
+  exactly unchanged.
+* Base: an adapter validates its typed block once and calls the crate-private
+  validated kernel; valid output remains bit-identical to the raw checked API.
+* Bad: a public slice API divides by caller channels, uses `chunks_exact`
+  without reporting the remainder, or bypasses channels beyond configured
+  state. Those behaviors turn invalid geometry into a panic or partial success.
 * Bad: an in-place processor returns partial consumption after it may already
   have overwritten the corresponding unconsumed samples.
 * Bad: an offline renderer calls `process(&[])` as an undocumented flush instead
@@ -248,6 +307,17 @@ pub struct RenderedOutput {
 * Timing tests cover cross-rate conversion and floor/nearest/ceil behavior.
 * No-allocation tests cover in-place, out-of-place, and callback-facing finish
   after setup.
+* Every exported raw geometry-dependent constructor covers zero channels/rate.
+  Every raw process shell covers zero channels, incomplete frames, and fixed
+  channel mismatch where applicable. Rejection tests assert unchanged samples
+  plus representative algorithm state, and execute error paths under
+  `assert_no_alloc`.
+* Spectrum tests cover FFT sizes 0 through 3, zero output bins, and zero-rate
+  analysis after a populated cache; every cache and reusable buffer remains
+  unchanged on rejection.
+* Adapter constructor tests prove invalid geometry is rejected without
+  allocating snapshot-reader or DSP state. Existing adapter valid-path tests
+  retain bit-exact output and steady-state no-allocation assertions.
 * Processor/chain migrations add random chunking equivalence and native reset
   isolation tests, not only finite-output smoke tests.
 * Variable-rate tests cover short and long exact-ratio streams, random input and
@@ -285,6 +355,26 @@ that can apply a preselected non-panicking fault policy:
 
 ```rust
 let _progress = chain.process(samples, channels)?;
+```
+
+For a standalone fixed-channel DSP processor, keep the checked shell public and
+the already-validated kernel crate-private:
+
+```rust
+// Wrong: floors an incomplete frame and can partially process a mismatch.
+pub fn process(&mut self, samples: &mut [f64], channels: usize) {
+    self.process_validated(samples, channels);
+}
+
+// Correct: all rejection happens before samples or processor history change.
+pub fn process(&mut self, samples: &mut [f64], channels: usize)
+    -> Result<(), ProcessError>
+{
+    let block = AudioBlockMut::new(samples, channels)?;
+    validate_processor_channels("NoiseShaper", Some(self.rng_state.len()), channels)?;
+    self.process_validated(block.into_samples(), channels);
+    Ok(())
+}
 ```
 
 For offline unknown tails, energy detection belongs inside the finish loop, not
@@ -705,3 +795,87 @@ if control.is_quiescent() {
     drop(chain);                     // non-realtime teardown
 }
 ```
+
+---
+
+## Scenario: Callback Playback Facade Ownership
+
+### 1. Scope / Trigger
+
+Apply this scenario when changing anything in `src/pipeline.rs` reachable from
+`PlaybackPipeline`, `PlaybackBuilder`, `PlaybackController`, `PlaybackConfig`,
+or `PlaybackParameters`. This is the crate's highest-level recommended API, and
+before this section its contract lived only in rustdoc and the changelog, so a
+well-intended spec-driven edit could have regressed it.
+
+### 2. Signatures
+
+```rust
+CallbackSpec::stereo(sample_rate_hz: u32, block_frames: usize)
+    -> Result<CallbackSpec, ProcessError>
+PlaybackPipeline::builder(spec: CallbackSpec) -> PlaybackBuilder
+PlaybackBuilder::configure(self, config: PlaybackConfig) -> PlaybackBuilder
+PlaybackBuilder::build(self)
+    -> Result<(PlaybackPipeline, PlaybackController), ProcessError>
+PlaybackPipeline::process(&mut self, samples: &mut [f64])
+    -> Result<ProcessProgress, ProcessError>
+PlaybackPipeline::lifecycle_state(&self) -> PlaybackLifecycleState
+PlaybackController::parameters(&self) -> PlaybackParameters
+PlaybackController::request_reset(&self) -> u64
+PlaybackController::request_drain(&self) -> u64
+PlaybackController::request_stop_with_fade(&self, fade_ms: u32)
+    -> Result<u64, ProcessError>
+PlaybackController::lifecycle_status(&self) -> PlaybackLifecycleStatus
+PlaybackController::load_impulse_response(&self, interleaved_ir: &[f64])
+    -> Result<u64, ProcessError>
+```
+
+### 3. Contracts
+
+* `PlaybackPipeline::process` is a realtime callback entry point. Every hot-path
+  prohibition in `realtime-safety.md` applies to it and to everything it calls:
+  no allocation, lock, `log::*`, IO, panic, or unbounded work. `pipeline.rs` is
+  on the forbidden list in `logging-guidelines.md` for this reason, even though
+  the builder/controller half of the same file is control-thread code.
+* Control authority is split and each control has exactly one owner.
+  `PlaybackController` is non-cloneable and owns only the two things that cannot
+  be shared: the private single-consumer convolver lease and the lifecycle
+  request channel. Every ordinary DSP control belongs to the cloneable
+  `PlaybackParameters` from `PlaybackController::parameters`. Do not re-add
+  convenience proxies for ordinary controls onto the controller; a control
+  reachable through two handles has no owner.
+* Lifecycle requests cross the boundary through one packed atomic word carrying
+  request kind, fade payload, and generation together, so a request is never
+  observed half-applied. Requests coalesce at callback block boundaries; the
+  returned generation plus `lifecycle_status` is the acknowledgement, not a
+  side-channel flag.
+* The drain tail is bounded by the `ChainFinishPolicy` fixed at build time.
+  `PlaybackConfig::validate` rejects a policy that cannot bound a tail, so an
+  invalid preset fails at build rather than inside the first callback drain.
+  `DspChain::finish_with_policy` still validates, because a chain can also be
+  driven directly.
+* Build-time and runtime validation differ deliberately. `PlaybackBuilder::build`
+  validates strictly and fails with `ProcessError::InvalidParameter`, so a bad
+  preset or config file surfaces once at setup. Runtime `PlaybackParameters`
+  writes clamp a finite out-of-range value and reject a non-finite one, because
+  a callback-adjacent publisher must not fail a UI interaction. Both layers use
+  the published ranges and the shared `sanitized` policy in `lockfree_params.rs`
+  rather than re-encoding bounds.
+* An idle pipeline writes silence instead of returning an error; that is the one
+  documented exception to "a stage that produces no output is a failure".
+  Reaching `PlaybackLifecycleState::Idle` is a normal terminal state that
+  `request_reset` re-arms.
+* Impulse-response adoption follows the convolver scenario above:
+  `load_impulse_response` prepares the kernel on the control thread and publishes
+  it in the controller's callback rate domain; audio adopts it at a block
+  boundary without allocating.
+
+### 4. Tests Required
+
+* Build rejects each invalid drain-policy shape and accepts a narrow valid one.
+* A bypassed/disabled facade config matches the corresponding core defaults
+  rather than an independently written literal.
+* Each paired control publishes as one coherent snapshot, with a single
+  publication per call.
+* Fade → drain → `Idle` → `request_reset` → processing resumes, driven only
+  through `process` and the lifecycle channel.

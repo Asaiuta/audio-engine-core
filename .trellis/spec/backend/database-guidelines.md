@@ -27,12 +27,41 @@ loudness metadata only — there is no user data, no business entities, no ORM.
   track_loudness (...)`.
 - Schema evolution is version-gated by `CURRENT_SCAN_VERSION` (currently `1`).
   Rows carry the `scan_version` they were written with; a row whose
-  `version < CURRENT_SCAN_VERSION` is treated as stale and re-scanned rather
-  than trusted.
+  `version != CURRENT_SCAN_VERSION` is treated as stale and re-scanned rather
+  than trusted. The comparison is exact, not `<`: a row written by a *newer*
+  scanner is no more verifiable by this build than an older one.
 - Additive column changes are reconciled by inspecting
   `PRAGMA table_info(track_loudness)` rather than assuming the column set. Bump
   `CURRENT_SCAN_VERSION` when the measurement meaning changes so stale rows are
   invalidated.
+
+## Cache Freshness Contract
+
+`LoudnessDatabase::needs_scan` is the single freshness gate; `get_fresh` is
+`needs_scan` plus `get`. Its evidence differs by identity, and the difference is
+part of the contract rather than an implementation detail:
+
+- **Local identity** — the scanner version, whole-second mtime, and size must
+  all match. A file that cannot be stat-ed (deleted, renamed, unmounted volume,
+  permission denied) reports "needs scan": there is no evidence the stored
+  measurement still describes that path, and reporting it fresh served a stale
+  gain for content nobody could confirm.
+- **Remote identity** — `http://` / `https://`, matched case-insensitively so it
+  agrees with the decoder's `MediaLocation` router. Only the scanner version is
+  checked, because no mtime or size is stored. A replaced remote body is
+  therefore **not** detected; a caller that must notice replacement has to
+  invalidate the entry itself.
+
+A query that returns rows must not silently drop undecodable ones.
+`get_outdated_tracks` propagates a row-decoding failure, because a silently
+short list reads as "nothing left to rescan" — the opposite of what the failure
+means.
+
+Known limitations, recorded rather than silently accepted: whole-second mtime
+plus size misses a same-size replacement inside one second; `compute_track_id`
+normalizes separators and folds case on Windows only, but does not canonicalize
+local paths, so `./a.flac` and `/music/a.flac` are two rows for one file.
+Closing these needs distinct typed local/remote identities.
 
 ## Hard Rule: Never On The Realtime Path
 
