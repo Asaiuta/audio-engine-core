@@ -1001,29 +1001,29 @@ pub fn post_render_analysis_order_csv() -> String {
 
 macro_rules! add_callback_stage {
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (volume, $($rest:tt)*)) => {
-        $chain.add(VolumeProcessor::new(Arc::clone(&$params.volume_params)));
+        $chain.add(VolumeProcessor::new(Arc::clone(&$params.volume_params)))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (eq, $($rest:tt)*)) => {
         $chain.add(EqProcessor::new(
             $params.channels,
             $rate as f64,
             Arc::clone(&$params.eq_params),
-        ));
+        ))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (saturation, $($rest:tt)*)) => {
         $chain.add(SaturationProcessor::new(
             $params.channels,
             Arc::clone(&$params.saturation_params),
-        ));
+        ))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (crossfeed, $($rest:tt)*)) => {
         $chain.add(CrossfeedProcessor::new(
             $rate as f64,
             Arc::clone(&$params.crossfeed_params),
-        ));
+        ))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (convolver, $($rest:tt)*)) => {
-        $chain.add(ConvolverProcessor::new($params.convolver_control.clone())?);
+        $chain.add(ConvolverProcessor::new($params.convolver_control.clone())?)?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (dynamic_loudness, $($rest:tt)*)) => {
         $chain.add(DynamicLoudnessProcessor::new(
@@ -1031,7 +1031,7 @@ macro_rules! add_callback_stage {
             $rate,
             Arc::clone(&$params.dynamic_loudness_params),
             Arc::clone(&$params.dynamic_loudness_telemetry),
-        ));
+        )?)?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (limiter, $($rest:tt)*)) => {
         $chain.add(PeakLimiterProcessor::new_with_output_guard_latch(
@@ -1040,7 +1040,7 @@ macro_rules! add_callback_stage {
             Arc::clone(&$params.limiter_params),
             Arc::clone(&$params.noise_shaper_params),
             $latch.clone(),
-        ));
+        )?)?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (resampler, $($rest:tt)*)) => {};
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (noise_shaper, $($rest:tt)*)) => {
@@ -1049,7 +1049,7 @@ macro_rules! add_callback_stage {
             $rate,
             Arc::clone(&$params.noise_shaper_params),
             $latch.clone(),
-        ));
+        )?)?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (quantize, $($rest:tt)*)) => {};
 }
@@ -1377,11 +1377,26 @@ impl OutputChainBuilder {
     }
 
     /// Build the callback-safe DSP chain from the canonical callback order.
+    ///
+    /// The callback chain is built at [`OutputChainParams::output_sample_rate`],
+    /// because a device callback delivers buffers in its own domain. That is the
+    /// rate validated first here; `source_sample_rate` is only meaningful to the
+    /// offline renderer, which owns the resampler boundary, but a zero value
+    /// still means the params are malformed and is rejected as well.
     pub fn build_callback_chain(&self) -> Result<DspChain, ProcessError> {
         let params = &self.params;
+        // The rate this chain actually uses must be validated before the rate it
+        // ignores; the reverse order let a zero device rate reach stage
+        // construction and be reported against an inner processor.
+        if params.output_sample_rate == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "OutputChainBuilder::output_sample_rate",
+                sample_rate_hz: 0,
+            });
+        }
         if params.source_sample_rate == 0 {
             return Err(ProcessError::InvalidSampleRate {
-                processor: "OutputChainBuilder",
+                processor: "OutputChainBuilder::source_sample_rate",
                 sample_rate_hz: 0,
             });
         }
@@ -1471,6 +1486,20 @@ impl OutputRenderChain {
         params: &OutputChainParams,
         default_policy: OfflineRenderPolicy,
     ) -> Result<Self, ProcessError> {
+        // The offline chain uses both rates, so both are rejected here rather
+        // than surfacing as an inner stage's error with a misleading owner.
+        if params.source_sample_rate == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "OutputRenderChain::source_sample_rate",
+                sample_rate_hz: 0,
+            });
+        }
+        if params.output_sample_rate == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "OutputRenderChain::output_sample_rate",
+                sample_rate_hz: 0,
+            });
+        }
         let source_sample_rate = params.source_sample_rate as f64;
         let noise_latch = NoiseShaperSnapshotLatch::new(params.noise_shaper_params.read());
         let resampler = if params.source_sample_rate == params.output_sample_rate {
@@ -1519,21 +1548,21 @@ impl OutputRenderChain {
                 params.source_sample_rate,
                 Arc::clone(&params.dynamic_loudness_params),
                 Arc::clone(&params.dynamic_loudness_telemetry),
-            ),
+            )?,
             limiter: PeakLimiterProcessor::new_with_output_guard_latch(
                 params.channels,
                 params.output_sample_rate,
                 Arc::clone(&params.limiter_params),
                 Arc::clone(&params.noise_shaper_params),
                 noise_latch.clone(),
-            ),
+            )?,
             resampler,
             noise_shaper: NoiseShaperProcessor::new_with_output_guard_latch(
                 params.channels,
                 params.output_sample_rate,
                 Arc::clone(&params.noise_shaper_params),
                 noise_latch,
-            ),
+            )?,
             default_policy,
         };
 

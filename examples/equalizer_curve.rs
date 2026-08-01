@@ -22,7 +22,8 @@ fn main() {
     // Ten band gains in dB, from low to high frequency: lift the lows, leave
     // the mids flat, gently roll off the highs.
     let gains: [f64; 10] = [6.0, 4.0, 2.0, 0.0, 0.0, 0.0, 0.0, -2.0, -4.0, -6.0];
-    eq.set_all_bands(&gains, SAMPLE_RATE);
+    eq.set_all_bands(&gains, SAMPLE_RATE)
+        .expect("the example's band gains are finite");
     eq.set_enabled(true);
 
     // A simple full-scale impulse train as test input (interleaved stereo).

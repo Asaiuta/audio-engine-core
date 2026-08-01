@@ -552,6 +552,23 @@ mod tests {
     }
 
     #[test]
+    fn unspecified_channels_never_gain_guessed_downmix_roles() {
+        let layout = ChannelLayout::from_positions([
+            ChannelPosition::FrontLeft,
+            ChannelPosition::FrontRight,
+            ChannelPosition::Unspecified,
+            ChannelPosition::Unspecified,
+        ]);
+
+        for coefficients in [DownmixCoefficients::ItuRbs775, DownmixCoefficients::AtscA85] {
+            let downmixer =
+                Downmixer::new(layout.clone(), ChannelLayout::stereo(), coefficients).unwrap();
+            let output = frame(&[0.0, 0.0, 1.0, -1.0], &downmixer);
+            assert_eq!(output, [0.0, 0.0]);
+        }
+    }
+
+    #[test]
     fn mono_fold_is_power_preserving_for_center() {
         let dm = Downmixer::new(
             ChannelLayout::surround_5_1(),

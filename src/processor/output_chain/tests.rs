@@ -71,16 +71,95 @@ fn convolver_consumer_lease_is_shared_by_direct_callback_and_render_entries() {
 
 #[test]
 fn callback_build_failure_releases_convolver_consumer_lease() {
+    // A zero channel count is the only params defect that survives past the
+    // canonical Convolver stage: the callback builder rejects both rates before
+    // any stage exists, so an invalid-rate build would never take the lease and
+    // could not prove it is released. DynamicLoudness is the first stage after
+    // Convolver that validates the channel count.
     let mut params = test_params();
-    params.source_sample_rate = 0;
+    params.channels = 0;
     let control = params.convolver_control.clone();
     let builder = OutputChainBuilder::new(params);
 
-    assert!(matches!(
-        builder.build_callback_chain(),
-        Err(ProcessError::InvalidSampleRate { .. })
-    ));
+    let Err(error) = builder.build_callback_chain() else {
+        panic!("a zero channel count must fail the callback build");
+    };
+    assert!(
+        !matches!(error, ProcessError::InvalidSampleRate { .. }),
+        "the failure must happen after the Convolver stage, not during rate validation: {error}"
+    );
+    assert!(
+        ConvolverProcessor::new(control).is_ok(),
+        "a post-acquisition build failure must release the single-consumer lease"
+    );
+}
+
+#[test]
+fn render_build_failure_releases_convolver_consumer_lease() {
+    let mut params = test_params();
+    params.channels = 0;
+    let control = params.convolver_control.clone();
+    let builder = OutputChainBuilder::new(params);
+
+    let Err(error) = builder.build_render_chain() else {
+        panic!("a zero channel count must fail the render build");
+    };
+    assert!(
+        !matches!(error, ProcessError::InvalidSampleRate { .. }),
+        "the failure must happen after the Convolver stage, not during rate validation: {error}"
+    );
     assert!(ConvolverProcessor::new(control).is_ok());
+}
+
+#[test]
+fn callback_build_rejects_the_device_rate_it_actually_uses() {
+    let mut params = test_params();
+    params.output_sample_rate = 0;
+
+    assert!(matches!(
+        OutputChainBuilder::new(params).build_callback_chain(),
+        Err(ProcessError::InvalidSampleRate {
+            processor: "OutputChainBuilder::output_sample_rate",
+            sample_rate_hz: 0,
+        })
+    ));
+}
+
+#[test]
+fn callback_build_rejects_a_zero_source_rate_in_the_params() {
+    let mut params = test_params();
+    params.source_sample_rate = 0;
+
+    assert!(matches!(
+        OutputChainBuilder::new(params).build_callback_chain(),
+        Err(ProcessError::InvalidSampleRate {
+            processor: "OutputChainBuilder::source_sample_rate",
+            sample_rate_hz: 0,
+        })
+    ));
+}
+
+#[test]
+fn render_build_rejects_both_zero_rates_before_any_stage() {
+    let mut source_zero = test_params();
+    source_zero.source_sample_rate = 0;
+    assert!(matches!(
+        OutputChainBuilder::new(source_zero).build_render_chain(),
+        Err(ProcessError::InvalidSampleRate {
+            processor: "OutputRenderChain::source_sample_rate",
+            sample_rate_hz: 0,
+        })
+    ));
+
+    let mut output_zero = test_params();
+    output_zero.output_sample_rate = 0;
+    assert!(matches!(
+        OutputChainBuilder::new(output_zero).build_render_chain(),
+        Err(ProcessError::InvalidSampleRate {
+            processor: "OutputRenderChain::output_sample_rate",
+            sample_rate_hz: 0,
+        })
+    ));
 }
 
 #[test]

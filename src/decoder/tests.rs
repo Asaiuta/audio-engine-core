@@ -4,8 +4,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 #[cfg(feature = "http")]
-use super::{error::network_error_to_decoder_error, source::fetch_range_once, NetworkError};
-use super::{DecodeCancelToken, DecoderError, OpenedMediaSource, StreamingDecoder};
+use super::{error::network_error_to_decoder_error, NetworkError};
+use super::{
+    DecodeCancelToken, DecoderError, HttpCredentials, OpenedMediaSource, StreamingDecoder,
+};
 
 /// Monotonic counter for unique temp filenames within this test process.
 static TMP_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -107,15 +109,63 @@ fn network_error_classifies_non_retriable_errors() {
     assert!(!NetworkError::HttpStatus(401).is_retriable());
     assert!(!NetworkError::HttpStatus(403).is_retriable());
     assert!(!NetworkError::HttpStatus(404).is_retriable());
+    assert!(!NetworkError::RangeNotSupported { status: 200 }.is_retriable());
+    assert!(!NetworkError::InvalidRangeResponse("wrong offset".into()).is_retriable());
     assert!(!NetworkError::DnsFailure("no such host".into()).is_retriable());
     assert!(!NetworkError::TlsError("bad cert".into()).is_retriable());
     assert!(!NetworkError::Other("invalid response".into()).is_retriable());
 }
 
 #[test]
+fn http_credentials_debug_redacts_both_basic_auth_fields() {
+    let credentials = HttpCredentials {
+        username: "api-user-secret".to_string(),
+        password: "api-password-secret".to_string(),
+    };
+
+    let rendered = format!("{credentials:?}");
+    assert!(!rendered.contains("api-user-secret"));
+    assert!(!rendered.contains("api-password-secret"));
+    assert_eq!(rendered.matches("[REDACTED]").count(), 2);
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn reqwest_errors_drop_signed_urls_before_network_error_rendering() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve local port");
+    let address = listener.local_addr().expect("reserved local address");
+    let server = std::thread::spawn(move || {
+        let (socket, _) = listener.accept().expect("accept signed URL request");
+        drop(socket);
+    });
+
+    let token = "signed-query-secret";
+    let request_url = format!(
+        "http://basic-user:basic-password@{address}/private/audio.flac?token={token}#fragment"
+    );
+    let error = reqwest::blocking::Client::new()
+        .get(&request_url)
+        .send()
+        .expect_err("server closes before returning an HTTP response");
+    server.join().expect("test server completed");
+    assert!(
+        error.url().is_some_and(|url| url.as_str().contains(token)),
+        "fixture must prove reqwest retained the sensitive URL"
+    );
+
+    let rendered = NetworkError::from(error).to_string();
+    for secret in [token, "basic-user", "basic-password", &address.to_string()] {
+        assert!(
+            !rendered.contains(secret),
+            "network error leaked `{secret}`: {rendered}"
+        );
+    }
+}
+
+#[test]
 fn cancelled_open_returns_before_touching_source() {
     let cancelled = Arc::new(AtomicBool::new(true));
-    let token = DecodeCancelToken::new(cancelled);
+    let token = DecodeCancelToken::from_flag(cancelled);
 
     let result = StreamingDecoder::open_with_credentials_and_cancel(
         "Z:/definitely/not/a/real/audio-file.flac",
@@ -123,6 +173,25 @@ fn cancelled_open_returns_before_touching_source() {
         Some(token),
     );
 
+    assert!(matches!(result, Err(DecoderError::Canceled)));
+}
+
+/// The token owns its protocol: a caller cancels through a clone rather than
+/// through a separately held `AtomicBool`.
+#[test]
+fn cancel_token_owns_its_own_flag() {
+    let token = DecodeCancelToken::new();
+    let remote = token.clone();
+    assert!(!token.is_cancelled());
+
+    remote.cancel();
+
+    assert!(token.is_cancelled());
+    let result = StreamingDecoder::open_with_credentials_and_cancel(
+        "Z:/definitely/not/a/real/audio-file.flac",
+        None,
+        Some(token),
+    );
     assert!(matches!(result, Err(DecoderError::Canceled)));
 }
 
@@ -137,8 +206,8 @@ fn decoder_can_be_built_from_an_already_opened_local_source() {
     let mut decoder =
         StreamingDecoder::from_opened_source(source, None).expect("construct decoder");
 
-    assert_eq!(decoder.info.sample_rate, 48_000);
-    assert_eq!(decoder.info.channels, 2);
+    assert_eq!(decoder.info().sample_rate, 48_000);
+    assert_eq!(decoder.info().channels, 2);
     assert_eq!(decode_all_samples(&mut decoder).len(), 64);
 }
 
@@ -184,28 +253,9 @@ fn cancelled_opened_source_construction_returns_before_probe() {
     let cancelled = Arc::new(AtomicBool::new(true));
 
     let result =
-        StreamingDecoder::from_opened_source(source, Some(DecodeCancelToken::new(cancelled)));
+        StreamingDecoder::from_opened_source(source, Some(DecodeCancelToken::from_flag(cancelled)));
 
     assert!(matches!(result, Err(DecoderError::Canceled)));
-}
-
-#[cfg(feature = "http")]
-#[test]
-fn cancelled_range_fetch_returns_before_network_request() {
-    let cancelled = Arc::new(AtomicBool::new(true));
-    let token = DecodeCancelToken::new(cancelled);
-    let client = reqwest::blocking::Client::builder().build().unwrap();
-
-    let result = fetch_range_once(
-        &client,
-        "http://127.0.0.1:9/never-requested.flac",
-        None,
-        0,
-        8,
-        Some(&token),
-    );
-
-    assert!(matches!(result, Err(NetworkError::Cancelled)));
 }
 
 #[cfg(feature = "http")]
@@ -242,6 +292,14 @@ fn network_error_io_kind_classification_is_structured_and_total() {
         );
         assert!(!classified.is_retriable());
     }
+
+    let sensitive = NetworkError::from_io(std::io::Error::other(
+        "wrapped request failed for https://example.test/audio?token=secret",
+    ));
+    let rendered = sensitive.to_string();
+    assert!(!rendered.contains("example.test"));
+    assert!(!rendered.contains("token=secret"));
+    assert!(rendered.contains("Other"));
 }
 
 #[cfg(feature = "http")]
@@ -385,14 +443,17 @@ fn wav_format_capability_matrix() {
             .unwrap_or_else(|e| panic!("open {sample_rate}Hz/{channels}ch wav: {e:?}"));
 
         // Metadata assertions.
-        assert_eq!(decoder.info.sample_rate, sample_rate);
-        assert_eq!(decoder.info.channels, channels);
+        assert_eq!(decoder.info().sample_rate, sample_rate);
+        assert_eq!(decoder.info().channels, channels);
         let total_frames = decoder
-            .info
+            .info()
             .total_frames
             .expect("total_frames known for wav");
         assert_eq!(total_frames, frames);
-        let dur = decoder.info.duration_secs.expect("duration known for wav");
+        let dur = decoder
+            .info()
+            .duration_secs
+            .expect("duration known for wav");
         assert!(
             (dur - frames as f64 / sample_rate as f64).abs() < 1e-6,
             "duration mismatch: {dur}"
@@ -471,7 +532,7 @@ fn seek_does_not_retrim_encoder_delay() {
 
     // Now inject a large synthetic encoder_delay before seeking.
     let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
-    decoder.info.encoder_delay = 5_000; // far larger than one packet
+    decoder.set_gapless_counters_for_test(5_000, 0); // far larger than one packet
     decoder.seek(1.0).expect("seek with injected delay");
     let after = decoder
         .decode_next()
@@ -506,7 +567,7 @@ fn start_of_stream_still_trims_encoder_delay() {
 
     let delay = 1_000u32;
     let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
-    decoder.info.encoder_delay = delay;
+    decoder.set_gapless_counters_for_test(delay, 0);
     let samples = decode_all_samples(&mut decoder);
 
     // With a start-of-stream delay of `delay` frames (mono => `delay` samples),
@@ -528,8 +589,63 @@ fn end_of_stream_trims_encoder_padding_once() {
     });
     let fixture = TempAudio::new("wav", &bytes);
     let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
-    decoder.info.end_padding = padding;
+    decoder.set_gapless_counters_for_test(0, padding);
 
     let decoded = decode_all_samples(&mut decoder);
     assert_eq!(decoded.len() as u64, frames - padding as u64);
+}
+
+#[test]
+fn media_location_scheme_match_is_case_insensitive() {
+    use std::path::Path;
+
+    use super::source::MediaLocation;
+
+    for url in [
+        "http://example.invalid/a.flac",
+        "https://example.invalid/a.flac",
+        "HTTP://example.invalid/a.flac",
+        "HTTPS://example.invalid/a.flac",
+        "HtTpS://example.invalid/a.flac",
+    ] {
+        assert_eq!(
+            MediaLocation::classify(Path::new(url), url),
+            MediaLocation::Http(url),
+            "RFC 3986 schemes are case-insensitive, so {url} must not be opened as a file path"
+        );
+    }
+
+    for local in [
+        "C:/music/a.flac",
+        "/music/a.flac",
+        "relative/a.flac",
+        // Near-misses that must stay local rather than reaching the HTTP source.
+        "httpx://example.invalid/a.flac",
+        "http:/example.invalid/a.flac",
+        "ftp://example.invalid/a.flac",
+        "http",
+    ] {
+        assert_eq!(
+            MediaLocation::classify(Path::new(local), local),
+            MediaLocation::Local(Path::new(local)),
+            "{local} must be treated as a local path"
+        );
+    }
+}
+
+#[cfg(not(feature = "http"))]
+#[test]
+fn http_url_without_the_http_feature_reports_the_missing_feature() {
+    let result = StreamingDecoder::open("https://example.invalid/a.flac");
+
+    assert!(
+        matches!(
+            result,
+            Err(DecoderError::FeatureUnavailable {
+                source_kind: "HTTP(S)",
+                feature: "http",
+            })
+        ),
+        "a disabled build feature must not be reported as a probe failure"
+    );
 }

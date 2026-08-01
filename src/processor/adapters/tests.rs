@@ -1,6 +1,6 @@
 use super::*;
 use crate::processor::loudness::LimiterMode;
-use crate::processor::traits::AudioBlockRef;
+use crate::processor::traits::{AudioBlockError, AudioBlockRef};
 
 fn valid_convolver(ir: &[f64], channels: usize) -> FFTConvolver {
     FFTConvolver::new(ir, channels).unwrap()
@@ -45,7 +45,71 @@ impl_test_process_block!(
     VolumeProcessor,
     ConvolverProcessor,
     NoiseShaperProcessor,
+    DynamicLoudnessProcessor,
 );
+
+#[test]
+fn geometry_dependent_adapter_constructors_reject_before_allocating_state() {
+    let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
+    let noise_params = Arc::new(AtomicNoiseShaperParams::new());
+    let dynamic_params = Arc::new(AtomicDynamicLoudnessParams::new());
+    let telemetry = Arc::new(AtomicDynamicLoudnessTelemetry::new());
+
+    assert_no_alloc::assert_no_alloc(|| {
+        assert!(matches!(
+            PeakLimiterProcessor::new(0, 48_000, Arc::clone(&limiter_params)),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            PeakLimiterProcessor::new(2, 0, Arc::clone(&limiter_params)),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "PeakLimiter",
+                sample_rate_hz: 0,
+            })
+        ));
+        assert!(matches!(
+            PeakLimiterProcessor::new_with_output_guard(
+                0,
+                48_000,
+                Arc::clone(&limiter_params),
+                Arc::clone(&noise_params),
+            ),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            NoiseShaperProcessor::new(0, 48_000, Arc::clone(&noise_params)),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            NoiseShaperProcessor::new(2, 0, Arc::clone(&noise_params)),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "NoiseShaper",
+                sample_rate_hz: 0,
+            })
+        ));
+        assert!(matches!(
+            DynamicLoudnessProcessor::new(
+                0,
+                48_000,
+                Arc::clone(&dynamic_params),
+                Arc::clone(&telemetry),
+            ),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        ));
+        assert!(matches!(
+            DynamicLoudnessProcessor::new(
+                2,
+                0,
+                Arc::clone(&dynamic_params),
+                Arc::clone(&telemetry),
+            ),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "DynamicLoudness",
+                sample_rate_hz: 0,
+            })
+        ));
+    });
+}
 
 #[test]
 fn test_convolver_processor_swaps_in_and_processes() {
@@ -1069,11 +1133,11 @@ fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
 
     let limiter = Arc::new(AtomicPeakLimiterParams::new());
     limiter.set_enabled(false);
-    assert_rearmed(PeakLimiterProcessor::new(2, 48_000, limiter), 2);
+    assert_rearmed(PeakLimiterProcessor::new(2, 48_000, limiter).unwrap(), 2);
 
     assert_rearmed(VolumeProcessor::new(Arc::new(AtomicVolumeParams::new())), 2);
     assert_rearmed(
-        NoiseShaperProcessor::new(2, 48_000, Arc::new(AtomicNoiseShaperParams::new())),
+        NoiseShaperProcessor::new(2, 48_000, Arc::new(AtomicNoiseShaperParams::new())).unwrap(),
         2,
     );
 
@@ -1085,7 +1149,8 @@ fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
             48_000,
             dynamic,
             Arc::new(AtomicDynamicLoudnessTelemetry::new()),
-        ),
+        )
+        .unwrap(),
         2,
     );
 }
@@ -1208,14 +1273,14 @@ fn crossfeed_processor_steady_state_process_is_allocation_free() {
 #[test]
 fn noise_shaper_bits_change_does_not_reset_unchanged_curve_history() {
     let params = Arc::new(AtomicNoiseShaperParams::new());
-    let mut processor = NoiseShaperProcessor::new(2, 48_000, Arc::clone(&params));
-    let mut reference = NoiseShaper::new(2, 48_000, 24);
+    let mut processor = NoiseShaperProcessor::new(2, 48_000, Arc::clone(&params)).unwrap();
+    let mut reference = NoiseShaper::new(2, 48_000, 24).unwrap();
     reference.set_curve(params.curve());
 
     let mut warm = hard_panned_sine(2048, 0, 48_000.0, 997.0);
     let mut reference_warm = warm.clone();
     processor.process(&mut warm, 2);
-    reference.process(&mut reference_warm, 2);
+    reference.process(&mut reference_warm, 2).unwrap();
     assert_eq!(warm, reference_warm);
 
     params.set_bits(16);
@@ -1223,7 +1288,7 @@ fn noise_shaper_bits_change_does_not_reset_unchanged_curve_history() {
     let mut next = hard_panned_sine(512, 2048, 48_000.0, 997.0);
     let mut reference_next = next.clone();
     processor.process(&mut next, 2);
-    reference.process(&mut reference_next, 2);
+    reference.process(&mut reference_next, 2).unwrap();
 
     assert_eq!(next, reference_next);
 }
@@ -1473,7 +1538,7 @@ fn fixed_finish_requires_reset_before_more_input() {
 #[test]
 fn configured_channel_count_is_validated_before_processing() {
     let params = Arc::new(AtomicNoiseShaperParams::new());
-    let mut proc = NoiseShaperProcessor::new(2, 48_000, params);
+    let mut proc = NoiseShaperProcessor::new(2, 48_000, params).unwrap();
     let mut mono = [0.25; 4];
     let block = AudioBlockMut::new(&mut mono, 1).unwrap();
 
@@ -1534,7 +1599,7 @@ fn fixed_out_of_place_processing_is_allocation_free_after_setup() {
 #[test]
 fn peak_limiter_processor_defaults_to_true_peak_mode() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
-    let proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+    let proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params)).unwrap();
     assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
 }
 
@@ -1548,7 +1613,8 @@ fn final_output_limiter_forces_true_peak_mode() {
         48_000,
         Arc::clone(&limiter_params),
         noise_params,
-    );
+    )
+    .unwrap();
     assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
 
     let mut buffer = vec![0.25; 32 * 2];
@@ -1570,10 +1636,12 @@ fn final_output_guard_survives_callback_sample_rate_initialization() {
         44_100,
         Arc::clone(&limiter_params),
         Arc::clone(&noise_params),
-    );
+    )
+    .unwrap();
     initialized_at_source_rate.set_sample_rate(48_000).unwrap();
     let mut initialized_at_output_rate =
-        PeakLimiterProcessor::new_with_output_guard(1, 48_000, limiter_params, noise_params);
+        PeakLimiterProcessor::new_with_output_guard(1, 48_000, limiter_params, noise_params)
+            .unwrap();
 
     assert!(initialized_at_source_rate.output_ceiling_guard_db() > 0.0);
     assert_eq!(
@@ -1600,13 +1668,15 @@ fn final_limiter_and_noise_shaper_share_one_block_snapshot() {
         limiter_params,
         Arc::clone(&noise_params),
         latch.clone(),
-    );
+    )
+    .unwrap();
     let mut noise = NoiseShaperProcessor::new_with_output_guard_latch(
         1,
         48_000,
         Arc::clone(&noise_params),
         latch,
-    );
+    )
+    .unwrap();
 
     let mut limiter_block = [0.25; 32];
     let _ = limiter.process(&mut limiter_block, 1);
@@ -1623,7 +1693,7 @@ fn final_limiter_and_noise_shaper_share_one_block_snapshot() {
 #[test]
 fn peak_limiter_processor_applies_mode_snapshot() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
-    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params)).unwrap();
     assert_eq!(proc.limiter.mode(), LimiterMode::TruePeak);
 
     // Control thread switches mode; the snapshot is applied on the next
@@ -1641,7 +1711,7 @@ fn peak_limiter_processor_applies_mode_snapshot() {
 #[test]
 fn peak_limiter_processor_mode_switch_is_allocation_free_in_process() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
-    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params)).unwrap();
     let mut buffer = vec![0.3; 256 * 2];
     // Warm up the cached generation so the first asserted block is steady.
     proc.process(&mut buffer, 2);
@@ -1666,7 +1736,7 @@ fn peak_limiter_processor_mode_switch_is_allocation_free_in_process() {
 #[test]
 fn peak_limiter_processor_disabled_bypasses() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
-    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params));
+    let mut proc = PeakLimiterProcessor::new(2, 48_000, Arc::clone(&params)).unwrap();
 
     params.set_enabled(false);
     let mut buffer = vec![1.5; 256 * 2];
@@ -1683,7 +1753,7 @@ fn dynamic_loudness_sample_rate_change_preserves_published_controls() {
     params.set_ref_volume_db(-30.0);
     params.set_strength(0.37);
     let telemetry = Arc::new(AtomicDynamicLoudnessTelemetry::new());
-    let mut proc = DynamicLoudnessProcessor::new(2, 48_000, params, telemetry);
+    let mut proc = DynamicLoudnessProcessor::new(2, 48_000, params, telemetry).unwrap();
     let factor = proc.dynamic_loudness.loudness_factor();
 
     proc.set_sample_rate(96_000).unwrap();
@@ -1694,9 +1764,64 @@ fn dynamic_loudness_sample_rate_change_preserves_published_controls() {
 }
 
 #[test]
+fn dynamic_loudness_reset_matches_fresh_without_a_new_publication() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+    params.write(true, 0.05, 0.37);
+    let mut reset = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        Arc::clone(&params),
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+    let mut prior_stream: Vec<f64> = (0..4_096)
+        .map(|index| (index as f64 * 0.017).sin() * 0.25)
+        .collect();
+    let _ = reset.process(&mut prior_stream, 2);
+    let cached_generation = reset.cached_generation;
+
+    assert_no_alloc::assert_no_alloc(|| reset.reset().unwrap());
+
+    assert_eq!(reset.cached_generation, cached_generation);
+    let mut fresh = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        params,
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+    assert_eq!(reset.dynamic_loudness.strength(), 0.37);
+    assert_eq!(
+        reset.dynamic_loudness.loudness_factor(),
+        fresh.dynamic_loudness.loudness_factor()
+    );
+    assert_eq!(
+        reset.dynamic_loudness.get_band_gains(),
+        fresh.dynamic_loudness.get_band_gains()
+    );
+
+    let input: Vec<f64> = (0..8_192)
+        .map(|index| {
+            let time = index as f64 / (48_000.0 * 2.0);
+            (std::f64::consts::TAU * 110.0 * time).sin() * 0.2
+        })
+        .collect();
+    let mut actual = input.clone();
+    let mut expected = input;
+    let _ = reset.process(&mut actual, 2);
+    let _ = fresh.process(&mut expected, 2);
+
+    assert_eq!(actual, expected);
+    assert_eq!(
+        reset.dynamic_loudness.get_band_gains(),
+        fresh.dynamic_loudness.get_band_gains()
+    );
+}
+
+#[test]
 fn peak_limiter_finish_releases_exact_algorithmic_delay() {
     let params = Arc::new(AtomicPeakLimiterParams::new());
-    let mut proc = PeakLimiterProcessor::new(1, 48_000, params);
+    let mut proc = PeakLimiterProcessor::new(1, 48_000, params).unwrap();
     let latency_frames = proc.limiter.delay_frames();
     let mut input = vec![0.0; 64];
     input[63] = 0.5;
@@ -2055,7 +2180,7 @@ fn convolver_terminal_finish_can_retire_to_control_quiescence() {
 #[test]
 fn finite_finish_paths_are_allocation_free_after_processing() {
     let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
-    let mut limiter = PeakLimiterProcessor::new(1, 48_000, limiter_params);
+    let mut limiter = PeakLimiterProcessor::new(1, 48_000, limiter_params).unwrap();
     let mut limiter_input = vec![0.25; 64];
     let _ = limiter.process(&mut limiter_input, 1);
     let mut limiter_output = vec![0.0; limiter.limiter.delay_frames()];

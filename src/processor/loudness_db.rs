@@ -2,6 +2,23 @@
 //!
 //! SQLite storage for track loudness metadata following EBU R128 standard.
 //! Enables pre-computed gain values for fast playback without real-time analysis.
+//!
+//! # Known freshness limitations
+//!
+//! [`LoudnessDatabase::needs_scan`] is the single freshness contract, but its
+//! evidence is not equally strong for every identity:
+//!
+//! - A remote (HTTP) identity stores no mtime or size, so a replaced remote
+//!   body is not detected. Only the scanner version guards it.
+//! - Local change detection uses whole-second mtime plus size, so a same-size
+//!   replacement inside one second of the recorded mtime is missed.
+//! - [`TrackLoudness::compute_track_id`] normalizes separators but does not
+//!   canonicalize local paths, so `./a.flac` and `/music/a.flac` are two rows
+//!   for one file.
+//!
+//! These are recorded rather than silently accepted; fixing them needs distinct
+//! typed local/remote identities, which is a larger change than the freshness
+//! logic itself.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use std::cell::Cell;
@@ -17,6 +34,20 @@ pub const DEFAULT_STREAMING_TARGET_LUFS: f64 = -14.0;
 
 /// Default target loudness for broadcast (LUFS)
 pub const DEFAULT_BROADCAST_TARGET_LUFS: f64 = -23.0;
+
+/// Schemes stored as remote track identities.
+///
+/// Matched case-insensitively, because RFC 3986 defines schemes that way and
+/// the decoder's own source router already does; a case-sensitive check here
+/// would classify `HTTPS://host/track.flac` as a local path and then look for
+/// a file by that name.
+const REMOTE_SCHEMES: [&str; 2] = ["http://", "https://"];
+
+fn is_remote_path(path: &str) -> bool {
+    REMOTE_SCHEMES.iter().any(|scheme| {
+        path.len() >= scheme.len() && path[..scheme.len()].eq_ignore_ascii_case(scheme)
+    })
+}
 
 // ============================================================================
 // Track Loudness Record
@@ -91,8 +122,7 @@ impl TrackLoudness {
     /// Get file modification time and size for change detection
     /// Returns (mtime, size) or (None, None) if file is not local
     fn get_file_metadata(path: &str) -> (Option<i64>, Option<i64>) {
-        // Skip HTTP URLs
-        if path.starts_with("http://") || path.starts_with("https://") {
+        if is_remote_path(path) {
             return (None, None);
         }
 
@@ -344,10 +374,23 @@ impl LoudnessDatabase {
         self.get(file_path)
     }
 
-    /// Check if a track needs scanning (not in DB, outdated version, or file changed)
+    /// Check if a track needs scanning (not in DB, wrong scanner version, file
+    /// changed, or local file no longer readable).
     ///
-    /// FIX for Defect 40: Also check file mtime and size for change detection.
-    /// This handles the case where a file is replaced but keeps the same path.
+    /// Freshness evidence differs by identity:
+    ///
+    /// - **Local**: scanner version, mtime, and size must all match. A file
+    ///   that cannot be stat-ed — deleted, renamed, on an unmounted volume, or
+    ///   permission-denied — is reported as needing a scan, because there is no
+    ///   evidence the stored measurement still describes it.
+    /// - **Remote**: only the scanner version is checked. HTTP identities carry
+    ///   no stored mtime/size, so a replaced remote body is *not* detected. A
+    ///   caller that must notice remote replacement has to invalidate the entry
+    ///   itself; see this module's known limitation.
+    ///
+    /// The version comparison is exact rather than `<`: a record written by a
+    /// newer scanner is not something this build can vouch for either, so it is
+    /// rescanned instead of trusted.
     pub fn needs_scan(&self, file_path: &str) -> Result<bool, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let track_id = TrackLoudness::compute_track_id(file_path);
@@ -361,51 +404,63 @@ impl LoudnessDatabase {
         match result {
             None => Ok(true), // Not in database
             Some((version, db_mtime, db_size)) => {
-                // Check scan version
-                if version < CURRENT_SCAN_VERSION {
-                    return Ok(true); // Outdated scanner version
+                if version != CURRENT_SCAN_VERSION {
+                    return Ok(true); // Recorded by a different scanner
                 }
 
-                // FIX for Defect 40: Check file modification time and size
-                // Only check for local files (not HTTP URLs)
-                if !file_path.starts_with("http://") && !file_path.starts_with("https://") {
-                    if let Ok(metadata) = std::fs::metadata(file_path) {
-                        let current_mtime = metadata
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64);
-                        let current_size = Some(metadata.len() as i64);
-
-                        // If mtime or size changed, need rescan
-                        if current_mtime != db_mtime || current_size != db_size {
-                            log::info!(
-                                "File changed, needs rescan: {} (mtime: {:?} -> {:?}, size: {:?} -> {:?})",
-                                file_path, db_mtime, current_mtime, db_size, current_size
-                            );
-                            return Ok(true);
-                        }
-                    }
+                if is_remote_path(file_path) {
+                    return Ok(false); // Version-only freshness; see the doc above
                 }
 
-                Ok(false) // No changes detected
+                let Ok(metadata) = std::fs::metadata(file_path) else {
+                    log::info!(
+                        "File no longer readable, needs rescan before its cached loudness is used: {}",
+                        file_path
+                    );
+                    return Ok(true);
+                };
+
+                let current_mtime = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64);
+                let current_size = Some(metadata.len() as i64);
+
+                if current_mtime != db_mtime || current_size != db_size {
+                    log::info!(
+                        "File changed, needs rescan: {} (mtime: {:?} -> {:?}, size: {:?} -> {:?})",
+                        file_path,
+                        db_mtime,
+                        current_mtime,
+                        db_size,
+                        current_size
+                    );
+                    return Ok(true);
+                }
+
+                Ok(false)
             }
         }
     }
 
-    /// Get all tracks that need rescanning
+    /// Get all tracks whose stored scan version differs from this build's.
+    ///
+    /// A row whose `file_path` cannot be decoded fails the whole call rather
+    /// than being dropped: a silently short list reads as "nothing else to
+    /// rescan", which is the opposite of what a decode failure means.
     pub fn get_outdated_tracks(&self) -> Result<Vec<String>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
 
         let mut stmt = conn
-            .prepare("SELECT file_path FROM track_loudness WHERE scan_version < ?1")
+            .prepare("SELECT file_path FROM track_loudness WHERE scan_version != ?1")
             .map_err(|e| format!("Failed to prepare statement: {}", e))?;
 
-        let tracks: Vec<String> = stmt
+        let tracks = stmt
             .query_map(params![CURRENT_SCAN_VERSION], |row| row.get(0))
             .map_err(|e| format!("Failed to query outdated tracks: {}", e))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| format!("Failed to decode outdated track row: {}", e))?;
 
         Ok(tracks)
     }
@@ -594,8 +649,9 @@ mod tests {
         assert_eq!(retrieved.integrated_lufs, -18.5);
         assert_eq!(retrieved.track_gain_db, 4.5); // -14 - (-18.5)
 
-        // Check needs_scan
-        assert!(!db.needs_scan("/music/test.flac").unwrap());
+        // Check needs_scan. `/music/test.flac` does not exist, so there is no
+        // evidence the stored measurement still describes it.
+        assert!(db.needs_scan("/music/test.flac").unwrap());
         assert!(db.needs_scan("/music/other.flac").unwrap());
     }
 
@@ -647,5 +703,83 @@ mod tests {
         assert!(db.get_fresh(&path_string).unwrap().is_none());
 
         let _ = std::fs::remove_file(path);
+    }
+
+    fn unique_temp_path(tag: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "audio_player_loudness_{}_{}_{}.flac",
+            tag,
+            std::process::id(),
+            unique
+        ))
+    }
+
+    /// A file that vanished, moved, or became unreadable has no freshness
+    /// evidence at all. Reporting it fresh served a stale gain for a path whose
+    /// contents nobody could confirm.
+    #[test]
+    fn an_unreadable_local_file_needs_a_rescan() {
+        let db = LoudnessDatabase::in_memory().unwrap();
+        let path = unique_temp_path("missing");
+        std::fs::write(&path, b"initial").unwrap();
+        let path_string = path.to_string_lossy().to_string();
+
+        db.upsert(&TrackLoudness::new(&path_string, -18.0, -1.0, None, -14.0))
+            .unwrap();
+        assert!(!db.needs_scan(&path_string).unwrap());
+
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(db.needs_scan(&path_string).unwrap());
+        assert!(db.get_fresh(&path_string).unwrap().is_none());
+        // The record itself survives; only its freshness claim is withdrawn.
+        assert!(db.get(&path_string).unwrap().is_some());
+    }
+
+    /// A record written by a *newer* scanner is no more trustworthy to this
+    /// build than an older one, so exact version matching is required.
+    #[test]
+    fn a_newer_scanner_version_also_needs_a_rescan() {
+        let db = LoudnessDatabase::in_memory().unwrap();
+        let path = unique_temp_path("version");
+        std::fs::write(&path, b"initial").unwrap();
+        let path_string = path.to_string_lossy().to_string();
+
+        let mut track = TrackLoudness::new(&path_string, -18.0, -1.0, None, -14.0);
+        track.scan_version = CURRENT_SCAN_VERSION + 1;
+        db.upsert(&track).unwrap();
+
+        assert!(db.needs_scan(&path_string).unwrap());
+        assert!(db.get_fresh(&path_string).unwrap().is_none());
+        assert_eq!(db.get_outdated_tracks().unwrap(), vec![path_string]);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// Scheme matching must agree with the decoder's source router, or an
+    /// uppercase-scheme URL is treated as a local path and stat-ed.
+    #[test]
+    fn remote_identities_are_recognized_case_insensitively() {
+        let db = LoudnessDatabase::in_memory().unwrap();
+
+        for url in [
+            "http://host/track.flac",
+            "HTTPS://host/track.flac",
+            "HtTp://host/track.flac",
+        ] {
+            assert!(is_remote_path(url), "{url} must classify as remote");
+            db.upsert(&TrackLoudness::new(url, -18.0, -1.0, None, -14.0))
+                .unwrap();
+            // Remote freshness is version-only: no stat is attempted, so the
+            // record stays usable instead of being rescanned every lookup.
+            assert!(!db.needs_scan(url).unwrap(), "{url} must stay fresh");
+            assert!(db.get_fresh(url).unwrap().is_some());
+        }
+
+        assert!(!is_remote_path("/music/http_archive/track.flac"));
     }
 }

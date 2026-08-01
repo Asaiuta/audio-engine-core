@@ -19,15 +19,16 @@ use std::sync::{
 use super::convolver::FFTConvolver;
 use super::crossfeed::Crossfeed;
 use super::dsp::{NoiseShaper, NoiseShaperCurve};
-use super::dynamic_loudness::DynamicLoudness;
+use super::dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS_N};
 use super::eq::Equalizer;
 use super::lockfree_params::*;
 use super::loudness::{LimiterMode, PeakLimiter};
 use super::saturation::Saturation;
 use super::saturation::SATURATION_LATENCY_FRAMES;
 use super::traits::{
-    AudioBlockMut, FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError,
-    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
+    FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
+    StreamingProcessor, TailSpec,
 };
 
 #[derive(Default)]
@@ -76,32 +77,9 @@ impl FixedLifecycle {
     }
 }
 
-fn validate_channels(
-    processor: &'static str,
-    expected_channels: Option<usize>,
-    actual_channels: usize,
-) -> Result<(), ProcessError> {
-    if let Some(expected_channels) = expected_channels {
-        if expected_channels != actual_channels {
-            return Err(ProcessError::ChannelCountMismatch {
-                processor,
-                expected_channels,
-                actual_channels,
-            });
-        }
-    }
-    Ok(())
-}
-
 fn validate_sample_rate(processor: &'static str, sample_rate_hz: u32) -> Result<f64, ProcessError> {
-    if sample_rate_hz == 0 {
-        Err(ProcessError::InvalidSampleRate {
-            processor,
-            sample_rate_hz,
-        })
-    } else {
-        Ok(sample_rate_hz as f64)
-    }
+    validate_sample_rate_hz(processor, sample_rate_hz)?;
+    Ok(sample_rate_hz as f64)
 }
 
 fn process_fixed_1_to_1<F>(
@@ -115,7 +93,7 @@ where
     F: FnOnce(&mut [f64], usize) -> Result<(), ProcessError>,
 {
     let channels = buffers.channels();
-    validate_channels(processor, expected_channels, channels)?;
+    validate_processor_channels(processor, expected_channels, channels)?;
 
     match buffers.into_parts() {
         ProcessBufferParts::InPlace(mut block) => {
@@ -151,7 +129,7 @@ fn finish_fixed(
     lifecycle: &mut FixedLifecycle,
     output: AudioBlockMut<'_>,
 ) -> Result<ProcessProgress, ProcessError> {
-    validate_channels(processor, expected_channels, output.channels())?;
+    validate_processor_channels(processor, expected_channels, output.channels())?;
     Ok(lifecycle.finish())
 }
 
@@ -171,7 +149,7 @@ fn finish_fixed_unknown<F>(
 where
     F: FnOnce(&mut [f64], usize),
 {
-    validate_channels(processor, expected_channels, output.channels())?;
+    validate_processor_channels(processor, expected_channels, output.channels())?;
     if lifecycle.is_finished() {
         return Ok(ProcessProgress::finished(0));
     }
@@ -218,7 +196,7 @@ impl EqProcessor {
     pub fn new(channels: usize, sample_rate: f64, params: Arc<AtomicEqParams>) -> Self {
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
         let mut eq = Equalizer::new(channels, sample_rate);
-        eq.set_all_bands(&cached.gains, sample_rate);
+        eq.set_all_bands_validated(&cached.gains, sample_rate);
         eq.reset_settled();
         eq.set_enabled(cached.enabled);
         Self {
@@ -242,8 +220,11 @@ impl EqProcessor {
             self.cached = current;
             self.cached_generation = generation;
 
-            // Apply to internal EQ
-            self.eq.set_all_bands(&self.cached.gains, self.sample_rate);
+            // Apply to internal EQ. The snapshot is already finite and clamped
+            // by `AtomicEqParams`, so the audio thread uses the validated
+            // kernel and handles no `Result` here.
+            self.eq
+                .set_all_bands_validated(&self.cached.gains, self.sample_rate);
             self.eq.set_enabled(self.cached.enabled);
         }
     }
@@ -307,7 +288,8 @@ impl StreamingProcessor for EqProcessor {
         let sample_rate = validate_sample_rate("Equalizer", sample_rate_hz)?;
         self.sample_rate = sample_rate;
         self.eq = Equalizer::new(self.channels, sample_rate);
-        self.eq.set_all_bands(&self.cached.gains, sample_rate);
+        self.eq
+            .set_all_bands_validated(&self.cached.gains, sample_rate);
         self.eq.reset_settled();
         self.eq.set_enabled(self.cached.enabled);
         self.lifecycle.reset();
@@ -728,7 +710,7 @@ impl SaturationProcessor {
         events: &[SaturationEvent],
     ) -> Result<ProcessProgress, ProcessError> {
         self.lifecycle.ensure_processing("Saturation")?;
-        validate_channels("Saturation", Some(self.channels), channels)?;
+        validate_processor_channels("Saturation", Some(self.channels), channels)?;
         let block = super::traits::AudioBlockMut::new(samples, channels)?;
         let frames = block.frames();
         let samples = block.into_samples();
@@ -874,7 +856,7 @@ impl StreamingProcessor for SaturationProcessor {
                 output,
             );
         }
-        validate_channels("Saturation", Some(self.channels), output.channels())?;
+        validate_processor_channels("Saturation", Some(self.channels), output.channels())?;
         if self.lifecycle.is_finished() {
             return Ok(ProcessProgress::finished(0));
         }
@@ -1185,10 +1167,16 @@ pub struct PeakLimiterProcessor {
 }
 
 impl PeakLimiterProcessor {
-    pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicPeakLimiterParams>) -> Self {
+    pub fn new(
+        channels: usize,
+        sample_rate: u32,
+        params: Arc<AtomicPeakLimiterParams>,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate("PeakLimiter", sample_rate)?;
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
-        Self {
-            limiter: PeakLimiter::with_mode(
+        Ok(Self {
+            limiter: PeakLimiter::with_mode_validated(
                 channels,
                 sample_rate,
                 cached.threshold_db,
@@ -1211,7 +1199,7 @@ impl PeakLimiterProcessor {
             output_guard_snapshot: NoiseShaperParamsSnapshot::default(),
             output_ceiling_guard_db: 0.0,
             force_true_peak: false,
-        }
+        })
     }
 
     /// Construct the final-domain limiter with a guard derived from the
@@ -1221,7 +1209,9 @@ impl PeakLimiterProcessor {
         sample_rate: u32,
         params: Arc<AtomicPeakLimiterParams>,
         noise_shaper_params: Arc<AtomicNoiseShaperParams>,
-    ) -> Self {
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate("PeakLimiter", sample_rate)?;
         let latch = NoiseShaperSnapshotLatch::new(noise_shaper_params.read());
         Self::new_with_output_guard_latch(channels, sample_rate, params, noise_shaper_params, latch)
     }
@@ -1232,8 +1222,8 @@ impl PeakLimiterProcessor {
         params: Arc<AtomicPeakLimiterParams>,
         noise_shaper_params: Arc<AtomicNoiseShaperParams>,
         latch: NoiseShaperSnapshotLatch,
-    ) -> Self {
-        let mut processor = Self::new(channels, sample_rate, params);
+    ) -> Result<Self, ProcessError> {
+        let mut processor = Self::new(channels, sample_rate, params)?;
         let (reader, snapshot, generation) = noise_shaper_params.subscribe_realtime();
         processor.output_guard_snapshot = snapshot;
         processor.output_guard_generation = generation;
@@ -1246,7 +1236,7 @@ impl PeakLimiterProcessor {
             latch.store(processor.output_guard_snapshot);
         }
         processor.apply_output_ceiling_guard();
-        processor
+        Ok(processor)
     }
 
     fn effective_mode(&self) -> LimiterMode {
@@ -1346,14 +1336,14 @@ impl StreamingProcessor for PeakLimiterProcessor {
             Some(self.channels),
             buffers,
             |buffer, _channels| {
-                self.limiter.process(buffer);
+                self.limiter.process_validated(buffer);
                 Ok(())
             },
         )
     }
 
     fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
-        validate_channels("PeakLimiter", Some(self.channels), output.channels())?;
+        validate_processor_channels("PeakLimiter", Some(self.channels), output.channels())?;
         if self.lifecycle.is_finished() {
             return Ok(ProcessProgress::finished(0));
         }
@@ -1376,7 +1366,8 @@ impl StreamingProcessor for PeakLimiterProcessor {
         let samples = frames * self.channels;
         output.samples_mut()[..samples].fill(0.0);
         if frames > 0 {
-            self.limiter.process(&mut output.samples_mut()[..samples]);
+            self.limiter
+                .process_validated(&mut output.samples_mut()[..samples]);
         }
         *remaining -= frames;
 
@@ -1414,7 +1405,7 @@ impl StreamingProcessor for PeakLimiterProcessor {
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("PeakLimiter", sample_rate_hz)?;
         self.sample_rate = sample_rate_hz;
-        self.limiter = PeakLimiter::with_mode(
+        self.limiter = PeakLimiter::with_mode_validated(
             self.channels,
             self.sample_rate,
             self.cached.threshold_db,
@@ -1575,6 +1566,11 @@ impl StreamingProcessor for VolumeProcessor {
         true // Volume is always active
     }
 
+    fn supports_bypass(&self) -> bool {
+        // Volume is always applied; silence is requested through set_muted.
+        false
+    }
+
     fn set_enabled(&mut self, _enabled: bool) {
         // Use set_muted instead
     }
@@ -1609,13 +1605,19 @@ pub struct NoiseShaperProcessor {
 }
 
 impl NoiseShaperProcessor {
-    pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicNoiseShaperParams>) -> Self {
+    pub fn new(
+        channels: usize,
+        sample_rate: u32,
+        params: Arc<AtomicNoiseShaperParams>,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate("NoiseShaper", sample_rate)?;
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
-        let mut noise_shaper = NoiseShaper::new(channels, sample_rate, cached.bits);
+        let mut noise_shaper = NoiseShaper::new_validated(channels, sample_rate, cached.bits);
         noise_shaper.set_enabled(cached.enabled);
         noise_shaper.set_curve(cached.curve);
 
-        Self {
+        Ok(Self {
             noise_shaper,
             params,
             params_reader,
@@ -1625,7 +1627,7 @@ impl NoiseShaperProcessor {
             channels,
             lifecycle: FixedLifecycle::default(),
             output_guard_latch: None,
-        }
+        })
     }
 
     pub(super) fn new_with_output_guard_latch(
@@ -1633,8 +1635,8 @@ impl NoiseShaperProcessor {
         sample_rate: u32,
         params: Arc<AtomicNoiseShaperParams>,
         latch: NoiseShaperSnapshotLatch,
-    ) -> Self {
-        let mut processor = Self::new(channels, sample_rate, params);
+    ) -> Result<Self, ProcessError> {
+        let mut processor = Self::new(channels, sample_rate, params)?;
         processor.output_guard_latch = Some(latch);
         let snapshot = processor
             .output_guard_latch
@@ -1642,7 +1644,7 @@ impl NoiseShaperProcessor {
             .map(NoiseShaperSnapshotLatch::load)
             .unwrap_or(processor.cached);
         processor.apply_snapshot(snapshot);
-        processor
+        Ok(processor)
     }
 
     fn apply_snapshot(&mut self, snapshot: NoiseShaperParamsSnapshot) {
@@ -1692,7 +1694,7 @@ impl StreamingProcessor for NoiseShaperProcessor {
             Some(self.channels),
             buffers,
             |buffer, _channels| {
-                self.noise_shaper.process(buffer, self.channels);
+                self.noise_shaper.process_validated(buffer, self.channels);
                 Ok(())
             },
         )
@@ -1728,7 +1730,8 @@ impl StreamingProcessor for NoiseShaperProcessor {
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("NoiseShaper", sample_rate_hz)?;
         self.sample_rate = sample_rate_hz;
-        self.noise_shaper = NoiseShaper::new(self.channels, self.sample_rate, self.cached.bits);
+        self.noise_shaper =
+            NoiseShaper::new_validated(self.channels, self.sample_rate, self.cached.bits);
         self.noise_shaper.set_enabled(self.cached.enabled);
         self.noise_shaper.set_curve(self.cached.curve);
         self.lifecycle.reset();
@@ -1759,13 +1762,12 @@ impl DynamicLoudnessProcessor {
         sample_rate: u32,
         params: Arc<AtomicDynamicLoudnessParams>,
         telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
-    ) -> Self {
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate("DynamicLoudness", sample_rate)?;
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
-        let mut dynamic_loudness = DynamicLoudness::new(channels, sample_rate as f64);
-        dynamic_loudness.set_volume(cached.volume);
-        dynamic_loudness.set_strength(cached.strength);
-        Self {
-            dynamic_loudness,
+        let mut processor = Self {
+            dynamic_loudness: DynamicLoudness::new_validated(channels, sample_rate as f64),
             params,
             params_reader,
             telemetry,
@@ -1774,7 +1776,14 @@ impl DynamicLoudnessProcessor {
             sample_rate,
             channels,
             lifecycle: FixedLifecycle::default(),
-        }
+        };
+        processor.apply_cached_params();
+        Ok(processor)
+    }
+
+    fn apply_cached_params(&mut self) {
+        self.dynamic_loudness.set_volume(self.cached.volume);
+        self.dynamic_loudness.set_strength(self.cached.strength);
     }
 
     fn sync_params(&mut self) {
@@ -1784,8 +1793,7 @@ impl DynamicLoudnessProcessor {
         {
             self.cached = current;
             self.cached_generation = generation;
-            self.dynamic_loudness.set_volume(self.cached.volume);
-            self.dynamic_loudness.set_strength(self.cached.strength);
+            self.apply_cached_params();
         }
     }
 }
@@ -1800,7 +1808,7 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
         self.sync_params();
 
         if !self.cached.enabled {
-            self.telemetry.update(0.0, [0.0; 7]);
+            self.telemetry.update(0.0, [0.0; LOUDNESS_BANDS_N]);
         }
 
         process_fixed_1_to_1(
@@ -1809,7 +1817,7 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
             Some(self.channels),
             buffers,
             |buffer, _channels| {
-                self.dynamic_loudness.process(buffer);
+                self.dynamic_loudness.process_validated(buffer);
                 self.telemetry.update(
                     self.dynamic_loudness.loudness_factor(),
                     self.dynamic_loudness.get_band_gains(),
@@ -1826,12 +1834,13 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
             Some(self.channels),
             &mut self.lifecycle,
             output,
-            |buffer, _channels| self.dynamic_loudness.process(buffer),
+            |buffer, _channels| self.dynamic_loudness.process_validated(buffer),
         )
     }
 
     fn reset(&mut self) -> Result<(), ProcessError> {
         self.dynamic_loudness.reset();
+        self.apply_cached_params();
         self.lifecycle.reset();
         Ok(())
     }
@@ -1856,7 +1865,7 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
         validate_sample_rate("DynamicLoudness", sample_rate_hz)?;
         self.sample_rate = sample_rate_hz;
         self.dynamic_loudness
-            .set_sample_rate(self.sample_rate as f64);
+            .set_sample_rate(self.sample_rate as f64)?;
         self.lifecycle.reset();
         Ok(())
     }

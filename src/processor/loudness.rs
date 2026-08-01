@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_peak_limiter() {
-        let mut limiter = PeakLimiter::new(2, 44100, -1.0, 10.0, 100.0);
+        let mut limiter = PeakLimiter::new_validated(2, 44100, -1.0, 10.0, 100.0);
 
         // Create a signal that exceeds threshold
         let mut samples = vec![0.0; 4096];
@@ -85,7 +85,7 @@ mod tests {
             samples[i * 2 + 1] = 1.5; // Right channel
         }
 
-        limiter.process(&mut samples);
+        limiter.process_validated(&mut samples);
 
         // After limiting, peaks should be below threshold
         let max_out = samples.iter().map(|s| s.abs()).fold(0.0_f64, f64::max);

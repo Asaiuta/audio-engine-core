@@ -61,7 +61,9 @@ pub use convolver::{
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
 pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve, VolumeController};
-pub use dynamic_loudness::{AtomicDynamicLoudnessState, DynamicLoudness, LOUDNESS_BANDS};
+pub use dynamic_loudness::{
+    AtomicDynamicLoudnessState, DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N,
+};
 pub use eq::{BiquadSection, Equalizer};
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
@@ -100,7 +102,14 @@ pub use lockfree_params::{
     AtomicVolumeParams, CrossfeedParamsSnapshot, DynamicLoudnessParamsSnapshot, EqParamsSnapshot,
     NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, RealtimeSnapshotReader,
     SaturationParamsSnapshot, SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot,
-    EQ_BANDS,
+    CROSSFEED_CUTOFF_HZ_MAX, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN,
+    DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN, DYNAMIC_LOUDNESS_VOLUME_MAX,
+    DYNAMIC_LOUDNESS_VOLUME_MIN, EQ_BANDS, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN,
+    LIMITER_RELEASE_MS_MAX, LIMITER_RELEASE_MS_MIN, LIMITER_THRESHOLD_DB_MAX,
+    LIMITER_THRESHOLD_DB_MIN, NOISE_SHAPER_BITS_MAX, NOISE_SHAPER_BITS_MIN, SATURATION_DRIVE_MAX,
+    SATURATION_DRIVE_MIN, SATURATION_GAIN_DB_MAX, SATURATION_GAIN_DB_MIN,
+    SATURATION_HIGHPASS_CUTOFF_HZ_MAX, SATURATION_HIGHPASS_CUTOFF_HZ_MIN, SATURATION_MIX_MAX,
+    SATURATION_MIX_MIN, SATURATION_THRESHOLD_MAX, SATURATION_THRESHOLD_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 pub use traits::{
     finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration,

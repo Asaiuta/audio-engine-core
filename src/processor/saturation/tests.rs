@@ -94,6 +94,78 @@ fn test_cached_linear_gains_update_with_db_setters() {
     assert_eq!(sat.output_gain_db, -3.0);
 }
 
+/// The standalone setters must honour the same published bounds as the atomic
+/// publication path, so a direct core user cannot reach a gain the facade
+/// refuses to publish.
+#[test]
+fn standalone_gain_setters_clamp_to_published_range() {
+    let mut sat = Saturation::new();
+
+    sat.set_input_gain(SATURATION_GAIN_DB_MAX + 12.0);
+    sat.set_output_gain(SATURATION_GAIN_DB_MIN - 12.0);
+
+    assert_eq!(sat.input_gain_db, SATURATION_GAIN_DB_MAX);
+    assert_eq!(sat.output_gain_db, SATURATION_GAIN_DB_MIN);
+    assert!((sat.input_gain_linear - db_to_linear(SATURATION_GAIN_DB_MAX)).abs() < 1e-12);
+    assert!((sat.output_gain_linear - db_to_linear(SATURATION_GAIN_DB_MIN)).abs() < 1e-12);
+}
+
+/// The remaining standalone setters share the published ranges rather than
+/// re-encoding them, so a range change cannot be silently re-clamped here.
+#[test]
+fn standalone_setters_clamp_to_published_ranges() {
+    let mut sat = Saturation::new();
+
+    sat.set_drive(SATURATION_DRIVE_MAX + 5.0);
+    sat.set_threshold(SATURATION_THRESHOLD_MAX + 5.0);
+    sat.set_mix(SATURATION_MIX_MIN - 5.0);
+    sat.set_highpass_cutoff(SATURATION_HIGHPASS_CUTOFF_HZ_MAX + 5_000.0);
+
+    assert_eq!(sat.drive, SATURATION_DRIVE_MAX);
+    assert_eq!(sat.threshold, SATURATION_THRESHOLD_MAX);
+    assert_eq!(sat.mix, SATURATION_MIX_MIN);
+    assert_eq!(sat.highpass_cutoff, SATURATION_HIGHPASS_CUTOFF_HZ_MAX);
+}
+
+/// `f64::clamp` returns `NaN` unchanged, so clamping alone let a non-finite
+/// write reach filter state and poison the stage for the rest of the stream.
+/// The infallible standalone setters drop such a write, exactly as the atomic
+/// publication layer does.
+#[test]
+fn standalone_setters_drop_non_finite_writes() {
+    let mut sat = Saturation::new();
+    sat.set_drive(1.5);
+    sat.set_threshold(0.7);
+    sat.set_mix(0.4);
+    sat.set_input_gain(6.0);
+    sat.set_output_gain(-6.0);
+    sat.set_highpass_cutoff(2_000.0);
+
+    for poison in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        sat.set_drive(poison);
+        sat.set_threshold(poison);
+        sat.set_mix(poison);
+        sat.set_input_gain(poison);
+        sat.set_output_gain(poison);
+        sat.set_highpass_cutoff(poison);
+
+        assert_eq!(sat.drive, 1.5, "drive survived {poison}");
+        assert_eq!(sat.threshold, 0.7, "threshold survived {poison}");
+        assert_eq!(sat.mix, 0.4, "mix survived {poison}");
+        assert_eq!(sat.input_gain_db, 6.0, "input gain survived {poison}");
+        assert_eq!(sat.output_gain_db, -6.0, "output gain survived {poison}");
+        assert_eq!(sat.highpass_cutoff, 2_000.0, "cutoff survived {poison}");
+        assert!(sat.input_gain_linear.is_finite());
+        assert!(sat.output_gain_linear.is_finite());
+    }
+
+    // The poisoned writes must not have reached the audio path either.
+    sat.set_enabled(true);
+    let mut samples = vec![0.5; SATURATION_LATENCY_FRAMES + 8];
+    sat.process_with_channels(&mut samples, 1);
+    assert!(samples.iter().all(|sample| sample.is_finite()));
+}
+
 #[test]
 fn test_threshold() {
     let mut sat = Saturation::with_type(SaturationType::Tube);

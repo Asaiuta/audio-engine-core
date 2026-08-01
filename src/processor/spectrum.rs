@@ -3,6 +3,8 @@
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
 
+use super::traits::{validate_sample_rate_hz, ProcessError};
+
 /// FFT-based spectrum analyzer for visualization
 pub struct SpectrumAnalyzer {
     fft_size: usize,
@@ -19,14 +21,28 @@ pub struct SpectrumAnalyzer {
 }
 
 impl SpectrumAnalyzer {
-    pub fn new(fft_size: usize, num_bins: usize) -> Self {
+    pub fn new(fft_size: usize, num_bins: usize) -> Result<Self, ProcessError> {
+        if fft_size < 4 {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "SpectrumAnalyzer",
+                operation: "create analyzer",
+                message: "FFT size must provide at least one non-DC/non-Nyquist bin",
+            });
+        }
+        if num_bins == 0 {
+            return Err(ProcessError::InvalidGeometry {
+                processor: "SpectrumAnalyzer",
+                operation: "create analyzer",
+                message: "output bin count must be greater than zero",
+            });
+        }
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(fft_size);
         let window: Vec<f64> = (0..fft_size)
             .map(|i| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / fft_size as f64).cos()))
             .collect();
 
-        Self {
+        Ok(Self {
             fft_size,
             window,
             num_bins,
@@ -37,13 +53,14 @@ impl SpectrumAnalyzer {
             result: vec![0.0; num_bins],
             bin_ranges: Vec::with_capacity(num_bins),
             bin_sample_rate: None,
-        }
+        })
     }
 
-    pub fn analyze(&mut self, samples: &[f64], sample_rate: u32) -> &[f32] {
+    pub fn analyze(&mut self, samples: &[f64], sample_rate: u32) -> Result<&[f32], ProcessError> {
+        validate_sample_rate_hz("SpectrumAnalyzer", sample_rate)?;
         if samples.len() < self.fft_size {
             self.result.fill(0.0);
-            return &self.result;
+            return Ok(&self.result);
         }
 
         for ((slot, &sample), &window) in self
@@ -68,7 +85,7 @@ impl SpectrumAnalyzer {
 
         self.ensure_bin_ranges(sample_rate);
         self.log_bin();
-        &self.result
+        Ok(&self.result)
     }
 
     fn ensure_bin_ranges(&mut self, sample_rate: u32) {
@@ -120,31 +137,93 @@ mod tests {
     use rustfft::FftPlanner;
 
     #[test]
+    fn constructor_rejects_empty_magnitude_and_output_domains() {
+        for fft_size in 0..4 {
+            assert!(matches!(
+                SpectrumAnalyzer::new(fft_size, 4),
+                Err(ProcessError::InvalidGeometry {
+                    processor: "SpectrumAnalyzer",
+                    operation: "create analyzer",
+                    ..
+                })
+            ));
+        }
+        assert!(matches!(
+            SpectrumAnalyzer::new(4, 0),
+            Err(ProcessError::InvalidGeometry {
+                processor: "SpectrumAnalyzer",
+                operation: "create analyzer",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn zero_sample_rate_rejection_preserves_cached_fft_and_bins() {
+        let mut analyzer = SpectrumAnalyzer::new(16, 4).unwrap();
+        let samples: Vec<f64> = (0..16).map(|index| (index as f64 * 0.1).sin()).collect();
+        analyzer.analyze(&samples, 48_000).unwrap();
+        let fft_buffer = analyzer.fft_buffer.clone();
+        let fft_scratch = analyzer.fft_scratch.clone();
+        let magnitudes = analyzer.magnitudes.clone();
+        let result = analyzer.result.clone();
+        let bin_ranges = analyzer.bin_ranges.clone();
+        let bin_sample_rate = analyzer.bin_sample_rate;
+
+        assert_no_alloc::assert_no_alloc(|| {
+            assert!(matches!(
+                analyzer.analyze(&samples, 0),
+                Err(ProcessError::InvalidSampleRate {
+                    processor: "SpectrumAnalyzer",
+                    sample_rate_hz: 0,
+                })
+            ));
+        });
+
+        assert_eq!(analyzer.fft_buffer, fft_buffer);
+        assert_eq!(analyzer.fft_scratch, fft_scratch);
+        assert_eq!(analyzer.magnitudes, magnitudes);
+        assert_eq!(analyzer.result, result);
+        assert_eq!(analyzer.bin_ranges, bin_ranges);
+        assert_eq!(analyzer.bin_sample_rate, bin_sample_rate);
+    }
+
+    #[test]
     fn short_input_returns_reused_zero_bins() {
-        let mut analyzer = SpectrumAnalyzer::new(16, 4);
-        let first_ptr = analyzer.analyze(&[0.0; 8], 48_000).as_ptr();
-        assert_eq!(analyzer.analyze(&[0.0; 8], 48_000), &[0.0; 4]);
-        assert_eq!(analyzer.analyze(&[0.0; 8], 48_000).as_ptr(), first_ptr);
+        let mut analyzer = SpectrumAnalyzer::new(16, 4).unwrap();
+        let first_ptr = analyzer.analyze(&[0.0; 8], 48_000).unwrap().as_ptr();
+        assert_eq!(analyzer.analyze(&[0.0; 8], 48_000).unwrap(), &[0.0; 4]);
+        assert_eq!(
+            analyzer.analyze(&[0.0; 8], 48_000).unwrap().as_ptr(),
+            first_ptr
+        );
     }
 
     #[test]
     fn analyze_reuses_result_and_recomputes_ranges_on_sample_rate_change() {
-        let mut analyzer = SpectrumAnalyzer::new(64, 8);
+        let mut analyzer = SpectrumAnalyzer::new(64, 8).unwrap();
         let samples: Vec<f64> = (0..64).map(|i| (i as f64 * 0.1).sin()).collect();
 
-        let first_ptr = analyzer.analyze(&samples, 48_000).as_ptr();
+        let first_ptr = analyzer.analyze(&samples, 48_000).unwrap().as_ptr();
         let first_ranges = analyzer.bin_ranges.clone();
-        assert!(analyzer.analyze(&samples, 48_000).iter().any(|&v| v > 0.0));
-        assert_eq!(analyzer.analyze(&samples, 48_000).as_ptr(), first_ptr);
+        assert!(analyzer
+            .analyze(&samples, 48_000)
+            .unwrap()
+            .iter()
+            .any(|&v| v > 0.0));
+        assert_eq!(
+            analyzer.analyze(&samples, 48_000).unwrap().as_ptr(),
+            first_ptr
+        );
         assert_eq!(analyzer.bin_ranges, first_ranges);
 
-        analyzer.analyze(&samples, 96_000);
+        analyzer.analyze(&samples, 96_000).unwrap();
         assert_ne!(analyzer.bin_ranges, first_ranges);
     }
 
     #[test]
     fn analyzer_output_matches_legacy_allocation_path() {
-        let mut analyzer = SpectrumAnalyzer::new(128, 16);
+        let mut analyzer = SpectrumAnalyzer::new(128, 16).unwrap();
         let samples: Vec<f64> = (0..128)
             .map(|i| {
                 let t = i as f64 / 48_000.0;
@@ -152,7 +231,7 @@ mod tests {
             })
             .collect();
 
-        let actual = analyzer.analyze(&samples, 48_000).to_vec();
+        let actual = analyzer.analyze(&samples, 48_000).unwrap().to_vec();
         let expected = legacy_analyze(&samples, 128, 16, 48_000);
 
         for (idx, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {

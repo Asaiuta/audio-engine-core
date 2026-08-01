@@ -1,6 +1,25 @@
 //! IIR Biquad Equalizer - 10-band parametric EQ
 
+use super::lockfree_params::{validate_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
+use super::traits::ProcessError;
+
 pub use super::lockfree_params::EQ_BANDS;
+
+/// Reject a band gain that would build non-finite biquad coefficients.
+///
+/// `f64::clamp` returns `NaN` unchanged, so an accepted `NaN` gain reaches
+/// [`BiquadSection::peaking_eq`] and permanently poisons the filter history of
+/// every channel in that band.
+fn checked_band_gain(gain_db: f64) -> Result<f64, ProcessError> {
+    if gain_db.is_finite() {
+        return Ok(gain_db);
+    }
+    Err(ProcessError::InvalidParameter {
+        processor: "Equalizer",
+        parameter: "eq band gain",
+        message: "value must be finite",
+    })
+}
 
 /// IIR Biquad filter section (SOS - Second Order Section)
 #[derive(Clone)]
@@ -108,11 +127,58 @@ impl Equalizer {
         })
     }
 
-    pub fn set_band_gain(&mut self, band_idx: usize, gain_db: f64, sample_rate: f64) {
-        if band_idx >= EQ_BANDS {
-            return;
+    /// Set one band's target gain in dB, clamped to
+    /// [`EQ_BAND_GAIN_DB_MIN`]..=[`EQ_BAND_GAIN_DB_MAX`], and start this band's
+    /// crossfade to the new coefficients.
+    ///
+    /// Returns [`ProcessError::InvalidParameter`] for a band index at or above
+    /// [`EQ_BANDS`] and for a non-finite gain. Neither is clamped: clamping an
+    /// index would edit a different band than the caller asked for, and a
+    /// non-finite gain would poison this filter's history for the rest of the
+    /// stream. A rejected call leaves coefficients, target gains, and
+    /// transition counters untouched.
+    pub fn set_band_gain(
+        &mut self,
+        band_idx: usize,
+        gain_db: f64,
+        sample_rate: f64,
+    ) -> Result<(), ProcessError> {
+        validate_eq_band_index("Equalizer", band_idx)?;
+        let gain_db = checked_band_gain(gain_db)?;
+        self.set_band_gain_validated(band_idx, gain_db, sample_rate);
+        Ok(())
+    }
+
+    /// Set every band's target gain, clamped like [`Self::set_band_gain`].
+    ///
+    /// The whole bank is validated before any band is applied, so a single
+    /// non-finite entry cannot leave a partially updated equalizer behind.
+    pub fn set_all_bands(
+        &mut self,
+        gains: &[f64; EQ_BANDS],
+        sample_rate: f64,
+    ) -> Result<(), ProcessError> {
+        for gain in gains {
+            checked_band_gain(*gain)?;
         }
-        let gain_db = gain_db.clamp(-15.0, 15.0);
+        self.set_all_bands_validated(gains, sample_rate);
+        Ok(())
+    }
+
+    /// Apply one already-validated band gain.
+    ///
+    /// Callers must supply `band_idx < EQ_BANDS` and a finite `gain_db`. This
+    /// kernel owns the published-range clamp. Callback-side parameter sync
+    /// calls it directly because [`AtomicEqParams`](super::AtomicEqParams) has
+    /// already sanitized its snapshot, so the audio thread pays no validation
+    /// and handles no `Result`.
+    pub(crate) fn set_band_gain_validated(
+        &mut self,
+        band_idx: usize,
+        gain_db: f64,
+        sample_rate: f64,
+    ) {
+        let gain_db = gain_db.clamp(EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX);
         let freq = Self::FREQUENCIES[band_idx];
         // Update target filters for all channels
         for ch in 0..self.channels {
@@ -124,9 +190,11 @@ impl Equalizer {
         self.smooth_counter[band_idx] = EQ_SMOOTH_SAMPLES;
     }
 
-    pub fn set_all_bands(&mut self, gains: &[f64; EQ_BANDS], sample_rate: f64) {
+    /// Apply an already-validated complete bank; see
+    /// [`Self::set_band_gain_validated`] for the caller's precondition.
+    pub(crate) fn set_all_bands_validated(&mut self, gains: &[f64; EQ_BANDS], sample_rate: f64) {
         for (idx, &gain) in gains.iter().enumerate() {
-            self.set_band_gain(idx, gain, sample_rate);
+            self.set_band_gain_validated(idx, gain, sample_rate);
         }
     }
 
@@ -283,7 +351,7 @@ mod tests {
             .map(|frame| ((frame as f64) * 0.071).sin() * 0.3)
             .collect::<Vec<_>>();
         eq.process(&mut warmup);
-        eq.set_band_gain(BAND, 12.0, 48_000.0);
+        eq.set_band_gain(BAND, 12.0, 48_000.0).unwrap();
 
         let mut transition = transition_input.to_vec();
         eq.process(&mut transition);
@@ -315,8 +383,8 @@ mod tests {
         let mut chunked = Equalizer::new(2, 48_000.0);
         whole.set_enabled(true);
         chunked.set_enabled(true);
-        whole.set_band_gain(5, 9.0, 48_000.0);
-        chunked.set_band_gain(5, 9.0, 48_000.0);
+        whole.set_band_gain(5, 9.0, 48_000.0).unwrap();
+        chunked.set_band_gain(5, 9.0, 48_000.0).unwrap();
         let input = (0..(EQ_SMOOTH_SAMPLES as usize + 733) * 2)
             .map(|sample| ((sample as f64) * 0.019).sin() * 0.3)
             .collect::<Vec<_>>();
@@ -347,7 +415,7 @@ mod tests {
     fn transition_completion_is_allocation_free() {
         let mut eq = Equalizer::new(2, 48_000.0);
         eq.set_enabled(true);
-        eq.set_band_gain(5, 12.0, 48_000.0);
+        eq.set_band_gain(5, 12.0, 48_000.0).unwrap();
         let mut buffer = vec![0.25; EQ_SMOOTH_SAMPLES as usize * 2];
 
         assert_no_alloc::assert_no_alloc(|| eq.process(&mut buffer));
@@ -378,7 +446,7 @@ mod tests {
     fn reset_clears_current_and_target_bank_state() {
         let mut eq = Equalizer::new(2, 48_000.0);
         eq.set_enabled(true);
-        eq.set_band_gain(0, 6.0, 48_000.0);
+        eq.set_band_gain(0, 6.0, 48_000.0).unwrap();
 
         let mut buffer = vec![0.25; 256];
         eq.process(&mut buffer);
@@ -404,7 +472,7 @@ mod tests {
     fn settled_reset_adopts_target_and_clears_transition_state() {
         let mut eq = Equalizer::new(2, 48_000.0);
         eq.set_enabled(true);
-        eq.set_band_gain(5, 9.0, 48_000.0);
+        eq.set_band_gain(5, 9.0, 48_000.0).unwrap();
         let mut buffer = vec![0.25; 2 * 137];
         eq.process(&mut buffer);
         assert!(eq.smooth_counter[5] > 0);
@@ -428,8 +496,8 @@ mod tests {
         let mut fast = Equalizer::new(2, 48_000.0);
         regular.set_enabled(true);
         fast.set_enabled(true);
-        regular.set_all_bands(&gains, 48_000.0);
-        fast.set_all_bands(&gains, 48_000.0);
+        regular.set_all_bands(&gains, 48_000.0).unwrap();
+        fast.set_all_bands(&gains, 48_000.0).unwrap();
 
         let mut silence = vec![0.0; 2 * (EQ_SMOOTH_SAMPLES as usize + 1)];
         regular.process(&mut silence);
@@ -454,6 +522,123 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f64::max);
         assert!(max_abs <= 1.0e-12, "max_abs={max_abs:.3e}");
+    }
+
+    fn assert_bank_bit_equal(actual: &Equalizer, expected: &Equalizer) {
+        assert_eq!(actual.channels, expected.channels, "channels");
+        assert_eq!(actual.target_gains, expected.target_gains, "target gains");
+        assert_eq!(
+            actual.smooth_counter, expected.smooth_counter,
+            "transition counters"
+        );
+        for channel in 0..expected.channels {
+            for band in 0..EQ_BANDS {
+                assert_section_bit_equal(
+                    &actual.bands[channel][band],
+                    &expected.bands[channel][band],
+                );
+                assert_section_bit_equal(
+                    &actual.target_bands[channel][band],
+                    &expected.target_bands[channel][band],
+                );
+            }
+        }
+    }
+
+    fn configured_stereo_eq() -> Equalizer {
+        let mut eq = Equalizer::new(2, 48_000.0);
+        eq.set_enabled(true);
+        eq.set_band_gain(2, 6.0, 48_000.0).unwrap();
+        eq
+    }
+
+    #[test]
+    fn out_of_range_band_index_is_rejected_without_touching_state() {
+        let mut eq = configured_stereo_eq();
+        let expected = configured_stereo_eq();
+
+        for band in [EQ_BANDS, EQ_BANDS + 1, usize::MAX] {
+            assert_eq!(
+                eq.set_band_gain(band, 12.0, 48_000.0).unwrap_err(),
+                ProcessError::InvalidParameter {
+                    processor: "Equalizer",
+                    parameter: "eq band index",
+                    message: "band index must be below EQ_BANDS",
+                }
+            );
+        }
+
+        assert_bank_bit_equal(&eq, &expected);
+    }
+
+    #[test]
+    fn non_finite_band_gain_is_rejected_and_cannot_poison_filter_history() {
+        let mut eq = configured_stereo_eq();
+        let expected = configured_stereo_eq();
+
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                eq.set_band_gain(2, bad, 48_000.0).unwrap_err(),
+                ProcessError::InvalidParameter {
+                    processor: "Equalizer",
+                    parameter: "eq band gain",
+                    message: "value must be finite",
+                }
+            );
+        }
+
+        assert_bank_bit_equal(&eq, &expected);
+
+        // Before this contract `f64::clamp` passed NaN straight into the
+        // coefficients and every later sample came out NaN.
+        let mut buffer = vec![0.25; 2 * (EQ_SMOOTH_SAMPLES as usize + 64)];
+        eq.process(&mut buffer);
+        assert!(buffer.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn whole_bank_write_is_rejected_atomically_when_any_gain_is_non_finite() {
+        let mut eq = Equalizer::new(2, 48_000.0);
+        let untouched = Equalizer::new(2, 48_000.0);
+
+        let mut gains = [3.0; EQ_BANDS];
+        gains[EQ_BANDS - 1] = f64::NAN;
+        assert_eq!(
+            eq.set_all_bands(&gains, 48_000.0).unwrap_err(),
+            ProcessError::InvalidParameter {
+                processor: "Equalizer",
+                parameter: "eq band gain",
+                message: "value must be finite",
+            }
+        );
+
+        // The nine finite gains ahead of the rejected one must not be applied.
+        assert_bank_bit_equal(&eq, &untouched);
+    }
+
+    #[test]
+    fn band_gain_is_clamped_to_the_published_range() {
+        let mut eq = Equalizer::new(1, 48_000.0);
+
+        eq.set_band_gain(0, EQ_BAND_GAIN_DB_MAX + 40.0, 48_000.0)
+            .unwrap();
+        eq.set_band_gain(1, EQ_BAND_GAIN_DB_MIN - 40.0, 48_000.0)
+            .unwrap();
+
+        assert_eq!(eq.target_gains[0], EQ_BAND_GAIN_DB_MAX);
+        assert_eq!(eq.target_gains[1], EQ_BAND_GAIN_DB_MIN);
+    }
+
+    #[test]
+    fn checked_and_validated_band_writes_produce_identical_state() {
+        let mut checked = Equalizer::new(2, 48_000.0);
+        let mut kernel = Equalizer::new(2, 48_000.0);
+        let gains = [12.0, 9.0, 6.0, 3.0, -3.0, -6.0, -9.0, -12.0, 6.0, -6.0];
+
+        checked.set_all_bands(&gains, 48_000.0).unwrap();
+        kernel.set_all_bands_validated(&gains, 48_000.0);
+
+        assert_bank_bit_equal(&checked, &kernel);
     }
 
     impl Equalizer {

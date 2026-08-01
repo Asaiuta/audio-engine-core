@@ -1197,6 +1197,11 @@ impl StreamingProcessor for StreamingResampler {
         self.from_rate != self.to_rate
     }
 
+    fn supports_bypass(&self) -> bool {
+        // Rate conversion is graph geometry, not a switchable effect.
+        false
+    }
+
     fn set_enabled(&mut self, _enabled: bool) {
         // Rate conversion is graph geometry rather than a bypassable effect.
     }

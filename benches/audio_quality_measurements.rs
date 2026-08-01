@@ -1312,8 +1312,11 @@ fn measure_limiter_transparent_thdn(
         LIMITER_THRESHOLD_DBFS,
         LIMITER_LOOKAHEAD_MS,
         LIMITER_RELEASE_MS,
-    );
-    limiter.process(&mut samples);
+    )
+    .map_err(|error| error.to_string())?;
+    limiter
+        .process(&mut samples, CHANNELS)
+        .map_err(|error| error.to_string())?;
     let mono = extract_channel(&samples, CHANNELS, 0);
     let fit = fit_sine(
         &mono,
@@ -1341,8 +1344,11 @@ fn measure_limiter(
         LIMITER_THRESHOLD_DBFS,
         LIMITER_LOOKAHEAD_MS,
         LIMITER_RELEASE_MS,
-    );
-    limiter.process(&mut samples);
+    )
+    .map_err(|error| error.to_string())?;
+    limiter
+        .process(&mut samples, CHANNELS)
+        .map_err(|error| error.to_string())?;
     let output_peak = max_abs(&samples);
     let output_peak_dbfs = dbfs(output_peak);
 
@@ -1353,7 +1359,7 @@ fn measure_limiter(
     let stress_mono = intersample_stress_mono(frames, 1.0);
     let mut stress_tp = stereo_from_mono(&stress_mono);
     let mut stress_sp = stress_tp.clone();
-    PeakLimiter::with_mode(
+    let mut true_peak_limiter = PeakLimiter::with_mode(
         CHANNELS,
         SAMPLE_RATE,
         LIMITER_THRESHOLD_DBFS,
@@ -1361,8 +1367,11 @@ fn measure_limiter(
         LIMITER_RELEASE_MS,
         LimiterMode::TruePeak,
     )
-    .process(&mut stress_tp);
-    PeakLimiter::with_mode(
+    .map_err(|error| error.to_string())?;
+    true_peak_limiter
+        .process(&mut stress_tp, CHANNELS)
+        .map_err(|error| error.to_string())?;
+    let mut sample_peak_limiter = PeakLimiter::with_mode(
         CHANNELS,
         SAMPLE_RATE,
         LIMITER_THRESHOLD_DBFS,
@@ -1370,7 +1379,10 @@ fn measure_limiter(
         LIMITER_RELEASE_MS,
         LimiterMode::SamplePeak,
     )
-    .process(&mut stress_sp);
+    .map_err(|error| error.to_string())?;
+    sample_peak_limiter
+        .process(&mut stress_sp, CHANNELS)
+        .map_err(|error| error.to_string())?;
 
     Ok(LimiterSection {
         threshold_dbfs: LIMITER_THRESHOLD_DBFS,
@@ -1633,7 +1645,8 @@ fn measure_listening_eq(frames: usize) -> Result<ListeningEqSection, String> {
         let mut gains = [0.0; EQ_BANDS];
         gains[band] = LISTENING_EQ_TARGET_GAIN_DB;
         eq.set_enabled(true);
-        eq.set_all_bands(&gains, SAMPLE_RATE as f64);
+        eq.set_all_bands(&gains, SAMPLE_RATE as f64)
+            .map_err(|err| err.to_string())?;
         eq.process(&mut samples);
 
         let left = extract_channel(&samples, CHANNELS, 0);
@@ -1813,7 +1826,8 @@ fn measure_listening_dynamic_loudness(
     let presence_compensation_db =
         measure_dynamic_loudness_compensation(frames, presence_probe_hz)?;
 
-    let mut telemetry_probe = DynamicLoudness::new(CHANNELS, SAMPLE_RATE as f64);
+    let mut telemetry_probe =
+        DynamicLoudness::new(CHANNELS, SAMPLE_RATE as f64).map_err(|error| error.to_string())?;
     telemetry_probe.set_strength(LISTENING_LOUDNESS_STRENGTH);
     telemetry_probe.set_volume_db(LISTENING_LOUDNESS_LOW_DB);
 
@@ -1843,12 +1857,15 @@ fn measure_dynamic_loudness_gain(
 ) -> Result<f64, String> {
     let amplitude = db_to_linear(LISTENING_DSP_AMPLITUDE_DBFS);
     let mut samples = stereo_from_mono(&sine_mono(frames, SAMPLE_RATE, frequency, amplitude));
-    let mut dynamic_loudness = DynamicLoudness::new(CHANNELS, SAMPLE_RATE as f64);
+    let mut dynamic_loudness =
+        DynamicLoudness::new(CHANNELS, SAMPLE_RATE as f64).map_err(|error| error.to_string())?;
     dynamic_loudness.set_strength(LISTENING_LOUDNESS_STRENGTH);
     dynamic_loudness.set_volume_db(volume_db);
 
     for chunk in samples.chunks_mut(4096 * CHANNELS) {
-        dynamic_loudness.process(chunk);
+        dynamic_loudness
+            .process(chunk, CHANNELS)
+            .map_err(|error| error.to_string())?;
     }
 
     let left = extract_channel(&samples, CHANNELS, 0);
@@ -1889,9 +1906,12 @@ fn measure_noise_shaping(frames: usize) -> Result<NoiseShapingSection, String> {
 
     for curve in curves {
         let mut output = input.clone();
-        let mut shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+        let mut shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
+            .map_err(|error| error.to_string())?;
         shaper.set_curve(curve);
-        shaper.process(&mut output, 1);
+        shaper
+            .process(&mut output, 1)
+            .map_err(|error| error.to_string())?;
 
         let error = output
             .iter()
@@ -1956,15 +1976,28 @@ fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
     const PROBE_SAMPLES: usize = 16_384;
 
     let low_level = db_to_linear(NOISE_LOW_LEVEL_INPUT_DBFS);
-    let mut low_level_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+    let mut low_level_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
+        .expect("fixed noise-shaper benchmark geometry must be valid");
     let low_level_changed = (0..PROBE_SAMPLES)
-        .filter(|_| low_level_shaper.process_sample(low_level, 0).to_bits() != low_level.to_bits())
+        .filter(|_| {
+            low_level_shaper
+                .process_sample(low_level, 0)
+                .expect("channel zero is configured")
+                .to_bits()
+                != low_level.to_bits()
+        })
         .count();
 
-    let mut silence_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+    let mut silence_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
+        .expect("fixed noise-shaper benchmark geometry must be valid");
     silence_shaper.set_curve(NoiseShaperCurve::TpdfOnly);
     let silence_non_zero = (0..PROBE_SAMPLES)
-        .filter(|_| silence_shaper.process_sample(0.0, 0) != 0.0)
+        .filter(|_| {
+            silence_shaper
+                .process_sample(0.0, 0)
+                .expect("channel zero is configured")
+                != 0.0
+        })
         .count();
 
     let curves = [
@@ -1977,7 +2010,8 @@ fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
     let mut stress_max_abs_output = 0.0_f64;
     let mut stress_non_finite_outputs = 0;
     for curve in curves {
-        let mut shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS);
+        let mut shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
+            .expect("fixed noise-shaper benchmark geometry must be valid");
         shaper.set_curve(curve);
         let mut seed = 0xA076_1D64_78BD_642F_u64;
         for index in 0..PROBE_SAMPLES {
@@ -1993,7 +2027,9 @@ fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
                 4 => -4.0,
                 _ => unit * 2.4 - 1.2,
             };
-            let output = shaper.process_sample(input, 0);
+            let output = shaper
+                .process_sample(input, 0)
+                .expect("channel zero is configured");
             if output.is_finite() {
                 stress_max_abs_output = stress_max_abs_output.max(output.abs());
             } else {

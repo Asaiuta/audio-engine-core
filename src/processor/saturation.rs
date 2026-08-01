@@ -380,29 +380,61 @@ impl Saturation {
         self.delay_index = source.delay_index;
     }
 
-    /// Set drive amount (0.0 - 2.0)
+    /// Set drive amount, clamped to the published
+    /// [`SATURATION_DRIVE_MIN`]..=[`SATURATION_DRIVE_MAX`] range.
+    ///
+    /// A non-finite value is dropped rather than clamped, because `f64::clamp`
+    /// passes `NaN` through and would poison this stage for the rest of the
+    /// stream. This matches the atomic publication layer.
     pub fn set_drive(&mut self, drive: f64) {
-        self.drive = drive.clamp(0.0, 2.0);
+        if let Some(drive) = sanitized(drive, SATURATION_DRIVE_MIN, SATURATION_DRIVE_MAX) {
+            self.drive = drive;
+        }
     }
 
-    /// Set threshold (0.0 - 1.0)
+    /// Set the saturation onset threshold, clamped to the published
+    /// [`SATURATION_THRESHOLD_MIN`]..=[`SATURATION_THRESHOLD_MAX`] range.
+    /// A non-finite value is dropped, as in [`Self::set_drive`].
     pub fn set_threshold(&mut self, threshold: f64) {
-        self.threshold = threshold.clamp(0.0, 1.0);
+        if let Some(threshold) = sanitized(
+            threshold,
+            SATURATION_THRESHOLD_MIN,
+            SATURATION_THRESHOLD_MAX,
+        ) {
+            self.threshold = threshold;
+        }
     }
 
-    /// Set mix amount (0.0 - 1.0)
+    /// Set the dry/wet mix, clamped to the published
+    /// [`SATURATION_MIX_MIN`]..=[`SATURATION_MIX_MAX`] range.
+    /// A non-finite value is dropped, as in [`Self::set_drive`].
     pub fn set_mix(&mut self, mix: f64) {
-        self.mix = mix.clamp(0.0, 1.0);
+        if let Some(mix) = sanitized(mix, SATURATION_MIX_MIN, SATURATION_MIX_MAX) {
+            self.mix = mix;
+        }
     }
 
-    /// Set input gain (dB) - applied before saturation
+    /// Set input gain (dB) applied before saturation, clamped to the published
+    /// [`SATURATION_GAIN_DB_MIN`]..=[`SATURATION_GAIN_DB_MAX`] range.
+    /// A non-finite value is dropped, as in [`Self::set_drive`].
     pub fn set_input_gain(&mut self, gain_db: f64) {
+        let Some(gain_db) = sanitized(gain_db, SATURATION_GAIN_DB_MIN, SATURATION_GAIN_DB_MAX)
+        else {
+            return;
+        };
         self.input_gain_db = gain_db;
         self.input_gain_linear = db_to_linear(gain_db);
     }
 
-    /// Set output gain (dB), applied after the dry/wet saturation blend.
+    /// Set output gain (dB), applied after the dry/wet saturation blend and
+    /// clamped to the published
+    /// [`SATURATION_GAIN_DB_MIN`]..=[`SATURATION_GAIN_DB_MAX`] range.
+    /// A non-finite value is dropped, as in [`Self::set_drive`].
     pub fn set_output_gain(&mut self, gain_db: f64) {
+        let Some(gain_db) = sanitized(gain_db, SATURATION_GAIN_DB_MIN, SATURATION_GAIN_DB_MAX)
+        else {
+            return;
+        };
         self.output_gain_db = gain_db;
         self.output_gain_linear = db_to_linear(gain_db);
     }
@@ -434,9 +466,18 @@ impl Saturation {
         self.highpass_mode = enabled;
     }
 
-    /// Set high-pass cutoff frequency in Hz
+    /// Set the high-pass cutoff in Hz, clamped to the published
+    /// [`SATURATION_HIGHPASS_CUTOFF_HZ_MIN`]..=[`SATURATION_HIGHPASS_CUTOFF_HZ_MAX`]
+    /// range. A non-finite value is dropped, as in [`Self::set_drive`].
     pub fn set_highpass_cutoff(&mut self, hz: f64) {
-        self.highpass_cutoff = hz.clamp(1000.0, 12000.0);
+        let Some(hz) = sanitized(
+            hz,
+            SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
+            SATURATION_HIGHPASS_CUTOFF_HZ_MAX,
+        ) else {
+            return;
+        };
+        self.highpass_cutoff = hz;
         self.update_hpf_coef();
     }
 
@@ -1111,8 +1152,12 @@ pub struct SaturationSettings {
     pub highpass_cutoff: f64,
 }
 
-// P1-4 fix: Use centralized db_to_linear from dsp module instead of local duplicate
 use super::dsp::db_to_linear;
+use super::lockfree_params::{
+    sanitized, SATURATION_DRIVE_MAX, SATURATION_DRIVE_MIN, SATURATION_GAIN_DB_MAX,
+    SATURATION_GAIN_DB_MIN, SATURATION_HIGHPASS_CUTOFF_HZ_MAX, SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
+    SATURATION_MIX_MAX, SATURATION_MIX_MIN, SATURATION_THRESHOLD_MAX, SATURATION_THRESHOLD_MIN,
+};
 
 // ============================================================================
 // Tests

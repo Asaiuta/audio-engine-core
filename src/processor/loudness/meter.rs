@@ -71,7 +71,16 @@ impl LoudnessMeter {
                     let _ = ebur.set_channel_map(&channel_map);
                     Some(ebur)
                 }
-                Err(_) => None,
+                Err(error) => {
+                    // Setup-time path, so logging is permitted here. Without this
+                    // the meter would look identical to a working one that has
+                    // simply not been fed yet.
+                    log::warn!(
+                        "EBU R128 meter unavailable for {channels} channels at {sample_rate} Hz: \
+                         {error:?}; loudness and true-peak measurements will report unavailable"
+                    );
+                    None
+                }
             };
 
         // Create true peak detector for each channel
@@ -113,6 +122,9 @@ impl LoudnessMeter {
         let Some(ref mut ebur) = self.ebur128 else {
             return;
         };
+        if self.channels == 0 {
+            return;
+        }
 
         let frames = samples.len() / self.channels;
         if frames == 0 {
@@ -185,8 +197,27 @@ impl LoudnessMeter {
         self.samples_processed
     }
 
+    /// Whether the underlying EBU R128 state was created successfully.
+    ///
+    /// A meter reports `false` when its geometry was rejected at construction
+    /// (for example a zero channel count or zero sample rate). Such a meter
+    /// never consumes audio, so every reader keeps returning its initial
+    /// placeholder value; treat those values as absent rather than measured.
+    pub fn is_available(&self) -> bool {
+        self.ebur128.is_some()
+    }
+
+    /// Whether enough audio has been measured for the readers to be meaningful.
+    ///
+    /// This is false for an unavailable meter, and false until at least one
+    /// EBU R128 momentary window (400 ms) of audio has actually been consumed,
+    /// so a degenerate sample rate cannot make a zero-sample meter look
+    /// measured.
     pub fn has_reliable_measurement(&self) -> bool {
-        let min_samples = (self.sample_rate as f64 * 0.4) as u64;
+        if !self.is_available() {
+            return false;
+        }
+        let min_samples = ((self.sample_rate as f64 * 0.4) as u64).max(1);
         self.samples_processed >= min_samples
     }
 }
@@ -392,6 +423,14 @@ fn ebur128_channel(position: ChannelPosition) -> ebur128::Channel {
 mod tests {
     use super::*;
 
+    #[test]
+    fn unspecified_channels_are_excluded_from_r128_weighting() {
+        assert!(matches!(
+            ebur128_channel(ChannelPosition::Unspecified),
+            ebur128::Channel::Unused
+        ));
+    }
+
     fn deterministic_interleaved(frames: usize, channels: usize) -> Vec<f64> {
         let mut samples = Vec::with_capacity(frames * channels);
         for frame in 0..frames {
@@ -434,6 +473,46 @@ mod tests {
         meter.process(&samples);
 
         assert_eq!(meter.samples_processed(), 1);
+    }
+
+    #[test]
+    fn unavailable_meter_never_reports_a_reliable_measurement() {
+        // A zero sample rate is rejected by ebur128, so this meter can never
+        // consume audio. It must not present its placeholder readers as a
+        // measurement, which the previous elapsed-sample-only rule allowed
+        // because the 400 ms threshold rounded to zero samples.
+        for (channels, sample_rate) in [(2_usize, 0_u32), (0, 48_000)] {
+            let mut meter = LoudnessMeter::new(channels, sample_rate);
+            assert!(
+                !meter.is_available(),
+                "channels={channels}, sample_rate={sample_rate}"
+            );
+            assert!(
+                !meter.has_reliable_measurement(),
+                "channels={channels}, sample_rate={sample_rate}"
+            );
+
+            meter.process(&[0.5; 4_096]);
+
+            assert_eq!(meter.samples_processed(), 0);
+            assert!(!meter.has_reliable_measurement());
+            assert_eq!(meter.integrated_loudness(), -70.0);
+        }
+    }
+
+    #[test]
+    fn available_meter_becomes_reliable_only_after_one_momentary_window() {
+        let sample_rate = 48_000;
+        let mut meter = LoudnessMeter::new(2, sample_rate);
+        assert!(meter.is_available());
+        assert!(!meter.has_reliable_measurement());
+
+        let window_frames = (sample_rate as f64 * 0.4) as usize;
+        meter.process(&deterministic_interleaved(window_frames - 1, 2));
+        assert!(!meter.has_reliable_measurement());
+
+        meter.process(&deterministic_interleaved(1, 2));
+        assert!(meter.has_reliable_measurement());
     }
 
     #[test]

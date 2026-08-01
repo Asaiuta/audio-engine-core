@@ -67,7 +67,8 @@ use audio_engine_core::{LoudnessMeter, StreamingDecoder};
 
 fn analyze_file(path: &str) -> Result<f64, Box<dyn std::error::Error>> {
     let mut decoder = StreamingDecoder::open(path)?;
-    let mut meter = LoudnessMeter::new(decoder.info.channels, decoder.info.sample_rate);
+    let info = decoder.info();
+    let mut meter = LoudnessMeter::new(info.channels, info.sample_rate);
 
     while let Some(samples) = decoder.decode_next()? {
         meter.process(&samples);
@@ -115,7 +116,8 @@ the callback retains ownership of its interleaved `f64` buffer:
 
 ```rust
 use audio_engine_core::{
-    CallbackSpec, PlaybackConfig, PlaybackCrossfeedConfig, PlaybackPipeline,
+    CallbackSpec, PlaybackConfig, PlaybackCrossfeedConfig, PlaybackLifecycleState,
+    PlaybackPipeline,
 };
 
 let spec = CallbackSpec::stereo(48_000, 512)?;
@@ -127,16 +129,24 @@ let (mut pipeline, controller) = PlaybackPipeline::builder(spec)
     .build()?;
 
 // The controller is exclusive because it owns the pipeline's private
-// single-consumer lease. Convolution-kernel publication remains an advanced
-// `OutputChainBuilder` / `ConvolverControl` operation. Its parameter publisher
-// is clonable for UI and remote-control threads.
+// single-consumer lease; it is also how impulse responses are loaded. Its
+// parameter publisher is clonable for UI and remote-control threads. A
+// non-finite value is refused; a finite out-of-range value is clamped.
 let parameters = controller.parameters();
-parameters.set_volume(0.8);
-parameters.set_eq_band_gain_db(3, 2.5);
+parameters.set_volume(0.8)?;
+parameters.set_eq_band_gain_db(3, 2.5)?;
 
 // Audio callback: handle the typed result without logging or panicking here.
 let mut samples = [0.0_f64; 512 * 2];
 let progress = pipeline.process(&mut samples)?;
+
+// Track change from a control thread while the pipeline lives in the callback:
+// ramp down, drain the tail at the block boundary, then re-arm.
+controller.request_stop_with_fade(20)?;
+while pipeline.lifecycle_state() != PlaybackLifecycleState::Idle {
+    let _ = pipeline.process(&mut samples)?;
+}
+controller.request_reset();
 # Ok::<(), audio_engine_core::ProcessError>(())
 ```
 
@@ -144,13 +154,36 @@ let progress = pipeline.process(&mut samples)?;
 maximum callback block size. `PlaybackConfig::transparent()` is the default:
 it disables every non-identity stage, including the limiter, so it preserves
 samples and adds no limiter latency. `PlaybackPipeline::process` is
-allocation-free for prepared-capacity blocks. Build, parameter publishing,
-draining with `finish_into_with_policy`, and `reset` are control/lifecycle
-operations, not callback operations. `PlaybackController` is intentionally
-exclusive because it retains the private convolver lease. Convolution is
-loaded through it: `controller.load_impulse_response(&ir)?` validates the
-interleaved IR against the callback spec and prepares the FFT kernel on the
-control thread, and the audio callback adopts it without allocating.
+allocation-free for prepared-capacity blocks.
+
+Lifecycle transitions are requested from the control thread and applied by the
+callback at a block boundary, because the pipeline is moved into the callback
+and cannot be borrowed mutably from elsewhere: `request_reset`,
+`request_drain`, and `request_stop_with_fade` are lock-free and allocation-free,
+and `PlaybackController::lifecycle_status` reports the applied request
+generation. While draining, the callback block is overwritten with the
+remaining effect tail (bounded by `PlaybackConfig::with_drain_policy`); once
+terminal, `process` writes silence and keeps succeeding, because a device
+callback does not stop firing when a track ends. `finish_into_with_policy` and
+`reset` remain the direct control-thread operations for integrations that own
+the pipeline outside a callback.
+
+Value contract: build-time configuration is validated strictly — a non-finite
+or out-of-range `PlaybackConfig` value fails `build()` with
+`ProcessError::InvalidParameter`. Runtime parameter writes refuse non-finite
+values with the same typed error and clamp finite values into their documented
+ranges (`VOLUME_MIN`/`VOLUME_MAX`, `EQ_BAND_GAIN_DB_MIN`/`_MAX`, and the other
+exported range constants), and every `PlaybackParameters` reader returns the
+value actually in effect. Callback volume attenuates only (0.0–1.0); apply
+positive gain upstream.
+
+`PlaybackController` is intentionally exclusive because it retains the private
+convolver lease. Convolution is loaded through it:
+`controller.load_impulse_response(&ir)?` validates the interleaved IR against
+the callback spec and prepares the FFT kernel on the control thread, and the
+audio callback adopts it without allocating. Saturation arming is a build-time
+decision because it fixes the stage's latency, but an armed stage accepts
+runtime drive/threshold/mix/type/gain changes and soft bypass.
 `PlaybackParameters` from `controller.parameters()`
 is the safe clonable UI/remote update handle. Dynamic-loudness telemetry is
 best-effort latest per-field reporting, not a coherent multi-value snapshot.
@@ -302,8 +335,11 @@ Decoding is built on [Symphonia](https://github.com/pdeljanov/Symphonia) 0.6
 with all of its bundled codecs/containers compiled in (e.g. WAV, FLAC, MP3,
 AAC/MP4, OGG/Vorbis); the crate adds no custom codecs and makes the support
 boundary explicit and tested. `StreamingDecoder` exposes the decoded sample
-rate, channel count, and (when known) total frame count and duration via
-`decoder.info`, including the best-effort positional `decoder.info.channel_layout`.
+rate, channel count, and (when known) total frame count and duration via the
+read-only `decoder.info()`, including the best-effort positional
+`decoder.info().channel_layout`. It is observation only: the decoder relies on
+the same values for staging, gapless trimming, and seek arithmetic, so they are
+not a caller-writable control channel.
 
 - **Unsupported / unrecognized input** returns the typed
   `DecoderError::UnsupportedFormat`; a container that probes but has no

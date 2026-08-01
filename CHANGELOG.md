@@ -12,6 +12,42 @@ SemVer for pre-1.0 releases.
 ## [Unreleased]
 
 ### Added
+- Lock-free playback lifecycle command channel, so a control thread can drive
+  stream transitions while the pipeline lives in an audio callback (its
+  `&mut self` methods are unreachable from elsewhere):
+  `PlaybackController::request_reset`, `request_drain`, and
+  `request_stop_with_fade` publish one coalescing request that
+  `PlaybackPipeline::process` consumes at the next block boundary, and
+  `lifecycle_status` / `PlaybackPipeline::lifecycle_state` report the applied
+  request generation and `PlaybackLifecycleState`. Request handling, the stop
+  ramp, the in-callback drain, and the in-callback reset are allocation-free
+  and lock-free.
+- Facade idle semantics: after a terminal in-callback drain, `process` writes
+  silence and returns `Ok` instead of `ProcessError::AlreadyFinished`, because a
+  device callback keeps firing after a track ends. `request_reset` re-arms it.
+  The typed `AlreadyFinished` contract still applies to the explicit
+  `finish_into_with_policy` path.
+- `PlaybackConfig::with_drain_policy` / `drain_policy`: the bounded
+  `ChainFinishPolicy` used by a callback-side drain, fixed at build time so the
+  request carries no payload.
+- Runtime saturation control on an armed stage:
+  `PlaybackParameters::set_saturation_enabled` (soft bypass, preserving fixed
+  latency and history), `set_saturation_drive`, `set_saturation_threshold`,
+  `set_saturation_mix`, `set_saturation_type`, `set_saturation_gains_db`,
+  plus `saturation_armed()` and a `saturation()` reader. Arming remains a
+  build-time decision because it establishes the stage's latency; calling these
+  on a non-armed pipeline returns a typed `UnsupportedOperation`.
+- Exported control-value range constants (`VOLUME_MIN`/`VOLUME_MAX`,
+  `EQ_BAND_GAIN_DB_MIN`/`_MAX`, `LIMITER_THRESHOLD_DB_MIN`/`_MAX`,
+  `CROSSFEED_*`, `SATURATION_*`, `DYNAMIC_LOUDNESS_*`, `NOISE_SHAPER_BITS_*`,
+  `MAX_STOP_FADE_MS`) so a UI can bound its widgets against the same values the
+  parameter layer clamps to.
+- New typed error `ProcessError::InvalidParameter` for control-thread writes
+  rejected before they can reach DSP state.
+- `AtomicSaturationParams::set_gains_db(input_gain_db, output_gain_db)`
+  publishes both makeup gains as one coherent snapshot; the single-gain setters
+  remain for changing one gain.
+
 - High-level playback facade for the canonical callback DSP chain:
   `CallbackSpec` (validated callback-domain geometry with a `max_frames`
   prepared-capacity contract), intent-level `PlaybackConfig` with per-stage
@@ -40,6 +76,46 @@ SemVer for pre-1.0 releases.
 - `PlaybackSaturationConfig` gains `enabled()` plus `with_*` builders.
 
 ### Changed
+- **Breaking:** `StreamingDecoder::info` and `StreamingDecoderBuilder::info` are
+  now read-only accessors returning `&AudioInfo`; the `info` field is private.
+  Replace `decoder.info.sample_rate` with `decoder.info().sample_rate`. The
+  decoder relies on these same values for staging geometry, gapless counters,
+  buffer sizing, seek arithmetic, and reported position, so a public mutable
+  field made observation data an unvalidated control channel into decode state.
+- **Breaking:** `DecodeCancelToken` owns its cancel protocol.
+  `DecodeCancelToken::new()` now takes no argument and creates a fresh
+  uncancelled token, `cancel()` signals every clone, and the previous
+  `new(Arc<AtomicBool>)` constructor is available as `from_flag` for callers
+  that must adopt an existing flag.
+- **Breaking:** fallible `PlaybackParameters` / `PlaybackController` setters now
+  return `Result<(), ProcessError>`: `set_volume`, `set_eq_band_gain_db`,
+  `set_eq`, `set_limiter_threshold_db`, `set_crossfeed`, and
+  `set_dynamic_loudness`. A non-finite value is refused with
+  `InvalidParameter`; finite out-of-range values are still clamped.
+- **Breaking:** `PlaybackBuilder::build` validates configuration strictly and
+  fails with `InvalidParameter` when a `PlaybackConfig` value is non-finite or
+  outside its documented range, instead of silently clamping it.
+- **Breaking:** the raw `Equalizer::set_band_gain` and `Equalizer::set_all_bands`
+  now return `Result<(), ProcessError>`. A band index at or above `EQ_BANDS` and
+  a non-finite gain are refused with `InvalidParameter` instead of being
+  silently ignored; a whole-bank write is rejected before any band is applied.
+  Valid input still clamps to `EQ_BAND_GAIN_DB_MIN`/`_MAX`, which the equalizer
+  now reads from the published constants rather than local literals.
+- Non-finite control values can no longer reach DSP state through the
+  lower-level parameter types either: every `Atomic*Params` setter and `write`
+  now drops a `NaN`/infinite write and keeps the previously published snapshot.
+  Previously `f64::clamp` passed `NaN` through, which permanently poisoned IIR
+  history until a reset.
+- `AtomicEqParams::write` clamps band gains like the per-band setter, so
+  `PlaybackParameters::eq_band_gains_db` reports the gains the equalizer
+  actually applies (previously a preset could read back ±40 dB while ±15 dB was
+  applied).
+- Dynamic-loudness listening volume is bounded in the dB domain
+  (`DYNAMIC_LOUDNESS_VOLUME_DB_MIN`/`_MAX`), so the reader round-trips a finite
+  dB value instead of `-inf`.
+- Callback volume is documented as attenuation-only (0.0–1.0); apply positive
+  gain upstream.
+
 - `ProcessError` and the facade config/telemetry structs
   (`PlaybackSaturationConfig`, `PlaybackCrossfeedConfig`,
   `PlaybackDynamicLoudnessConfig`, `PlaybackNoiseShapingConfig`,
@@ -174,6 +250,78 @@ SemVer for pre-1.0 releases.
   supplied.
 
 ### Fixed
+- AutoMix no longer sizes its whole-track `energy_profile` from an unbounded
+  container-declared duration. That vector holds one slot per 100 ms of declared
+  track length, so a file claiming an absurd duration requested a proportional
+  allocation, and `vec![0.0; n]` aborts the process rather than returning an
+  error. A declared duration above 24 hours is now discarded rather than
+  clamped, falling back to the duration measured from decoded head evidence, and
+  `build_energy_profile` enforces the same ceiling at the allocation site.
+- The infallible standalone DSP setters now drop a non-finite write instead of
+  storing it. `f64::clamp` returns `NaN` unchanged, so clamping alone let `NaN`
+  reach filter, smoother, and coefficient state and poison that stage for the
+  rest of the stream. This covers `Saturation::set_drive`/`set_threshold`/
+  `set_mix`/`set_input_gain`/`set_output_gain`/`set_highpass_cutoff`,
+  `VolumeController::set_target`, `DynamicLoudness::set_volume`/
+  `set_volume_percent`/`set_volume_db`/`set_strength`/`set_reference_volume_db`/
+  `set_transition_db`, `PeakLimiter::set_threshold`/`set_threshold_db`/
+  `set_release_ms`, and `FirEq::set_sample_rate`/`set_band`/`set_bands`
+  (`set_bands` is now all-or-nothing). `lockfree_params::sanitized` is the one
+  shared policy for both parameter layers. The limiter deliberately keeps no
+  published-range clamp, because the intersample-peak guard drives it below the
+  user-facing minimum on purpose.
+- `LoudnessDatabase::needs_scan` no longer reports a cached measurement fresh
+  when there is no evidence for it. A local file that cannot be stat-ed
+  (deleted, renamed, unmounted, permission denied) now needs a rescan instead of
+  serving a stale gain, scanner-version matching is exact rather than `<` so a
+  row written by a newer scanner is not trusted either, and remote identities
+  are recognized case-insensitively so `HTTPS://…` is no longer treated as a
+  local path. `get_outdated_tracks` propagates a row-decoding failure instead of
+  dropping the row, because a silently short list reads as "nothing left to
+  rescan".
+- `PlaybackBuilder::build` now rejects a `ChainFinishPolicy` that cannot bound a
+  tail (non-finite or positive energy threshold, zero silence hold, or a maximum
+  tail below the hold) with `InvalidRenderPolicy`. The policy is fixed at build
+  time, but it was previously first validated by the callback thread's initial
+  drain, so a deterministic preset error surfaced on the realtime lifecycle path.
+  `DspChain::finish_with_policy` still validates, because a chain can also be
+  driven directly.
+- The standalone `Saturation` setters now honour the published control ranges
+  instead of re-encoding them as literals, and `set_input_gain` /
+  `set_output_gain` clamp to `SATURATION_GAIN_DB_MIN`/`_MAX`. They previously
+  applied no bound at all, so a direct core user could reach a makeup gain that
+  `AtomicSaturationParams::set_gains_db` refuses to publish.
+  `VolumeController::set_target`, `NoiseShaper`'s bit-depth clamps,
+  `Crossfeed`'s mix sanitizer, and `DynamicLoudness`/`AtomicDynamicLoudnessState`
+  strength and volume setters likewise read the published constants, so a range
+  change can no longer be silently re-clamped by stale core code.
+- `PlaybackCrossfeedConfig::disabled` now reports the crossfeed core's own
+  starting mix and cutoff instead of an unrelated `0.5`/`700.0` pair, so
+  enabling a previously bypassed config cannot change the profile it describes.
+- `audio_gapless_comparison_perf --enforce` now fails when an attempted fixture's
+  correctness probe could not produce a verdict. Such a fixture was recorded as
+  `skipped` and excluded from `validations`, so a single passing fixture could
+  turn a failed correctness probe into a green enforcement run. Probe failures
+  are now a distinct `probe_failures` report field; `skipped` keeps its original
+  meaning of work the run never owed.
+- `PlaybackParameters::set_saturation_gains_db` now reaches the callback as one
+  coherent snapshot. It previously published the input and output makeup gains
+  separately, so a block could run the new input gain against the old output
+  gain despite the facade's complete-snapshot contract. The new
+  `AtomicSaturationParams::set_gains_db` patches both fields in a single guarded
+  publication.
+- `AtomicDynamicLoudnessParams::set_ref_volume_db` no longer loses a concurrent
+  update. It read the whole snapshot outside the writer lock and republished the
+  mutated copy, so a `set_strength`/`set_enabled`/`set_volume` landing in between
+  was silently overwritten.
+- `PlaybackParameters::set_eq_band_gain_db` no longer returns `Ok(())` for a
+  band index at or above `EQ_BANDS`. The parameter layer silently dropped such a
+  write, so an integration could persist or display an equalizer edit that never
+  reached the callback; it now returns `InvalidParameter` and publishes nothing.
+- A non-finite gain passed to the raw `Equalizer` no longer poisons that band's
+  biquad history for the rest of the stream. `f64::clamp` passes `NaN` through,
+  so the clamped value previously reached the coefficient design directly. The
+  playback facade path was already protected by `AtomicEqParams`.
 - Ogg/Vorbis coarse seek now uses Symphonia's native gapless reset behavior,
   eliminating the first post-seek overlap packet previously emitted by the
   crate-owned Track-only path.
@@ -229,6 +377,22 @@ SemVer for pre-1.0 releases.
   documents its `channels > 0` panic contract.
 
 ### Removed
+- **Breaking:** `PlaybackController::set_volume`, `set_muted`, and
+  `dynamic_loudness_telemetry`. They proxied an arbitrary subset of
+  `PlaybackParameters` onto the lifecycle handle, giving those three controls
+  two apparent owners. Use `controller.parameters()`, which exposes the complete
+  and cloneable control surface. The controller now owns only what cannot be
+  shared: the single-consumer convolver lease and the lifecycle channel.
+- **Breaking:** `config::SaturationConfig`, `config::DynamicLoudnessConfig`,
+  `config::CrossfeedConfig`, and `config::DitherConfig`. They duplicated the
+  callback stages' configuration model with no engine consumer anywhere in the
+  crate, and their defaults had already drifted from the stages they claimed to
+  describe (`CrossfeedConfig::default().mix` was `0.3` while the crossfeed core
+  starts at `0.35`). Use the `Playback*Config` records in `pipeline`, which own
+  the validated ranges the audio thread actually sees. The
+  `config::SaturationQuality` / `config::SaturationType` re-exports existed only
+  for `SaturationConfig` and are also removed; the canonical paths
+  `processor::SaturationQuality` / `processor::SaturationType` are unchanged.
 - The legacy `AudioProcessor` trait and `ProcessResult` enum. This is a direct
   breaking cutover; use `StreamingProcessor`, `ProcessBuffers`, and
   `process_checked` instead.

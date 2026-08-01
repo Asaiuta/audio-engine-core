@@ -1,6 +1,12 @@
-use serde::{Deserialize, Serialize};
+//! Offline configuration records for the engine's non-callback entry points.
+//!
+//! Only settings with a real engine consumer live here. Callback-side effect
+//! stages are configured through the `Playback*Config` records in
+//! [`crate::pipeline`], which own the validated ranges the audio thread sees;
+//! keeping a second copy of those knobs here is how their defaults drifted
+//! apart in the first place.
 
-pub use crate::processor::{SaturationQuality, SaturationType};
+use serde::{Deserialize, Serialize};
 
 /// Resampling quality preset, trading CPU cost for stopband attenuation and
 /// transition-band sharpness.
@@ -82,109 +88,6 @@ impl Default for LoudnessConfig {
             mode: NormalizationMode::Track,
             enabled: true,
             replaygain_reference_lufs: -18.0,
-        }
-    }
-}
-
-/// Harmonic saturation settings (tube/tape/transistor coloration).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaturationConfig {
-    /// Saturation character.
-    pub sat_type: SaturationType,
-    /// Processing quality / antialiasing mode.
-    #[serde(default)]
-    pub quality: SaturationQuality,
-    /// Drive amount (0.0–2.0); higher adds more harmonics.
-    pub drive: f64,
-    /// Linear threshold above which saturation engages.
-    pub threshold: f64,
-    /// Dry/wet blend (0.0 = dry, 1.0 = fully saturated).
-    pub mix: f64,
-    /// Input gain in dB applied before saturation.
-    pub input_gain_db: f64,
-    /// Output gain in dB applied after saturation, for level compensation.
-    pub output_gain_db: f64,
-    /// Whether saturation is active.
-    pub enabled: bool,
-}
-
-impl Default for SaturationConfig {
-    fn default() -> Self {
-        Self {
-            sat_type: SaturationType::Tube,
-            quality: SaturationQuality::Direct,
-            drive: 0.25,
-            threshold: 0.88,
-            mix: 0.2,
-            input_gain_db: 0.0,
-            output_gain_db: 0.0,
-            enabled: true,
-        }
-    }
-}
-
-/// Dynamic loudness compensation settings (ISO 226 / Fletcher-Munson).
-///
-/// Boosts perceptually weak frequency bands at low listening levels so the
-/// tonal balance stays consistent as volume drops.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DynamicLoudnessConfig {
-    /// Reference listening level in dB at which no compensation is applied.
-    pub ref_volume_db: f64,
-    /// Width in dB of the transition region around the reference level.
-    pub transition_db: f64,
-    /// Compensation strength multiplier (1.0 = full ISO 226 curve).
-    pub strength: f64,
-    /// Pre-gain in dB applied before compensation.
-    pub pre_gain_db: f64,
-    /// Whether dynamic loudness compensation is active.
-    pub enabled: bool,
-}
-
-impl Default for DynamicLoudnessConfig {
-    fn default() -> Self {
-        Self {
-            ref_volume_db: -15.0,
-            transition_db: 25.0,
-            strength: 1.0,
-            pre_gain_db: -3.0,
-            enabled: false,
-        }
-    }
-}
-
-/// Bauer-style binaural crossfeed settings for headphone listening.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossfeedConfig {
-    /// Whether crossfeed is active.
-    pub enabled: bool,
-    /// Dry-to-Bauer-reference strength from 0.0 (off) to 1.0 (full profile).
-    pub mix: f64,
-}
-
-impl Default for CrossfeedConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            mix: 0.3,
-        }
-    }
-}
-
-/// Dither and noise-shaping settings applied at the final bit-depth reduction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DitherConfig {
-    /// Whether dithering is active.
-    pub enabled: bool,
-    /// Noise-shaping curve used to push quantization noise out of audible bands.
-    pub noise_shaper_curve: crate::processor::NoiseShaperCurve,
-}
-
-impl Default for DitherConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            noise_shaper_curve: crate::processor::NoiseShaperCurve::Lipshitz5,
         }
     }
 }

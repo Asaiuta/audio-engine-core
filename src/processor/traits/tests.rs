@@ -182,6 +182,30 @@ fn audio_block_views_validate_complete_interleaved_frames() {
 }
 
 #[test]
+fn configured_channel_and_sample_rate_validation_is_shared_and_allocation_free() {
+    assert_no_alloc::assert_no_alloc(|| {
+        assert_eq!(
+            validate_processor_channels("test", Some(2), 1),
+            Err(ProcessError::ChannelCountMismatch {
+                processor: "test",
+                expected_channels: 2,
+                actual_channels: 1,
+            })
+        );
+        assert_eq!(validate_processor_channels("test", Some(2), 2), Ok(()));
+        assert_eq!(validate_processor_channels("test", None, 8), Ok(()));
+        assert_eq!(
+            validate_sample_rate_hz("test", 0),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "test",
+                sample_rate_hz: 0,
+            })
+        );
+        assert_eq!(validate_sample_rate_hz("test", 48_000), Ok(()));
+    });
+}
+
+#[test]
 fn mutable_audio_block_is_zero_copy_and_reborrowable() {
     let mut samples = [1.0, 2.0, 3.0, 4.0];
     let original_ptr = samples.as_ptr();

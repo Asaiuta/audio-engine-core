@@ -29,11 +29,13 @@ pub struct AudioInfo {
     pub channels: usize,
     /// Positional channel layout for the `channels` interleaved channels.
     ///
-    /// Derived from the container's channel mask when available, otherwise a
-    /// best-effort standard layout for the channel count (see
-    /// [`ChannelLayout::from_count`]). Carries channel-order information that a
-    /// bare `channels` count cannot, so downstream downmix and loudness
-    /// weighting can reason about which slot is which speaker.
+    /// Derived from explicit container channel metadata when available.
+    /// Supported roles retain their interleave position and unsupported,
+    /// discrete, or ambisonic roles become `ChannelPosition::Unspecified`.
+    /// Only missing channel metadata uses a best-effort standard layout for the
+    /// channel count (see [`ChannelLayout::from_count`]). Carries channel-order
+    /// information that a bare `channels` count cannot, so downstream downmix
+    /// and loudness weighting can reason about which slot is which speaker.
     pub channel_layout: ChannelLayout,
     pub bits_per_sample: Option<u32>,
     pub total_frames: Option<u64>,

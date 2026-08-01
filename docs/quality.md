@@ -45,13 +45,25 @@ cargo bench --bench audio_lifecycle_memory_perf -- --quick --enforce --out targe
 
 Quality `--enforce` applies deterministic objective gates while keeping
 report-only metrics and missing optional corpora distinct. Performance
-`--enforce` always validates finite timing, complete work, stable case keys, and
-report integrity. Timing remains report-only unless a compatible same-machine
-baseline is supplied; the default gate allows exactly 10% median regression and
-fails above it. On Windows, the convolver's opt-in `--pinned` mode records the
-logical core in report conditions and additionally enforces the machine-local
-65536-tap, 6-channel, 64-frame p99/max callback gates. Pinned and unpinned
-reports are baseline-incompatible.
+`--enforce` validates finite timing, stable case keys, and report integrity for
+the work each probe actually recorded; it does not by itself prove that every
+intended case ran. Probes state their own completeness rule: the fixture-driven
+`audio_gapless_comparison_perf` fails on any attempted fixture whose correctness
+probe could not produce a verdict (reported as `probe_failures`), but a fixture
+that was never supplied is recorded as `skipped` and gates nothing. Timing
+remains report-only unless a compatible same-machine baseline is supplied; the
+default gate allows exactly 10% median regression and fails above it. On
+Windows, the convolver's opt-in `--pinned` mode records the logical core in
+report conditions and additionally enforces the machine-local 65536-tap,
+6-channel, 64-frame p99/max callback gates. Pinned and unpinned reports are
+baseline-incompatible.
+
+`audio_lockfree_params_perf` is a machine-local exploratory probe, not a
+report-backed evidence gate. It emits no JSON artifact and carries no
+environment, case-key, or baseline identity, and it is not run in CI. Its
+`--enforce` mode asserts a fixed 3% same-run improvement of the lock-free path
+over its mutex reference from a single wall-clock sample, so a red result there
+is a hint to re-measure rather than a traceable regression.
 
 `audio_callback_chain_perf` and `audio_callback_tail_perf` intentionally answer
 different questions. The chain probe averages many callbacks into each trial,

@@ -6,6 +6,7 @@
 use rustfft::{num_complex::Complex, FftPlanner};
 
 use super::fir_design::minimum_phase_from_log_magnitude;
+use super::lockfree_params::{sanitized, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
 use std::f64::consts::PI;
 
 /// Standard 10-band EQ frequencies (ISO octave bands)
@@ -76,8 +77,14 @@ impl FirEq {
         fir_eq
     }
 
-    /// Set sample rate (triggers IR regeneration)
+    /// Set sample rate (triggers IR regeneration).
+    ///
+    /// A non-positive or non-finite rate is ignored: it would make every
+    /// designed tap `NaN` and there is no valid filter to fall back to.
     pub fn set_sample_rate(&mut self, sr: f64) {
+        if !sr.is_finite() || sr <= 0.0 {
+            return;
+        }
         self.sample_rate = sr;
         self.regenerate_ir();
     }
@@ -102,18 +109,35 @@ impl FirEq {
     ///
     /// # Arguments
     /// * `band_idx` - Band index (0-9 for standard 10-band EQ)
-    /// * `gain_db` - Gain in dB (-15 to +15)
+    /// * `gain_db` - Gain in dB, clamped to the published
+    ///   [`EQ_BAND_GAIN_DB_MIN`]..=[`EQ_BAND_GAIN_DB_MAX`] range. A non-finite
+    ///   gain is ignored rather than clamped, matching [`Equalizer`].
+    ///
+    /// [`Equalizer`]: super::eq::Equalizer
     pub fn set_band(&mut self, band_idx: usize, gain_db: f64) {
+        let Some(gain_db) = sanitized(gain_db, EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX) else {
+            return;
+        };
         if band_idx < self.bands.len() {
-            self.bands[band_idx].1 = gain_db.clamp(-15.0, 15.0);
+            self.bands[band_idx].1 = gain_db;
             self.regenerate_ir();
         }
     }
 
-    /// Set all bands at once (single regeneration)
+    /// Set all bands at once (single regeneration).
+    ///
+    /// The whole bank is validated first, so one non-finite entry cannot leave
+    /// a partially updated filter behind.
     pub fn set_bands(&mut self, gains_db: &[f64; 10]) {
-        for (i, &gain) in gains_db.iter().enumerate() {
-            self.bands[i].1 = gain.clamp(-15.0, 15.0);
+        let mut validated = [0.0; 10];
+        for (slot, &gain) in validated.iter_mut().zip(gains_db.iter()) {
+            let Some(gain) = sanitized(gain, EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX) else {
+                return;
+            };
+            *slot = gain;
+        }
+        for (band, gain) in self.bands.iter_mut().zip(validated) {
+            band.1 = gain;
         }
         self.regenerate_ir();
     }
@@ -308,6 +332,41 @@ fn minimum_phase_tail_weight(index: usize, num_taps: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A non-finite gain or rate designs an all-`NaN` impulse response, which
+    /// then silences or poisons every convolution using it.
+    #[test]
+    fn fir_eq_setters_drop_non_finite_writes() {
+        let mut fir = FirEq::new(48_000.0, 255);
+        fir.set_band(0, 6.0);
+        let bands = fir.get_bands();
+        let ir = fir.get_ir(1);
+
+        for poison in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            fir.set_sample_rate(poison);
+            fir.set_band(0, poison);
+            fir.set_bands(&[poison; 10]);
+
+            assert_eq!(fir.sample_rate, 48_000.0, "rate survived {poison}");
+            assert_eq!(fir.get_bands(), bands, "bands survived {poison}");
+            assert_eq!(fir.get_ir(1), ir, "IR survived {poison}");
+        }
+
+        assert!(fir.get_ir(1).iter().all(|tap| tap.is_finite()));
+    }
+
+    /// One non-finite entry must not leave a partially updated bank behind.
+    #[test]
+    fn fir_eq_set_bands_is_all_or_nothing() {
+        let mut fir = FirEq::new(48_000.0, 255);
+        let mut gains = [0.0; 10];
+        gains[0] = 3.0;
+        gains[9] = f64::NAN;
+
+        fir.set_bands(&gains);
+
+        assert_eq!(fir.get_bands()[0].1, 0.0, "no band may be applied");
+    }
 
     fn measured_gain_db(ir: &[f64], frequency_hz: f64, sample_rate: f64) -> f64 {
         let omega = 2.0 * PI * frequency_hz / sample_rate;

@@ -1,9 +1,47 @@
 use super::*;
+use crate::processor::traits::AudioBlockError;
+
+#[derive(Debug, PartialEq, Eq)]
+struct DynamicLoudnessState {
+    filter_state: Vec<(u64, u64)>,
+    smoother_state: Vec<(u64, u64, u64, usize)>,
+    last_applied_gains: [u64; LOUDNESS_BANDS_N],
+    active_bands: [bool; LOUDNESS_BANDS_N],
+    loudness_factor: u64,
+    sample_rate: u64,
+}
+
+fn dynamic_loudness_state(processor: &DynamicLoudness) -> DynamicLoudnessState {
+    DynamicLoudnessState {
+        filter_state: processor
+            .filters
+            .iter()
+            .flatten()
+            .map(|filter| (filter.state.z1.to_bits(), filter.state.z2.to_bits()))
+            .collect(),
+        smoother_state: processor
+            .smoothers
+            .iter()
+            .map(|smoother| {
+                (
+                    smoother.current.to_bits(),
+                    smoother.target.to_bits(),
+                    smoother.coeff.to_bits(),
+                    smoother.samples_remaining,
+                )
+            })
+            .collect(),
+        last_applied_gains: processor.last_applied_gains.map(f64::to_bits),
+        active_bands: processor.active_bands,
+        loudness_factor: processor.current_loudness_factor.to_bits(),
+        sample_rate: processor.sample_rate.to_bits(),
+    }
+}
 
 #[test]
 fn process_tracks_block_coefficient_ramp_within_buffer() {
     let make = || {
-        let mut dl = DynamicLoudness::new(2, 44_100.0);
+        let mut dl = DynamicLoudness::new_validated(2, 44_100.0);
         dl.set_strength(1.0);
         dl.set_volume(0.05);
         dl
@@ -14,12 +52,12 @@ fn process_tracks_block_coefficient_ramp_within_buffer() {
         .collect();
     let mut whole = make();
     let mut wbuf = input.clone();
-    whole.process(&mut wbuf);
+    whole.process_validated(&mut wbuf);
     let mut chunked = make();
     let mut cbuf = input.clone();
     for cs in (0..frames).step_by(BLOCK_SIZE) {
         let ce = (cs + BLOCK_SIZE).min(frames);
-        chunked.process(&mut cbuf[cs * 2..ce * 2]);
+        chunked.process_validated(&mut cbuf[cs * 2..ce * 2]);
     }
     for (w, c) in wbuf.iter().zip(&cbuf) {
         assert!((w - c).abs() < 1e-9, "{} vs {}", w, c);
@@ -174,11 +212,11 @@ fn test_cached_geometry_coefficients_match_rbj_reference() {
 
 #[test]
 fn sample_rate_change_preserves_control_and_smoother_state_but_resets_filters() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_strength(0.37);
     dl.set_volume_db(-30.0);
     let mut input = vec![0.25; BLOCK_SIZE * 4 * 2];
-    dl.process(&mut input);
+    dl.process_validated(&mut input);
     let factor = dl.current_loudness_factor;
     let old_smoother_coeffs = dl
         .smoothers
@@ -202,7 +240,7 @@ fn sample_rate_change_preserves_control_and_smoother_state_but_resets_filters() 
         .flatten()
         .any(|filter| filter.state.z1 != 0.0 || filter.state.z2 != 0.0));
 
-    dl.set_sample_rate(96_000.0);
+    dl.set_sample_rate(96_000.0).unwrap();
 
     assert_eq!(dl.sample_rate, 96_000.0);
     assert_eq!(dl.strength, 0.37);
@@ -261,7 +299,7 @@ fn test_cached_geometry_extreme_gains_stay_finite() {
 
 #[test]
 fn test_band_gain_update_uses_last_applied_epsilon() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
 
     dl.apply_band_gain_if_changed(0, GAIN_UPDATE_EPSILON_DB * 2.0);
     assert_eq!(dl.last_applied_gains[0], GAIN_UPDATE_EPSILON_DB * 2.0);
@@ -275,7 +313,7 @@ fn test_band_gain_update_uses_last_applied_epsilon() {
 
 #[test]
 fn test_band_gain_update_broadcasts_coefficients_to_channels() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.apply_band_gain_if_changed(0, 3.0);
 
     let left = dl.filters[0][0].coeffs;
@@ -285,11 +323,11 @@ fn test_band_gain_update_broadcasts_coefficients_to_channels() {
 
 #[test]
 fn test_identity_bands_are_inactive_and_skipped() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_volume_db(-40.0);
     let mut buffer = vec![0.25; BLOCK_SIZE * 2];
 
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     assert!(dl.active_bands[0]);
     assert!(!dl.active_bands[3]);
@@ -301,11 +339,11 @@ fn test_identity_bands_are_inactive_and_skipped() {
 
 #[test]
 fn test_first_process_applies_band_activity_state() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_volume_db(-40.0);
     let mut buffer = vec![0.25; BLOCK_SIZE * 2];
 
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     assert!(dl.last_applied_gains.iter().all(|gain| gain.is_finite()));
     assert!(!dl.active_bands[3]);
@@ -318,12 +356,12 @@ fn test_first_process_applies_band_activity_state() {
 
 #[test]
 fn test_identity_path_applies_pregain_without_touching_filters() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_volume_db(-15.0);
     let input = vec![0.25, -0.5, 0.125, -0.25];
     let mut buffer = input.clone();
 
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     for (actual, original) in buffer.iter().zip(input.iter()) {
         assert!((actual - original * dl.pre_gain_linear).abs() < 1.0e-12);
@@ -338,22 +376,22 @@ fn test_identity_path_applies_pregain_without_touching_filters() {
 
 #[test]
 fn test_strength_zero_lets_active_bands_decay_to_inactive() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_volume_db(-40.0);
     let mut buffer = vec![0.25; BLOCK_SIZE * 2];
 
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
     assert!(dl.active_bands[0]);
 
     dl.set_strength(0.0);
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
     assert!(
         dl.active_bands[0],
         "strength changes should not clear active filters before smoothing catches up"
     );
 
     for _ in 0..512 {
-        dl.process(&mut buffer);
+        dl.process_validated(&mut buffer);
     }
 
     assert!(dl.active_bands.iter().all(|&active| !active));
@@ -380,7 +418,7 @@ fn test_biquad_peaking() {
 
 #[test]
 fn test_loudness_factor_calculation() {
-    let mut dl = DynamicLoudness::new(2, 44100.0);
+    let mut dl = DynamicLoudness::new_validated(2, 44100.0);
 
     // At reference volume (-15 dB), factor should be 0
     dl.set_volume_db(-15.0);
@@ -401,11 +439,11 @@ fn test_loudness_factor_calculation() {
 
 #[test]
 fn test_strength_scaling() {
-    let mut dl = DynamicLoudness::new(2, 44100.0);
+    let mut dl = DynamicLoudness::new_validated(2, 44100.0);
     dl.set_strength(0.5);
     dl.set_volume_db(-40.0); // Max compensation
     let mut buffer = vec![0.25; BLOCK_SIZE * 2];
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     // With 50% strength, max low shelf boost should be 6 dB (12 * 0.5)
     let gains = dl.get_band_gains();
@@ -423,12 +461,12 @@ fn test_strength_scaling() {
 
 #[test]
 fn test_process_no_crash() {
-    let mut dl = DynamicLoudness::new(2, 44100.0);
+    let mut dl = DynamicLoudness::new_validated(2, 44100.0);
     dl.set_volume(0.1); // Low volume
 
     // Process some audio
     let mut buffer = vec![0.5; 1024];
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     // Should not crash or produce NaN/Inf
     for &sample in &buffer {
@@ -454,13 +492,13 @@ fn test_parameter_smoother() {
 
 #[test]
 fn test_disabled_bypass() {
-    let mut dl = DynamicLoudness::new(2, 44100.0);
+    let mut dl = DynamicLoudness::new_validated(2, 44100.0);
     dl.set_enabled(false);
     dl.set_volume(0.1);
 
     let input = vec![0.5; 100];
     let mut buffer = input.clone();
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     // When disabled, output should equal input
     for (i, o) in input.iter().zip(buffer.iter()) {
@@ -471,7 +509,7 @@ fn test_disabled_bypass() {
 #[test]
 fn test_fixed_filter_banks_are_allocated_per_channel() {
     for channels in [1, 2, 6, 8] {
-        let dl = DynamicLoudness::new(channels, 48_000.0);
+        let dl = DynamicLoudness::new_validated(channels, 48_000.0);
         assert_eq!(dl.filters.len(), channels);
         assert!(dl.filters.iter().all(|bank| bank.len() == LOUDNESS_BANDS_N));
     }
@@ -479,11 +517,11 @@ fn test_fixed_filter_banks_are_allocated_per_channel() {
 
 #[test]
 fn test_reset_clears_all_filter_bank_state() {
-    let mut dl = DynamicLoudness::new(2, 48_000.0);
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
     dl.set_volume(0.1);
 
     let mut buffer = vec![0.25; 256];
-    dl.process(&mut buffer);
+    dl.process_validated(&mut buffer);
 
     assert!(dl
         .filters
@@ -498,6 +536,73 @@ fn test_reset_clears_all_filter_bank_state() {
         .iter()
         .flatten()
         .all(|filter| filter.state.z1 == 0.0 && filter.state.z2 == 0.0));
+}
+
+#[test]
+fn raw_dynamic_loudness_rejects_invalid_geometry_without_state_mutation() {
+    assert!(matches!(
+        DynamicLoudness::new(0, 48_000.0),
+        Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+    ));
+    for invalid_rate in [0.0, f64::NAN, f64::INFINITY] {
+        assert!(matches!(
+            DynamicLoudness::new(2, invalid_rate),
+            Err(ProcessError::InvalidGeometry {
+                processor: "DynamicLoudness",
+                operation: "configure sample rate",
+                ..
+            })
+        ));
+    }
+
+    let mut processor = DynamicLoudness::new(2, 48_000.0).unwrap();
+    processor.set_volume_db(-35.0);
+    let mut warm = [0.25; 128];
+    processor.process(&mut warm, 2).unwrap();
+    let state = dynamic_loudness_state(&processor);
+
+    let mut zero_channels = [0.25; 4];
+    let zero_channels_before = zero_channels;
+    let mut incomplete = [0.25; 3];
+    let incomplete_before = incomplete;
+    let mut mismatch = [0.25; 4];
+    let mismatch_before = mismatch;
+    assert_no_alloc::assert_no_alloc(|| {
+        assert_eq!(
+            processor.process(&mut zero_channels, 0),
+            Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
+        );
+        assert_eq!(
+            processor.process(&mut incomplete, 2),
+            Err(ProcessError::InvalidBlock(
+                AudioBlockError::IncompleteFrame {
+                    samples: 3,
+                    channels: 2,
+                }
+            ))
+        );
+        assert_eq!(
+            processor.process(&mut mismatch, 1),
+            Err(ProcessError::ChannelCountMismatch {
+                processor: "DynamicLoudness",
+                expected_channels: 2,
+                actual_channels: 1,
+            })
+        );
+        assert!(matches!(
+            processor.set_sample_rate(0.0),
+            Err(ProcessError::InvalidGeometry {
+                processor: "DynamicLoudness",
+                operation: "configure sample rate",
+                ..
+            })
+        ));
+    });
+
+    assert_eq!(zero_channels, zero_channels_before);
+    assert_eq!(incomplete, incomplete_before);
+    assert_eq!(mismatch, mismatch_before);
+    assert_eq!(dynamic_loudness_state(&processor), state);
 }
 
 #[test]
