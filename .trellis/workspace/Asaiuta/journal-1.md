@@ -855,3 +855,37 @@ Archived 11 completed convolver, resampler, benchmark, and playback tasks; prese
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Gate 2: decide the legacy public surface lifecycle
+
+**Date**: 2026-08-03
+**Task**: Gate 2: decide the legacy public surface lifecycle
+**Branch**: `chore/gate2-legacy-public-surface`
+
+### Summary
+
+Audited the legacy public surface ahead of the 1.0 freeze (07-28 audit P2 #9): verified each item's disposition in code — removed VolumeController, GainRamp, AtomicDynamicLoudnessState, DEFAULT_BROADCAST_TARGET_LUFS, ConvolverControl::publish and DEFAULT_CONVOLVER_SAMPLE_RATE_HZ; narrowed BiquadSection to pub(crate); gated the rubato-only PolyphaseResampler under cfg(test); kept RingBuffer and the 4 downstream-used Group A items with support statements. Regenerated both public-API baselines (229-line pure-deletion diff). Updated 4 specs and CHANGELOG. Verified the full matrix: tests (all-features 454+20+2+25+3+6; rubato 485+...), clippy -D warnings, fmt, doc warning-free on both feature sets. A/B benchmark check (convolver/callback-chain/component/fir_eq, interleaved runs) showed no measurable change: cross-tree deltas overlap the same-binary run-to-run noise band. Downstream AudioPlayer follow-up recorded in the PRD.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `64f8de4` | (see git log) |
+| `78afe04` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

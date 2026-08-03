@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-07-31
+- **Total Sessions**: 23
+- **Last Active**: 2026-08-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~847 | Active |
+| `journal-1.md` | ~891 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-08-03 | Gate 2: decide the legacy public surface lifecycle | `64f8de4`, `78afe04` | `chore/gate2-legacy-public-surface` |
 | 22 | 2026-07-31 | Archive completed non-codebase tasks | `9d1eecc`, `abc05e4`, `6e619ea`, `705f8d7`, `0760265`, `1d889a1`, `80ee693`, `1798833`, `3da9a94`, `f0c0445`, `83753ce`, `0c62feb` | `-` |
 | 21 | 2026-07-26 | Optimize 147:160 nonlinear resampling | `d9f43dc`, `8cf09f3` | `main` |
 | 20 | 2026-07-22 | Long IR convolver RealFFT and layout optimization | `8fbcfb9`, `3fac4c2` | `-` |
