@@ -26,8 +26,6 @@ them it preserves, replaces, or resets.
 Relevant signatures include:
 
 ```rust
-BiquadSection::copy_coefficients_from(&mut self, other: &BiquadSection)
-
 LoudnessNormalizer::set_config(&mut self, config: LoudnessConfig)
 LoudnessNormalizer::set_enabled(&mut self, enabled: bool)
 LoudnessNormalizer::set_mode(&mut self, mode: NormalizationMode)
@@ -58,9 +56,11 @@ lockfree_params::validate_eq_band_index(processor: &'static str, band: usize)
 // entering a new sample-rate domain.
 ```
 
-`copy_coefficients_from` deliberately retains the destination `z1/z2`. It is
-not a branch-adoption API. Adopting an independently processed branch requires
-copying or moving its complete filter value.
+A coefficients-only copy — one that deliberately retains the destination's
+`z1/z2` — is not a branch-adoption API. Adopting an independently processed
+branch requires copying or moving its complete filter value. The crate offers
+no coefficients-only copy today: `Equalizer` adopts a fully processed target
+branch with `clone_from`.
 
 ## 3. Contracts
 
@@ -236,7 +236,8 @@ and panic-free.
 * Good: a target EQ biquad processes all 1,024 transition frames, then its
   complete value becomes the active filter before the next frame.
 * Base: a coefficient update on a single active branch intentionally retains
-  its existing delay state and uses `copy_coefficients_from`.
+  its existing delay state, copying coefficients only. No such helper exists in
+  the crate today; adding one requires stating that retention explicitly.
 * Good: a 48-to-96 kHz dynamic-loudness update preserves a partially completed
   gain ramp, changes its per-sample smoothing coefficient, resets old-rate
   delay elements, and reinstalls the current gain at 96 kHz.
@@ -298,7 +299,7 @@ and panic-free.
 
 ```rust
 // target was independently processed, but its signal history is discarded.
-active.copy_coefficients_from(&target);
+active.copy_coefficients_only(&target);
 
 // all user and smoother state silently returns to constructor defaults.
 self.dynamic_loudness = DynamicLoudness::new(self.channels, new_rate);

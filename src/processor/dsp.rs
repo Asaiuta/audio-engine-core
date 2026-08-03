@@ -1,19 +1,16 @@
-//! DSP utilities - Volume control and Noise shaping
+//! DSP utilities - dB conversion and Noise shaping
 //!
 //! NoiseShaper implementation based on SoX dither.c coefficients
 //! with NTF-verified stability and realtime-safe xorshift64 RNG.
 
 use serde::{Deserialize, Serialize};
 
-use super::lockfree_params::{
-    sanitized, NOISE_SHAPER_BITS_MAX, NOISE_SHAPER_BITS_MIN, VOLUME_MAX, VOLUME_MIN,
-};
+use super::lockfree_params::{NOISE_SHAPER_BITS_MAX, NOISE_SHAPER_BITS_MIN};
 use super::traits::{
     validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
     ProcessError,
 };
 
-const VOLUME_SMOOTHING_TIME_MS: f64 = 20.0;
 const INV_U64_MAX: f64 = 1.0 / u64::MAX as f64;
 
 // ============================================================================
@@ -33,103 +30,6 @@ pub fn linear_to_db(linear: f64) -> f64 {
         20.0 * linear.log10()
     } else {
         f64::NEG_INFINITY
-    }
-}
-
-/// Volume controller with anti-zipper smoothing
-///
-/// FIX for Defect 36: Smoothing coefficient is now sample-rate aware.
-/// The smoothing time constant is ~20ms regardless of sample rate.
-pub struct VolumeController {
-    current: f64,
-    target: f64,
-    smoothing: f64,
-    one_minus_smoothing: f64,
-    sample_rate: u32,
-}
-
-impl VolumeController {
-    /// Create a new VolumeController with default sample rate (44100 Hz)
-    pub fn new() -> Self {
-        Self::with_valid_sample_rate(44_100)
-    }
-
-    /// Create a new VolumeController with specified sample rate
-    ///
-    /// FIX for Defect 36: Calculate smoothing coefficient based on sample rate
-    /// to maintain consistent ~20ms smoothing time.
-    pub fn with_sample_rate(sample_rate: u32) -> Result<Self, ProcessError> {
-        validate_sample_rate_hz("VolumeController", sample_rate)?;
-        Ok(Self::with_valid_sample_rate(sample_rate))
-    }
-
-    fn with_valid_sample_rate(sample_rate: u32) -> Self {
-        // Target: ~20ms smoothing time
-        // smoothing = exp(-1 / tau) where tau = samples for 20ms
-        let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
-        let smoothing = (-1.0 / smoothing_samples).exp();
-        let one_minus_smoothing = 1.0 - smoothing;
-
-        Self {
-            current: 1.0,
-            target: 1.0,
-            smoothing,
-            one_minus_smoothing,
-            sample_rate,
-        }
-    }
-
-    /// Update sample rate (recalculates smoothing coefficient)
-    pub fn set_sample_rate(&mut self, sample_rate: u32) -> Result<(), ProcessError> {
-        validate_sample_rate_hz("VolumeController", sample_rate)?;
-        if sample_rate != self.sample_rate {
-            self.sample_rate = sample_rate;
-            let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
-            self.smoothing = (-1.0 / smoothing_samples).exp();
-            self.one_minus_smoothing = 1.0 - self.smoothing;
-        }
-        Ok(())
-    }
-
-    /// Retarget the smoothed callback volume, clamped to the published
-    /// [`VOLUME_MIN`]..=[`VOLUME_MAX`] range.
-    ///
-    /// A non-finite value is dropped rather than clamped: `f64::clamp` passes
-    /// `NaN` through, and a `NaN` target would propagate into every subsequent
-    /// smoothed sample.
-    pub fn set_target(&mut self, volume: f64) {
-        if let Some(volume) = sanitized(volume, VOLUME_MIN, VOLUME_MAX) {
-            self.target = volume;
-        }
-    }
-
-    #[inline(always)]
-    pub fn next_volume(&mut self) -> f64 {
-        self.current += (self.target - self.current) * self.one_minus_smoothing;
-        self.current
-    }
-
-    #[inline]
-    pub fn process(&mut self, buffer: &mut [f64], channels: usize) -> Result<(), ProcessError> {
-        let block = AudioBlockMut::new(buffer, channels)?;
-        self.process_validated(block.into_samples(), channels);
-        Ok(())
-    }
-
-    pub(crate) fn process_validated(&mut self, buffer: &mut [f64], channels: usize) {
-        let frames = buffer.len() / channels;
-        for frame in 0..frames {
-            let vol = self.next_volume();
-            for ch in 0..channels {
-                buffer[frame * channels + ch] *= vol;
-            }
-        }
-    }
-}
-
-impl Default for VolumeController {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -655,23 +555,6 @@ mod tests {
     use super::*;
     use crate::processor::traits::AudioBlockError;
 
-    /// A `NaN` target would propagate through the smoother into every later
-    /// sample, so the setter drops a non-finite write instead of clamping it.
-    #[test]
-    fn volume_target_drops_non_finite_writes() {
-        let mut volume = VolumeController::with_sample_rate(48_000).unwrap();
-        volume.set_target(0.5);
-
-        for poison in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            volume.set_target(poison);
-            assert_eq!(volume.target, 0.5, "target survived {poison}");
-        }
-
-        for _ in 0..64 {
-            assert!(volume.next_volume().is_finite());
-        }
-    }
-
     type NoiseShaperState = (Vec<[f64; 9]>, Vec<[f64; 18]>, Vec<usize>, Vec<u64>);
 
     fn noise_shaper_state(noise_shaper: &NoiseShaper) -> NoiseShaperState {
@@ -989,17 +872,6 @@ mod tests {
     }
 
     #[test]
-    fn test_volume_controller_one_minus_smoothing_updates_with_sample_rate() {
-        let mut volume = VolumeController::with_valid_sample_rate(44_100);
-        let initial = volume.one_minus_smoothing;
-
-        volume.set_sample_rate(96_000).unwrap();
-
-        assert_ne!(volume.one_minus_smoothing, initial);
-        assert_eq!(volume.one_minus_smoothing, 1.0 - volume.smoothing);
-    }
-
-    #[test]
     fn test_all_curves_stable() {
         // Each curve should process without divergence
         for curve in [
@@ -1074,67 +946,6 @@ mod tests {
                 ns.process_validated(&mut buffer, 2);
             }
         });
-    }
-
-    #[test]
-    fn raw_volume_geometry_rejection_is_atomic_and_allocation_free() {
-        assert!(matches!(
-            VolumeController::with_sample_rate(0),
-            Err(ProcessError::InvalidSampleRate {
-                processor: "VolumeController",
-                sample_rate_hz: 0,
-            })
-        ));
-
-        let mut volume = VolumeController::with_sample_rate(48_000).unwrap();
-        volume.set_target(0.25);
-        let mut warm = [0.5; 8];
-        volume.process(&mut warm, 2).unwrap();
-        let state = (
-            volume.current.to_bits(),
-            volume.smoothing.to_bits(),
-            volume.one_minus_smoothing.to_bits(),
-            volume.sample_rate,
-        );
-
-        let mut zero_channels = [0.25; 4];
-        let zero_channels_before = zero_channels;
-        let mut incomplete = [0.25; 3];
-        let incomplete_before = incomplete;
-        assert_no_alloc::assert_no_alloc(|| {
-            assert_eq!(
-                volume.process(&mut zero_channels, 0),
-                Err(ProcessError::InvalidBlock(AudioBlockError::ZeroChannels))
-            );
-            assert_eq!(
-                volume.process(&mut incomplete, 2),
-                Err(ProcessError::InvalidBlock(
-                    AudioBlockError::IncompleteFrame {
-                        samples: 3,
-                        channels: 2,
-                    }
-                ))
-            );
-            assert_eq!(
-                volume.set_sample_rate(0),
-                Err(ProcessError::InvalidSampleRate {
-                    processor: "VolumeController",
-                    sample_rate_hz: 0,
-                })
-            );
-        });
-
-        assert_eq!(zero_channels, zero_channels_before);
-        assert_eq!(incomplete, incomplete_before);
-        assert_eq!(
-            (
-                volume.current.to_bits(),
-                volume.smoothing.to_bits(),
-                volume.one_minus_smoothing.to_bits(),
-                volume.sample_rate,
-            ),
-            state
-        );
     }
 
     #[test]

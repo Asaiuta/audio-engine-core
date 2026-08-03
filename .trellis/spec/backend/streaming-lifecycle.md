@@ -68,11 +68,6 @@ OutputRenderChain::render_with_policy_and_block_frames(
 FFTConvolver::new(ir_data: &[f64], channels: usize)
     -> Result<FFTConvolver, ProcessError>
 
-VolumeController::with_sample_rate(sample_rate_hz: u32)
-    -> Result<VolumeController, ProcessError>
-VolumeController::process(&mut self, samples: &mut [f64], channels: usize)
-    -> Result<(), ProcessError>
-
 NoiseShaper::new(channels: usize, sample_rate_hz: u32, bits: u32)
     -> Result<NoiseShaper, ProcessError>
 NoiseShaper::process(&mut self, samples: &mut [f64], channels: usize)
@@ -638,7 +633,6 @@ alive. It replaces the former unreachable `disposal_slot()` composition path.
 FFTConvolver::new(ir_data: &[f64], channels: usize)
     -> Result<FFTConvolver, ProcessError>
 ConvolverControl::new(enabled: bool) -> ConvolverControl
-ConvolverControl::publish(&self, kernel: FFTConvolver) -> u64
 ConvolverControl::publish_at_rate(&self, kernel: FFTConvolver, sample_rate_hz: u32)
     -> Result<u64, ProcessError>
 ConvolverControl::reclaim_retired(&self) -> bool

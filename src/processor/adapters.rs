@@ -1875,8 +1875,6 @@ mod convolver;
 
 #[cfg(test)]
 use convolver::ConvolverDropProbe;
-pub use convolver::{
-    ConvolverControl, ConvolverProcessor, ConvolverStatus, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ,
-};
+pub use convolver::{ConvolverControl, ConvolverProcessor, ConvolverStatus};
 #[cfg(test)]
 mod tests;

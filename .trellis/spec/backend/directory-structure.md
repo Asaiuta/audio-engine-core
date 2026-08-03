@@ -36,8 +36,8 @@ src/
 │   └── tests.rs      # decoder unit tests
 └── processor/
     ├── mod.rs        # processor module root + public re-exports
-    ├── dsp.rs        # db<->linear, VolumeController, NoiseShaper
-    ├── eq.rs         # 10-band IIR (BiquadSection, Equalizer)
+    ├── dsp.rs        # db<->linear, NoiseShaper
+    ├── eq.rs         # 10-band IIR (Equalizer; crate-private BiquadSection)
     ├── fir_eq.rs     # FIR EQ design (FirEq, FirPhaseMode, STANDARD_BANDS)
     ├── fir_design.rs # minimum-phase FIR design helpers
     ├── crossfeed.rs  # Bauer binaural crossfeed
@@ -87,7 +87,6 @@ src/
         ├── meter.rs      # EBU R128 LoudnessMeter + TruePeakDetector
         ├── normalizer.rs # LoudnessNormalizer
         ├── limiter.rs    # PeakLimiter (lookahead; selectable true-peak/sample-peak)
-        ├── ramp.rs       # GainRamp
         ├── info.rs       # LoudnessInfo
         └── atomic_state.rs # AtomicLoudnessState
 ```

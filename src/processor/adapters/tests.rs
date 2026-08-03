@@ -119,7 +119,9 @@ fn test_convolver_processor_swaps_in_and_processes() {
 
     assert!(proc.process(&mut buffer, 1).is_bypassed());
 
-    let generation = control.publish(valid_convolver(&[0.5], 1));
+    let generation = control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
     control.set_enabled(true);
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
@@ -138,7 +140,9 @@ fn test_convolver_processor_clear_disables_owned_convolver() {
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-    control.publish(valid_convolver(&[0.5], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
 
     control.set_enabled(false);
@@ -158,8 +162,12 @@ fn convolver_publication_is_latest_wins_before_audio_withdrawal() {
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
 
-    let first = control.publish(valid_convolver(&[0.5], 1));
-    let latest = control.publish(valid_convolver(&[0.25], 1));
+    let first = control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
+    let latest = control
+        .publish_at_rate(valid_convolver(&[0.25], 1), 44_100)
+        .unwrap();
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert_eq!(buffer, vec![0.25, 0.5, 0.75, 1.0]);
 
@@ -177,9 +185,13 @@ fn convolver_disable_reports_retirement_backpressure_and_recovers() {
     let mut proc = ConvolverProcessor::new(control.clone()).unwrap();
     let mut buffer = vec![1.0; 256];
 
-    control.publish(valid_convolver(&[1.0], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0], 1), 44_100)
+        .unwrap();
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
-    control.publish(valid_convolver(&[0.5], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
     control.set_enabled(false);
 
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
@@ -208,7 +220,9 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
 
     for _ in 0..8 {
         // Control side: publishing allocates (allowed).
-        control.publish(valid_convolver(&[0.5, 0.25], 1));
+        control
+            .publish_at_rate(valid_convolver(&[0.5, 0.25], 1), 44_100)
+            .unwrap();
         // Audio side: swap-in, retirement hand-off, and processing must not
         // allocate or deallocate.
         assert_no_alloc::assert_no_alloc(|| {
@@ -218,7 +232,9 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
         let _ = control.reclaim_retired();
     }
 
-    control.publish(valid_convolver(&[0.75], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.75], 1), 44_100)
+        .unwrap();
     control.set_enabled(false);
     assert_no_alloc::assert_no_alloc(|| {
         proc.process(&mut buffer, 1);
@@ -233,7 +249,9 @@ fn convolver_processor_kernel_swap_is_allocation_free_on_audio_side() {
     assert!(control.reclaim_retired());
 
     control.set_enabled(true);
-    control.publish(valid_convolver(&[0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.25], 1), 44_100)
+        .unwrap();
     assert_no_alloc::assert_no_alloc(|| {
         proc.process(&mut buffer, 1);
     });
@@ -250,7 +268,9 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
 
     for update in 0..UPDATES {
         latest_gain = 0.25 + (update % 23) as f64 * 0.01;
-        let generation = control.publish(valid_convolver(&[latest_gain], 1));
+        let generation = control
+            .publish_at_rate(valid_convolver(&[latest_gain], 1), 44_100)
+            .unwrap();
         assert_eq!(generation, update + 1);
 
         if update % 17 == 0 {
@@ -280,7 +300,9 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
     assert_eq!(burst_status.pending_kernels, 0);
     assert_eq!(burst_status.pending_reclamations, 0);
 
-    control.publish(valid_convolver(&[0.5], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
     control.set_enabled(false);
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert!(proc.process(&mut buffer, 1).is_bypassed());
@@ -294,7 +316,9 @@ fn convolver_control_stress_remains_bounded_and_adopts_latest_generation() {
     assert!(control.is_quiescent());
 
     control.set_enabled(true);
-    let final_generation = control.publish(valid_convolver(&[0.875], 1));
+    let final_generation = control
+        .publish_at_rate(valid_convolver(&[0.875], 1), 44_100)
+        .unwrap();
     buffer.fill(1.0);
     assert!(!proc.process(&mut buffer, 1).is_bypassed());
     assert_eq!(buffer, [0.875; 256]);
@@ -331,7 +355,9 @@ fn convolver_control_serializes_concurrent_publishers() {
             for update in 0..UPDATES_PER_PUBLISHER {
                 let ordinal = publisher * UPDATES_PER_PUBLISHER + update + 1;
                 let gain = ordinal as f64 / TOTAL_UPDATES as f64;
-                let generation = control.publish(valid_convolver(&[gain], 1));
+                let generation = control
+                    .publish_at_rate(valid_convolver(&[gain], 1), 44_100)
+                    .unwrap();
                 published.push((generation, gain));
             }
             published
@@ -394,15 +420,15 @@ fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
         processed_rx.recv().unwrap();
     };
 
-    control.publish_with_drop_probe(valid_convolver(&[1.0], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[1.0], 1), 44_100, make_probe());
     process_once();
-    control.publish_with_drop_probe(valid_convolver(&[0.75], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.75], 1), 44_100, make_probe());
     process_once();
     assert_eq!(drop_count.load(Ordering::Acquire), 0);
     assert!(control.reclaim_retired());
 
-    control.publish_with_drop_probe(valid_convolver(&[0.5], 1), make_probe());
-    control.publish_with_drop_probe(valid_convolver(&[0.25], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.5], 1), 44_100, make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[0.25], 1), 44_100, make_probe());
     process_once();
     assert_eq!(drop_count.load(Ordering::Acquire), 2);
     assert!(control.reclaim_retired());

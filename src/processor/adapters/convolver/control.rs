@@ -6,10 +6,6 @@ use crate::processor::traits::ProcessError;
 
 use super::handoff::{AtomicBoxSlot, AudioOwned};
 
-/// Compatibility rate used by the legacy [`ConvolverControl::publish`] API.
-/// New code should publish with an explicit rate domain.
-pub const DEFAULT_CONVOLVER_SAMPLE_RATE_HZ: u32 = 44_100;
-
 /// Allocation-free snapshot of dynamic convolver lifecycle telemetry.
 ///
 /// Counter fields are monotonic and eventually consistent. Use
@@ -123,17 +119,6 @@ impl ConvolverControl {
         }
     }
 
-    pub fn publish(&self, kernel: FFTConvolver) -> u64 {
-        #[cfg(test)]
-        {
-            self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, None)
-        }
-        #[cfg(not(test))]
-        {
-            self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ)
-        }
-    }
-
     /// Publish a kernel in an explicit non-zero sample-rate domain.
     pub fn publish_at_rate(
         &self,
@@ -202,9 +187,10 @@ impl ConvolverControl {
     pub(crate) fn publish_with_drop_probe(
         &self,
         kernel: FFTConvolver,
+        sample_rate_hz: u32,
         drop_probe: ConvolverDropProbe,
     ) -> u64 {
-        self.publish_inner(kernel, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, Some(drop_probe))
+        self.publish_inner(kernel, sample_rate_hz, Some(drop_probe))
     }
 
     pub fn reclaim_retired(&self) -> bool {

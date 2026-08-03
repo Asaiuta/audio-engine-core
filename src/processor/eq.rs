@@ -22,8 +22,12 @@ fn checked_band_gain(gain_db: f64) -> Result<f64, ProcessError> {
 }
 
 /// IIR Biquad filter section (SOS - Second Order Section)
+///
+/// Crate-internal: this is the building block of [`Equalizer`], not a
+/// user-facing type. Keeping it private leaves the biquad representation free
+/// to change without a breaking release.
 #[derive(Clone)]
-pub struct BiquadSection {
+pub(crate) struct BiquadSection {
     b0: f64,
     b1: f64,
     b2: f64,
@@ -70,19 +74,6 @@ impl BiquadSection {
     pub fn reset(&mut self) {
         self.z1 = 0.0;
         self.z2 = 0.0;
-    }
-
-    /// Copy coefficients while deliberately retaining this section's delay state.
-    ///
-    /// Do not use this to adopt an independently processed crossfade branch: in
-    /// that case the source branch's complete state is authoritative.
-    pub fn copy_coefficients_from(&mut self, other: &Self) {
-        self.b0 = other.b0;
-        self.b1 = other.b1;
-        self.b2 = other.b2;
-        self.a1 = other.a1;
-        self.a2 = other.a2;
-        // z1, z2 intentionally remain attached to this section.
     }
 }
 

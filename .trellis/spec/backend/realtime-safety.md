@@ -59,7 +59,7 @@ The following are **forbidden** inside the hot path:
 - Allocation, locking, logging, and I/O during **setup/configuration** before
   the processor enters the realtime path (construction, `set_*`, coefficient
   (re)design on parameter change).
-- `ConvolverControl::publish`, `reclaim_retired`, and `status` are
+- `ConvolverControl::publish_at_rate`, `reclaim_retired`, and `status` are
   control/offline operations. Publication/reclamation may allocate or take the
   control-only serialization gate; `ConvolverProcessor::process` and `finish`
   never acquire that gate and only perform fixed atomic/ownership-stage work.

@@ -779,7 +779,6 @@ impl audio_engine_core::ConvolverControl
 pub fn audio_engine_core::ConvolverControl::is_enabled(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::is_quiescent(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::new(bool) -> Self
-pub fn audio_engine_core::ConvolverControl::publish(&self, audio_engine_core::FFTConvolver) -> u64
 pub fn audio_engine_core::ConvolverControl::publish_at_rate(&self, audio_engine_core::FFTConvolver, u32) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::ConvolverControl::reclaim_retired(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::set_enabled(&self, bool)
@@ -1042,7 +1041,6 @@ impl core::marker::Unpin for audio_engine_core::processor::adapters::VolumeProce
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::VolumeProcessor
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::VolumeProcessor
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::VolumeProcessor
-pub const audio_engine_core::processor::adapters::DEFAULT_CONVOLVER_SAMPLE_RATE_HZ: u32
 pub const audio_engine_core::processor::adapters::SATURATION_TRANSITION_FRAMES: usize
 pub mod audio_engine_core::processor::downmix
 #[non_exhaustive] pub enum audio_engine_core::processor::downmix::DownmixCoefficients
@@ -2767,25 +2765,6 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Atom
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
-pub struct audio_engine_core::processor::AtomicDynamicLoudnessState
-pub audio_engine_core::processor::AtomicDynamicLoudnessState::enabled: core::sync::atomic::AtomicBool
-pub audio_engine_core::processor::AtomicDynamicLoudnessState::strength: atomic_float::atomic_f32::AtomicF32
-pub audio_engine_core::processor::AtomicDynamicLoudnessState::volume: atomic_float::atomic_f32::AtomicF32
-impl audio_engine_core::processor::AtomicDynamicLoudnessState
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::new() -> Self
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::set_enabled(&self, bool)
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::set_strength(&self, f32)
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::set_volume(&self, f32)
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::sync_to_processor(&self, &mut audio_engine_core::processor::DynamicLoudness)
-impl core::default::Default for audio_engine_core::processor::AtomicDynamicLoudnessState
-pub fn audio_engine_core::processor::AtomicDynamicLoudnessState::default() -> Self
-impl !core::marker::Freeze for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl core::marker::Send for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl core::marker::Sync for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl core::marker::Unpin for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::AtomicDynamicLoudnessState
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::AtomicDynamicLoudnessState
 pub struct audio_engine_core::processor::AtomicDynamicLoudnessTelemetry
 impl audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry::band_gains(&self) -> [f64; 7]
@@ -3058,21 +3037,6 @@ impl core::marker::Unpin for audio_engine_core::AutomixAnalysisOptions
 impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisOptions
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisOptions
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisOptions
-pub struct audio_engine_core::processor::BiquadSection
-impl audio_engine_core::processor::BiquadSection
-pub fn audio_engine_core::processor::BiquadSection::copy_coefficients_from(&mut self, &Self)
-pub fn audio_engine_core::processor::BiquadSection::peaking_eq(f64, f64, f64, f64) -> Self
-pub fn audio_engine_core::processor::BiquadSection::process(&mut self, f64) -> f64
-pub fn audio_engine_core::processor::BiquadSection::reset(&mut self)
-impl core::clone::Clone for audio_engine_core::processor::BiquadSection
-pub fn audio_engine_core::processor::BiquadSection::clone(&self) -> audio_engine_core::processor::BiquadSection
-impl core::marker::Freeze for audio_engine_core::processor::BiquadSection
-impl core::marker::Send for audio_engine_core::processor::BiquadSection
-impl core::marker::Sync for audio_engine_core::processor::BiquadSection
-impl core::marker::Unpin for audio_engine_core::processor::BiquadSection
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::BiquadSection
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::BiquadSection
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::BiquadSection
 pub struct audio_engine_core::processor::ChainFinishPolicy
 pub audio_engine_core::processor::ChainFinishPolicy::energy_threshold_dbfs: f64
 pub audio_engine_core::processor::ChainFinishPolicy::max_tail_frames: usize
@@ -3101,7 +3065,6 @@ impl audio_engine_core::ConvolverControl
 pub fn audio_engine_core::ConvolverControl::is_enabled(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::is_quiescent(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::new(bool) -> Self
-pub fn audio_engine_core::ConvolverControl::publish(&self, audio_engine_core::FFTConvolver) -> u64
 pub fn audio_engine_core::ConvolverControl::publish_at_rate(&self, audio_engine_core::FFTConvolver, u32) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::ConvolverControl::reclaim_retired(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::set_enabled(&self, bool)
@@ -3511,26 +3474,6 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::FrameDuration
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::FrameDuration
-pub struct audio_engine_core::processor::GainRamp
-impl audio_engine_core::GainRamp
-pub fn audio_engine_core::GainRamp::apply(&mut self, &mut [f64])
-pub fn audio_engine_core::GainRamp::current(&self) -> f64
-pub fn audio_engine_core::GainRamp::fade_in(f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::fade_out(f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::is_done(&self) -> bool
-pub fn audio_engine_core::GainRamp::jump(&mut self, f64)
-pub fn audio_engine_core::GainRamp::new(f64, f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::next_gain(&mut self) -> f64
-pub fn audio_engine_core::GainRamp::remaining_samples(&self) -> usize
-pub fn audio_engine_core::GainRamp::retarget(&mut self, f64, u32, u32)
-pub fn audio_engine_core::GainRamp::target(&self) -> f64
-impl core::marker::Freeze for audio_engine_core::GainRamp
-impl core::marker::Send for audio_engine_core::GainRamp
-impl core::marker::Sync for audio_engine_core::GainRamp
-impl core::marker::Unpin for audio_engine_core::GainRamp
-impl core::marker::UnsafeUnpin for audio_engine_core::GainRamp
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::GainRamp
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::GainRamp
 pub struct audio_engine_core::processor::LoudnessDatabase
 impl audio_engine_core::LoudnessDatabase
 pub fn audio_engine_core::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::TrackLoudness]) -> core::result::Result<usize, alloc::string::String>
@@ -4216,23 +4159,6 @@ impl core::marker::Unpin for audio_engine_core::UnknownTailPolicy
 impl core::marker::UnsafeUnpin for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::UnknownTailPolicy
-pub struct audio_engine_core::processor::VolumeController
-impl audio_engine_core::VolumeController
-pub fn audio_engine_core::VolumeController::new() -> Self
-pub fn audio_engine_core::VolumeController::next_volume(&mut self) -> f64
-pub fn audio_engine_core::VolumeController::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::VolumeController::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::VolumeController::set_target(&mut self, f64)
-pub fn audio_engine_core::VolumeController::with_sample_rate(u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::default::Default for audio_engine_core::VolumeController
-pub fn audio_engine_core::VolumeController::default() -> Self
-impl core::marker::Freeze for audio_engine_core::VolumeController
-impl core::marker::Send for audio_engine_core::VolumeController
-impl core::marker::Sync for audio_engine_core::VolumeController
-impl core::marker::Unpin for audio_engine_core::VolumeController
-impl core::marker::UnsafeUnpin for audio_engine_core::VolumeController
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::VolumeController
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::VolumeController
 pub struct audio_engine_core::processor::VolumeParamsSnapshot
 pub audio_engine_core::processor::VolumeParamsSnapshot::muted: bool
 pub audio_engine_core::processor::VolumeParamsSnapshot::volume: f64
@@ -4278,8 +4204,6 @@ pub const audio_engine_core::processor::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::processor::CROSSFEED_MIX_MAX: f64
 pub const audio_engine_core::processor::CROSSFEED_MIX_MIN: f64
 pub const audio_engine_core::processor::CURRENT_SCAN_VERSION: i32
-pub const audio_engine_core::processor::DEFAULT_BROADCAST_TARGET_LUFS: f64
-pub const audio_engine_core::processor::DEFAULT_CONVOLVER_SAMPLE_RATE_HZ: u32
 pub const audio_engine_core::processor::DEFAULT_STREAMING_TARGET_LUFS: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_STRENGTH_MAX: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_STRENGTH_MIN: f64
@@ -5210,7 +5134,6 @@ impl audio_engine_core::ConvolverControl
 pub fn audio_engine_core::ConvolverControl::is_enabled(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::is_quiescent(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::new(bool) -> Self
-pub fn audio_engine_core::ConvolverControl::publish(&self, audio_engine_core::FFTConvolver) -> u64
 pub fn audio_engine_core::ConvolverControl::publish_at_rate(&self, audio_engine_core::FFTConvolver, u32) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::ConvolverControl::reclaim_retired(&self) -> bool
 pub fn audio_engine_core::ConvolverControl::set_enabled(&self, bool)
@@ -5409,26 +5332,6 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::FrameDuration
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::FrameDuration
-pub struct audio_engine_core::GainRamp
-impl audio_engine_core::GainRamp
-pub fn audio_engine_core::GainRamp::apply(&mut self, &mut [f64])
-pub fn audio_engine_core::GainRamp::current(&self) -> f64
-pub fn audio_engine_core::GainRamp::fade_in(f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::fade_out(f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::is_done(&self) -> bool
-pub fn audio_engine_core::GainRamp::jump(&mut self, f64)
-pub fn audio_engine_core::GainRamp::new(f64, f64, u32, u32) -> Self
-pub fn audio_engine_core::GainRamp::next_gain(&mut self) -> f64
-pub fn audio_engine_core::GainRamp::remaining_samples(&self) -> usize
-pub fn audio_engine_core::GainRamp::retarget(&mut self, f64, u32, u32)
-pub fn audio_engine_core::GainRamp::target(&self) -> f64
-impl core::marker::Freeze for audio_engine_core::GainRamp
-impl core::marker::Send for audio_engine_core::GainRamp
-impl core::marker::Sync for audio_engine_core::GainRamp
-impl core::marker::Unpin for audio_engine_core::GainRamp
-impl core::marker::UnsafeUnpin for audio_engine_core::GainRamp
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::GainRamp
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::GainRamp
 pub struct audio_engine_core::LoudnessConfig
 pub audio_engine_core::LoudnessConfig::enabled: bool
 pub audio_engine_core::LoudnessConfig::mode: audio_engine_core::config::NormalizationMode
@@ -6229,25 +6132,7 @@ impl core::marker::Unpin for audio_engine_core::UnknownTailPolicy
 impl core::marker::UnsafeUnpin for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::UnknownTailPolicy
-pub struct audio_engine_core::VolumeController
-impl audio_engine_core::VolumeController
-pub fn audio_engine_core::VolumeController::new() -> Self
-pub fn audio_engine_core::VolumeController::next_volume(&mut self) -> f64
-pub fn audio_engine_core::VolumeController::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::VolumeController::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::VolumeController::set_target(&mut self, f64)
-pub fn audio_engine_core::VolumeController::with_sample_rate(u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::default::Default for audio_engine_core::VolumeController
-pub fn audio_engine_core::VolumeController::default() -> Self
-impl core::marker::Freeze for audio_engine_core::VolumeController
-impl core::marker::Send for audio_engine_core::VolumeController
-impl core::marker::Sync for audio_engine_core::VolumeController
-impl core::marker::Unpin for audio_engine_core::VolumeController
-impl core::marker::UnsafeUnpin for audio_engine_core::VolumeController
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::VolumeController
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::VolumeController
 pub const audio_engine_core::CURRENT_SCAN_VERSION: i32
-pub const audio_engine_core::DEFAULT_CONVOLVER_SAMPLE_RATE_HZ: u32
 pub const audio_engine_core::MAX_STOP_FADE_MS: u32
 pub const audio_engine_core::PARTITIONED_CONVOLUTION_IR_THRESHOLD: usize
 pub const audio_engine_core::PARTITIONED_CONVOLUTION_PARTITION_SIZE: usize

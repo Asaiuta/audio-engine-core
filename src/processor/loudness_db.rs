@@ -30,10 +30,13 @@ use std::sync::Mutex;
 pub const CURRENT_SCAN_VERSION: i32 = 1;
 
 /// Default target loudness for streaming (LUFS)
+///
+/// Supported as a reference value for a consuming application choosing a
+/// normalization target. Nothing in this crate applies it by default — the
+/// target is always supplied explicitly through [`LoudnessConfig`].
+///
+/// [`LoudnessConfig`]: crate::config::LoudnessConfig
 pub const DEFAULT_STREAMING_TARGET_LUFS: f64 = -14.0;
-
-/// Default target loudness for broadcast (LUFS)
-pub const DEFAULT_BROADCAST_TARGET_LUFS: f64 = -23.0;
 
 /// Schemes stored as remote track identities.
 ///

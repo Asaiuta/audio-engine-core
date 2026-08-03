@@ -10,6 +10,10 @@ use super::lockfree_params::{sanitized, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN
 use std::f64::consts::PI;
 
 /// Standard 10-band EQ frequencies (ISO octave bands)
+///
+/// Supported as the default band layout for [`FirEq`]; nothing in this crate
+/// consumes it, but a consuming application needs it to build the gain list
+/// [`FirEq::set_bands`] expects.
 pub const STANDARD_BANDS: [(f64, f64); 10] = [
     (31.0, 0.0),    // 31 Hz
     (62.0, 0.0),    // 62 Hz
@@ -24,6 +28,8 @@ pub const STANDARD_BANDS: [(f64, f64); 10] = [
 ];
 
 /// Phase mode for FIR EQ
+///
+/// Supported as part of the [`FirEq`] surface.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FirPhaseMode {
     #[default]
@@ -32,6 +38,11 @@ pub enum FirPhaseMode {
 }
 
 /// FIR EQ generator: creates IR from band gain specifications
+///
+/// Supported, but not used by any other type in this crate. It exists for a
+/// consuming application that wants linear- or minimum-phase EQ applied through
+/// [`FFTConvolver`](super::FFTConvolver); the output chain's own EQ stage is the
+/// IIR [`Equalizer`](super::Equalizer) and does not use this type.
 pub struct FirEq {
     /// Number of FIR taps (must be odd for linear phase)
     num_taps: usize,

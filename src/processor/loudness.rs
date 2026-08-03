@@ -7,7 +7,6 @@
 //!
 //! - `LoudnessMeter`: EBU R128 compliant loudness measurement ([`meter`])
 //! - `PeakLimiter`: True Peak limiter with 4x oversampling detection ([`limiter`])
-//! - `GainRamp`: Linear gain ramp for smooth track transitions ([`ramp`])
 //! - `AtomicLoudnessState`: Lock-free state for audio thread ([`atomic_state`])
 //! - `LoudnessNormalizer`: High-level normalization processor ([`normalizer`])
 
@@ -16,7 +15,6 @@ mod info;
 mod limiter;
 mod meter;
 mod normalizer;
-mod ramp;
 
 pub use atomic_state::AtomicLoudnessState;
 pub use info::LoudnessInfo;
@@ -24,7 +22,6 @@ pub use limiter::{LimiterMode, PeakLimiter};
 pub(crate) use meter::true_peak_reconstruction_l1_bound;
 pub use meter::{LoudnessMeter, TruePeakDetector};
 pub use normalizer::LoudnessNormalizer;
-pub use ramp::GainRamp;
 
 #[cfg(test)]
 mod tests {
@@ -37,41 +34,6 @@ mod tests {
         assert!((db_to_linear(-6.0) - 0.501).abs() < 0.01);
         assert!((linear_to_db(1.0) - 0.0).abs() < 1e-10);
         assert!((linear_to_db(0.5) - (-6.02)).abs() < 0.1);
-    }
-
-    #[test]
-    fn test_gain_ramp() {
-        let mut ramp = GainRamp::new(0.0, 1.0, 44100, 100); // 100ms ramp
-
-        // Should take ~4410 samples
-        assert!(!ramp.is_done());
-
-        // Simulate processing
-        let mut samples = vec![1.0; 5000];
-        ramp.apply(&mut samples);
-
-        // Should be done or nearly done
-        assert!(ramp.remaining_samples() < 1000);
-        assert!(ramp.current() > 0.9);
-    }
-
-    #[test]
-    fn test_gain_ramp_current_is_cached_accessor() {
-        let mut ramp = GainRamp::new(0.0, 1.0, 10, 100);
-
-        assert_eq!(ramp.current(), 0.0);
-        assert_eq!(ramp.next_gain(), 0.0);
-        assert_eq!(ramp.current(), 1.0);
-        assert!(ramp.is_done());
-
-        ramp.retarget(0.0, 10, 100);
-        assert_eq!(ramp.current(), 1.0);
-        assert_eq!(ramp.next_gain(), 1.0);
-        assert_eq!(ramp.current(), 0.0);
-
-        ramp.jump(0.5);
-        assert_eq!(ramp.current(), 0.5);
-        assert_eq!(ramp.next_gain(), 0.5);
     }
 
     #[test]
