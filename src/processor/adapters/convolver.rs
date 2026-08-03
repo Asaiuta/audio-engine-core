@@ -5,7 +5,7 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use control::ConvolverDropProbe;
-pub use control::{ConvolverControl, ConvolverStatus, DEFAULT_CONVOLVER_SAMPLE_RATE_HZ};
+pub use control::{ConvolverControl, ConvolverStatus};
 
 use control::{ConsumerLease, PublishedConvolver};
 use handoff::AudioOwned;

@@ -359,6 +359,11 @@ impl Default for Crossfeed {
     }
 }
 
+/// Observable snapshot of the crossfeed settings.
+///
+/// Supported, but not read by any other type in this crate. It exists so a
+/// consuming application can report the active configuration; the realtime path
+/// reads its values from the lock-free parameter snapshot instead.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CrossfeedSettings {
     pub mix: f64,

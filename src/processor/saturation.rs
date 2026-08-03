@@ -1138,6 +1138,10 @@ impl Default for Saturation {
 }
 
 /// Settings struct for API responses
+///
+/// Supported, but not read by any other type in this crate. It exists so a
+/// consuming application can report the active configuration; the realtime path
+/// reads its values from the lock-free parameter snapshot instead.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SaturationSettings {
     pub sat_type: SaturationType,

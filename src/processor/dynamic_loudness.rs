@@ -22,12 +22,8 @@
 //!     → NoiseShaper → final output
 //! ```
 
-use atomic_float::AtomicF32;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use super::lockfree_params::{
     sanitized, DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN,
-    DYNAMIC_LOUDNESS_VOLUME_MAX, DYNAMIC_LOUDNESS_VOLUME_MIN,
 };
 use super::traits::{
     validate_processor_channels, validated_channel_count, AudioBlockMut, ProcessError,
@@ -775,77 +771,6 @@ impl DynamicLoudness {
     /// Get strength
     pub fn strength(&self) -> f64 {
         self.strength
-    }
-}
-
-// ============================================================================
-// Atomic State for Thread-Safe Control
-// ============================================================================
-
-/// Thread-safe state for DynamicLoudness control from UI thread
-pub struct AtomicDynamicLoudnessState {
-    /// Linear volume (0.0 - 1.0)
-    pub volume: AtomicF32,
-    /// Strength (0.0 - 1.0)
-    pub strength: AtomicF32,
-    /// Enabled flag
-    pub enabled: AtomicBool,
-}
-
-impl AtomicDynamicLoudnessState {
-    pub fn new() -> Self {
-        Self {
-            volume: AtomicF32::new(1.0),
-            strength: AtomicF32::new(1.0),
-            enabled: AtomicBool::new(true),
-        }
-    }
-
-    /// Set volume (call from UI thread), clamped to the published
-    /// [`DYNAMIC_LOUDNESS_VOLUME_MIN`]..=[`DYNAMIC_LOUDNESS_VOLUME_MAX`] range.
-    pub fn set_volume(&self, volume: f32) {
-        self.volume.store(
-            volume.clamp(
-                DYNAMIC_LOUDNESS_VOLUME_MIN as f32,
-                DYNAMIC_LOUDNESS_VOLUME_MAX as f32,
-            ),
-            Ordering::Relaxed,
-        );
-    }
-
-    /// Set strength (call from UI thread), clamped to the published
-    /// [`DYNAMIC_LOUDNESS_STRENGTH_MIN`]..=[`DYNAMIC_LOUDNESS_STRENGTH_MAX`]
-    /// range.
-    pub fn set_strength(&self, strength: f32) {
-        self.strength.store(
-            strength.clamp(
-                DYNAMIC_LOUDNESS_STRENGTH_MIN as f32,
-                DYNAMIC_LOUDNESS_STRENGTH_MAX as f32,
-            ),
-            Ordering::Relaxed,
-        );
-    }
-
-    /// Set enabled (call from UI thread)
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    /// Sync to processor (call from audio thread)
-    pub fn sync_to_processor(&self, processor: &mut DynamicLoudness) {
-        let volume = self.volume.load(Ordering::Relaxed) as f64;
-        let strength = self.strength.load(Ordering::Relaxed) as f64;
-        let enabled = self.enabled.load(Ordering::Relaxed);
-
-        processor.set_volume(volume);
-        processor.set_strength(strength);
-        processor.set_enabled(enabled);
-    }
-}
-
-impl Default for AtomicDynamicLoudnessState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -39,7 +39,9 @@ fn consumer_lease_rejects_second_direct_consumer_and_releases_on_drop() {
 #[test]
 fn first_process_on_a_new_audio_thread_is_allocation_free() {
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&[0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.5, 0.25], 1), 44_100)
+        .unwrap();
     let processor = ConvolverProcessor::new(control.clone()).unwrap();
 
     let processor = std::thread::spawn(move || {
@@ -67,7 +69,9 @@ fn kernel_published_after_dry_wait_fades_in_from_the_dry_path() {
     assert!(progress.is_bypassed());
     assert!(dry_wait.iter().all(|sample| *sample == 1.0));
 
-    control.publish(valid_convolver(&[0.0], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.0], 1), 44_100)
+        .unwrap();
     let mut activation = vec![1.0; processor.activation_frames()];
     let progress = process_mono(&mut processor, &mut activation).unwrap();
     assert!(!progress.is_bypassed());
@@ -81,7 +85,9 @@ fn kernel_published_after_dry_wait_fades_in_from_the_dry_path() {
 #[test]
 fn disabled_convolver_still_reports_owned_kernel_tail_until_finish() {
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&[1.0, 0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 44_100)
+        .unwrap();
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();
     let mut input = [1.0];
     let _ = process_mono(&mut processor, &mut input).unwrap();
@@ -97,7 +103,9 @@ fn finish_continues_an_active_kernel_fade_without_a_full_wet_jump() {
     let mut dry_wait = [1.0; 8];
     let _ = process_mono(&mut processor, &mut dry_wait).unwrap();
 
-    control.publish(valid_convolver(&[1.0, 0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 44_100)
+        .unwrap();
     let mut activation = [1.0];
     let _ = process_mono(&mut processor, &mut activation).unwrap();
     assert!(processor.transition_active());
@@ -116,7 +124,9 @@ fn enable_toggles_retarget_an_active_transition_from_its_current_wet_weight() {
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();
     let mut dry_wait = [1.0; 8];
     let _ = process_mono(&mut processor, &mut dry_wait).unwrap();
-    control.publish(valid_convolver(&[0.0], 1));
+    control
+        .publish_at_rate(valid_convolver(&[0.0], 1), 44_100)
+        .unwrap();
 
     let mut fade_in = vec![1.0; processor.activation_frames() / 2];
     let _ = process_mono(&mut processor, &mut fade_in).unwrap();
@@ -192,7 +202,9 @@ fn partitioned_fade_reversal_and_finish_match_direct_convolution_oracle() {
     let progress = process_mono(&mut processor, &mut dry_wait).unwrap();
     assert!(progress.is_bypassed());
     assert_eq!(dry_wait, [0.25; 7]);
-    control.publish(valid_convolver(&ir, 1));
+    control
+        .publish_at_rate(valid_convolver(&ir, 1), 44_100)
+        .unwrap();
     let transition_frames = processor.activation_frames();
 
     let mut actual = program.clone();
@@ -275,7 +287,9 @@ fn partitioned_adoption_process_and_finish_are_allocation_free_on_new_audio_thre
     ir[ir_frames - 1] = 0.25;
 
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&ir, 1));
+    control
+        .publish_at_rate(valid_convolver(&ir, 1), 44_100)
+        .unwrap();
     let processor = ConvolverProcessor::new(control.clone()).unwrap();
 
     let processor = std::thread::spawn(move || {
@@ -322,7 +336,9 @@ fn partitioned_adoption_process_and_finish_are_allocation_free_on_new_audio_thre
 #[test]
 fn disable_during_partial_finish_preserves_locked_tail() {
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&[1.0, 0.5, 0.25, 0.125], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25, 0.125], 1), 44_100)
+        .unwrap();
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();
     let mut input = [1.0];
     let _ = process_mono(&mut processor, &mut input).unwrap();
@@ -355,7 +371,9 @@ fn disable_during_partial_finish_preserves_locked_tail() {
 #[test]
 fn disable_before_first_finish_preserves_current_kernel_tail() {
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&[1.0, 0.5, 0.25, 0.125], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25, 0.125], 1), 44_100)
+        .unwrap();
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();
     let mut input = [1.0];
     let _ = process_mono(&mut processor, &mut input).unwrap();
@@ -397,7 +415,9 @@ fn publication_during_idle_ack_cannot_commit_a_stale_generation() {
     });
 
     loaded.wait();
-    let generation = control.publish(valid_convolver(&[1.0], 1));
+    let generation = control
+        .publish_at_rate(valid_convolver(&[1.0], 1), 44_100)
+        .unwrap();
     published.wait();
     audio.join().unwrap();
 
@@ -410,9 +430,13 @@ fn publication_during_idle_ack_cannot_commit_a_stale_generation() {
 #[test]
 fn quiescence_rechecks_retirement_after_generation_acknowledgement() {
     let control = ConvolverControl::new(false);
-    let generation = control.publish(valid_convolver(&[0.5], 1));
+    let generation = control
+        .publish_at_rate(valid_convolver(&[0.5], 1), 44_100)
+        .unwrap();
     let blocker_control = ConvolverControl::new(false);
-    blocker_control.publish(valid_convolver(&[1.0], 1));
+    blocker_control
+        .publish_at_rate(valid_convolver(&[1.0], 1), 44_100)
+        .unwrap();
     let blocker = blocker_control.take_published().unwrap();
     assert!(control.try_retire(blocker).is_ok());
 
@@ -441,7 +465,9 @@ fn quiescence_rechecks_retirement_after_generation_acknowledgement() {
 #[test]
 fn terminal_finish_and_retirement_are_allocation_free_on_new_audio_thread() {
     let control = ConvolverControl::new(true);
-    control.publish(valid_convolver(&[1.0, 0.5, 0.25], 1));
+    control
+        .publish_at_rate(valid_convolver(&[1.0, 0.5, 0.25], 1), 44_100)
+        .unwrap();
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();
     let mut input = [1.0];
     let _ = process_mono(&mut processor, &mut input).unwrap();
@@ -509,11 +535,11 @@ fn concurrent_reclaim_and_audio_retirement_drop_every_kernel_off_audio() {
         let _ = control.reclaim_retired();
     };
 
-    control.publish_with_drop_probe(valid_convolver(&[1.0], 1), make_probe());
+    control.publish_with_drop_probe(valid_convolver(&[1.0], 1), 44_100, make_probe());
     process_and_race_reclaim();
     for generation in 1..KERNELS {
         let gain = 1.0 - generation as f64 / (KERNELS * 2) as f64;
-        control.publish_with_drop_probe(valid_convolver(&[gain], 1), make_probe());
+        control.publish_with_drop_probe(valid_convolver(&[gain], 1), 44_100, make_probe());
         process_and_race_reclaim();
     }
 
@@ -533,7 +559,9 @@ fn concurrent_reclaim_and_audio_retirement_drop_every_kernel_off_audio() {
 fn drained_generation_acknowledgement_handles_wrapping_publication() {
     let control = ConvolverControl::new(false);
     control.set_generation_state_for_test(u64::MAX, u64::MAX);
-    let generation = control.publish(valid_convolver(&[1.0], 1));
+    let generation = control
+        .publish_at_rate(valid_convolver(&[1.0], 1), 44_100)
+        .unwrap();
     assert_eq!(generation, 0);
 
     let mut processor = ConvolverProcessor::new(control.clone()).unwrap();

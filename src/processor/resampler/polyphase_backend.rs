@@ -114,11 +114,6 @@ impl PolyphaseResampler {
         (self.chunk_frames * self.up).div_ceil(self.down) + 2
     }
 
-    #[allow(dead_code)]
-    pub(super) fn output_delay(&self) -> usize {
-        0
-    }
-
     pub(super) fn latency_frames(&self) -> usize {
         self.latency_frames
     }
@@ -183,14 +178,6 @@ impl PolyphaseResampler {
         }
 
         Ok((input_frames, produced))
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn reset(&mut self) {
-        self.history.fill(0.0);
-        self.write_frame = self.history_frames - 1;
-        self.total_input = 0;
-        self.next_output = 0;
     }
 }
 

@@ -10,8 +10,8 @@
 //!
 //! ## Core Processors
 //! - [`StreamingResampler`] and [`Resampler`] - backend-selectable resampling (SoXR or pure Rust)
-//! - [`Equalizer`] and [`BiquadSection`] - 10-band parametric IIR equalizer
-//! - [`VolumeController`] and [`NoiseShaper`] - Volume control and noise shaping
+//! - [`Equalizer`] - 10-band parametric IIR equalizer
+//! - [`VolumeProcessor`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`SpectrumAnalyzer`] - FFT spectrum analyzer
 //! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
 //! - [`LoudnessNormalizer`], [`LoudnessMeter`], and [`TruePeakDetector`] - EBU R128 loudness normalization
@@ -60,20 +60,18 @@ pub use convolver::{
     PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
-pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve, VolumeController};
-pub use dynamic_loudness::{
-    AtomicDynamicLoudnessState, DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N,
-};
-pub use eq::{BiquadSection, Equalizer};
+pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve};
+pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
+pub use eq::Equalizer;
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
-    AtomicLoudnessState, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer,
-    PeakLimiter, TruePeakDetector,
+    AtomicLoudnessState, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, PeakLimiter,
+    TruePeakDetector,
 };
 #[cfg(feature = "loudness-db")]
 pub use loudness_db::{
     DatabaseStats, LoudnessDatabase, TrackLoudness, CURRENT_SCAN_VERSION,
-    DEFAULT_BROADCAST_TARGET_LUFS, DEFAULT_STREAMING_TARGET_LUFS,
+    DEFAULT_STREAMING_TARGET_LUFS,
 };
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
@@ -92,7 +90,7 @@ pub use adapters::{
     ConvolverControl, ConvolverProcessor, ConvolverStatus, CrossfeedProcessor,
     DynamicLoudnessProcessor, EqProcessor, NoiseShaperProcessor, PeakLimiterProcessor,
     SaturationEvent, SaturationEventKind, SaturationProcessor, VolumeProcessor,
-    DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, SATURATION_TRANSITION_FRAMES,
+    SATURATION_TRANSITION_FRAMES,
 };
 pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
 pub use dsp_chain::{ChainFinishPolicy, DspChain};

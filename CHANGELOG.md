@@ -75,6 +75,32 @@ SemVer for pre-1.0 releases.
   `dynamic_loudness`, `noise_shaping`).
 - `PlaybackSaturationConfig` gains `enabled()` plus `with_*` builders.
 
+### Removed
+- **Breaking:** the legacy public surface has been given an explicit lifecycle
+  ahead of 1.0. Every item below had no consumer in this crate's production
+  code, and each is superseded by a live equivalent. They are removed rather
+  than deprecated because the crate is still `0.x`: shipping 1.0 already
+  carrying deprecated API would buy a migration window nothing needs.
+  - `VolumeController` — use the `VolumeProcessor` + `AtomicVolumeParams` pair
+    that the output chain already builds. It smooths over ~5 ms rather than
+    ~20 ms, skips the buffer entirely once the gain has settled at unity, and
+    participates in the lock-free parameter and lifecycle contracts.
+  - `GainRamp` — the playback facade implements its own stop fade, which
+    advances gain per frame (so both channels of a frame share a gain) and
+    recomputes it from the remaining ramp rather than accumulating a per-sample
+    step.
+  - `AtomicDynamicLoudnessState` — superseded by the `lockfree_params` snapshot
+    types and `PlaybackParameters`; nothing constructed it.
+  - `DEFAULT_BROADCAST_TARGET_LUFS` — unused. `DEFAULT_STREAMING_TARGET_LUFS`
+    is retained and now documents that no code path applies it by default.
+  - `ConvolverControl::publish` and `DEFAULT_CONVOLVER_SAMPLE_RATE_HZ` — use
+    `ConvolverControl::publish_at_rate`, which takes an explicit sample-rate
+    domain instead of assuming 44,100 Hz and returns `Result` for a zero rate.
+  - `BiquadSection` is no longer exported. It is an implementation detail of
+    `Equalizer`, and exporting it froze the biquad representation. Its unused
+    `copy_coefficients_from` is removed with it; `Equalizer` adopts a fully
+    processed crossfade branch with `clone_from`, which carries delay state.
+
 ### Changed
 - **Breaking:** `StreamingDecoder::info` and `StreamingDecoderBuilder::info` are
   now read-only accessors returning `&AudioInfo`; the `info` field is private.

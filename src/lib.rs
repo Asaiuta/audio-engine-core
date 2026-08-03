@@ -130,15 +130,15 @@ pub use processor::{
     AudioBlockMut, AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
     AutomixKeyStatus, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl, ConvolverStatus,
     DownmixCoefficients, DownmixError, Downmixer, DspChain, Equalizer, FFTConvolver, FrameDuration,
-    FrameRounding, GainRamp, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer,
-    NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, OutputRenderChain,
+    FrameRounding, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper,
+    OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, OutputRenderChain,
     OutputStageDescriptor, OutputStageId, PeakLimiter, PostRenderAnalysisDescriptor,
     PostRenderAnalysisId, ProcessBufferMode, ProcessBufferParts, ProcessBuffers, ProcessCapacity,
     ProcessError, ProcessProgress, ProcessState, RenderTimeline, RenderedOutput, Resampler,
     SaturationEvent, SaturationEventKind, SpectrumAnalyzer, StreamingProcessor, StreamingResampler,
-    TailSpec, TimingError, TruePeakDetector, UnknownTailPolicy, VolumeController,
-    DEFAULT_CONVOLVER_SAMPLE_RATE_HZ, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
-    PARTITIONED_CONVOLUTION_PARTITION_SIZE, RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
+    TailSpec, TimingError, TruePeakDetector, UnknownTailPolicy,
+    PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+    RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).
