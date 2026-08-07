@@ -13,6 +13,9 @@ use super::error::{network_error_to_decoder_error, with_network_retry, NetworkEr
 use super::error::{DecodeCancelToken, DecoderError};
 
 #[cfg(feature = "http")]
+mod http_policy;
+
+#[cfg(feature = "http")]
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(feature = "http")]
 const HTTP_RANGE_STREAM_TIMEOUT: Duration = Duration::from_secs(30);
@@ -35,6 +38,41 @@ pub struct HttpCredentials {
     pub password: String,
 }
 
+/// Address trust policy for HTTP decoder sources.
+///
+/// The default accepts only public destinations. A private origin may be
+/// trusted explicitly only when it comes from persisted application
+/// configuration, never from a request-supplied flag or credential.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct HttpAddressPolicy {
+    trusted_origin: Option<HttpOrigin>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HttpOrigin {
+    scheme: String,
+    host: String,
+    port: u16,
+}
+
+impl HttpAddressPolicy {
+    /// Restrict the source and every redirect hop to public destinations.
+    pub const fn public_only() -> Self {
+        Self {
+            trusted_origin: None,
+        }
+    }
+
+    /// Allow private addresses only for the exact origin parsed from `url`.
+    ///
+    /// The initial request must match this origin. Redirects to another origin
+    /// are still subject to the public-address policy.
+    #[cfg(feature = "http")]
+    pub fn trusted_origin(url: &str) -> Result<Self, NetworkError> {
+        http_policy::trusted_origin_policy(url)
+    }
+}
+
 /// An opened decode source that has not yet been probed or bound to a codec.
 ///
 /// Keeping the Symphonia transport fields private lets callers separate source
@@ -55,7 +93,27 @@ impl OpenedMediaSource {
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let (stream, hint) = open_media_source(path.as_ref(), credentials, cancel_token)?;
+        Self::open_path_with_http_policy(
+            path,
+            credentials,
+            &HttpAddressPolicy::public_only(),
+            cancel_token,
+        )
+    }
+
+    /// Open a local or HTTP media source with an explicit HTTP address policy.
+    pub fn open_path_with_http_policy<P: AsRef<Path>>(
+        path: P,
+        credentials: Option<&HttpCredentials>,
+        http_address_policy: &HttpAddressPolicy,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
+        let (stream, hint) = open_media_source(
+            path.as_ref(),
+            credentials,
+            http_address_policy,
+            cancel_token,
+        )?;
         Ok(Self { stream, hint })
     }
 
@@ -94,6 +152,7 @@ pub(super) fn bytes_to_mib(bytes: usize) -> usize {
 pub(super) fn open_media_source(
     path: &Path,
     credentials: Option<&HttpCredentials>,
+    http_address_policy: &HttpAddressPolicy,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<(MediaSourceStream, Hint), DecoderError> {
     let path_str = path.to_string_lossy();
@@ -107,11 +166,16 @@ pub(super) fn open_media_source(
     if path_str.starts_with("http://") || path_str.starts_with("https://") {
         #[cfg(feature = "http")]
         {
-            open_http_media_source(path_str.as_ref(), credentials, cancel_token)
+            open_http_media_source(
+                path_str.as_ref(),
+                credentials,
+                http_address_policy,
+                cancel_token,
+            )
         }
         #[cfg(not(feature = "http"))]
         {
-            let _ = credentials;
+            let _ = (credentials, http_address_policy);
             Err(DecoderError::Probe(
                 "HTTP sources require the `http` feature of audio-engine-core".to_string(),
             ))
@@ -131,22 +195,32 @@ pub(super) fn open_media_source(
 fn open_http_media_source(
     url: &str,
     credentials: Option<&HttpCredentials>,
+    http_address_policy: &HttpAddressPolicy,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<(MediaSourceStream, Hint), DecoderError> {
     let owned_creds = credentials.cloned();
-    match RangeStream::new(url.to_string(), owned_creds, cancel_token.clone()) {
+    match RangeStream::new(
+        url.to_string(),
+        owned_creds,
+        http_address_policy.clone(),
+        cancel_token.clone(),
+    ) {
         Ok(stream) if stream.is_usable_range_stream() => {
             log::info!("HTTP URL supports Range requests, streaming: {}", url);
             let mss = MediaSourceStream::new(Box::new(stream), Default::default());
             Ok((mss, hint_from_url(url)))
         }
         Err(DecoderError::Canceled) => Err(DecoderError::Canceled),
+        Err(DecoderError::Network(error)) if http_policy::is_address_rejected(&error) => {
+            Err(DecoderError::Network(error))
+        }
         _ => {
             log::info!(
                 "HTTP URL does not support Range, falling back to full download: {}",
                 url
             );
-            let cursor = download_full_source(url, credentials, cancel_token.as_ref())?;
+            let cursor =
+                download_full_source(url, credentials, http_address_policy, cancel_token.as_ref())?;
             let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
             Ok((mss, hint_from_url(url)))
         }
@@ -171,27 +245,24 @@ fn hint_from_url(url: &str) -> Hint {
 fn download_full_source(
     url: &str,
     credentials: Option<&HttpCredentials>,
+    http_address_policy: &HttpAddressPolicy,
     cancel_token: Option<&DecodeCancelToken>,
 ) -> Result<Cursor<Vec<u8>>, DecoderError> {
     let (_, max_memory_bytes) = configured_decode_memory_limit();
     let max_download_bytes = max_memory_bytes / NON_RANGE_DOWNLOAD_MEMORY_DIVISOR;
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(HTTP_FULL_DOWNLOAD_TIMEOUT)
-        .connect_timeout(HTTP_CONNECT_TIMEOUT)
-        .build()
-        .map_err(|e| {
-            DecoderError::Network(NetworkError::Other(format!(
-                "Failed to create HTTP client: {}",
-                e
-            )))
-        })?;
+    let client = http_policy::build_client(
+        HTTP_FULL_DOWNLOAD_TIMEOUT,
+        HTTP_CONNECT_TIMEOUT,
+        http_address_policy,
+    )
+    .map_err(network_error_to_decoder_error)?;
 
     let content_length = with_network_retry("HTTP full-download HEAD", || {
         if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
             return Err(NetworkError::Other("Decode cancelled".to_string()));
         }
-        let mut head_req = client.head(url);
+        let mut head_req = http_policy::head(&client, url, http_address_policy)?;
         if let Some(creds) = credentials {
             head_req = head_req.basic_auth(&creds.username, Some(&creds.password));
         }
@@ -221,7 +292,7 @@ fn download_full_source(
         if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
             return Err(NetworkError::Other("Decode cancelled".to_string()));
         }
-        let mut req = client.get(url);
+        let mut req = http_policy::get(&client, url, http_address_policy)?;
         if let Some(creds) = credentials {
             req = req.basic_auth(&creds.username, Some(&creds.password));
         }
@@ -306,6 +377,7 @@ pub(super) fn fetch_range_once(
     client: &reqwest::blocking::Client,
     url: &str,
     credentials: Option<&HttpCredentials>,
+    http_address_policy: &HttpAddressPolicy,
     start: u64,
     len: usize,
     cancel_token: Option<&DecodeCancelToken>,
@@ -321,8 +393,7 @@ pub(super) fn fetch_range_once(
         .checked_add(len as u64 - 1)
         .ok_or_else(|| NetworkError::Other("Range end overflow".into()))?;
 
-    let mut req = client
-        .get(url)
+    let mut req = http_policy::get(client, url, http_address_policy)?
         .header("Range", format!("bytes={}-{}", start, end));
     if let Some(creds) = credentials {
         req = req.basic_auth(&creds.username, Some(&creds.password));
@@ -345,6 +416,7 @@ pub(super) fn fetch_range_once(
 struct RangeStream {
     url: String,
     credentials: Option<HttpCredentials>,
+    http_address_policy: HttpAddressPolicy,
     client: reqwest::blocking::Client,
     buf: Vec<u8>,
     buf_start: u64,
@@ -359,18 +431,15 @@ impl RangeStream {
     fn new(
         url: String,
         credentials: Option<HttpCredentials>,
+        http_address_policy: HttpAddressPolicy,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(HTTP_RANGE_STREAM_TIMEOUT)
-            .connect_timeout(HTTP_CONNECT_TIMEOUT)
-            .build()
-            .map_err(|e| {
-                DecoderError::Network(NetworkError::Other(format!(
-                    "Failed to create HTTP client: {}",
-                    e
-                )))
-            })?;
+        let client = http_policy::build_client(
+            HTTP_RANGE_STREAM_TIMEOUT,
+            HTTP_CONNECT_TIMEOUT,
+            &http_address_policy,
+        )
+        .map_err(network_error_to_decoder_error)?;
 
         let (content_length, supports_range) =
             with_network_retry("HTTP stream initialization", || {
@@ -381,7 +450,7 @@ impl RangeStream {
                     return Err(NetworkError::Other("Decode cancelled".to_string()));
                 }
 
-                let mut head_req = client.head(&url);
+                let mut head_req = http_policy::head(&client, &url, &http_address_policy)?;
                 if let Some(ref creds) = credentials {
                     head_req = head_req.basic_auth(&creds.username, Some(&creds.password));
                 }
@@ -420,7 +489,8 @@ impl RangeStream {
                     {
                         return Err(NetworkError::Other("Decode cancelled".to_string()));
                     }
-                    let mut range_req = client.get(&url).header("Range", "bytes=0-0");
+                    let mut range_req = http_policy::get(&client, &url, &http_address_policy)?
+                        .header("Range", "bytes=0-0");
                     if let Some(ref creds) = credentials {
                         range_req = range_req.basic_auth(&creds.username, Some(&creds.password));
                     }
@@ -461,6 +531,7 @@ impl RangeStream {
                     &client,
                     &url,
                     credentials.as_ref(),
+                    &http_address_policy,
                     0,
                     initial_fetch_len,
                     cancel_token.as_ref(),
@@ -474,6 +545,7 @@ impl RangeStream {
         Ok(Self {
             url,
             credentials,
+            http_address_policy,
             client,
             buf: initial_buf,
             buf_start: 0,
@@ -493,6 +565,7 @@ impl RangeStream {
             &self.client,
             &self.url,
             self.credentials.as_ref(),
+            &self.http_address_policy,
             start,
             len,
             self.cancel_token.as_ref(),
@@ -601,6 +674,7 @@ mod tests {
         let stream = RangeStream {
             url: "https://example.test/song.flac".to_string(),
             credentials: None,
+            http_address_policy: HttpAddressPolicy::public_only(),
             client: reqwest::blocking::Client::builder()
                 .build()
                 .expect("client fixture"),

@@ -12,7 +12,7 @@ mod streaming;
 pub use error::NetworkError;
 pub use error::{DecodeCancelToken, DecoderError};
 pub use metadata::{AudioInfo, TrackMetadata};
-pub use source::{HttpCredentials, OpenedMediaSource};
+pub use source::{HttpAddressPolicy, HttpCredentials, OpenedMediaSource};
 pub use streaming::{StreamingDecoder, StreamingDecoderBuilder};
 
 #[cfg(test)]

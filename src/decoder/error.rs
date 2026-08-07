@@ -69,12 +69,23 @@ pub(super) fn network_error_to_decoder_error(error: NetworkError) -> DecoderErro
 
 #[cfg(feature = "http")]
 impl From<reqwest::Error> for NetworkError {
-    fn from(e: reqwest::Error) -> Self {
+    fn from(error: reqwest::Error) -> Self {
+        let e = error.without_url();
         if e.is_timeout() {
             NetworkError::HttpTimeout
         } else if let Some(status) = e.status() {
             NetworkError::HttpStatus(status.as_u16())
         } else {
+            let mut source = std::error::Error::source(&e);
+            while let Some(inner) = source {
+                if inner
+                    .to_string()
+                    .contains("audio-engine-core: remote address rejected")
+                {
+                    return NetworkError::Other("remote address rejected by policy".to_string());
+                }
+                source = inner.source();
+            }
             let text = e.to_string();
             let lower = text.to_ascii_lowercase();
             if lower.contains("connection reset") {

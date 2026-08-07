@@ -48,6 +48,83 @@ Conventions to preserve:
 errors with bounded backoff (`with_network_retry`, max 3 attempts) — this is a
 non-RT, decode-side path where sleeping/logging is acceptable.
 
+## HTTP Source Address Policy
+
+### 1. Scope / Trigger
+
+This policy applies to every request-supplied HTTP(S) decoder source. Range
+initialization/reads and full-download fallback share the implementation in
+`decoder/source/http_policy.rs`.
+
+### 2. Signatures
+
+- `HttpAddressPolicy::public_only()` is the default for request-supplied URLs.
+- `HttpAddressPolicy::trusted_origin(url)` permits private addresses only for
+  the exact configured scheme/host/port; it is for persisted, user-selected
+  sources such as a LAN WebDAV origin, never for request credentials or flags.
+- `build_client(timeout, connect_timeout, address_policy)` is the only decoder
+  HTTP client constructor.
+- `get(client, url, address_policy)` and `head(client, url, address_policy)`
+  validate URL syntax, scheme, origin and IP literals before constructing a
+  request.
+- `is_address_rejected(error)` identifies the canonical address-policy error
+  after reqwest has erased the internal resolver or redirect error type.
+
+### 3. Contracts
+
+- DNS resolution rejects the request when any returned address is loopback,
+  private, link-local, multicast, documentation, carrier-grade NAT,
+  benchmarking, IPv4-mapped private, or otherwise reserved.
+- The checked resolver output is handed directly to the connector. Policy
+  clients call `no_proxy()` so ambient proxy settings cannot move target DNS
+  resolution outside that checked connector.
+- Every redirect target is parsed and re-resolved before the next request;
+  public HTTP(S) redirects remain supported and retain reqwest's 10-hop limit.
+- A trusted origin may redirect within its exact scheme/host/port. A redirect
+  to another origin returns to the public-address policy; changing only the
+  trusted host's scheme or port is rejected instead of inheriting trust.
+- Address-policy rejections are non-retriable and never enter full-download
+  fallback.
+
+### 4. Validation & Error Matrix
+
+- Disallowed IP literal -> `NetworkError::Other("remote address rejected by policy: ...")`.
+- Hostname resolving to any disallowed IP -> canonical address-policy error.
+- Redirect to a disallowed or non-HTTP(S) target -> canonical address-policy
+  error and no second request.
+- Configured private origin -> allowed only when the request and same-origin
+  redirects match the policy's exact scheme/host/port.
+- Ordinary DNS/transport/status failures -> their existing `NetworkError`
+  classification; do not relabel them as policy rejection.
+
+### 5. Good / Base / Bad Cases
+
+- Good: a public CDN redirects to another public HTTP(S) CDN and both resolver
+  results are checked.
+- Base: a direct public IP or public hostname uses the shared policy client.
+- Bad: `localhost`, RFC 1918, link-local, documentation or encoded private IPv4
+  destinations are rejected before a connection.
+
+### 6. Tests Required
+
+- Cover reserved IPv4/IPv6 ranges and direct IP-literal rejection.
+- Resolve `localhost` through both the policy helper and a real policy client;
+  assert the latter retains `is_address_rejected == true`.
+- Use a real loopback response to prove a redirect to `127.0.0.1` sends no
+  second request.
+- Cover a configured private origin, same-origin redirects, and rejection when
+  the trusted host changes scheme or port.
+
+### 7. Wrong vs Correct
+
+Wrong: resolve once in a detached preflight, then let a default reqwest client
+resolve again, follow redirects or use an ambient proxy.
+
+Correct: construct every decoder request with `build_client`, pass the same
+explicit `HttpAddressPolicy` through Range, seek and full-download paths,
+validate literals through `get` / `head`, and let the checked resolver supply
+the connector's actual addresses for every hop.
+
 ## Propagation
 
 - Propagate with `?` and let the typed enum flow to the caller. Do not

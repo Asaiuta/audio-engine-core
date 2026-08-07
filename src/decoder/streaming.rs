@@ -8,8 +8,8 @@ use symphonia::core::meta::MetadataOptions;
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, merge_metadata_revision, AudioInfo};
 use super::source::{
-    bytes_to_mib, configured_decode_memory_limit, HttpCredentials, OpenedMediaSource,
-    F64_SAMPLE_BYTES,
+    bytes_to_mib, configured_decode_memory_limit, HttpAddressPolicy, HttpCredentials,
+    OpenedMediaSource, F64_SAMPLE_BYTES,
 };
 use crate::channel_layout::{ChannelLayout, ChannelPosition};
 
@@ -112,9 +112,25 @@ impl StreamingDecoder {
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let source = OpenedMediaSource::open_path_with_credentials_and_cancel(
+        Self::open_with_http_policy(
             path,
             credentials,
+            &HttpAddressPolicy::public_only(),
+            cancel_token,
+        )
+    }
+
+    /// Open a source with an explicit HTTP destination policy.
+    pub fn open_with_http_policy<P: AsRef<Path>>(
+        path: P,
+        credentials: Option<&HttpCredentials>,
+        http_address_policy: &HttpAddressPolicy,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
+        let source = OpenedMediaSource::open_path_with_http_policy(
+            path,
+            credentials,
+            http_address_policy,
             cancel_token.clone(),
         )?;
         Self::from_opened_source(source, cancel_token)

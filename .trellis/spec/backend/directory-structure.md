@@ -27,6 +27,7 @@ src/
 ├── decoder/
 │   ├── error.rs      # DecoderError, NetworkError, DecodeCancelToken
 │   ├── source.rs     # input sources (local file, optional http)
+│   ├── source/http_policy.rs # HTTP DNS, IP-literal, and redirect address policy
 │   ├── streaming.rs  # StreamingDecoder: probe, decode_next(_into), seek, gapless trim
 │   ├── metadata.rs   # stream info / metadata extraction
 │   └── tests.rs      # decoder unit tests
