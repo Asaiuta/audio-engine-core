@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 #[cfg(feature = "http")]
-use super::{source::fetch_range_once, NetworkError};
+use super::{source::fetch_range_once, HttpAddressPolicy, NetworkError};
 use super::{DecodeCancelToken, DecoderError, OpenedMediaSource, StreamingDecoder};
 
 /// Monotonic counter for unique temp filenames within this test process.
@@ -200,6 +200,7 @@ fn cancelled_range_fetch_returns_before_network_request() {
         &client,
         "http://127.0.0.1:9/never-requested.flac",
         None,
+        &HttpAddressPolicy::public_only(),
         0,
         8,
         Some(&token),
