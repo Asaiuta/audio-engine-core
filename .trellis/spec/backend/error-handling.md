@@ -90,6 +90,16 @@ NetworkError::InvalidRangeResponse(String)
 - Capability probing and ordinary streaming reads call the same strict Range
   fetch boundary. Do not infer support independently from `HEAD` or
   `Accept-Ranges`.
+- Every production HTTP client installs the same address policy for Range
+  probes, later Range reads, and full-download fallback. DNS resolution must
+  reject the request when any returned address is loopback, private,
+  link-local, multicast, documentation, carrier-grade NAT, benchmarking, or
+  otherwise reserved. The checked resolver output is the output handed to the
+  connector; do not add a detached resolve-before-fetch preflight.
+- IP-literal URLs are validated before request construction because a connector
+  may not invoke DNS for them. Redirects are followed only through a custom
+  policy that re-parses and re-resolves every target before the next request;
+  the default reqwest redirect policy is not an acceptable trust boundary.
 - A usable response is exactly `206 Partial Content` with one numeric
   `Content-Range: bytes start-end/total`. Its interval equals the requested
   interval, `end < total`, and a previously known total must remain unchanged.
@@ -119,6 +129,8 @@ NetworkError::InvalidRangeResponse(String)
 | 401/403/404 or other non-success status | `HttpStatus`; no fallback request |
 | Cancellation before/during read | structured cancellation (`Cancelled`/`Canceled`/`Interrupted` at its boundary) |
 | Full GET exceeds configured memory limit | typed network failure before extending beyond the limit |
+| Hostname resolves to any non-public address | non-retriable policy rejection; no connection |
+| Redirect target resolves to a non-public address | policy rejection before the redirected request |
 
 ### 5. Good / Base / Bad Cases
 
@@ -139,6 +151,9 @@ NetworkError::InvalidRangeResponse(String)
 - Assert ignored Range produces exactly a capability GET plus one full GET,
   with no HEAD and no Range header on fallback.
 - Assert 404 produces one request and remains `HttpStatus(404)`.
+- Resolve `localhost` through the policy and assert rejection. Exercise a real
+  loopback HTTP response that redirects to `127.0.0.1`, assert the redirect is
+  rejected, and assert the fixture observes no second request.
 - Compile/test both all-features and Rubato-only so the optional HTTP dependency
   remains outside the no-HTTP graph.
 

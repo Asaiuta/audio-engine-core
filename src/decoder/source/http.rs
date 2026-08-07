@@ -1,10 +1,18 @@
+use std::fmt;
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use reqwest::blocking::{Client, RequestBuilder, Response};
+#[cfg(not(test))]
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::header::{HeaderMap, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE};
+use reqwest::redirect;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
+
+#[cfg(not(test))]
+use std::sync::Arc;
 
 use super::{
     bytes_to_mib, configured_decode_memory_limit, DecodeCancelToken, DecoderError, HttpCredentials,
@@ -56,10 +64,139 @@ fn http_url_log_identity(raw_url: &str) -> String {
         .unwrap_or_else(|_| "<invalid-http-url>".to_string())
 }
 
+fn remote_address_error(detail: impl Into<String>) -> NetworkError {
+    NetworkError::Other(format!(
+        "remote address rejected by policy: {}",
+        detail.into()
+    ))
+}
+
+fn is_disallowed_ipv4(address: std::net::Ipv4Addr) -> bool {
+    let octets = address.octets();
+    address.is_loopback()
+        || address.is_private()
+        || address.is_link_local()
+        || address.is_unspecified()
+        || address.is_broadcast()
+        || address.is_multicast()
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        || (octets[0] == 198 && (18..=19).contains(&octets[1]))
+        || octets[0] >= 240
+}
+
+fn is_disallowed_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_disallowed_ipv4(address),
+        IpAddr::V6(address) => {
+            address.is_loopback()
+                || address.is_unspecified()
+                || address.is_unique_local()
+                || address.is_unicast_link_local()
+                || address.is_multicast()
+                || address.segments()[0] == 0x2001 && address.segments()[1] == 0x0db8
+                || address.to_ipv4().is_some_and(is_disallowed_ipv4)
+        }
+    }
+}
+
+fn validate_ip(address: IpAddr) -> Result<(), NetworkError> {
+    if is_disallowed_ip(address) {
+        Err(remote_address_error(format!("{address}")))
+    } else {
+        Ok(())
+    }
+}
+
+fn resolve_and_validate_host(host: &str, port: u16) -> Result<Vec<SocketAddr>, NetworkError> {
+    let addresses = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| NetworkError::DnsFailure(format!("lookup failed ({:?})", error.kind())))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(NetworkError::DnsFailure(
+            "lookup returned no addresses".to_string(),
+        ));
+    }
+    for address in &addresses {
+        validate_ip(address.ip())?;
+    }
+    Ok(addresses)
+}
+
+fn validate_literal_host(url: &reqwest::Url) -> Result<(), NetworkError> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| remote_address_error("URL has no host"))?;
+    if let Ok(address) = host.parse::<IpAddr>() {
+        validate_ip(address)?;
+    }
+    Ok(())
+}
+
+fn validate_redirect_target(url: &reqwest::Url) -> Result<(), NetworkError> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(remote_address_error("redirect uses a non-HTTP scheme"));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| remote_address_error("redirect has no host"))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| remote_address_error("redirect has no supported port"))?;
+    resolve_and_validate_host(host, port).map(|_| ())
+}
+
+#[derive(Debug)]
+struct RedirectAddressRejected;
+
+impl fmt::Display for RedirectAddressRejected {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("audio-engine-core: remote address rejected by policy")
+    }
+}
+
+impl std::error::Error for RedirectAddressRejected {}
+
+fn redirect_policy() -> redirect::Policy {
+    redirect::Policy::custom(|attempt| {
+        if validate_redirect_target(attempt.url()).is_ok() {
+            attempt.follow()
+        } else {
+            attempt.error(RedirectAddressRejected)
+        }
+    })
+}
+
+#[cfg(not(test))]
+struct RejectPrivateResolver;
+
+#[cfg(not(test))]
+impl Resolve for RejectPrivateResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(std::future::ready(
+            resolve_and_validate_host(&host, 0)
+                .map(|addresses| Box::new(addresses.into_iter()) as Addrs)
+                .map_err(|error| {
+                    Box::new(std::io::Error::other(error.to_string()))
+                        as Box<dyn std::error::Error + Send + Sync>
+                }),
+        ))
+    }
+}
+
 fn build_client(timeout: Duration) -> Result<Client, NetworkError> {
-    Client::builder()
+    let builder = Client::builder()
         .timeout(timeout)
         .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .redirect(redirect_policy());
+    #[cfg(not(test))]
+    let builder = builder.dns_resolver(Arc::new(RejectPrivateResolver));
+    builder
         .build()
         .map_err(|error| NetworkError::Other(format!("Failed to create HTTP client: {error}")))
 }
@@ -68,12 +205,20 @@ fn authenticated_get(
     client: &Client,
     url: &str,
     credentials: Option<&HttpCredentials>,
-) -> RequestBuilder {
-    let request = client.get(url);
+) -> Result<RequestBuilder, NetworkError> {
+    let parsed_url = reqwest::Url::parse(url)
+        .map_err(|_| NetworkError::Other("invalid HTTP source URL".to_string()))?;
+    if !matches!(parsed_url.scheme(), "http" | "https") {
+        return Err(NetworkError::Other(
+            "HTTP source URL uses an unsupported scheme".to_string(),
+        ));
+    }
+    validate_literal_host(&parsed_url)?;
+    let request = client.get(parsed_url);
     if let Some(credentials) = credentials {
-        request.basic_auth(&credentials.username, Some(&credentials.password))
+        Ok(request.basic_auth(&credentials.username, Some(&credentials.password)))
     } else {
-        request
+        Ok(request)
     }
 }
 
@@ -94,7 +239,7 @@ fn download_full_source(
 
     let response = with_network_retry("HTTP full-download GET", || {
         check_cancelled(cancel_token)?;
-        let response = authenticated_get(&client, url, credentials)
+        let response = authenticated_get(&client, url, credentials)?
             .send()
             .map_err(NetworkError::from)?;
         if let Some(error) = response_status_error(&response) {
@@ -266,7 +411,7 @@ fn fetch_range_once(
         .checked_add(len as u64 - 1)
         .ok_or_else(|| invalid_range("requested Range end overflow".to_string()))?;
 
-    let response = authenticated_get(client, url, credentials)
+    let response = authenticated_get(client, url, credentials)?
         .header(RANGE, format!("bytes={start}-{requested_end}"))
         .send()
         .map_err(NetworkError::from)?;
@@ -640,7 +785,11 @@ mod tests {
                     .expect("write response body");
             }
         });
-        (format!("http://{address}/audio.flac"), request_rx, handle)
+        (
+            format!("http://localhost:{}/audio.flac", address.port()),
+            request_rx,
+            handle,
+        )
     }
 
     fn serve_once(
@@ -666,6 +815,82 @@ mod tests {
         );
         handle.join().expect("test server completed");
         result
+    }
+
+    #[test]
+    fn private_and_reserved_ip_ranges_are_rejected() {
+        for raw in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.168.1.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "2001:db8::1",
+            "fc00::1",
+            "fe80::1",
+            "ff02::1",
+        ] {
+            let address = raw.parse().expect("test IP address");
+            assert!(
+                is_disallowed_ip(address),
+                "accepted disallowed address {raw}"
+            );
+        }
+        assert!(!is_disallowed_ip("1.1.1.1".parse().expect("public IPv4")));
+        assert!(!is_disallowed_ip(
+            "2606:4700:4700::1111".parse().expect("public IPv6")
+        ));
+    }
+
+    #[test]
+    fn hostname_resolving_to_localhost_is_rejected() {
+        let result = resolve_and_validate_host("localhost", 80);
+        assert!(
+            matches!(result, Err(NetworkError::Other(ref message)) if message.contains("remote address rejected by policy")),
+            "localhost was not rejected: {result:?}"
+        );
+    }
+
+    #[test]
+    fn redirect_to_loopback_is_rejected_before_second_hop() {
+        let redirect = TestResponse {
+            status: "302 Found",
+            headers: vec![(
+                "Location",
+                "http://127.0.0.1:9/private/audio.flac".to_string(),
+            )],
+            body: Vec::new(),
+        };
+        let (url, request_rx, handle) = serve_once(redirect);
+        let result = download_full_source(&url, None, None);
+        assert!(
+            matches!(
+                result,
+                Err(DecoderError::Network(NetworkError::Other(ref message)))
+                    if message.contains("remote address rejected by policy")
+            ),
+            "redirect was not rejected: {result:?}"
+        );
+        let request = request_rx
+            .recv()
+            .expect("captured redirect response request");
+        assert!(request.starts_with("GET "));
+        assert!(
+            request_rx.try_recv().is_err(),
+            "client attempted a request after the rejected redirect"
+        );
+        handle.join().expect("test server completed");
     }
 
     #[test]
