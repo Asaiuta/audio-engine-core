@@ -117,6 +117,12 @@ impl From<reqwest::Error> for NetworkError {
         // which wraps io::Error for transport-level failures.
         let mut source = std::error::Error::source(&e);
         while let Some(inner) = source {
+            if inner
+                .to_string()
+                .contains("audio-engine-core: remote address rejected")
+            {
+                return NetworkError::Other("remote address rejected by policy".to_string());
+            }
             if let Some(io) = inner.downcast_ref::<std::io::Error>() {
                 if let Some(classified) = classify_io_error_kind(io.kind()) {
                     return classified;
@@ -145,6 +151,8 @@ fn classify_reqwest_error_by_message(e: &reqwest::Error) -> NetworkError {
         NetworkError::DnsFailure(text)
     } else if lower.contains("tls") || lower.contains("certificate") {
         NetworkError::TlsError(text)
+    } else if lower.contains("audio-engine-core: remote address rejected") {
+        NetworkError::Other("remote address rejected by policy".to_string())
     } else {
         NetworkError::Other(text)
     }
