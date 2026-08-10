@@ -38,6 +38,11 @@ process_checked(processor: &mut impl StreamingProcessor, buffers: ProcessBuffers
 finish_checked(processor: &mut impl StreamingProcessor, output: AudioBlockMut<'_>)
     -> Result<ProcessProgress, ProcessError>
 
+DspChain::new(sample_rate_hz: u32) -> Result<DspChain, ProcessError>
+DspChain::with_capacity(capacity: usize, sample_rate_hz: u32)
+    -> Result<DspChain, ProcessError>
+DspChain::add<P: FixedInPlaceProcessor + 'static>(&mut self, processor: P)
+    -> Result<&mut DspChain, ProcessError>
 DspChain::process(&mut self, samples: &mut [f64], channels: usize)
     -> Result<ProcessProgress, ProcessError>
 DspChain::reset(&mut self) -> Result<(), ProcessError>
@@ -47,8 +52,14 @@ DspChain::set_sample_rate(&mut self, sample_rate_hz: u32)
 OutputChainBuilder::build_callback_chain(&self)
     -> Result<DspChain, ProcessError>
 
+OutputChainBuilder::build_render_chain(
+    &self,
+    source_sample_rate_hz: u32,
+) -> Result<OutputRenderChain, ProcessError>
+
 OutputChainBuilder::build_render_chain_with_policy(
     &self,
+    source_sample_rate_hz: u32,
     policy: OfflineRenderPolicy,
 ) -> Result<OutputRenderChain, ProcessError>
 
@@ -94,10 +105,13 @@ SpectrumAnalyzer::analyze(&mut self, samples: &[f64], sample_rate_hz: u32)
     -> Result<&[f32], ProcessError>
 ```
 
-`StreamingProcessor` supplies `process`, `finish`, `reset`, `latency`, `tail`,
-`output_sample_rate_hz`, enabled state, and off-RT sample-rate update methods.
-`FrameDuration` carries both frames and its sample-rate domain. Finite
-`TailSpec` values carry an exact `FrameDuration`.
+`StreamingProcessor` supplies only the shared lifecycle: `process`, `finish`,
+`reset`, `latency`, `tail`, `output_sample_rate_hz`, and the off-RT sample-rate
+update. It does not expose enabled/bypass controls. Those operations remain on
+the concrete atomic parameter or control handle that can honor them.
+`FixedInPlaceProcessor: StreamingProcessor` is the public refinement used for
+fixed callback-chain admission. `FrameDuration` carries both frames and its
+sample-rate domain. Finite `TailSpec` values carry an exact `FrameDuration`.
 
 Offline policy and result fields are part of the public contract:
 
@@ -168,9 +182,26 @@ pub struct RenderedOutput {
 * `SpectrumAnalyzer` requires `fft_size >= 4` and `num_bins > 0`. `analyze`
   rejects a zero sample rate before touching FFT scratch, magnitude bins, cached
   bin ranges, or the reusable result buffer.
-* `DspChain` holds `Box<dyn StreamingProcessor>`, drives every stage through
-  `process_checked`, and returns full-block progress. The chain is marked
-  bypassed only when it is empty or every stage reported transparent bypass.
+* `FixedInPlaceProcessor` implementors promise that `ProcessBuffers::in_place`
+  consumes and produces the complete block and preserves its sample-rate
+  domain. `DspChain::add` requires this marker, then defensively checks
+  `output_sample_rate_hz` against the chain rate before erasing the stage to
+  `Box<dyn StreamingProcessor>`. `StreamingResampler` intentionally does not
+  implement the marker, including for equal-rate construction; variable-I/O
+  stages need a driver with caller-visible input/output buffers.
+* `DspChain::{new,with_capacity}` reject zero Hz and there is no `Default`
+  chain. Sample rate is required topology, not a value that may be invented by
+  a convenience constructor. The chain drives every admitted stage through
+  `process_checked` and returns full-block progress. It is marked bypassed only
+  when it is empty or every stage reports per-call transparent bypass.
+* `ProcessProgress::is_bypassed` is output metadata for one process call, not a
+  generic stage-control capability. Generic code must not infer that every
+  `StreamingProcessor` has an enable setter from this progress bit.
+* `OutputChainParams` owns only the output/device rate shared by its callback
+  and offline products. `build_callback_chain` consumes and validates that
+  rate. Each offline `build_render_chain*` operation receives and validates its
+  source rate explicitly because only the offline renderer owns optional rate
+  conversion.
 
 ### End of stream
 
@@ -252,6 +283,11 @@ pub struct RenderedOutput {
 | `NeedInput` from finish | `ProcessError::InvalidProgress` |
 | input after terminal finish | `ProcessError::AlreadyFinished` |
 | sample rate is zero | `ProcessError::InvalidSampleRate` or `TimingError::ZeroSampleRate` |
+| `DspChain::new` or `with_capacity` receives zero Hz | `ProcessError::InvalidSampleRate { processor: "DspChain", .. }`; no chain is constructed |
+| a type without `FixedInPlaceProcessor` is passed to `DspChain::add` | compile-time trait-bound failure |
+| a marker implementor reports an output rate different from the chain rate | `ProcessError::UnsupportedOperation` before insertion |
+| callback builder has a zero output rate | `ProcessError::InvalidSampleRate` naming `OutputChainBuilder::output_sample_rate` |
+| offline render builder receives a zero source rate or owns a zero output rate | `ProcessError::InvalidSampleRate` naming the corresponding `OutputRenderChain` rate |
 | stage input rate differs from fixed resampler input rate | `ProcessError::SampleRateMismatch` |
 | unknown-tail threshold is non-finite or above 0 dBFS | `ProcessError::InvalidRenderPolicy` |
 | silence hold is zero or exceeds maximum tail | `ProcessError::InvalidRenderPolicy` |
@@ -270,6 +306,12 @@ pub struct RenderedOutput {
   the safety cap.
 * Base: a fixed EQ processes the complete block in place and returns equal
   consumed/produced counts with `NeedInput`.
+* Good: a custom fixed 1:1 stage explicitly implements
+  `FixedInPlaceProcessor`, is admitted at setup, and still passes the chain's
+  rate-preservation check.
+* Good: callback construction needs only the device/output rate, while offline
+  render construction receives the source rate on the operation that consumes
+  it.
 * Good: a fixed out-of-place stage fills a short output, returns equal
   consumed/produced prefix counts with `NeedOutput`, and resumes from the
   caller-advanced input without replaying overwritten data.
@@ -283,6 +325,9 @@ pub struct RenderedOutput {
   state. Those behaviors turn invalid geometry into a panic or partial success.
 * Bad: an in-place processor returns partial consumption after it may already
   have overwritten the corresponding unconsumed samples.
+* Bad: adding a boolean geometry query to `StreamingProcessor`, admitting a
+  resampler to `DspChain` when its rates happen to match, or adding a callback
+  source-rate field that the callback does not consume.
 * Bad: an offline renderer calls `process(&[])` as an undocumented flush instead
   of repeatedly driving the processor's finish contract.
 * Bad: an unknown-tail renderer always computes `max_tail_ms` and only then
@@ -315,6 +360,15 @@ pub struct RenderedOutput {
   retain bit-exact output and steady-state no-allocation assertions.
 * Processor/chain migrations add random chunking equivalence and native reset
   isolation tests, not only finite-output smoke tests.
+* Chain admission tests include a compile-fail example proving
+  `StreamingResampler` cannot be passed to `DspChain::add`, positive tests for
+  every fixed adapter, and a defensive rejection test for a marker implementor
+  that changes the rate.
+* Construction tests prove both `DspChain` constructors reject zero Hz and
+  valid explicit rates succeed; no test relies on a default chain rate.
+* Output-chain tests prove callback construction validates only output rate,
+  while both offline builders reject zero source/output rates and preserve
+  equal-rate versus resampling behavior.
 * Variable-rate tests cover short and long exact-ratio streams, random input and
   output chunking, a mid-stream impulse peak at the rate-converted frame, native
   drain idempotence, and process/finish no-allocation after setup.
@@ -350,6 +404,21 @@ that can apply a preselected non-panicking fault policy:
 
 ```rust
 let _progress = chain.process(samples, channels)?;
+```
+
+Keep fixed-chain capability and operation-owned rate inputs explicit:
+
+```rust
+// Wrong: the broad lifecycle admits variable I/O and callback params carry an
+// offline-only source rate.
+fn add<P: StreamingProcessor>(&mut self, processor: P) { /* ... */ }
+let render = builder.build_render_chain()?;
+
+// Correct: fixed topology is a type bound; source rate belongs to rendering.
+impl FixedInPlaceProcessor for MyFixedStage {}
+let mut chain = DspChain::new(device_rate_hz)?;
+chain.add(MyFixedStage::new())?;
+let render = builder.build_render_chain(source_rate_hz)?;
 ```
 
 For a standalone fixed-channel DSP processor, keep the checked shell public and
@@ -649,7 +718,7 @@ ConvolverProcessor::new(control: ConvolverControl)
     -> Result<ConvolverProcessor, ProcessError>
 OutputChainBuilder::convolver_control(&self) -> ConvolverControl
 OutputChainBuilder::build_callback_chain(&self) -> Result<DspChain, ProcessError>
-OutputChainBuilder::build_render_chain(&self)
+OutputChainBuilder::build_render_chain(&self, source_sample_rate_hz: u32)
     -> Result<OutputRenderChain, ProcessError>
 ```
 
