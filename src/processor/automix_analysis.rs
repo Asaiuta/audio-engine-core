@@ -4,7 +4,7 @@
 //! windows off the realtime callback path and returns a stable DTO for later
 //! transition planning.
 
-use crate::decoder::{DecodeCancelToken, HttpCredentials, StreamingDecoder};
+use crate::decoder::{DecodeCancelToken, HttpAddressPolicy, HttpCredentials, StreamingDecoder};
 use crate::processor::LoudnessMeter;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
@@ -227,11 +227,43 @@ pub fn analyze_automix_with_cancel(
     options: AutomixAnalysisOptions,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<AutomixAnalysis, String> {
+    analyze_automix_with_http_policy_and_cancel(
+        path,
+        credentials,
+        HttpAddressPolicy::public_only(),
+        options,
+        cancel_token,
+    )
+}
+
+pub fn analyze_automix_with_http_policy(
+    path: String,
+    credentials: Option<HttpCredentials>,
+    http_address_policy: HttpAddressPolicy,
+    options: AutomixAnalysisOptions,
+) -> Result<AutomixAnalysis, String> {
+    analyze_automix_with_http_policy_and_cancel(
+        path,
+        credentials,
+        http_address_policy,
+        options,
+        None,
+    )
+}
+
+pub fn analyze_automix_with_http_policy_and_cancel(
+    path: String,
+    credentials: Option<HttpCredentials>,
+    http_address_policy: HttpAddressPolicy,
+    options: AutomixAnalysisOptions,
+    cancel_token: Option<DecodeCancelToken>,
+) -> Result<AutomixAnalysis, String> {
     let options = options.normalized();
     check_cancel(cancel_token.as_ref())?;
-    let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
+    let mut decoder = StreamingDecoder::open_with_http_policy(
         &path,
         credentials.as_ref(),
+        &http_address_policy,
         cancel_token.clone(),
     )
     .map_err(|e| format!("Failed to open file for AutoMix analysis: {}", e))?;
@@ -778,6 +810,68 @@ fn mean_square(values: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "http")]
+    use std::io::{Read, Write};
+    #[cfg(feature = "http")]
+    use std::net::TcpListener;
+    #[cfg(feature = "http")]
+    use std::thread;
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn policy_aware_analysis_reaches_trusted_origin_with_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let address = listener.local_addr().expect("read listener address");
+        listener
+            .set_nonblocking(true)
+            .expect("set test listener nonblocking");
+        let server = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0_u8; 4096];
+                        let read = stream.read(&mut request).expect("read analysis request");
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                            )
+                            .expect("write analysis response");
+                        return Some(String::from_utf8_lossy(&request[..read]).into_owned());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return None;
+                        }
+                        thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("accept analysis request: {error}"),
+                }
+            }
+        });
+        let url = format!("http://{address}/track.flac");
+        let policy = HttpAddressPolicy::trusted_origin(&url).expect("trusted test origin");
+
+        let result = analyze_automix_with_http_policy(
+            url,
+            Some(HttpCredentials {
+                username: "alice".to_string(),
+                password: "secret".to_string(),
+            }),
+            policy,
+            AutomixAnalysisOptions::default(),
+        );
+
+        assert!(result.is_err(), "fixture is intentionally not valid audio");
+        let request = server
+            .join()
+            .expect("join analysis server")
+            .expect("analysis request reached trusted origin");
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("authorization: basic ywxpy2u6c2vjcmv0\r\n"));
+    }
 
     #[test]
     fn silence_detection_uses_head_and_tail_windows() {

@@ -47,7 +47,8 @@ pub mod traits;
 
 // Public processor API re-exports.
 pub use automix_analysis::{
-    analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
+    analyze_automix, analyze_automix_with_cancel, analyze_automix_with_http_policy,
+    analyze_automix_with_http_policy_and_cancel, AutomixAnalysis, AutomixAnalysisMode,
     AutomixAnalysisOptions,
 };
 pub use convolver::{
