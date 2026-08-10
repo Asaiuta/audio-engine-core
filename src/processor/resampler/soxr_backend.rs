@@ -19,15 +19,13 @@ use super::{BackendInitError, BackendProcessError, BackendProgress};
 
 pub(super) const BACKEND_NAME: &str = "soxr";
 
-/// Convert ResampleQuality enum to SoX QualityRecipe
-/// FIX for Defect 30: Actually use different quality levels
-/// Note: QualityRecipe has Low variant, plus high() and very_high() constructor functions
+/// Resolve each public quality tier to a distinct SoXR recipe.
 fn quality_to_recipe(quality: ResampleQuality) -> QualityRecipe {
     match quality {
-        ResampleQuality::Low => QualityRecipe::Low, // Fast, lower quality (enum variant)
-        ResampleQuality::Standard => QualityRecipe::high(), // High quality (constructor)
-        ResampleQuality::High => QualityRecipe::high(), // High quality (constructor)
-        ResampleQuality::UltraHigh => QualityRecipe::very_high(), // VHQ, slowest (constructor)
+        ResampleQuality::Low => QualityRecipe::Low,
+        ResampleQuality::Standard => QualityRecipe::Medium,
+        ResampleQuality::High => QualityRecipe::high(),
+        ResampleQuality::UltraHigh => QualityRecipe::very_high(),
     }
 }
 
@@ -183,4 +181,27 @@ fn stereo_frames_mut(samples: &mut [f64]) -> Result<&mut [[f64; 2]], BackendProc
     // SAFETY: the mutable slice is uniquely borrowed; `[f64; 2]` has the same
     // alignment/layout as two adjacent f64 values, and its length is even.
     Ok(unsafe { std::slice::from_raw_parts_mut(samples.as_mut_ptr().cast(), samples.len() / 2) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_public_quality_tier_resolves_to_a_distinct_recipe() {
+        let recipes = [
+            quality_to_recipe(ResampleQuality::Low),
+            quality_to_recipe(ResampleQuality::Standard),
+            quality_to_recipe(ResampleQuality::High),
+            quality_to_recipe(ResampleQuality::UltraHigh),
+        ];
+
+        assert_eq!(recipes[0], QualityRecipe::Low);
+        assert_eq!(recipes[1], QualityRecipe::Medium);
+        assert_eq!(recipes[2], QualityRecipe::Bits20);
+        assert_eq!(recipes[3], QualityRecipe::Bits28);
+        for (index, recipe) in recipes.iter().enumerate() {
+            assert!(!recipes[..index].contains(recipe));
+        }
+    }
 }

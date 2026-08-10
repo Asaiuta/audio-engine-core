@@ -696,12 +696,13 @@ impl ProjectAdapter {
             ResampleQuality::High,
         )
         .map_err(|error| format!("audio-engine-core resampler setup failed: {error}"))?;
-        let estimated_samples =
-            resampler.max_output_len_for_input(chunk_frames.saturating_mul(channels));
+        let max_output_frames = resampler
+            .process_output_capacity_frames(chunk_frames)
+            .map_err(|error| format!("audio-engine-core capacity failed: {error}"))?
+            .max(1);
         // Match the caller capacity supplied to the raw controls. The public
         // resampler accepts arbitrary output capacity and exposes backpressure;
         // its 16K internal-step bound is not the current 512-frame workload.
-        let max_output_frames = div_ceil(estimated_samples, channels).max(1);
         let api_buffering_latency_frames = Some(resampler.latency().frames());
         Ok(Self {
             resampler,

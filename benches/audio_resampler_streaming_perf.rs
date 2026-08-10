@@ -572,7 +572,9 @@ fn streaming_output_capacity(resampler: &StreamingResampler, input_samples: usiz
     // internal buffering. Use a deliberately conservative caller scratch so
     // this bench measures the API path rather than capacity edge behavior.
     resampler
-        .max_output_len_for_input(input_samples)
+        .process_output_capacity_frames(input_samples / CHANNELS)
+        .expect("benchmark resampler capacity must fit")
+        .saturating_mul(CHANNELS)
         .saturating_mul(8)
         .saturating_add(8192)
 }

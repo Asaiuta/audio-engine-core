@@ -939,8 +939,11 @@ fn streaming_output_capacity(
     channels: usize,
     input_samples: usize,
 ) -> usize {
-    let capacity = resampler
-        .max_output_len_for_input(input_samples)
+    let capacity_frames = resampler
+        .process_output_capacity_frames(input_samples / channels)
+        .expect("benchmark resampler capacity must fit");
+    let capacity = capacity_frames
+        .saturating_mul(channels)
         .saturating_mul(8)
         .saturating_add(8192);
     // AudioBlockMut requires a whole number of frames.
