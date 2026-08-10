@@ -89,6 +89,12 @@ SemVer for pre-1.0 releases.
 - `PlaybackSaturationConfig` gains `enabled()` plus `with_*` builders.
 
 ### Removed
+- **Breaking:** `StreamingProcessor::{is_enabled,supports_bypass,set_enabled}`
+  are removed from the base lifecycle. Effect enablement remains on the
+  concrete `Atomic*Params` handles and `ConvolverControl`; volume muting and
+  resampling no longer pretend to support a generic bypass operation.
+- **Breaking:** `Default for DspChain` is removed because an arbitrary 44.1 kHz
+  default cannot describe caller topology.
 - **Breaking:** AutoMix schema version 3 removes the unsupported
   `AutomixKeyStatus` reservation and the always-empty `key_root`, `key_mode`,
   `key_confidence`, and `camelot_key` fields. A key result contract will be
@@ -119,6 +125,14 @@ SemVer for pre-1.0 releases.
     processed crossfade branch with `clone_from`, which carries delay state.
 
 ### Changed
+- **Breaking:** `DspChain::add` now requires `FixedInPlaceProcessor`, which is
+  implemented by the fixed 1:1 callback stages but intentionally not by
+  `StreamingResampler`. `DspChain::new` and `with_capacity` return
+  `Result<_, ProcessError>` and reject zero sample rates before a chain exists.
+- **Breaking:** `OutputChainParams` no longer carries `source_sample_rate`.
+  Callback construction consumes only its output/device rate; offline callers
+  pass the source rate directly to `build_render_chain` or
+  `build_render_chain_with_policy` where resampling consumes it.
 - **Breaking:** `StreamingDecoder::open*`, staged `OpenedMediaSource` opening,
   and AutoMix analysis now accept `MediaLocation` instead of path-like/string
   values. Source routing no longer performs lossy path conversion or URL-prefix

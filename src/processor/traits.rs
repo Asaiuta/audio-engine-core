@@ -720,9 +720,6 @@ pub trait StreamingProcessor: Send {
         TailSpec::None
     }
 
-    /// Whether signal processing is active.
-    fn is_enabled(&self) -> bool;
-
     /// Mark a terminal transform whose output must be excluded from unknown
     /// tail energy observation (for example, dither/noise shaping). The chain
     /// observes immediately before the first such stage and still forwards the
@@ -730,28 +727,6 @@ pub trait StreamingProcessor: Send {
     fn tail_energy_observation_barrier(&self) -> bool {
         false
     }
-
-    /// Whether [`Self::set_enabled`] can transparently bypass this stage.
-    ///
-    /// Most effects can. Two classes cannot, and return `false`:
-    ///
-    /// - a stage that is not an effect at all, such as rate conversion, which is
-    ///   graph geometry rather than something a listener can switch off;
-    /// - a stage whose "off" state is expressed through a different control,
-    ///   such as volume muting.
-    ///
-    /// A `false` here means [`Self::set_enabled`] is a documented no-op, so a
-    /// scheduler or UI can hide or reject the operation instead of publishing a
-    /// request that is silently dropped.
-    fn supports_bypass(&self) -> bool {
-        true
-    }
-
-    /// Enable or transparently bypass this processor.
-    ///
-    /// This is a no-op when [`Self::supports_bypass`] returns `false`; check that
-    /// first rather than assuming every stage honors the request.
-    fn set_enabled(&mut self, enabled: bool);
 
     /// Map the current graph rate through this stage.
     ///
@@ -772,6 +747,26 @@ pub trait StreamingProcessor: Send {
         Ok(())
     }
 }
+
+/// A processor whose process path is valid for fixed in-place 1:1 execution.
+///
+/// Implementors must consume and produce the complete block when called with
+/// [`ProcessBuffers::in_place`] and must preserve the input sample-rate domain.
+/// [`crate::processor::DspChain`] requires this capability explicitly because
+/// it owns no variable-I/O scratch storage. Rate conversion and other buffered
+/// transforms belong in a driver that owns suitable caller-visible buffers.
+///
+/// `StreamingResampler` intentionally does not implement this trait, even for
+/// configurations whose input and output rates happen to match:
+///
+/// ```compile_fail
+/// use audio_engine_core::{DspChain, StreamingResampler};
+///
+/// # fn insert(mut chain: DspChain, resampler: StreamingResampler) {
+/// chain.add(resampler).unwrap();
+/// # }
+/// ```
+pub trait FixedInPlaceProcessor: StreamingProcessor {}
 
 /// Drive one process call and enforce the shared progress invariants.
 pub fn process_checked<P: StreamingProcessor + ?Sized>(

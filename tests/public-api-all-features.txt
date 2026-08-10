@@ -895,17 +895,15 @@ pub struct audio_engine_core::processor::adapters::ConvolverProcessor
 impl audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::control(&self) -> audio_engine_core::ConvolverControl
 pub fn audio_engine_core::processor::ConvolverProcessor::new(audio_engine_core::ConvolverControl) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::ConvolverProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::ConvolverProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::ConvolverProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::ConvolverProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::ops::drop::Drop for audio_engine_core::processor::ConvolverProcessor
@@ -955,17 +953,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::ConvolverStatus
 pub struct audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::new(f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::CrossfeedProcessor
@@ -978,17 +974,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
@@ -1001,17 +995,15 @@ impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::ada
 pub struct audio_engine_core::processor::adapters::EqProcessor
 impl audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::EqProcessor
@@ -1024,17 +1016,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::NoiseShaperProcessor
@@ -1050,17 +1040,15 @@ pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduct
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::PeakLimiterProcessor
@@ -1095,17 +1083,15 @@ pub const fn audio_engine_core::processor::adapters::SaturationProcessor::is_har
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::new(usize, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicSaturationParams>) -> Self
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process_with_events(&mut self, &mut [f64], usize, &[audio_engine_core::processor::adapters::SaturationEvent]) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_hard_bypassed(&mut self, bool) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::SaturationProcessor
@@ -1118,17 +1104,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::processor::adapters::VolumeProcessor
 impl audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::new(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicVolumeParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::VolumeProcessor
@@ -1235,7 +1219,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::d
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::dsp_chain::ChainFinishPolicy
 pub struct audio_engine_core::processor::dsp_chain::DspChain
 impl audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::StreamingProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::FixedInPlaceProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::clear(&mut self)
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_was_capped(&self) -> bool
@@ -1243,15 +1227,13 @@ pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_with_policy(&mu
 pub fn audio_engine_core::processor::dsp_chain::DspChain::is_empty(&self) -> bool
 pub fn audio_engine_core::processor::dsp_chain::DspChain::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::dsp_chain::DspChain::len(&self) -> usize
-pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::process(&mut self, &mut [f64], usize) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::processor_names(&self) -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> Self
-impl core::default::Default for audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::default() -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::processor::dsp_chain::DspChain
 impl core::marker::Send for audio_engine_core::processor::dsp_chain::DspChain
 impl !core::marker::Sync for audio_engine_core::processor::dsp_chain::DspChain
@@ -2043,134 +2025,113 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::ProcessProgre
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::ProcessProgress
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::ProcessProgress
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::ProcessProgress
+pub trait audio_engine_core::processor::traits::FixedInPlaceProcessor: audio_engine_core::processor::traits::StreamingProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub trait audio_engine_core::processor::traits::StreamingProcessor: core::marker::Send
 pub fn audio_engine_core::processor::traits::StreamingProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::traits::StreamingProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::traits::StreamingProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::traits::StreamingProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::traits::StreamingProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::traits::StreamingProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::traits::StreamingProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::traits::StreamingProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::traits::StreamingProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::traits::StreamingProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::traits::StreamingProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::traits::StreamingProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingResampler::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingResampler::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingResampler::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::ConvolverProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::ConvolverProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::ConvolverProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::ConvolverProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 pub fn audio_engine_core::processor::traits::finish_checked<P: audio_engine_core::processor::traits::StreamingProcessor + ?core::marker::Sized>(&mut P, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
@@ -3226,17 +3187,15 @@ pub struct audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::control(&self) -> audio_engine_core::ConvolverControl
 pub fn audio_engine_core::processor::ConvolverProcessor::new(audio_engine_core::ConvolverControl) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::ConvolverProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::ConvolverProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::ConvolverProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::ConvolverProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::ops::drop::Drop for audio_engine_core::processor::ConvolverProcessor
@@ -3324,17 +3283,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::CrossfeedProcessor
 impl audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::new(f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::CrossfeedProcessor
@@ -3401,7 +3358,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::d
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::downmix::Downmixer
 pub struct audio_engine_core::processor::DspChain
 impl audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::StreamingProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::FixedInPlaceProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::clear(&mut self)
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_was_capped(&self) -> bool
@@ -3409,15 +3366,13 @@ pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_with_policy(&mu
 pub fn audio_engine_core::processor::dsp_chain::DspChain::is_empty(&self) -> bool
 pub fn audio_engine_core::processor::dsp_chain::DspChain::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::dsp_chain::DspChain::len(&self) -> usize
-pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::process(&mut self, &mut [f64], usize) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::processor_names(&self) -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> Self
-impl core::default::Default for audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::default() -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::processor::dsp_chain::DspChain
 impl core::marker::Send for audio_engine_core::processor::dsp_chain::DspChain
 impl !core::marker::Sync for audio_engine_core::processor::dsp_chain::DspChain
@@ -3471,17 +3426,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::DynamicLoudnessProcessor
 impl audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
@@ -3511,17 +3464,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::EqProcessor
 impl audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::EqProcessor
@@ -3776,17 +3727,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::NoiseShaperProcessor
 impl audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::NoiseShaperProcessor
@@ -3821,8 +3770,8 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OfflineRenderPo
 pub struct audio_engine_core::processor::OutputChainBuilder
 impl audio_engine_core::OutputChainBuilder
 pub fn audio_engine_core::OutputChainBuilder::build_callback_chain(&self) -> core::result::Result<audio_engine_core::processor::dsp_chain::DspChain, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::OutputChainBuilder::build_render_chain(&self) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::OutputChainBuilder::build_render_chain_with_policy(&self, audio_engine_core::OfflineRenderPolicy) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::OutputChainBuilder::build_render_chain(&self, u32) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::OutputChainBuilder::build_render_chain_with_policy(&self, u32, audio_engine_core::OfflineRenderPolicy) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
 pub const fn audio_engine_core::OutputChainBuilder::channels(&self) -> usize
 pub fn audio_engine_core::OutputChainBuilder::convolver_control(&self) -> audio_engine_core::ConvolverControl
 pub fn audio_engine_core::OutputChainBuilder::new(audio_engine_core::OutputChainParams) -> Self
@@ -3847,7 +3796,6 @@ pub audio_engine_core::processor::OutputChainParams::limiter_params: alloc::sync
 pub audio_engine_core::processor::OutputChainParams::noise_shaper_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>
 pub audio_engine_core::processor::OutputChainParams::output_sample_rate: u32
 pub audio_engine_core::processor::OutputChainParams::saturation_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicSaturationParams>
-pub audio_engine_core::processor::OutputChainParams::source_sample_rate: u32
 pub audio_engine_core::processor::OutputChainParams::volume_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicVolumeParams>
 impl core::clone::Clone for audio_engine_core::OutputChainParams
 pub fn audio_engine_core::OutputChainParams::clone(&self) -> audio_engine_core::OutputChainParams
@@ -3943,17 +3891,15 @@ pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduct
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::PeakLimiterProcessor
@@ -4176,17 +4122,15 @@ pub const fn audio_engine_core::processor::adapters::SaturationProcessor::is_har
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::new(usize, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicSaturationParams>) -> Self
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process_with_events(&mut self, &mut [f64], usize, &[audio_engine_core::processor::adapters::SaturationEvent]) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_hard_bypassed(&mut self, bool) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::SaturationProcessor
@@ -4244,15 +4188,12 @@ pub fn audio_engine_core::StreamingResampler::with_quality(usize, u32, u32, audi
 pub fn audio_engine_core::StreamingResampler::working_buffer_bytes(usize, u32, u32) -> core::result::Result<usize, audio_engine_core::processor::ResamplerError>
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingResampler::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingResampler::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingResampler::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::StreamingResampler
@@ -4346,17 +4287,15 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::VolumeProcessor
 impl audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::new(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicVolumeParams>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::processor::adapters::VolumeProcessor
@@ -4404,134 +4343,113 @@ pub const audio_engine_core::processor::SATURATION_TRANSITION_FRAMES: usize
 pub const audio_engine_core::processor::STANDARD_BANDS: [(f64, f64); 10]
 pub const audio_engine_core::processor::VOLUME_MAX: f64
 pub const audio_engine_core::processor::VOLUME_MIN: f64
+pub trait audio_engine_core::processor::FixedInPlaceProcessor: audio_engine_core::processor::traits::StreamingProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub trait audio_engine_core::processor::StreamingProcessor: core::marker::Send
 pub fn audio_engine_core::processor::StreamingProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::StreamingProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::StreamingProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::StreamingProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::StreamingProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::StreamingProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::StreamingProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::StreamingProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::StreamingProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::StreamingProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::StreamingProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::StreamingProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingResampler::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingResampler::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingResampler::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::ConvolverProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::ConvolverProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::ConvolverProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::ConvolverProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 pub fn audio_engine_core::processor::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
@@ -5474,7 +5392,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::d
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::downmix::Downmixer
 pub struct audio_engine_core::DspChain
 impl audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::StreamingProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::dsp_chain::DspChain::add<P: audio_engine_core::processor::traits::FixedInPlaceProcessor + 'static>(&mut self, P) -> core::result::Result<&mut Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::clear(&mut self)
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_was_capped(&self) -> bool
@@ -5482,15 +5400,13 @@ pub fn audio_engine_core::processor::dsp_chain::DspChain::finish_with_policy(&mu
 pub fn audio_engine_core::processor::dsp_chain::DspChain::is_empty(&self) -> bool
 pub fn audio_engine_core::processor::dsp_chain::DspChain::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::dsp_chain::DspChain::len(&self) -> usize
-pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::new(u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::process(&mut self, &mut [f64], usize) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::processor_names(&self) -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::dsp_chain::DspChain::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> Self
-impl core::default::Default for audio_engine_core::processor::dsp_chain::DspChain
-pub fn audio_engine_core::processor::dsp_chain::DspChain::default() -> Self
+pub fn audio_engine_core::processor::dsp_chain::DspChain::with_capacity(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::processor::dsp_chain::DspChain
 impl core::marker::Send for audio_engine_core::processor::dsp_chain::DspChain
 impl !core::marker::Sync for audio_engine_core::processor::dsp_chain::DspChain
@@ -5791,8 +5707,8 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OfflineRenderPo
 pub struct audio_engine_core::OutputChainBuilder
 impl audio_engine_core::OutputChainBuilder
 pub fn audio_engine_core::OutputChainBuilder::build_callback_chain(&self) -> core::result::Result<audio_engine_core::processor::dsp_chain::DspChain, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::OutputChainBuilder::build_render_chain(&self) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::OutputChainBuilder::build_render_chain_with_policy(&self, audio_engine_core::OfflineRenderPolicy) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::OutputChainBuilder::build_render_chain(&self, u32) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::OutputChainBuilder::build_render_chain_with_policy(&self, u32, audio_engine_core::OfflineRenderPolicy) -> core::result::Result<audio_engine_core::OutputRenderChain, audio_engine_core::processor::traits::ProcessError>
 pub const fn audio_engine_core::OutputChainBuilder::channels(&self) -> usize
 pub fn audio_engine_core::OutputChainBuilder::convolver_control(&self) -> audio_engine_core::ConvolverControl
 pub fn audio_engine_core::OutputChainBuilder::new(audio_engine_core::OutputChainParams) -> Self
@@ -5817,7 +5733,6 @@ pub audio_engine_core::OutputChainParams::limiter_params: alloc::sync::Arc<audio
 pub audio_engine_core::OutputChainParams::noise_shaper_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>
 pub audio_engine_core::OutputChainParams::output_sample_rate: u32
 pub audio_engine_core::OutputChainParams::saturation_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicSaturationParams>
-pub audio_engine_core::OutputChainParams::source_sample_rate: u32
 pub audio_engine_core::OutputChainParams::volume_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicVolumeParams>
 impl core::clone::Clone for audio_engine_core::OutputChainParams
 pub fn audio_engine_core::OutputChainParams::clone(&self) -> audio_engine_core::OutputChainParams
@@ -6350,15 +6265,12 @@ pub fn audio_engine_core::StreamingResampler::with_quality(usize, u32, u32, audi
 pub fn audio_engine_core::StreamingResampler::working_buffer_bytes(usize, u32, u32) -> core::result::Result<usize, audio_engine_core::processor::ResamplerError>
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingResampler::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingResampler::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingResampler::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::StreamingResampler
@@ -6438,134 +6350,113 @@ pub const audio_engine_core::PARTITIONED_CONVOLUTION_IR_THRESHOLD: usize
 pub const audio_engine_core::PARTITIONED_CONVOLUTION_PARTITION_SIZE: usize
 pub const audio_engine_core::RESAMPLER_BACKEND_NAME: &str
 pub const audio_engine_core::SATURATION_TRANSITION_FRAMES: usize
+pub trait audio_engine_core::FixedInPlaceProcessor: audio_engine_core::processor::traits::StreamingProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub trait audio_engine_core::StreamingProcessor: core::marker::Send
 pub fn audio_engine_core::StreamingProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::is_enabled(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::StreamingResampler::name(&self) -> &'static str
 pub fn audio_engine_core::StreamingResampler::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::StreamingResampler::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::set_enabled(&mut self, bool)
 pub fn audio_engine_core::StreamingResampler::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::StreamingResampler::supports_bypass(&self) -> bool
 pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::ConvolverProcessor
 pub fn audio_engine_core::processor::ConvolverProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::ConvolverProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::ConvolverProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::ConvolverProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::ConvolverProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::ConvolverProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::ConvolverProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::ConvolverProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::CrossfeedProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::SaturationProcessor
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::SaturationProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::SaturationProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::VolumeProcessor
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::finish(&mut self, audio_engine_core::processor::traits::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::is_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::name(&self) -> &'static str
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_enabled(&mut self, bool)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 pub fn audio_engine_core::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>

@@ -133,7 +133,6 @@ impl CallbackChainFixture {
 
         let chain = OutputChainBuilder::new(OutputChainParams {
             channels: CALLBACK_CHANNELS,
-            source_sample_rate: CALLBACK_SAMPLE_RATE_HZ,
             output_sample_rate: CALLBACK_SAMPLE_RATE_HZ,
             eq_params,
             saturation_params,

@@ -215,8 +215,13 @@ The former `AudioProcessor` / `ProcessResult` API was removed; adapters
 implement `StreamingProcessor` directly. `DspChain::process` / `reset` /
 `set_sample_rate` return typed results, and callback integrations must handle
 failures without logging or panicking on the audio thread. Fixed processors
-keep the zero-copy in-place fast path; out-of-place calls use caller-provided
-output and report `NeedInput` / `NeedOutput` backpressure explicitly.
+keep the zero-copy in-place fast path and implement `FixedInPlaceProcessor`,
+the admission contract required by `DspChain::add`. `DspChain::new` and
+`with_capacity` return `Result` and reject a zero sample rate; the chain has no
+arbitrary `Default`. Enable/mute controls belong to concrete atomic parameter
+handles and `ConvolverControl`, not the base streaming lifecycle. Out-of-place
+calls use caller-provided output and report `NeedInput` / `NeedOutput`
+backpressure explicitly.
 `StreamingResampler` follows the same out-of-place contract: advance both
 cursors from `ProcessProgress`, end the stream with native SoXR `drain()` via
 `finish_checked`, and use `reset()` to clear the native history (the old
@@ -227,6 +232,10 @@ rate while finite semantic effect tails are retained; `OfflineRenderPolicy::raw_
 keeps the leading delay and all finalize output. Unknown/infinite tails use a
 configurable pre-dither RMS threshold, continuous silence hold, and hard
 maximum, with `RenderedOutput::tail_truncated` set when that maximum is hit.
+`OutputChainParams` carries callback/output-domain configuration only; pass the
+input rate to `build_render_chain(source_rate)` or
+`build_render_chain_with_policy(source_rate, policy)` when constructing an
+offline renderer.
 
 ## Quality & Validation
 

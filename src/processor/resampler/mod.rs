@@ -1318,19 +1318,6 @@ impl StreamingProcessor for StreamingResampler {
         self.tail
     }
 
-    fn is_enabled(&self) -> bool {
-        self.from_rate != self.to_rate
-    }
-
-    fn supports_bypass(&self) -> bool {
-        // Rate conversion is graph geometry, not a switchable effect.
-        false
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {
-        // Rate conversion is graph geometry rather than a bypassable effect.
-    }
-
     fn output_sample_rate_hz(&self, input_sample_rate_hz: u32) -> Result<u32, ProcessError> {
         if input_sample_rate_hz == 0 {
             return Err(ProcessError::InvalidSampleRate {
