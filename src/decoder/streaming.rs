@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use symphonia::core::audio::Channels;
 use symphonia::core::codecs::audio::well_known::{CODEC_ID_MP3, CODEC_ID_VORBIS};
 use symphonia::core::codecs::audio::{AudioCodecId, AudioDecoder, AudioDecoderOptions};
@@ -12,7 +10,7 @@ use super::channel_layout::layout_from_codec;
 use super::error::{DecodeCancelToken, DecoderError};
 use super::metadata::{extract_metadata, AudioInfo};
 use super::source::{
-    bytes_to_mib, configured_decode_memory_limit, HttpCredentials, OpenedMediaSource,
+    bytes_to_mib, configured_decode_memory_limit, HttpCredentials, MediaLocation, OpenedMediaSource,
 };
 
 /// Streaming audio decoder using Symphonia.
@@ -257,24 +255,24 @@ impl StreamingDecoder {
         self.info.end_padding = end_padding;
     }
 
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DecoderError> {
-        Self::open_with_credentials(path, None)
+    pub fn open(location: MediaLocation) -> Result<Self, DecoderError> {
+        Self::open_with_credentials(location, None)
     }
 
-    pub fn open_with_credentials<P: AsRef<Path>>(
-        path: P,
+    pub fn open_with_credentials(
+        location: MediaLocation,
         credentials: Option<&HttpCredentials>,
     ) -> Result<Self, DecoderError> {
-        Self::open_with_credentials_and_cancel(path, credentials, None)
+        Self::open_with_credentials_and_cancel(location, credentials, None)
     }
 
-    pub fn open_with_credentials_and_cancel<P: AsRef<Path>>(
-        path: P,
+    pub fn open_with_credentials_and_cancel(
+        location: MediaLocation,
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let source = OpenedMediaSource::open_path_with_credentials_and_cancel(
-            path,
+        let source = OpenedMediaSource::open_with_credentials_and_cancel(
+            location,
             credentials,
             cancel_token.clone(),
         )?;

@@ -70,8 +70,8 @@ pub use loudness::{
 };
 #[cfg(feature = "loudness-db")]
 pub use loudness_db::{
-    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, TrackLoudness, CURRENT_SCAN_VERSION,
-    DEFAULT_STREAMING_TARGET_LUFS,
+    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
+    CURRENT_SCAN_VERSION, DEFAULT_STREAMING_TARGET_LUFS,
 };
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use audio_engine_core::decoder::OpenedMediaSource;
-use audio_engine_core::StreamingDecoder;
+use audio_engine_core::{MediaLocation, StreamingDecoder};
 use serde::{Deserialize, Serialize};
 
 pub mod support;
@@ -435,7 +435,7 @@ fn benchmark_first_pcm(
     for _ in 0..samples {
         let mut total_ns = 0.0;
         for _ in 0..iterations_per_sample {
-            let mut decoder = StreamingDecoder::open(&fixture.path)
+            let mut decoder = StreamingDecoder::open(MediaLocation::local(fixture.path.clone()))
                 .map_err(|error| format!("first PCM decoder open failed: {error}"))?;
             check_stable(
                 &mut staging_bytes,
@@ -549,7 +549,7 @@ fn benchmark_seek_command(
     samples: usize,
     targets: &[f64],
 ) -> Result<DecoderTimingCase, String> {
-    let mut decoder = StreamingDecoder::open(&fixture.path)
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(fixture.path.clone()))
         .map_err(|error| format!("seek decoder open failed: {error}"))?;
     let mut timings = Vec::with_capacity(samples);
     let mut max_error = 0u64;
@@ -580,7 +580,7 @@ fn benchmark_seek_to_first_pcm(
     samples: usize,
     targets: &[f64],
 ) -> Result<DecoderTimingCase, String> {
-    let mut decoder = StreamingDecoder::open(&fixture.path)
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(fixture.path.clone()))
         .map_err(|error| format!("seek-to-PCM decoder open failed: {error}"))?;
     let mut timings = Vec::with_capacity(samples);
     let mut max_error = 0u64;
@@ -657,7 +657,7 @@ fn simple_case(
 }
 
 fn steady_trial(path: &Path) -> Result<SteadyTrial, String> {
-    let mut decoder = StreamingDecoder::open(path)
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(path.to_path_buf()))
         .map_err(|error| format!("steady decoder open failed: {error}"))?;
     let first = decoder
         .decode_next_borrowed()
@@ -705,7 +705,7 @@ fn steady_trial(path: &Path) -> Result<SteadyTrial, String> {
 }
 
 fn decode_full(path: &Path) -> Result<DecoderWorkValidation, String> {
-    let mut decoder = StreamingDecoder::open(path)
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(path.to_path_buf()))
         .map_err(|error| format!("fixture decoder open failed: {error}"))?;
     let channels = decoder.info().channels.max(1);
     let sample_rate_hz = decoder.info().sample_rate;
@@ -791,7 +791,7 @@ fn measure_allocations(
     let first_snapshot = first_scope.finish();
     drop(decoder);
 
-    let mut steady_decoder = StreamingDecoder::open(&fixture.path)
+    let mut steady_decoder = StreamingDecoder::open(MediaLocation::local(fixture.path.clone()))
         .map_err(|error| format!("allocation steady decoder open failed: {error}"))?;
     let _ = steady_decoder
         .decode_next_borrowed()

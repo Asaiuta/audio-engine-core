@@ -63,10 +63,13 @@ audio-engine-core = "0.1"
 Measure the integrated loudness of a file:
 
 ```rust
-use audio_engine_core::{LoudnessMeter, StreamingDecoder};
+use std::path::Path;
 
-fn analyze_file(path: &str) -> Result<f64, Box<dyn std::error::Error>> {
-    let mut decoder = StreamingDecoder::open(path)?;
+use audio_engine_core::{LoudnessMeter, MediaLocation, StreamingDecoder};
+
+fn analyze_file(path: &Path) -> Result<f64, Box<dyn std::error::Error>> {
+    let location = MediaLocation::local(path.to_path_buf());
+    let mut decoder = StreamingDecoder::open(location)?;
     let info = decoder.info();
     let mut meter = LoudnessMeter::new(info.channels, info.sample_rate);
 
@@ -276,13 +279,17 @@ All four Cargo features below are independent; the first three are enabled by
 default:
 
 - `http` (default): HTTP/HTTPS streaming decode via `reqwest`, including Range
-  streaming and full-download fallback. With this off, `StreamingDecoder` only
-  opens local files, an `http(s)://` path returns a decoder error, and `reqwest`
-  and the `NetworkError` type are not compiled.
+  streaming and full-download fallback. `MediaLocation` validates local versus
+  HTTP identity independently of this feature. With `http` off, an HTTP
+  location returns `DecoderError::FeatureUnavailable`; `reqwest` and the
+  `NetworkError` type are not compiled.
 - `loudness-db` (default): SQLite-backed loudness metadata persistence
-  (`LoudnessDatabase`, `TrackLoudness`, `DatabaseStats`) via `rusqlite`. With
-  this off, the EBU R128 helpers (`LoudnessMeter`, `LoudnessNormalizer`,
-  `TruePeakDetector`) still work; only the on-disk cache is removed.
+  (`LoudnessDatabase`, `TrackLoudness`, `LoudnessSourceIdentity`,
+  `DatabaseStats`) via `rusqlite`. Cache keys use namespaced SHA-256 identities;
+  signed HTTP URLs are never stored in plaintext, and HTTP records without a
+  validator are always stale. With this off, the EBU R128 helpers
+  (`LoudnessMeter`, `LoudnessNormalizer`, `TruePeakDetector`) still work; only
+  the on-disk cache is removed.
 - `soxr` (default): native SoXR resampler backend (SoX VHQ). Requires the
   libsoxr native library at build/link time; libsoxr is LGPL-2.1 (see
   [License](#license)).

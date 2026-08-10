@@ -13,7 +13,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Time, TimeBase, Timestamp};
 
-use audio_engine_core::StreamingDecoder;
+use audio_engine_core::{MediaLocation, StreamingDecoder};
 
 #[allow(dead_code)]
 mod support;
@@ -582,8 +582,8 @@ fn validate_fixture(path: &Path) -> Result<DecodeValidation, String> {
 }
 
 fn decode_project_full(path: &Path) -> Result<DecodeOutput, String> {
-    let mut decoder =
-        StreamingDecoder::open(path).map_err(|error| format!("project open: {error:?}"))?;
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(path.to_path_buf()))
+        .map_err(|error| format!("project open: {error:?}"))?;
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels;
     let samples = decoder
@@ -632,8 +632,8 @@ fn timed_run(path: &Path, native: bool) -> Result<TimedResult, String> {
             decode_start.duration_since(open_start).as_secs_f64() * 1.0e3,
         )
     } else {
-        let mut decoder =
-            StreamingDecoder::open(path).map_err(|error| format!("project open: {error:?}"))?;
+        let mut decoder = StreamingDecoder::open(MediaLocation::local(path.to_path_buf()))
+            .map_err(|error| format!("project open: {error:?}"))?;
         decode_start = Instant::now();
         let output = consume_project(&mut decoder)?;
         (
@@ -824,8 +824,8 @@ impl NativeDecoder {
 }
 
 fn project_seek(path: &Path, time_secs: f64) -> Result<SeekOutput, String> {
-    let mut decoder =
-        StreamingDecoder::open(path).map_err(|error| format!("project seek open: {error:?}"))?;
+    let mut decoder = StreamingDecoder::open(MediaLocation::local(path.to_path_buf()))
+        .map_err(|error| format!("project seek open: {error:?}"))?;
     decoder
         .seek(time_secs)
         .map_err(|error| format!("project seek: {error:?}"))?;

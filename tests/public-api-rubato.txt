@@ -198,6 +198,76 @@ impl core::marker::Unpin for audio_engine_core::decoder::DecoderError
 impl core::marker::UnsafeUnpin for audio_engine_core::decoder::DecoderError
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decoder::DecoderError
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::decoder::DecoderError
+pub enum audio_engine_core::decoder::MediaLocation
+pub audio_engine_core::decoder::MediaLocation::Http(audio_engine_core::HttpMediaLocation)
+pub audio_engine_core::decoder::MediaLocation::Local(std::path::PathBuf)
+impl audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::as_http(&self) -> core::option::Option<&audio_engine_core::HttpMediaLocation>
+pub fn audio_engine_core::MediaLocation::as_local_path(&self) -> core::option::Option<&std::path::Path>
+pub fn audio_engine_core::MediaLocation::http(impl core::convert::AsRef<str>) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::MediaLocation::kind(&self) -> audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocation::local(impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn audio_engine_core::MediaLocation::log_identity(&self) -> alloc::string::String
+impl core::clone::Clone for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::clone(&self) -> audio_engine_core::MediaLocation
+impl core::cmp::Eq for audio_engine_core::MediaLocation
+impl core::cmp::PartialEq for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::eq(&self, &audio_engine_core::MediaLocation) -> bool
+impl core::fmt::Debug for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::MediaLocation
+impl core::marker::Freeze for audio_engine_core::MediaLocation
+impl core::marker::Send for audio_engine_core::MediaLocation
+impl core::marker::Sync for audio_engine_core::MediaLocation
+impl core::marker::Unpin for audio_engine_core::MediaLocation
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocation
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocation
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocation
+#[non_exhaustive] pub enum audio_engine_core::decoder::MediaLocationError
+pub audio_engine_core::decoder::MediaLocationError::InvalidUrl(url::parser::ParseError)
+pub audio_engine_core::decoder::MediaLocationError::MissingHost
+pub audio_engine_core::decoder::MediaLocationError::UnsupportedScheme
+pub audio_engine_core::decoder::MediaLocationError::UnsupportedScheme::scheme: alloc::string::String
+impl core::error::Error for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::MediaLocationError
+impl core::marker::Send for audio_engine_core::MediaLocationError
+impl core::marker::Sync for audio_engine_core::MediaLocationError
+impl core::marker::Unpin for audio_engine_core::MediaLocationError
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocationError
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocationError
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocationError
+pub enum audio_engine_core::decoder::MediaLocationKind
+pub audio_engine_core::decoder::MediaLocationKind::Http
+pub audio_engine_core::decoder::MediaLocationKind::Local
+impl core::clone::Clone for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::clone(&self) -> audio_engine_core::MediaLocationKind
+impl core::cmp::Eq for audio_engine_core::MediaLocationKind
+impl core::cmp::PartialEq for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::eq(&self, &audio_engine_core::MediaLocationKind) -> bool
+impl core::fmt::Debug for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::MediaLocationKind
+impl core::marker::StructuralPartialEq for audio_engine_core::MediaLocationKind
+impl serde_core::ser::Serialize for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::MediaLocationKind
+impl core::marker::Send for audio_engine_core::MediaLocationKind
+impl core::marker::Sync for audio_engine_core::MediaLocationKind
+impl core::marker::Unpin for audio_engine_core::MediaLocationKind
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocationKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocationKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocationKind
 pub struct audio_engine_core::decoder::AudioInfo
 pub audio_engine_core::decoder::AudioInfo::bits_per_sample: core::option::Option<u32>
 pub audio_engine_core::decoder::AudioInfo::channel_layout: audio_engine_core::channel_layout::ChannelLayout
@@ -254,10 +324,35 @@ impl core::marker::Unpin for audio_engine_core::decoder::HttpCredentials
 impl core::marker::UnsafeUnpin for audio_engine_core::decoder::HttpCredentials
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decoder::HttpCredentials
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decoder::HttpCredentials
+pub struct audio_engine_core::decoder::HttpMediaLocation
+impl audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::from_url(url::Url) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::HttpMediaLocation::log_identity(&self) -> alloc::string::String
+pub fn audio_engine_core::HttpMediaLocation::parse(impl core::convert::AsRef<str>) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::HttpMediaLocation::url(&self) -> &url::Url
+impl core::clone::Clone for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::clone(&self) -> audio_engine_core::HttpMediaLocation
+impl core::cmp::Eq for audio_engine_core::HttpMediaLocation
+impl core::cmp::PartialEq for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::eq(&self, &audio_engine_core::HttpMediaLocation) -> bool
+impl core::fmt::Debug for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::HttpMediaLocation
+impl core::marker::Freeze for audio_engine_core::HttpMediaLocation
+impl core::marker::Send for audio_engine_core::HttpMediaLocation
+impl core::marker::Sync for audio_engine_core::HttpMediaLocation
+impl core::marker::Unpin for audio_engine_core::HttpMediaLocation
+impl core::marker::UnsafeUnpin for audio_engine_core::HttpMediaLocation
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::HttpMediaLocation
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::HttpMediaLocation
 pub struct audio_engine_core::decoder::OpenedMediaSource
 impl audio_engine_core::decoder::OpenedMediaSource
 pub fn audio_engine_core::decoder::OpenedMediaSource::open_local<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
-pub fn audio_engine_core::decoder::OpenedMediaSource::open_path_with_credentials_and_cancel<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::decoder::OpenedMediaSource::open_with_credentials_and_cancel(audio_engine_core::MediaLocation, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
 impl core::marker::Freeze for audio_engine_core::decoder::OpenedMediaSource
 impl core::marker::Send for audio_engine_core::decoder::OpenedMediaSource
 impl core::marker::Sync for audio_engine_core::decoder::OpenedMediaSource
@@ -275,9 +370,9 @@ pub fn audio_engine_core::StreamingDecoder::decode_next_borrowed(&mut self) -> c
 pub fn audio_engine_core::StreamingDecoder::decode_next_into(&mut self, &mut alloc::vec::Vec<f64>) -> core::result::Result<core::option::Option<usize>, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::from_opened_source(audio_engine_core::decoder::OpenedMediaSource, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::info(&self) -> &audio_engine_core::decoder::AudioInfo
-pub fn audio_engine_core::StreamingDecoder::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
-pub fn audio_engine_core::StreamingDecoder::open_with_credentials<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<&audio_engine_core::decoder::HttpCredentials>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
-pub fn audio_engine_core::StreamingDecoder::open_with_credentials_and_cancel<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open(audio_engine_core::MediaLocation) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open_with_credentials(audio_engine_core::MediaLocation, core::option::Option<&audio_engine_core::decoder::HttpCredentials>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open_with_credentials_and_cancel(audio_engine_core::MediaLocation, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::probe_opened_source(audio_engine_core::decoder::OpenedMediaSource, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::decoder::StreamingDecoderBuilder, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::seek(&mut self, f64) -> core::result::Result<(), audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::staging_buffer_bytes(&self) -> usize
@@ -4292,8 +4387,8 @@ pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
-pub fn audio_engine_core::processor::analyze_automix(alloc::string::String, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
-pub fn audio_engine_core::processor::analyze_automix_with_cancel(alloc::string::String, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
+pub fn audio_engine_core::processor::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
+pub fn audio_engine_core::processor::analyze_automix_with_cancel(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
 pub fn audio_engine_core::processor::callback_stage_names() -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::callback_stage_order_csv() -> alloc::string::String
 pub fn audio_engine_core::processor::canonical_output_stage_descriptors() -> &'static [audio_engine_core::OutputStageDescriptor]
@@ -4532,6 +4627,76 @@ impl core::marker::Unpin for audio_engine_core::LimiterMode
 impl core::marker::UnsafeUnpin for audio_engine_core::LimiterMode
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LimiterMode
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LimiterMode
+pub enum audio_engine_core::MediaLocation
+pub audio_engine_core::MediaLocation::Http(audio_engine_core::HttpMediaLocation)
+pub audio_engine_core::MediaLocation::Local(std::path::PathBuf)
+impl audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::as_http(&self) -> core::option::Option<&audio_engine_core::HttpMediaLocation>
+pub fn audio_engine_core::MediaLocation::as_local_path(&self) -> core::option::Option<&std::path::Path>
+pub fn audio_engine_core::MediaLocation::http(impl core::convert::AsRef<str>) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::MediaLocation::kind(&self) -> audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocation::local(impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn audio_engine_core::MediaLocation::log_identity(&self) -> alloc::string::String
+impl core::clone::Clone for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::clone(&self) -> audio_engine_core::MediaLocation
+impl core::cmp::Eq for audio_engine_core::MediaLocation
+impl core::cmp::PartialEq for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::eq(&self, &audio_engine_core::MediaLocation) -> bool
+impl core::fmt::Debug for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::MediaLocation
+pub fn audio_engine_core::MediaLocation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::MediaLocation
+impl core::marker::Freeze for audio_engine_core::MediaLocation
+impl core::marker::Send for audio_engine_core::MediaLocation
+impl core::marker::Sync for audio_engine_core::MediaLocation
+impl core::marker::Unpin for audio_engine_core::MediaLocation
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocation
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocation
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocation
+#[non_exhaustive] pub enum audio_engine_core::MediaLocationError
+pub audio_engine_core::MediaLocationError::InvalidUrl(url::parser::ParseError)
+pub audio_engine_core::MediaLocationError::MissingHost
+pub audio_engine_core::MediaLocationError::UnsupportedScheme
+pub audio_engine_core::MediaLocationError::UnsupportedScheme::scheme: alloc::string::String
+impl core::error::Error for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::MediaLocationError
+pub fn audio_engine_core::MediaLocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::MediaLocationError
+impl core::marker::Send for audio_engine_core::MediaLocationError
+impl core::marker::Sync for audio_engine_core::MediaLocationError
+impl core::marker::Unpin for audio_engine_core::MediaLocationError
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocationError
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocationError
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocationError
+pub enum audio_engine_core::MediaLocationKind
+pub audio_engine_core::MediaLocationKind::Http
+pub audio_engine_core::MediaLocationKind::Local
+impl core::clone::Clone for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::clone(&self) -> audio_engine_core::MediaLocationKind
+impl core::cmp::Eq for audio_engine_core::MediaLocationKind
+impl core::cmp::PartialEq for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::eq(&self, &audio_engine_core::MediaLocationKind) -> bool
+impl core::fmt::Debug for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::MediaLocationKind
+impl core::marker::StructuralPartialEq for audio_engine_core::MediaLocationKind
+impl serde_core::ser::Serialize for audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::MediaLocationKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::MediaLocationKind
+impl core::marker::Send for audio_engine_core::MediaLocationKind
+impl core::marker::Sync for audio_engine_core::MediaLocationKind
+impl core::marker::Unpin for audio_engine_core::MediaLocationKind
+impl core::marker::UnsafeUnpin for audio_engine_core::MediaLocationKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::MediaLocationKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::MediaLocationKind
 pub enum audio_engine_core::NormalizationMode
 pub audio_engine_core::NormalizationMode::Album
 pub audio_engine_core::NormalizationMode::ReplayGainAlbum
@@ -5231,6 +5396,31 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::FrameDuration
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::FrameDuration
+pub struct audio_engine_core::HttpMediaLocation
+impl audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::from_url(url::Url) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::HttpMediaLocation::log_identity(&self) -> alloc::string::String
+pub fn audio_engine_core::HttpMediaLocation::parse(impl core::convert::AsRef<str>) -> core::result::Result<Self, audio_engine_core::MediaLocationError>
+pub fn audio_engine_core::HttpMediaLocation::url(&self) -> &url::Url
+impl core::clone::Clone for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::clone(&self) -> audio_engine_core::HttpMediaLocation
+impl core::cmp::Eq for audio_engine_core::HttpMediaLocation
+impl core::cmp::PartialEq for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::eq(&self, &audio_engine_core::HttpMediaLocation) -> bool
+impl core::fmt::Debug for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::HttpMediaLocation
+pub fn audio_engine_core::HttpMediaLocation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::HttpMediaLocation
+impl core::marker::Freeze for audio_engine_core::HttpMediaLocation
+impl core::marker::Send for audio_engine_core::HttpMediaLocation
+impl core::marker::Sync for audio_engine_core::HttpMediaLocation
+impl core::marker::Unpin for audio_engine_core::HttpMediaLocation
+impl core::marker::UnsafeUnpin for audio_engine_core::HttpMediaLocation
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::HttpMediaLocation
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::HttpMediaLocation
 pub struct audio_engine_core::LoudnessConfig
 pub audio_engine_core::LoudnessConfig::enabled: bool
 pub audio_engine_core::LoudnessConfig::mode: audio_engine_core::config::NormalizationMode
@@ -5901,9 +6091,9 @@ pub fn audio_engine_core::StreamingDecoder::decode_next_borrowed(&mut self) -> c
 pub fn audio_engine_core::StreamingDecoder::decode_next_into(&mut self, &mut alloc::vec::Vec<f64>) -> core::result::Result<core::option::Option<usize>, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::from_opened_source(audio_engine_core::decoder::OpenedMediaSource, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::info(&self) -> &audio_engine_core::decoder::AudioInfo
-pub fn audio_engine_core::StreamingDecoder::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
-pub fn audio_engine_core::StreamingDecoder::open_with_credentials<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<&audio_engine_core::decoder::HttpCredentials>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
-pub fn audio_engine_core::StreamingDecoder::open_with_credentials_and_cancel<P: core::convert::AsRef<std::path::Path>>(P, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open(audio_engine_core::MediaLocation) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open_with_credentials(audio_engine_core::MediaLocation, core::option::Option<&audio_engine_core::decoder::HttpCredentials>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
+pub fn audio_engine_core::StreamingDecoder::open_with_credentials_and_cancel(audio_engine_core::MediaLocation, core::option::Option<&audio_engine_core::decoder::HttpCredentials>, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<Self, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::probe_opened_source(audio_engine_core::decoder::OpenedMediaSource, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::decoder::StreamingDecoderBuilder, audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::seek(&mut self, f64) -> core::result::Result<(), audio_engine_core::decoder::DecoderError>
 pub fn audio_engine_core::StreamingDecoder::staging_buffer_bytes(&self) -> usize
@@ -6118,7 +6308,7 @@ pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::supports_bypass(&self) -> bool
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
-pub fn audio_engine_core::analyze_automix(alloc::string::String, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
+pub fn audio_engine_core::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
 pub fn audio_engine_core::callback_stage_names() -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::callback_stage_order_csv() -> alloc::string::String
 pub fn audio_engine_core::canonical_output_stage_descriptors() -> &'static [audio_engine_core::OutputStageDescriptor]

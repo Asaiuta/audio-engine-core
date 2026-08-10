@@ -10,13 +10,14 @@ use reqwest::header::{HeaderMap, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RA
 use reqwest::redirect;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
+use url::Url;
 
 #[cfg(not(test))]
 use std::sync::Arc;
 
 use super::{
     bytes_to_mib, configured_decode_memory_limit, DecodeCancelToken, DecoderError, HttpCredentials,
-    BYTES_PER_MIB,
+    HttpMediaLocation, BYTES_PER_MIB,
 };
 use crate::decoder::error::{network_error_to_decoder_error, with_network_retry, NetworkError};
 
@@ -28,12 +29,13 @@ const RANGE_PREFETCH: usize = 256 * 1024;
 const READ_CHUNK_SIZE: usize = 64 * 1024;
 
 pub(super) fn open_http_media_source(
-    url: &str,
+    location: &HttpMediaLocation,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<(MediaSourceStream<'static>, Hint), DecoderError> {
-    let log_identity = http_url_log_identity(url);
-    match RangeStream::new(url.to_string(), credentials.cloned(), cancel_token.clone()) {
+    let url = location.url();
+    let log_identity = location.log_identity();
+    match RangeStream::new(url.clone(), credentials.cloned(), cancel_token.clone()) {
         Ok(stream) => {
             log::info!(
                 "HTTP origin supports Range requests, streaming: {}",
@@ -56,12 +58,6 @@ pub(super) fn open_http_media_source(
         }
         Err(error) => Err(network_error_to_decoder_error(error)),
     }
-}
-
-fn http_url_log_identity(raw_url: &str) -> String {
-    reqwest::Url::parse(raw_url)
-        .map(|url| url.origin().ascii_serialization())
-        .unwrap_or_else(|_| "<invalid-http-url>".to_string())
 }
 
 fn remote_address_error(detail: impl Into<String>) -> NetworkError {
@@ -203,18 +199,11 @@ fn build_client(timeout: Duration) -> Result<Client, NetworkError> {
 
 fn authenticated_get(
     client: &Client,
-    url: &str,
+    url: &Url,
     credentials: Option<&HttpCredentials>,
 ) -> Result<RequestBuilder, NetworkError> {
-    let parsed_url = reqwest::Url::parse(url)
-        .map_err(|_| NetworkError::Other("invalid HTTP source URL".to_string()))?;
-    if !matches!(parsed_url.scheme(), "http" | "https") {
-        return Err(NetworkError::Other(
-            "HTTP source URL uses an unsupported scheme".to_string(),
-        ));
-    }
-    validate_literal_host(&parsed_url)?;
-    let request = client.get(parsed_url);
+    validate_literal_host(url)?;
+    let request = client.get(url.clone());
     if let Some(credentials) = credentials {
         Ok(request.basic_auth(&credentials.username, Some(&credentials.password)))
     } else {
@@ -228,7 +217,7 @@ fn response_status_error(response: &Response) -> Option<NetworkError> {
 }
 
 fn download_full_source(
-    url: &str,
+    url: &Url,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<&DecodeCancelToken>,
 ) -> Result<(Cursor<Vec<u8>>, Option<String>), DecoderError> {
@@ -396,7 +385,7 @@ struct RangeFetch {
 
 fn fetch_range_once(
     client: &Client,
-    url: &str,
+    url: &Url,
     credentials: Option<&HttpCredentials>,
     start: u64,
     len: usize,
@@ -547,7 +536,7 @@ fn probe_mime_essence(content_type: &str) -> Option<&str> {
     }
 }
 
-fn hint_from_url_and_content_type(url: &str, content_type: Option<&str>) -> Hint {
+fn hint_from_url_and_content_type(url: &Url, content_type: Option<&str>) -> Hint {
     let mut hint = hint_from_url(url);
     if let Some(mime) = content_type.and_then(probe_mime_essence) {
         hint.mime_type(mime);
@@ -555,12 +544,12 @@ fn hint_from_url_and_content_type(url: &str, content_type: Option<&str>) -> Hint
     hint
 }
 
-fn hint_from_url(url: &str) -> Hint {
+fn hint_from_url(url: &Url) -> Hint {
     let mut hint = Hint::new();
     if let Some(extension) = url
-        .split('?')
-        .next()
-        .and_then(|path| path.rsplit('.').next())
+        .path_segments()
+        .and_then(Iterator::last)
+        .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension))
         .filter(|extension| extension.len() <= 5)
     {
         hint.with_extension(extension);
@@ -569,7 +558,7 @@ fn hint_from_url(url: &str) -> Hint {
 }
 
 struct RangeStream {
-    url: String,
+    url: Url,
     credentials: Option<HttpCredentials>,
     client: Client,
     buffer: Vec<u8>,
@@ -582,7 +571,7 @@ struct RangeStream {
 
 impl RangeStream {
     fn new(
-        url: String,
+        url: Url,
         credentials: Option<HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, NetworkError> {
@@ -755,7 +744,7 @@ mod tests {
 
     fn serve_sequence(
         responses: Vec<TestResponse>,
-    ) -> (String, mpsc::Receiver<String>, thread::JoinHandle<()>) {
+    ) -> (Url, mpsc::Receiver<String>, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let address = listener.local_addr().expect("test server address");
         let (request_tx, request_rx) = mpsc::channel();
@@ -786,15 +775,14 @@ mod tests {
             }
         });
         (
-            format!("http://localhost:{}/audio.flac", address.port()),
+            Url::parse(&format!("http://localhost:{}/audio.flac", address.port()))
+                .expect("test URL"),
             request_rx,
             handle,
         )
     }
 
-    fn serve_once(
-        response: TestResponse,
-    ) -> (String, mpsc::Receiver<String>, thread::JoinHandle<()>) {
+    fn serve_once(response: TestResponse) -> (Url, mpsc::Receiver<String>, thread::JoinHandle<()>) {
         serve_sequence(vec![response])
     }
 
@@ -1034,15 +1022,8 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(true));
         let token = DecodeCancelToken::from_flag(cancelled);
         let client = build_client(Duration::from_secs(2)).expect("test client");
-        let result = fetch_range_once(
-            &client,
-            "http://127.0.0.1:9/never-requested.flac",
-            None,
-            0,
-            8,
-            None,
-            Some(&token),
-        );
+        let url = Url::parse("http://127.0.0.1:9/never-requested.flac").expect("test URL");
+        let result = fetch_range_once(&client, &url, None, 0, 8, None, Some(&token));
         assert!(matches!(result, Err(NetworkError::Cancelled)));
     }
 
@@ -1082,7 +1063,8 @@ mod tests {
             body: b"data".to_vec(),
         };
         let (url, request_rx, handle) = serve_sequence(vec![ignored_range, full_download]);
-        let result = open_http_media_source(&url, None, None);
+        let location = HttpMediaLocation::from_url(url).expect("valid test URL");
+        let result = open_http_media_source(&location, None, None);
         assert!(result.is_ok(), "bounded fallback should open successfully");
 
         let capability_request = request_rx.recv().expect("captured capability request");
@@ -1111,7 +1093,8 @@ mod tests {
             body: Vec::new(),
         };
         let (url, request_rx, handle) = serve_once(response);
-        let result = open_http_media_source(&url, None, None);
+        let location = HttpMediaLocation::from_url(url).expect("valid test URL");
+        let result = open_http_media_source(&location, None, None);
         assert!(matches!(
             result,
             Err(DecoderError::Network(NetworkError::HttpStatus(404)))
@@ -1149,7 +1132,8 @@ mod tests {
     #[test]
     fn http_log_identity_keeps_only_origin() {
         let raw = "https://basic-user:basic-password@example.test:8443/private/token.flac?signature=query-secret#fragment-secret";
-        let identity = http_url_log_identity(raw);
+        let location = HttpMediaLocation::parse(raw).expect("valid test URL");
+        let identity = location.log_identity();
         assert_eq!(identity, "https://example.test:8443");
         for secret in [
             "basic-user",
@@ -1161,9 +1145,5 @@ mod tests {
         ] {
             assert!(!identity.contains(secret));
         }
-        assert_eq!(
-            http_url_log_identity("not a URL with token=secret"),
-            "<invalid-http-url>"
-        );
     }
 }

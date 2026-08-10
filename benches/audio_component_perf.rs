@@ -3,7 +3,8 @@ use std::time::Instant;
 
 use audio_engine_core::{
     analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, ChannelLayout,
-    DownmixCoefficients, Downmixer, LoudnessMeter, RingBuffer, SpectrumAnalyzer, TruePeakDetector,
+    DownmixCoefficients, Downmixer, LoudnessMeter, MediaLocation, RingBuffer, SpectrumAnalyzer,
+    TruePeakDetector,
 };
 #[cfg(feature = "loudness-db")]
 use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, TrackLoudness};
@@ -518,8 +519,9 @@ fn benchmark_automix(
     let mut valid = true;
     for _ in 0..trials {
         let start = Instant::now();
-        let analysis = analyze_automix(fixture_path.to_string(), None, options.clone())
-            .map_err(|error| format!("timed AutoMix {mode_name} analysis failed: {error}"))?;
+        let analysis =
+            analyze_automix(MediaLocation::local(fixture_path), None, options.clone())
+                .map_err(|error| format!("timed AutoMix {mode_name} analysis failed: {error}"))?;
         samples.push(ns_per_work(start, 1));
         valid &= analysis.version == 3
             && analysis.mode == mode
@@ -666,9 +668,8 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         report_database(database.batch_upsert(&records))?;
         let start = Instant::now();
         for iteration in 0..operation_iterations {
-            let record =
-                report_database(database.get(&records[iteration % records.len()].file_path))?
-                    .ok_or_else(|| "seeded LoudnessDatabase row was not found".to_string())?;
+            let record = report_database(database.get(&records[iteration % records.len()].source))?
+                .ok_or_else(|| "seeded LoudnessDatabase row was not found".to_string())?;
             get_checksum += record.integrated_lufs;
             black_box(record);
         }
@@ -755,8 +756,11 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
 fn database_records(rows: usize) -> Vec<TrackLoudness> {
     (0..rows)
         .map(|index| {
+            let location =
+                MediaLocation::http(format!("https://benchmark.invalid/audio/{index:05}.flac"))
+                    .expect("benchmark URL must be valid");
             TrackLoudness::new(
-                &format!("https://benchmark.invalid/audio/{index:05}.flac"),
+                &location,
                 -24.0 + (index % 11) as f64 * 0.5,
                 -3.0 + (index % 5) as f64 * 0.1,
                 Some(4.0 + (index % 7) as f64 * 0.2),
