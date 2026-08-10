@@ -470,6 +470,7 @@ mod tests {
         .expect("test client");
         let response = get(&client, &url, &address_policy)
             .expect("trusted request")
+            .basic_auth("alice", Some("secret"))
             .send()
             .expect("same-origin redirect");
         assert!(response.status().is_success());
@@ -477,6 +478,10 @@ mod tests {
         let second = request_rx.recv().expect("redirected request");
         assert!(first.starts_with(b"GET /audio.flac "));
         assert!(second.starts_with(b"GET /redirected.flac "));
+        let first_text = String::from_utf8_lossy(&first).to_ascii_lowercase();
+        let second_text = String::from_utf8_lossy(&second).to_ascii_lowercase();
+        assert!(first_text.contains("authorization: basic "));
+        assert!(second_text.contains("authorization: basic "));
         handle.join().expect("trusted redirect server completed");
     }
 
@@ -529,6 +534,7 @@ mod tests {
         let url = format!("http://localhost:{}/audio.flac", address.port());
         let result = get(&client, &url, &HttpAddressPolicy::public_only())
             .expect("validated initial request")
+            .basic_auth("alice", Some("secret"))
             .send()
             .map_err(NetworkError::from);
         assert!(
@@ -537,6 +543,8 @@ mod tests {
         );
         let request = request_rx.recv().expect("captured initial request");
         assert!(request.starts_with(b"GET "));
+        let request_text = String::from_utf8_lossy(&request).to_ascii_lowercase();
+        assert!(request_text.contains("authorization: basic "));
         assert!(
             request_rx.try_recv().is_err(),
             "client attempted a request after the rejected redirect"
