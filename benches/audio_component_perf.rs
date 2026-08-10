@@ -382,12 +382,15 @@ fn benchmark_loudness(
     let mut samples = Vec::with_capacity(trials);
     let mut checksum = 0.0;
     for _ in 0..trials {
-        let mut meter = LoudnessMeter::new(channels, SAMPLE_RATE_HZ);
-        meter.process(&input);
+        let mut meter =
+            LoudnessMeter::new(channels, SAMPLE_RATE_HZ).map_err(|error| error.to_string())?;
+        meter.process(&input).map_err(|error| error.to_string())?;
         let before = meter.samples_processed();
         let start = Instant::now();
         for _ in 0..iterations {
-            meter.process(black_box(&input));
+            meter
+                .process(black_box(&input))
+                .map_err(|error| error.to_string())?;
         }
         samples.push(ns_per_work(start, iterations * input.len()));
         let expected_frames = frames as u64 * iterations as u64;
@@ -397,9 +400,12 @@ fn benchmark_loudness(
         checksum += meter.integrated_loudness() + meter.true_peak();
         black_box(&meter);
     }
-    let mut validation_meter = LoudnessMeter::new(channels, SAMPLE_RATE_HZ);
+    let mut validation_meter =
+        LoudnessMeter::new(channels, SAMPLE_RATE_HZ).map_err(|error| error.to_string())?;
     for _ in 0..48 {
-        validation_meter.process(&input);
+        validation_meter
+            .process(&input)
+            .map_err(|error| error.to_string())?;
     }
     let validation_values = [
         validation_meter.integrated_loudness(),

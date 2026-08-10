@@ -15,6 +15,7 @@ use atomic_float::AtomicF64;
 
 use crate::config::NormalizationMode;
 use crate::processor::dsp::db_to_linear;
+use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
 
 use super::info::LoudnessInfo;
 
@@ -22,30 +23,34 @@ use super::info::LoudnessInfo;
 /// Uses AtomicF64 with Relaxed ordering (gains don't need strict synchronization).
 pub struct AtomicLoudnessState {
     /// Target gain in dB (set by main thread, read by audio thread)
-    pub target_gain_db: AtomicF64,
+    target_gain_db: AtomicF64,
     /// Current smoothed gain in dB (updated by audio thread)
-    pub current_gain_db: AtomicF64,
+    current_gain_db: AtomicF64,
     /// Smoothing coefficient per sample (< 1.0, for multiplication)
-    pub smoothing_coeff: AtomicF64,
+    smoothing_coeff: AtomicF64,
     /// Album gain for Album mode (same for all tracks in album)
-    pub album_gain_db: AtomicF64,
+    album_gain_db: AtomicF64,
     /// Preamp gain for headroom adjustment (default -3 dB)
-    pub preamp_gain_db: AtomicF64,
+    preamp_gain_db: AtomicF64,
     /// Enable/disable normalization
-    pub enabled: AtomicBool,
+    enabled: AtomicBool,
     /// Normalization mode: 0=Track, 1=Album, 2=Streaming,
     /// 3=ReplayGainTrack, 4=ReplayGainAlbum.
-    pub mode: AtomicU8,
+    mode: AtomicU8,
 }
 
 impl AtomicLoudnessState {
-    pub fn new(smoothing_time_ms: f64, sample_rate: u32) -> Self {
-        let smoothing_coeff = {
-            let smoothing_samples = (smoothing_time_ms / 1000.0) * sample_rate as f64;
-            (-1.0 / smoothing_samples).exp()
-        };
+    pub fn new(smoothing_time_ms: f64, sample_rate: u32) -> Result<Self, ProcessError> {
+        validate_sample_rate_hz("AtomicLoudnessState", sample_rate)?;
+        let smoothing_coeff = smoothing_coefficient(smoothing_time_ms, sample_rate).ok_or(
+            ProcessError::InvalidParameter {
+                processor: "AtomicLoudnessState",
+                parameter: "smoothing time",
+                message: "value must be finite and non-negative",
+            },
+        )?;
 
-        Self {
+        Ok(Self {
             target_gain_db: AtomicF64::new(0.0),
             current_gain_db: AtomicF64::new(0.0),
             smoothing_coeff: AtomicF64::new(smoothing_coeff),
@@ -53,40 +58,37 @@ impl AtomicLoudnessState {
             preamp_gain_db: AtomicF64::new(-1.0), // Reduced headroom for better dynamics
             enabled: AtomicBool::new(true),
             mode: AtomicU8::new(0),
-        }
+        })
     }
 
     /// Set target gain.
     ///
-    /// H-2 fix: Guards against NaN/Infinity values that could propagate through the
-    /// audio path and produce corrupted output by coercing them to 0 dB (no gain).
-    /// This is reachable from the audio thread in streaming mode
-    /// (`LoudnessNormalizer::process`), so the non-finite branch must stay
-    /// allocation- and log-free; non-realtime callers that want to report invalid
-    /// loudness (e.g. `analyze_track`) log it on their own path.
+    /// Non-finite input is rejected and the previous valid value is retained.
+    /// This is reachable from the audio thread, so the rejection path remains
+    /// allocation- and log-free.
     pub fn set_target_gain(&self, gain_db: f64) {
-        let value = if gain_db.is_finite() { gain_db } else { 0.0 };
-        self.target_gain_db.store(value, Ordering::Relaxed);
+        if gain_db.is_finite() {
+            self.target_gain_db.store(gain_db, Ordering::Relaxed);
+        }
     }
 
     /// Set album gain (call from main thread)
     pub fn set_album_gain(&self, gain_db: f64) {
-        self.album_gain_db.store(gain_db, Ordering::Relaxed);
+        if gain_db.is_finite() {
+            self.album_gain_db.store(gain_db, Ordering::Relaxed);
+        }
     }
 
     /// Set preamp gain in dB (call from main thread)
     pub fn set_preamp_gain(&self, gain_db: f64) {
-        self.preamp_gain_db.store(gain_db, Ordering::Relaxed);
+        if gain_db.is_finite() {
+            self.preamp_gain_db.store(gain_db, Ordering::Relaxed);
+        }
     }
 
     /// Set enabled state
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    /// Set mode: 0=Track, 1=Album, 2=Streaming, 3=ReplayGainTrack, 4=ReplayGainAlbum
-    pub fn set_mode(&self, mode: u8) {
-        self.mode.store(mode, Ordering::Relaxed);
     }
 
     /// Publish a typed normalization mode without exposing its atomic encoding.
@@ -98,7 +100,7 @@ impl AtomicLoudnessState {
             NormalizationMode::ReplayGainTrack => 3,
             NormalizationMode::ReplayGainAlbum => 4,
         };
-        self.set_mode(value);
+        self.mode.store(value, Ordering::Relaxed);
     }
 
     /// Get normalization mode as enum
@@ -115,9 +117,45 @@ impl AtomicLoudnessState {
 
     /// Update smoothing coefficient
     pub fn set_smoothing(&self, smoothing_time_ms: f64, sample_rate: u32) {
-        let smoothing_samples = (smoothing_time_ms / 1000.0) * sample_rate as f64;
-        let coeff = (-1.0 / smoothing_samples).exp();
-        self.smoothing_coeff.store(coeff, Ordering::Relaxed);
+        if let Some(coeff) = smoothing_coefficient(smoothing_time_ms, sample_rate) {
+            self.smoothing_coeff.store(coeff, Ordering::Relaxed);
+        }
+    }
+
+    /// Read-only target gain published to the callback.
+    pub fn target_gain_db(&self) -> f64 {
+        self.target_gain_db.load(Ordering::Relaxed)
+    }
+
+    /// Read-only current smoothed gain.
+    pub fn current_gain_db(&self) -> f64 {
+        self.current_gain_db.load(Ordering::Relaxed)
+    }
+
+    /// Read-only smoothing coefficient.
+    pub fn smoothing_coefficient(&self) -> f64 {
+        self.smoothing_coeff.load(Ordering::Relaxed)
+    }
+
+    /// Read-only album gain.
+    pub fn album_gain_db(&self) -> f64 {
+        self.album_gain_db.load(Ordering::Relaxed)
+    }
+
+    /// Read-only preamp gain.
+    pub fn preamp_gain_db(&self) -> f64 {
+        self.preamp_gain_db.load(Ordering::Relaxed)
+    }
+
+    /// Read-only enablement flag.
+    pub fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Reset the callback-owned gain history for a new track.
+    pub(crate) fn reset_gain(&self) {
+        self.target_gain_db.store(0.0, Ordering::Relaxed);
+        self.current_gain_db.store(0.0, Ordering::Relaxed);
     }
 
     /// Process gain for a chunk (call from audio thread - lock-free)
@@ -131,7 +169,7 @@ impl AtomicLoudnessState {
     /// self-corrects on the next call.
     #[inline]
     pub fn process_gain(&self, frames: usize) -> f64 {
-        if !self.enabled.load(Ordering::Relaxed) {
+        if !self.enabled() {
             return 1.0;
         }
 
@@ -173,15 +211,95 @@ impl AtomicLoudnessState {
             momentary_lufs: -70.0,
             loudness_range: 0.0,
             true_peak_dbtp: -70.0,
-            current_gain_db: self.current_gain_db.load(Ordering::Relaxed),
-            target_gain_db: self.target_gain_db.load(Ordering::Relaxed),
-            preamp_db: self.preamp_gain_db.load(Ordering::Relaxed),
+            current_gain_db: self.current_gain_db(),
+            target_gain_db: self.target_gain_db(),
+            preamp_db: self.preamp_gain_db(),
         }
     }
 }
 
 impl Default for AtomicLoudnessState {
     fn default() -> Self {
-        Self::new(200.0, 44100)
+        Self::new(200.0, 44_100).expect("default loudness state configuration is valid")
+    }
+}
+
+fn smoothing_coefficient(smoothing_time_ms: f64, sample_rate: u32) -> Option<f64> {
+    if sample_rate == 0 || !smoothing_time_ms.is_finite() || smoothing_time_ms < 0.0 {
+        return None;
+    }
+    if smoothing_time_ms == 0.0 {
+        return Some(0.0);
+    }
+
+    let smoothing_samples = (smoothing_time_ms / 1000.0) * sample_rate as f64;
+    let coefficient = (-1.0 / smoothing_samples).exp();
+    coefficient.is_finite().then_some(coefficient)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructor_rejects_invalid_smoothing_and_sample_rate() {
+        assert!(matches!(
+            AtomicLoudnessState::new(f64::NAN, 48_000),
+            Err(ProcessError::InvalidParameter {
+                processor: "AtomicLoudnessState",
+                parameter: "smoothing time",
+                ..
+            })
+        ));
+        assert!(matches!(
+            AtomicLoudnessState::new(-1.0, 48_000),
+            Err(ProcessError::InvalidParameter { .. })
+        ));
+        assert!(matches!(
+            AtomicLoudnessState::new(200.0, 0),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "AtomicLoudnessState",
+                sample_rate_hz: 0,
+            })
+        ));
+        assert_eq!(
+            AtomicLoudnessState::new(0.0, 48_000)
+                .unwrap()
+                .smoothing_coefficient(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn invalid_atomic_writes_retain_previous_bits() {
+        let state = AtomicLoudnessState::new(200.0, 48_000).unwrap();
+        state.set_target_gain(3.5);
+        state.set_album_gain(-2.25);
+        state.set_preamp_gain(-1.5);
+        state.set_smoothing(100.0, 48_000);
+
+        let before = [
+            state.target_gain_db().to_bits(),
+            state.album_gain_db().to_bits(),
+            state.preamp_gain_db().to_bits(),
+            state.smoothing_coefficient().to_bits(),
+        ];
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            state.set_target_gain(value);
+            state.set_album_gain(value);
+            state.set_preamp_gain(value);
+            state.set_smoothing(value, 48_000);
+            state.set_smoothing(-1.0, 48_000);
+            state.set_smoothing(100.0, 0);
+        }
+
+        let after = [
+            state.target_gain_db().to_bits(),
+            state.album_gain_db().to_bits(),
+            state.preamp_gain_db().to_bits(),
+            state.smoothing_coefficient().to_bits(),
+        ];
+        assert_eq!(after, before);
     }
 }

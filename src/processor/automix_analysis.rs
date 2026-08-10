@@ -7,7 +7,7 @@
 use crate::decoder::{
     DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
 };
-use crate::processor::LoudnessMeter;
+use crate::processor::{LoudnessMeter, ProcessError};
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
@@ -98,6 +98,9 @@ pub enum AutomixError {
     /// Opening, seeking, or decoding the media source failed.
     #[error("AutoMix decoder operation failed")]
     Decoder(#[from] DecoderError),
+    /// EBU R128 construction or ingestion failed during analysis.
+    #[error("AutoMix loudness analysis failed")]
+    Loudness(#[from] ProcessError),
     /// A coarse decoder seek landed after the requested tail boundary.
     #[error(
         "AutoMix tail seek landed after planned frame {planned_frame}: realized frame {realized_frame}"
@@ -299,8 +302,8 @@ impl SegmentAnalyzer {
         samples: &[f64],
         meter: &mut LoudnessMeter,
         segment: &mut AnalysisSegment,
-    ) {
-        meter.process(samples);
+    ) -> Result<(), ProcessError> {
+        meter.process(samples)?;
 
         for frame in samples.chunks_exact(self.channels) {
             let mono = (frame.iter().sum::<f64>() / self.channels as f64) as f32;
@@ -326,6 +329,7 @@ impl SegmentAnalyzer {
             }
             segment.frames_analyzed += 1;
         }
+        Ok(())
     }
 }
 
@@ -408,7 +412,7 @@ pub fn analyze_automix_with_cancel(
         .unwrap_or(1)
         .max(1);
     let plan = AnalysisWindowPlan::new(options.mode, track_frames, window_frames);
-    let mut meter = LoudnessMeter::new(channels, sample_rate);
+    let mut meter = LoudnessMeter::new(channels, sample_rate)?;
     let mut head = AnalysisSegment::at(plan.head.start_time(sample_rate));
     let mut tail = AnalysisSegment::default();
 
@@ -486,7 +490,7 @@ fn decode_segment(
         };
         let sample_range = frame_range.start * channels..frame_range.end * channels;
         let selected_frames = (frame_range.end - frame_range.start) as u64;
-        analyzer.process(&chunk[sample_range], meter, segment);
+        analyzer.process(&chunk[sample_range], meter, segment)?;
         take_remaining -= selected_frames;
     }
 
@@ -1097,7 +1101,7 @@ mod tests {
     }
 
     fn empty_analysis_with_flux(sample_rate: u32, flux: Vec<f32>) -> AutomixAnalysis {
-        let meter = LoudnessMeter::new(2, sample_rate);
+        let meter = LoudnessMeter::new(2, sample_rate).unwrap();
         let head = AnalysisSegment {
             spectral_flux: flux,
             ..AnalysisSegment::default()
@@ -1183,9 +1187,11 @@ mod tests {
         assert_eq!(selected[0], packet[128 * channels]);
         assert_eq!(selected[selected.len() - 1], packet[1_152 * channels - 1]);
 
-        let mut meter = LoudnessMeter::new(channels, sample_rate);
+        let mut meter = LoudnessMeter::new(channels, sample_rate).unwrap();
         let mut segment = AnalysisSegment::default();
-        SegmentAnalyzer::new(sample_rate, channels).process(selected, &mut meter, &mut segment);
+        SegmentAnalyzer::new(sample_rate, channels)
+            .process(selected, &mut meter, &mut segment)
+            .unwrap();
 
         assert_eq!(meter.samples_processed(), 1_024);
         assert_eq!(segment.frames_analyzed, 1_024);
@@ -1198,7 +1204,7 @@ mod tests {
     #[test]
     fn segment_start_time_is_the_single_tail_timeline_origin() {
         let sample_rate = 8_000;
-        let meter = LoudnessMeter::new(1, sample_rate);
+        let meter = LoudnessMeter::new(1, sample_rate).unwrap();
         let head = AnalysisSegment {
             frames_analyzed: 5 * u64::from(sample_rate),
             envelope: vec![0.25; 250],
@@ -1256,7 +1262,7 @@ mod tests {
         assert!(is_plausible_duration(&MAX_DECLARED_DURATION_SEC));
 
         let sample_rate = 8_000;
-        let meter = LoudnessMeter::new(1, sample_rate);
+        let meter = LoudnessMeter::new(1, sample_rate).unwrap();
         let head = AnalysisSegment {
             frames_analyzed: 5 * u64::from(sample_rate),
             envelope: vec![0.25; 250],
@@ -1437,5 +1443,27 @@ mod tests {
             AutomixError::Decoder(DecoderError::FileOpen(_))
         ));
         assert!(std::error::Error::source(&error).is_some());
+    }
+
+    #[test]
+    fn analysis_preserves_loudness_process_error_source() {
+        let mut meter = LoudnessMeter::new(2, 48_000).unwrap();
+        let mut segment = AnalysisSegment::default();
+        let error = SegmentAnalyzer::new(48_000, 2)
+            .process(&[0.25, -0.25, 0.5], &mut meter, &mut segment)
+            .map_err(AutomixError::from)
+            .expect_err("incomplete interleaved frame must fail");
+
+        assert!(matches!(
+            error,
+            AutomixError::Loudness(ProcessError::InvalidBlock(
+                crate::processor::traits::AudioBlockError::IncompleteFrame {
+                    samples: 3,
+                    channels: 2,
+                }
+            ))
+        ));
+        assert_eq!(meter.samples_processed(), 0);
+        assert_eq!(segment.frames_analyzed, 0);
     }
 }
