@@ -3,7 +3,7 @@
   "name": "unify-parameter-validation-policy",
   "title": "Unify the parameter validation policy",
   "description": "1.0 gate 6 of 9. Audit P2-3: direct EQ, saturation, volume, FIR EQ, and limiter setters do not share the facade validation policy, LoudnessMeter can suppress initialization failure and still report a reliable measurement, and set_ref_volume_db can overwrite a concurrent partial update. One shared validated policy with private unchecked kernels.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

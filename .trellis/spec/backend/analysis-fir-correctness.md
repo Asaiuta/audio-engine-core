@@ -40,10 +40,13 @@ decode_segment(
     cancel_token: Option<&DecodeCancelToken>,
 ) -> Result<(), AutomixError>;
 
+LoudnessMeter::process(&mut self, samples: &[f64]) -> Result<(), ProcessError>
+
 #[non_exhaustive]
 pub enum AutomixError {
     Canceled,
     Decoder(DecoderError),
+    Loudness(ProcessError),
     TailSeekPastStart { planned_frame: u64, realized_frame: u64 },
 }
 
@@ -113,6 +116,9 @@ planned start is an error rather than permission to analyze the wrong interval.
 For every packet, apply leading skip and trailing take bounds once to the
 interleaved frame range; only that selected slice may reach `LoudnessMeter`,
 RMS/low/vocal envelopes, or spectral flux.
+`LoudnessMeter::process` is fallible: incomplete selected frames and EBU
+backend failures propagate as `AutomixError::Loudness(ProcessError)` rather
+than being truncated, logged, or converted to an apparently valid analysis.
 
 `AnalysisSegment.start_time` owns the absolute timeline origin. Silence,
 vocal, and energy-profile placement reuse it; they must not reconstruct a tail
@@ -180,6 +186,8 @@ overlap-save routing; absolute nanoseconds remain report-only.
 | Coarse seek lands before the tail start | Skip exact preroll frames before every metric |
 | Coarse seek reports a frame after the planned tail start | Return a named analysis error; do not shift the interval silently |
 | Decoder packet crosses a skip/take boundary | Slice once, then give every metric the identical selected frames |
+| Selected loudness slice is incomplete | `AutomixError::Loudness(ProcessError::InvalidBlock(_))` before meter state changes |
+| EBU R128 setup or ingestion fails | `AutomixError::Loudness(ProcessError::Backend { .. })`; do not return partial loudness |
 | One tap, flat 0 dB | Exact finite unit impulse |
 | One tap, uniform +/-6 dB | Scalar error `<= 1e-12` against `10^(g/20)` |
 | Multi-tap uniform +/-6 dB | Response error `<= 1e-9 dB` at representative probes |
@@ -223,6 +231,9 @@ overlap-save routing; absolute nanoseconds remain report-only.
 * Packet-boundary tests place both leading skip and trailing take inside one
   packet and assert loudness frame count plus every feature accumulator count
   describe the selected slice.
+* Meter construction and processing failures are matched by typed variant;
+  AutoMix tests assert no partial metric result is returned and the nested
+  `ProcessError` class is preserved.
 * End-to-end PCM WAV fixtures at just above one window, exactly two windows,
   and above two windows contain a known final silent suffix and assert absolute
   fade-out, cut-out, and mix-center positions. A separate segment-origin test
@@ -247,7 +258,7 @@ let tempo = detect_bpm(&head.spectral_flux, ENVELOPE_RATE);
 if duration > 2.0 * window {
     decoder.seek(duration - window)?; // skips valid shorter tails
 }
-meter.process(&packet); // other metrics later truncate this packet
+meter.process(&packet)?; // selected geometry/backend errors stay typed
 let tail_start = duration - tail.envelope.len() as f64 / ENVELOPE_RATE;
 
 // Erases a uniform requested gain.

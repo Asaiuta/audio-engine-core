@@ -27,8 +27,15 @@ Relevant signatures include:
 
 ```rust
 LoudnessNormalizer::set_config(&mut self, config: LoudnessConfig)
+    -> Result<(), ProcessError>
 LoudnessNormalizer::set_enabled(&mut self, enabled: bool)
 LoudnessNormalizer::set_mode(&mut self, mode: NormalizationMode)
+LoudnessNormalizer::set_target_lufs(&mut self, target_lufs: f64)
+    -> Result<(), ProcessError>
+LoudnessNormalizer::set_album_gain(&self, gain_db: f64)
+    -> Result<(), ProcessError>
+LoudnessNormalizer::set_preamp_gain(&self, gain_db: f64)
+    -> Result<(), ProcessError>
 AtomicLoudnessState::set_normalization_mode(&self, mode: NormalizationMode)
 
 DynamicLoudness::set_sample_rate(&mut self, sample_rate: f64)
@@ -79,11 +86,16 @@ policy.
 ### Config publication
 
 `LoudnessNormalizer` stores `LoudnessConfig` and publishes callback state. Its
-constructor and `set_config` publish both `enabled` and all five
-`NormalizationMode` values; explicit `set_enabled` and `set_mode` update both
-the stored config and the atomic runtime state. Mode encoding is centralized in
+constructor and `set_config` validate every config field before mutation, then
+publish both `enabled` and all five `NormalizationMode` values; a rejected
+configuration leaves the stored config, limiter threshold, meter, gain state,
+and atomic snapshot unchanged. Explicit `set_enabled` and `set_mode` update
+both the stored config and the atomic runtime state. Target LUFS, album gain,
+and preamp gain setters reject non-finite values with `ProcessError` before
+publishing. Mode encoding is centralized in
 `AtomicLoudnessState::set_normalization_mode` rather than duplicated at call
-sites.
+sites. `AtomicLoudnessState` keeps its writable atomics private, exposes stable
+read-only accessors, and has no public raw numeric mode setter.
 
 ### RBJ shelf equations
 
@@ -212,6 +224,11 @@ and panic-free.
 | Coefficients change on one continuing branch | Destination history may be retained only by explicit policy |
 | Constructor or `set_config` receives `enabled=false` | Atomic state is disabled and processing transparently bypasses |
 | Any of the five normalization modes is configured | Atomic round-trip returns the identical enum value |
+| `LoudnessConfig`, target LUFS, album gain, or preamp gain is non-finite | `ProcessError::InvalidParameter` before any owner or atomic state mutation |
+| `LoudnessConfig` contains invalid smoothing time/rate or true-peak limit | `ProcessError` before construction/reconfiguration; prior config and limiter remain intact |
+| Atomic loudness gain receives NaN or infinity | No publication; prior atomic bits remain unchanged |
+| Atomic loudness smoothing receives a negative/non-finite time or zero rate | No publication; prior smoothing bits remain unchanged; zero duration is valid |
+| Caller attempts raw numeric loudness mode publication | No public setter exists; enum-only `set_normalization_mode` is the boundary |
 | Shelf coefficient contains another `sin(w0)` factor | Reject in review; RBJ coefficient/response tests must fail |
 | Adapter sample rate is zero | `ProcessError::InvalidSampleRate` before mutation |
 | Valid dynamic-loudness sample-rate change | Controls/smoothers preserved; filter history zeroed; coefficients rebuilt |
@@ -263,6 +280,12 @@ and panic-free.
 * Transition completion has an `assert_no_alloc` regression test.
 * Loudness config tests cover `enabled=false`, transparent bypass, constructor
   publication, `set_config`, explicit setters, and all five modes.
+* Rejected config and target/album/preamp writes assert the exact typed error
+  and bit-identical stored config, limiter threshold, gain state, and atomic
+  snapshot against a separately configured reference instance.
+* Atomic loudness tests cover NaN/infinity gains, invalid smoothing, zero
+  smoothing, and attempted raw mode writes; every rejected write preserves the
+  previous bit pattern.
 * Low/high shelves cover representative rates, positive/negative gains, and
   frequencies with coefficient error `<= 1e-12` and analytical response error
   `<= 1e-9 dB` against the RBJ/W3C oracle.

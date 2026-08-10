@@ -25,6 +25,10 @@ processor boundary.
 ```rust
 LoudnessDatabase::open(path) -> Result<LoudnessDatabase, LoudnessDatabaseError>
 analyze_automix(...) -> Result<AutomixAnalysis, AutomixError>
+LoudnessMeter::new(channels, sample_rate_hz) -> Result<LoudnessMeter, ProcessError>
+LoudnessMeter::with_layout(layout, sample_rate_hz)
+    -> Result<LoudnessMeter, ProcessError>
+LoudnessMeter::process(&mut self, samples: &[f64]) -> Result<(), ProcessError>
 StreamingResampler::with_quality(...) -> Result<StreamingResampler, ResamplerError>
 MediaLocation::http(input) -> Result<MediaLocation, MediaLocationError>
 
@@ -32,6 +36,7 @@ MediaLocation::http(input) -> Result<MediaLocation, MediaLocationError>
 pub enum AutomixError {
     Canceled,
     Decoder(DecoderError),
+    Loudness(ProcessError),
     TailSeekPastStart { planned_frame: u64, realized_frame: u64 },
 }
 ```
@@ -56,6 +61,13 @@ the facade maps them to the public boundary.
   variants when the third-party API exposes no stable class.
 - Callback-facing backend errors carry `&'static str`; constructing a `String`
   on process/finish is forbidden by the realtime allocation contract.
+- EBU R128 construction, channel-map configuration, and frame ingestion are
+  mapped at the loudness boundary to static `ProcessError::Backend` or
+  `ProcessError::InvalidGeometry` diagnostics. The `ebur128` dependency error
+  text is never exposed as control flow.
+- AutoMix preserves those failures as `AutomixError::Loudness(ProcessError)`;
+  callers can distinguish decoder failure from measurement failure without
+  parsing display text.
 
 ### 4. Validation & Error Matrix
 
@@ -69,6 +81,9 @@ the facade maps them to the public boundary.
 | Loudness connection mutex is poisoned | `LoudnessDatabaseError::LockPoisoned` |
 | Resampler facade geometry/capacity fails | Structured `ResamplerError` geometry/capacity variant |
 | Backend process fails on the callback path | Allocation-free `ProcessError::Backend` with static diagnostic |
+| EBU R128 setup/channel-map fails | `ProcessError::Backend` or `ProcessError::InvalidGeometry`; no usable meter is returned |
+| EBU R128 rejects an input block | `ProcessError::Backend`; caller-visible meter state is not advanced |
+| AutoMix meter setup/processing fails | `AutomixError::Loudness(ProcessError)` preserving the typed class |
 | HTTP media text is malformed | `MediaLocationError::InvalidUrl` with parse source |
 | Media URL uses a non-HTTP scheme | `MediaLocationError::UnsupportedScheme` |
 | HTTP media URL has no host | `MediaLocationError::MissingHost` |
@@ -92,6 +107,8 @@ the facade maps them to the public boundary.
   and backend mappings compile.
 - Keep process/finish failure probes inside `assert_no_alloc` where they are
   callback-reachable.
+- Match loudness setup, geometry, and ingestion failures by typed variant and
+  assert AutoMix preserves the nested `ProcessError` class.
 
 ### 7. Wrong vs Correct
 
@@ -109,6 +126,8 @@ decoder.seek(position)?;
 match error {
     AutomixError::Canceled => cancel_work(),
     AutomixError::Decoder(source) => report_decoder(source),
+    AutomixError::Loudness(ProcessError::InvalidBlock(_)) => report_bad_audio(),
+    AutomixError::Loudness(ProcessError::Backend { .. }) => report_meter_backend(),
     other => report_analysis(other),
 }
 ```

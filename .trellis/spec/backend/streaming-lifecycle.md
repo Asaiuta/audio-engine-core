@@ -99,6 +99,14 @@ LoudnessNormalizer::new(channels: usize, sample_rate_hz: u32, config: LoudnessCo
 LoudnessNormalizer::process(&mut self, samples: &mut [f64], channels: usize)
     -> Result<(), ProcessError>
 
+LoudnessMeter::new(channels: usize, sample_rate_hz: u32)
+    -> Result<LoudnessMeter, ProcessError>
+LoudnessMeter::with_layout(layout: &ChannelLayout, sample_rate_hz: u32)
+    -> Result<LoudnessMeter, ProcessError>
+LoudnessMeter::process(&mut self, samples: &[f64])
+    -> Result<(), ProcessError>
+LoudnessMeter::has_reliable_measurement(&self) -> bool
+
 SpectrumAnalyzer::new(fft_size: usize, num_bins: usize)
     -> Result<SpectrumAnalyzer, ProcessError>
 SpectrumAnalyzer::analyze(&mut self, samples: &[f64], sample_rate_hz: u32)
@@ -262,6 +270,15 @@ pub struct RenderedOutput {
 * All callback-facing process/finish implementations obey
   `realtime-safety.md`: no alloc/dealloc, locks, logging, I/O, panics, or
   unbounded work.
+* `LoudnessMeter` owns a concrete EBU R128 backend. Construction and explicit
+  channel-map setup are fallible; a failed backend is never represented by a
+  usable placeholder meter. Its steady-state `process` call validates an
+  `AudioBlockRef` before backend mutation, maps ingestion failures to the
+  allocation-free `ProcessError::Backend` variant, and performs no logging or
+  allocation after setup.
+* A meter is reliable only after successful construction and at least one
+  successfully consumed 400 ms momentary window. Cached readings before that
+  point are not a successful measurement.
 
 ## 4. Validation & Error Matrix
 
@@ -293,6 +310,12 @@ pub struct RenderedOutput {
 | silence hold is zero or exceeds maximum tail | `ProcessError::InvalidRenderPolicy` |
 | finite finish does not terminate inside its declared bound | `ProcessError::Backend` |
 | `FFTConvolver::new` receives zero channels, empty IR, or an incomplete interleaved frame | typed `ProcessError`; never panic |
+| `LoudnessMeter` receives zero channels or a zero sample rate | `ProcessError::InvalidBlock`/`InvalidSampleRate` before backend setup |
+| EBU R128 construction or channel-map setup rejects the requested geometry | static `ProcessError::Backend`/`InvalidGeometry`; no meter is returned |
+| `LoudnessMeter::process` receives an incomplete interleaved frame | `ProcessError::InvalidBlock(AudioBlockError::IncompleteFrame)` before EBU state or counters change |
+| EBU R128 rejects an otherwise valid audio block | allocation-free `ProcessError::Backend`; cached metrics and frame counters are not advanced |
+| fewer than 400 ms has been successfully consumed | `has_reliable_measurement() == false` |
+| at least 400 ms has been successfully consumed | `has_reliable_measurement() == true` |
 | offline block size is zero | `ProcessError::InvalidRenderPolicy` or another named typed validation error before processing |
 | unknown/infinite finish reaches its maximum | successful output with `tail_truncated = true` |
 | hot-path native error | allocation-free `ProcessError::Backend` |
@@ -348,6 +371,9 @@ pub struct RenderedOutput {
 * No-allocation tests cover in-place, out-of-place, and callback-facing finish
   after setup.
 * Every exported raw geometry-dependent constructor covers zero channels/rate.
+* Loudness meter tests cover invalid geometry, explicit-layout setup failures,
+  incomplete-frame rejection before mutation, typed backend error mapping,
+  400 ms reliability gating, and steady-state `assert_no_alloc` processing.
   Every raw process shell covers zero channels, incomplete frames, and fixed
   channel mismatch where applicable. Rejection tests assert unchanged samples
   plus representative algorithm state, and execute error paths under
