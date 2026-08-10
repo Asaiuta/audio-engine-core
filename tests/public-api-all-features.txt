@@ -1806,6 +1806,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
+pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -2197,11 +2199,14 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysis
 #[non_exhaustive] pub enum audio_engine_core::processor::AutomixError
 pub audio_engine_core::processor::AutomixError::Canceled
 pub audio_engine_core::processor::AutomixError::Decoder(audio_engine_core::decoder::DecoderError)
+pub audio_engine_core::processor::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
 pub audio_engine_core::processor::AutomixError::TailSeekPastStart
 pub audio_engine_core::processor::AutomixError::TailSeekPastStart::planned_frame: u64
 pub audio_engine_core::processor::AutomixError::TailSeekPastStart::realized_frame: u64
 impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
 pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
+pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::error::Error for audio_engine_core::AutomixError
 pub fn audio_engine_core::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Debug for audio_engine_core::AutomixError
@@ -2539,6 +2544,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
+pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -2912,25 +2919,23 @@ impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
 pub struct audio_engine_core::processor::AtomicLoudnessState
-pub audio_engine_core::processor::AtomicLoudnessState::album_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::processor::AtomicLoudnessState::current_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::processor::AtomicLoudnessState::enabled: core::sync::atomic::AtomicBool
-pub audio_engine_core::processor::AtomicLoudnessState::mode: core::sync::atomic::AtomicU8
-pub audio_engine_core::processor::AtomicLoudnessState::preamp_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::processor::AtomicLoudnessState::smoothing_coeff: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::processor::AtomicLoudnessState::target_gain_db: atomic_float::atomic_f64::AtomicF64
 impl audio_engine_core::AtomicLoudnessState
+pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::current_gain_db(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::enabled(&self) -> bool
 pub fn audio_engine_core::AtomicLoudnessState::get_info(&self) -> audio_engine_core::LoudnessInfo
 pub fn audio_engine_core::AtomicLoudnessState::get_mode(&self) -> audio_engine_core::config::NormalizationMode
-pub fn audio_engine_core::AtomicLoudnessState::new(f64, u32) -> Self
+pub fn audio_engine_core::AtomicLoudnessState::new(f64, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::AtomicLoudnessState::preamp_gain_db(&self) -> f64
 pub fn audio_engine_core::AtomicLoudnessState::process_gain(&self, usize) -> f64
 pub fn audio_engine_core::AtomicLoudnessState::set_album_gain(&self, f64)
 pub fn audio_engine_core::AtomicLoudnessState::set_enabled(&self, bool)
-pub fn audio_engine_core::AtomicLoudnessState::set_mode(&self, u8)
 pub fn audio_engine_core::AtomicLoudnessState::set_normalization_mode(&self, audio_engine_core::config::NormalizationMode)
 pub fn audio_engine_core::AtomicLoudnessState::set_preamp_gain(&self, f64)
 pub fn audio_engine_core::AtomicLoudnessState::set_smoothing(&self, f64, u32)
 pub fn audio_engine_core::AtomicLoudnessState::set_target_gain(&self, f64)
+pub fn audio_engine_core::AtomicLoudnessState::smoothing_coefficient(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::target_gain_db(&self) -> f64
 impl core::default::Default for audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::default() -> Self
 impl !core::marker::Freeze for audio_engine_core::AtomicLoudnessState
@@ -3614,16 +3619,15 @@ pub struct audio_engine_core::processor::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::is_available(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::momentary_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> Self
-pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64])
+pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessMeter::reset(&mut self)
 pub fn audio_engine_core::LoudnessMeter::samples_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::short_term_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::true_peak(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> Self
+pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::LoudnessMeter
 impl core::marker::Send for audio_engine_core::LoudnessMeter
 impl core::marker::Sync for audio_engine_core::LoudnessMeter
@@ -3633,21 +3637,21 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessMete
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
 pub struct audio_engine_core::processor::LoudnessNormalizer
 impl audio_engine_core::LoudnessNormalizer
-pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> f64
+pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::atomic_state(&self) -> alloc::sync::Arc<audio_engine_core::AtomicLoudnessState>
-pub fn audio_engine_core::LoudnessNormalizer::calculate_gain(&mut self, &[f64]) -> f64
-pub fn audio_engine_core::LoudnessNormalizer::calculate_gain_with_mode(&mut self, &[f64], audio_engine_core::config::NormalizationMode, &audio_engine_core::decoder::TrackMetadata) -> f64
+pub fn audio_engine_core::LoudnessNormalizer::calculate_gain(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::calculate_gain_with_mode(&mut self, &[f64], audio_engine_core::config::NormalizationMode, &audio_engine_core::decoder::TrackMetadata) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::get_loudness_info(&self) -> audio_engine_core::LoudnessInfo
 pub fn audio_engine_core::LoudnessNormalizer::is_analyzed(&self) -> bool
 pub fn audio_engine_core::LoudnessNormalizer::new(usize, u32, audio_engine_core::config::LoudnessConfig) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::reset(&mut self)
-pub fn audio_engine_core::LoudnessNormalizer::set_album_gain(&self, f64)
-pub fn audio_engine_core::LoudnessNormalizer::set_config(&mut self, audio_engine_core::config::LoudnessConfig)
+pub fn audio_engine_core::LoudnessNormalizer::set_album_gain(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::set_config(&mut self, audio_engine_core::config::LoudnessConfig) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::set_enabled(&mut self, bool)
 pub fn audio_engine_core::LoudnessNormalizer::set_mode(&mut self, audio_engine_core::config::NormalizationMode)
-pub fn audio_engine_core::LoudnessNormalizer::set_preamp_gain(&self, f64)
-pub fn audio_engine_core::LoudnessNormalizer::set_target_lufs(&mut self, f64)
+pub fn audio_engine_core::LoudnessNormalizer::set_preamp_gain(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::set_target_lufs(&mut self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::track_loudness(&self) -> core::option::Option<f64>
 impl core::marker::Freeze for audio_engine_core::LoudnessNormalizer
 impl core::marker::Send for audio_engine_core::LoudnessNormalizer
@@ -4531,11 +4535,14 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysis
 #[non_exhaustive] pub enum audio_engine_core::AutomixError
 pub audio_engine_core::AutomixError::Canceled
 pub audio_engine_core::AutomixError::Decoder(audio_engine_core::decoder::DecoderError)
+pub audio_engine_core::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
 pub audio_engine_core::AutomixError::TailSeekPastStart
 pub audio_engine_core::AutomixError::TailSeekPastStart::planned_frame: u64
 pub audio_engine_core::AutomixError::TailSeekPastStart::realized_frame: u64
 impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
 pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
+pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::error::Error for audio_engine_core::AutomixError
 pub fn audio_engine_core::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Debug for audio_engine_core::AutomixError
@@ -4972,6 +4979,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
+pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -5097,25 +5106,23 @@ impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingE
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
 pub struct audio_engine_core::AtomicLoudnessState
-pub audio_engine_core::AtomicLoudnessState::album_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::AtomicLoudnessState::current_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::AtomicLoudnessState::enabled: core::sync::atomic::AtomicBool
-pub audio_engine_core::AtomicLoudnessState::mode: core::sync::atomic::AtomicU8
-pub audio_engine_core::AtomicLoudnessState::preamp_gain_db: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::AtomicLoudnessState::smoothing_coeff: atomic_float::atomic_f64::AtomicF64
-pub audio_engine_core::AtomicLoudnessState::target_gain_db: atomic_float::atomic_f64::AtomicF64
 impl audio_engine_core::AtomicLoudnessState
+pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::current_gain_db(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::enabled(&self) -> bool
 pub fn audio_engine_core::AtomicLoudnessState::get_info(&self) -> audio_engine_core::LoudnessInfo
 pub fn audio_engine_core::AtomicLoudnessState::get_mode(&self) -> audio_engine_core::config::NormalizationMode
-pub fn audio_engine_core::AtomicLoudnessState::new(f64, u32) -> Self
+pub fn audio_engine_core::AtomicLoudnessState::new(f64, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::AtomicLoudnessState::preamp_gain_db(&self) -> f64
 pub fn audio_engine_core::AtomicLoudnessState::process_gain(&self, usize) -> f64
 pub fn audio_engine_core::AtomicLoudnessState::set_album_gain(&self, f64)
 pub fn audio_engine_core::AtomicLoudnessState::set_enabled(&self, bool)
-pub fn audio_engine_core::AtomicLoudnessState::set_mode(&self, u8)
 pub fn audio_engine_core::AtomicLoudnessState::set_normalization_mode(&self, audio_engine_core::config::NormalizationMode)
 pub fn audio_engine_core::AtomicLoudnessState::set_preamp_gain(&self, f64)
 pub fn audio_engine_core::AtomicLoudnessState::set_smoothing(&self, f64, u32)
 pub fn audio_engine_core::AtomicLoudnessState::set_target_gain(&self, f64)
+pub fn audio_engine_core::AtomicLoudnessState::smoothing_coefficient(&self) -> f64
+pub fn audio_engine_core::AtomicLoudnessState::target_gain_db(&self) -> f64
 impl core::default::Default for audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::default() -> Self
 impl !core::marker::Freeze for audio_engine_core::AtomicLoudnessState
@@ -5594,16 +5601,15 @@ pub struct audio_engine_core::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::is_available(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::momentary_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> Self
-pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64])
+pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessMeter::reset(&mut self)
 pub fn audio_engine_core::LoudnessMeter::samples_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::short_term_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::true_peak(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> Self
+pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::LoudnessMeter
 impl core::marker::Send for audio_engine_core::LoudnessMeter
 impl core::marker::Sync for audio_engine_core::LoudnessMeter
@@ -5613,21 +5619,21 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessMete
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
 pub struct audio_engine_core::LoudnessNormalizer
 impl audio_engine_core::LoudnessNormalizer
-pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> f64
+pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::atomic_state(&self) -> alloc::sync::Arc<audio_engine_core::AtomicLoudnessState>
-pub fn audio_engine_core::LoudnessNormalizer::calculate_gain(&mut self, &[f64]) -> f64
-pub fn audio_engine_core::LoudnessNormalizer::calculate_gain_with_mode(&mut self, &[f64], audio_engine_core::config::NormalizationMode, &audio_engine_core::decoder::TrackMetadata) -> f64
+pub fn audio_engine_core::LoudnessNormalizer::calculate_gain(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::calculate_gain_with_mode(&mut self, &[f64], audio_engine_core::config::NormalizationMode, &audio_engine_core::decoder::TrackMetadata) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::get_loudness_info(&self) -> audio_engine_core::LoudnessInfo
 pub fn audio_engine_core::LoudnessNormalizer::is_analyzed(&self) -> bool
 pub fn audio_engine_core::LoudnessNormalizer::new(usize, u32, audio_engine_core::config::LoudnessConfig) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::reset(&mut self)
-pub fn audio_engine_core::LoudnessNormalizer::set_album_gain(&self, f64)
-pub fn audio_engine_core::LoudnessNormalizer::set_config(&mut self, audio_engine_core::config::LoudnessConfig)
+pub fn audio_engine_core::LoudnessNormalizer::set_album_gain(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::set_config(&mut self, audio_engine_core::config::LoudnessConfig) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::set_enabled(&mut self, bool)
 pub fn audio_engine_core::LoudnessNormalizer::set_mode(&mut self, audio_engine_core::config::NormalizationMode)
-pub fn audio_engine_core::LoudnessNormalizer::set_preamp_gain(&self, f64)
-pub fn audio_engine_core::LoudnessNormalizer::set_target_lufs(&mut self, f64)
+pub fn audio_engine_core::LoudnessNormalizer::set_preamp_gain(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::LoudnessNormalizer::set_target_lufs(&mut self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::LoudnessNormalizer::track_loudness(&self) -> core::option::Option<f64>
 impl core::marker::Freeze for audio_engine_core::LoudnessNormalizer
 impl core::marker::Send for audio_engine_core::LoudnessNormalizer

@@ -1,12 +1,12 @@
 //! High-level loudness normalizer wiring meter, limiter, and atomic state.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::config::{LoudnessConfig, NormalizationMode};
+use crate::processor::lockfree_params::{LIMITER_THRESHOLD_DB_MAX, LIMITER_THRESHOLD_DB_MIN};
 use crate::processor::traits::{
     validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    ProcessError,
+    AudioBlockRef, ProcessError,
 };
 
 use super::atomic_state::AtomicLoudnessState;
@@ -38,19 +38,17 @@ impl LoudnessNormalizer {
     ) -> Result<Self, ProcessError> {
         validated_channel_count(channels)?;
         validate_sample_rate_hz("LoudnessNormalizer", sample_rate)?;
-        Ok(Self::new_validated(channels, sample_rate, config))
-    }
-
-    pub(crate) fn new_validated(channels: usize, sample_rate: u32, config: LoudnessConfig) -> Self {
+        validate_config(&config)?;
+        let meter = LoudnessMeter::new(channels, sample_rate)?;
         let atomic_state = Arc::new(AtomicLoudnessState::new(
             config.smoothing_time_ms,
             sample_rate,
-        ));
+        )?);
         atomic_state.set_enabled(config.enabled);
         atomic_state.set_normalization_mode(config.mode);
 
-        Self {
-            meter: LoudnessMeter::new(channels, sample_rate),
+        Ok(Self {
+            meter,
             limiter: PeakLimiter::new_validated(
                 channels,
                 sample_rate,
@@ -64,7 +62,7 @@ impl LoudnessNormalizer {
             track_gain: None,
             channels,
             sample_rate,
-        }
+        })
     }
 
     pub fn atomic_state(&self) -> Arc<AtomicLoudnessState> {
@@ -76,7 +74,12 @@ impl LoudnessNormalizer {
         self.atomic_state.set_enabled(enabled);
     }
 
-    pub fn set_config(&mut self, config: LoudnessConfig) {
+    pub fn set_config(&mut self, config: LoudnessConfig) -> Result<(), ProcessError> {
+        validate_config(&config)?;
+        if let Some(loudness) = self.track_loudness {
+            checked_gain(config.target_lufs - loudness, "target LUFS")?;
+        }
+
         self.limiter.set_threshold_db(config.true_peak_limit_db);
         self.atomic_state
             .set_smoothing(config.smoothing_time_ms, self.sample_rate);
@@ -89,23 +92,33 @@ impl LoudnessNormalizer {
             self.track_gain = Some(track_gain);
             self.atomic_state.set_target_gain(track_gain);
         }
+        Ok(())
     }
 
-    pub fn set_target_lufs(&mut self, target_lufs: f64) {
+    pub fn set_target_lufs(&mut self, target_lufs: f64) -> Result<(), ProcessError> {
+        validate_finite("target LUFS", target_lufs)?;
+        if let Some(loudness) = self.track_loudness {
+            checked_gain(target_lufs - loudness, "target LUFS")?;
+        }
         self.config.target_lufs = target_lufs;
         if let Some(loudness) = self.track_loudness {
             let track_gain = target_lufs - loudness;
             self.track_gain = Some(track_gain);
             self.atomic_state.set_target_gain(track_gain);
         }
+        Ok(())
     }
 
-    pub fn set_album_gain(&self, gain_db: f64) {
+    pub fn set_album_gain(&self, gain_db: f64) -> Result<(), ProcessError> {
+        validate_finite("album gain", gain_db)?;
         self.atomic_state.set_album_gain(gain_db);
+        Ok(())
     }
 
-    pub fn set_preamp_gain(&self, gain_db: f64) {
+    pub fn set_preamp_gain(&self, gain_db: f64) -> Result<(), ProcessError> {
+        validate_finite("preamp gain", gain_db)?;
         self.atomic_state.set_preamp_gain(gain_db);
+        Ok(())
     }
 
     pub fn set_mode(&mut self, mode: NormalizationMode) {
@@ -118,15 +131,16 @@ impl LoudnessNormalizer {
     /// FIX for Defect 39: Check loudness.is_finite() to prevent +inf gain
     /// when ebur128 returns -inf (silent or very short tracks <400ms).
     /// Invalid loudness values result in 0 dB gain (no normalization).
-    pub fn analyze_track(&mut self, samples: &[f64]) -> f64 {
+    pub fn analyze_track(&mut self, samples: &[f64]) -> Result<f64, ProcessError> {
+        AudioBlockRef::new(samples, self.channels)?;
         self.meter.reset();
-        self.meter.process(samples);
+        self.meter.process(samples)?;
         let loudness = self.meter.integrated_loudness();
 
         // FIX for Defect 39: Validate loudness before computing gain
         if loudness.is_finite() {
+            let gain_db = checked_gain(self.config.target_lufs - loudness, "target LUFS")?;
             self.track_loudness = Some(loudness);
-            let gain_db = self.config.target_lufs - loudness;
             self.track_gain = Some(gain_db);
             self.atomic_state.set_target_gain(gain_db);
 
@@ -148,7 +162,7 @@ impl LoudnessNormalizer {
             );
         }
 
-        loudness
+        Ok(loudness)
     }
 
     /// Calculate track gain without updating atomic state (for gapless preload)
@@ -157,9 +171,10 @@ impl LoudnessNormalizer {
     ///
     /// FIX for Defect 39: Check loudness.is_finite() to prevent +inf gain
     /// when ebur128 returns -inf (silent or very short tracks <400ms).
-    pub fn calculate_gain(&mut self, samples: &[f64]) -> f64 {
+    pub fn calculate_gain(&mut self, samples: &[f64]) -> Result<f64, ProcessError> {
+        AudioBlockRef::new(samples, self.channels)?;
         self.meter.reset();
-        self.meter.process(samples);
+        self.meter.process(samples)?;
         let loudness = self.meter.integrated_loudness();
 
         // FIX for Defect 39: Validate loudness before computing gain
@@ -171,13 +186,13 @@ impl LoudnessNormalizer {
                 loudness, gain_db
             );
 
-            gain_db
+            checked_gain(gain_db, "target LUFS")
         } else {
             log::warn!(
                 "Gapless preload analysis: Invalid loudness ({:.2}), using 0 dB gain",
                 loudness
             );
-            0.0
+            Ok(0.0)
         }
     }
 
@@ -190,7 +205,7 @@ impl LoudnessNormalizer {
         samples: &[f64],
         mode: NormalizationMode,
         metadata: &crate::decoder::TrackMetadata,
-    ) -> f64 {
+    ) -> Result<f64, ProcessError> {
         match mode {
             NormalizationMode::ReplayGainTrack => {
                 // Use ReplayGain track gain from tag
@@ -202,7 +217,7 @@ impl LoudnessNormalizer {
                         "Gapless preload: Using ReplayGain track tag: {:.2} dB -> target gain: {:.2} dB",
                         rg_gain, gain_db
                     );
-                    return gain_db;
+                    return checked_gain(gain_db, "ReplayGain track gain");
                 }
                 // Fallback to EBU R128 if no tag
                 log::warn!("Gapless preload: No ReplayGain track tag, falling back to EBU R128");
@@ -218,7 +233,7 @@ impl LoudnessNormalizer {
                         "Gapless preload: Using ReplayGain album tag: {:.2} dB -> target gain: {:.2} dB",
                         gain, gain_db
                     );
-                    return gain_db;
+                    return checked_gain(gain_db, "ReplayGain album gain");
                 }
                 log::warn!(
                     "Gapless preload: No ReplayGain album/track tag, falling back to EBU R128"
@@ -235,12 +250,7 @@ impl LoudnessNormalizer {
     pub fn reset(&mut self) {
         self.meter.reset();
         self.limiter.reset();
-        self.atomic_state
-            .target_gain_db
-            .store(0.0, Ordering::Relaxed);
-        self.atomic_state
-            .current_gain_db
-            .store(0.0, Ordering::Relaxed);
+        self.atomic_state.reset_gain();
         self.track_loudness = None;
         self.track_gain = None;
     }
@@ -249,23 +259,22 @@ impl LoudnessNormalizer {
     pub fn process(&mut self, samples: &mut [f64], channels: usize) -> Result<(), ProcessError> {
         let block = AudioBlockMut::new(samples, channels)?;
         validate_processor_channels("LoudnessNormalizer", Some(self.channels), channels)?;
-        self.process_validated(block.into_samples());
-        Ok(())
+        self.process_validated(block.into_samples())
     }
 
-    fn process_validated(&mut self, samples: &mut [f64]) {
-        if !self.atomic_state.enabled.load(Ordering::Relaxed) {
-            return;
+    fn process_validated(&mut self, samples: &mut [f64]) -> Result<(), ProcessError> {
+        if !self.atomic_state.enabled() {
+            return Ok(());
         }
 
         let frames = samples.len() / self.channels;
         if frames == 0 {
-            return;
+            return Ok(());
         }
 
         // For streaming mode, measure in real-time
         if self.config.mode == NormalizationMode::Streaming {
-            self.meter.process(samples);
+            self.meter.process(samples)?;
 
             if self.meter.has_reliable_measurement() {
                 let current_loudness = self.meter.short_term_loudness();
@@ -285,6 +294,7 @@ impl LoudnessNormalizer {
 
         // Apply peak limiting
         self.limiter.process_validated(samples);
+        Ok(())
     }
 
     pub fn get_loudness_info(&self) -> LoudnessInfo {
@@ -294,9 +304,9 @@ impl LoudnessNormalizer {
             momentary_lufs: self.meter.momentary_loudness(),
             loudness_range: self.meter.loudness_range(),
             true_peak_dbtp: self.meter.true_peak(),
-            current_gain_db: self.atomic_state.current_gain_db.load(Ordering::Relaxed),
-            target_gain_db: self.atomic_state.target_gain_db.load(Ordering::Relaxed),
-            preamp_db: self.atomic_state.preamp_gain_db.load(Ordering::Relaxed),
+            current_gain_db: self.atomic_state.current_gain_db(),
+            target_gain_db: self.atomic_state.target_gain_db(),
+            preamp_db: self.atomic_state.preamp_gain_db(),
         }
     }
 
@@ -306,6 +316,45 @@ impl LoudnessNormalizer {
     pub fn is_analyzed(&self) -> bool {
         self.track_loudness.is_some()
     }
+}
+
+fn validate_config(config: &LoudnessConfig) -> Result<(), ProcessError> {
+    validate_finite("target LUFS", config.target_lufs)?;
+    validate_finite("true-peak limit", config.true_peak_limit_db)?;
+    if !(LIMITER_THRESHOLD_DB_MIN..=LIMITER_THRESHOLD_DB_MAX).contains(&config.true_peak_limit_db) {
+        return Err(ProcessError::InvalidParameter {
+            processor: "LoudnessNormalizer",
+            parameter: "true-peak limit",
+            message: "value must be inside the published limiter threshold range",
+        });
+    }
+    if !config.smoothing_time_ms.is_finite() || config.smoothing_time_ms < 0.0 {
+        return Err(ProcessError::InvalidParameter {
+            processor: "LoudnessNormalizer",
+            parameter: "smoothing time",
+            message: "value must be finite and non-negative",
+        });
+    }
+    validate_finite(
+        "ReplayGain reference LUFS",
+        config.replaygain_reference_lufs,
+    )
+}
+
+fn validate_finite(parameter: &'static str, value: f64) -> Result<(), ProcessError> {
+    if value.is_finite() {
+        return Ok(());
+    }
+    Err(ProcessError::InvalidParameter {
+        processor: "LoudnessNormalizer",
+        parameter,
+        message: "value must be finite",
+    })
+}
+
+fn checked_gain(value: f64, parameter: &'static str) -> Result<f64, ProcessError> {
+    validate_finite(parameter, value)?;
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -341,22 +390,21 @@ mod tests {
             mode: NormalizationMode::Album,
             ..LoudnessConfig::default()
         };
-        let mut normalizer = LoudnessNormalizer::new_validated(2, 48_000, config);
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
         let state = normalizer.atomic_state();
 
-        assert!(!state.enabled.load(Ordering::Relaxed));
+        assert!(!state.enabled());
         assert_eq!(state.get_mode(), NormalizationMode::Album);
 
         let mut samples = vec![0.25; 128 * 2];
         let expected = samples.clone();
-        normalizer.process_validated(&mut samples);
+        normalizer.process_validated(&mut samples).unwrap();
         assert_eq!(samples, expected);
     }
 
     #[test]
     fn config_and_explicit_setters_round_trip_all_modes() {
-        let mut normalizer =
-            LoudnessNormalizer::new_validated(2, 48_000, LoudnessConfig::default());
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, LoudnessConfig::default()).unwrap();
 
         for (index, mode) in MODES.into_iter().enumerate() {
             let enabled = index % 2 == 0;
@@ -365,11 +413,8 @@ mod tests {
                 mode,
                 ..LoudnessConfig::default()
             };
-            normalizer.set_config(config);
-            assert_eq!(
-                normalizer.atomic_state.enabled.load(Ordering::Relaxed),
-                enabled
-            );
+            normalizer.set_config(config).unwrap();
+            assert_eq!(normalizer.atomic_state.enabled(), enabled);
             assert_eq!(normalizer.atomic_state.get_mode(), mode);
             assert_eq!(normalizer.config.enabled, enabled);
             assert_eq!(normalizer.config.mode, mode);
@@ -379,11 +424,127 @@ mod tests {
         normalizer.set_mode(NormalizationMode::ReplayGainAlbum);
         assert!(!normalizer.config.enabled);
         assert_eq!(normalizer.config.mode, NormalizationMode::ReplayGainAlbum);
-        assert!(!normalizer.atomic_state.enabled.load(Ordering::Relaxed));
+        assert!(!normalizer.atomic_state.enabled());
         assert_eq!(
             normalizer.atomic_state.get_mode(),
             NormalizationMode::ReplayGainAlbum
         );
+    }
+
+    #[test]
+    fn invalid_config_and_setters_reject_before_mutation() {
+        for config in [
+            LoudnessConfig {
+                target_lufs: f64::NAN,
+                ..LoudnessConfig::default()
+            },
+            LoudnessConfig {
+                true_peak_limit_db: LIMITER_THRESHOLD_DB_MIN - 0.1,
+                ..LoudnessConfig::default()
+            },
+            LoudnessConfig {
+                smoothing_time_ms: -1.0,
+                ..LoudnessConfig::default()
+            },
+            LoudnessConfig {
+                replaygain_reference_lufs: f64::INFINITY,
+                ..LoudnessConfig::default()
+            },
+        ] {
+            assert!(matches!(
+                LoudnessNormalizer::new(2, 48_000, config),
+                Err(ProcessError::InvalidParameter { .. })
+            ));
+        }
+
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, LoudnessConfig::default()).unwrap();
+        let mut reference = LoudnessNormalizer::new(2, 48_000, LoudnessConfig::default()).unwrap();
+        normalizer.set_album_gain(-2.0).unwrap();
+        reference.set_album_gain(-2.0).unwrap();
+        normalizer.set_preamp_gain(-1.5).unwrap();
+        reference.set_preamp_gain(-1.5).unwrap();
+
+        let before_config = normalizer.config.clone();
+        let state = normalizer.atomic_state();
+        let before_state = [
+            state.target_gain_db().to_bits(),
+            state.current_gain_db().to_bits(),
+            state.smoothing_coefficient().to_bits(),
+            state.album_gain_db().to_bits(),
+            state.preamp_gain_db().to_bits(),
+        ];
+        let invalid = LoudnessConfig {
+            target_lufs: -30.0,
+            true_peak_limit_db: -10.0,
+            smoothing_time_ms: f64::NAN,
+            mode: NormalizationMode::Album,
+            enabled: false,
+            replaygain_reference_lufs: -23.0,
+        };
+
+        assert!(matches!(
+            normalizer.set_config(invalid),
+            Err(ProcessError::InvalidParameter {
+                parameter: "smoothing time",
+                ..
+            })
+        ));
+        assert_eq!(
+            [
+                state.target_gain_db().to_bits(),
+                state.current_gain_db().to_bits(),
+                state.smoothing_coefficient().to_bits(),
+                state.album_gain_db().to_bits(),
+                state.preamp_gain_db().to_bits(),
+            ],
+            before_state
+        );
+        assert_eq!(
+            normalizer.config.target_lufs.to_bits(),
+            before_config.target_lufs.to_bits()
+        );
+        assert_eq!(
+            normalizer.config.true_peak_limit_db.to_bits(),
+            before_config.true_peak_limit_db.to_bits()
+        );
+        assert_eq!(normalizer.config.mode, before_config.mode);
+        assert_eq!(normalizer.config.enabled, before_config.enabled);
+
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(normalizer.set_target_lufs(value).is_err());
+            assert!(normalizer.set_album_gain(value).is_err());
+            assert!(normalizer.set_preamp_gain(value).is_err());
+        }
+        assert_eq!(
+            normalizer.config.target_lufs.to_bits(),
+            before_config.target_lufs.to_bits()
+        );
+        assert_eq!(state.album_gain_db().to_bits(), (-2.0_f64).to_bits());
+        assert_eq!(state.preamp_gain_db().to_bits(), (-1.5_f64).to_bits());
+
+        let mut samples = vec![1.0; 2_048 * 2];
+        let mut reference_samples = samples.clone();
+        normalizer.process(&mut samples, 2).unwrap();
+        reference.process(&mut reference_samples, 2).unwrap();
+        assert_eq!(samples, reference_samples);
+    }
+
+    #[test]
+    fn zero_smoothing_is_valid_and_streaming_process_stays_no_alloc() {
+        let config = LoudnessConfig {
+            smoothing_time_ms: 0.0,
+            mode: NormalizationMode::Streaming,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        assert_eq!(normalizer.atomic_state.smoothing_coefficient(), 0.0);
+        let mut samples = [0.125; 64 * 2];
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..1_000 {
+                assert_eq!(normalizer.process(&mut samples, 2), Ok(()));
+            }
+        });
     }
 
     #[test]

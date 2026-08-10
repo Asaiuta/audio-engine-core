@@ -71,10 +71,10 @@ fn analyze_file(path: &Path) -> Result<f64, Box<dyn std::error::Error>> {
     let location = MediaLocation::local(path.to_path_buf());
     let mut decoder = StreamingDecoder::open(location)?;
     let info = decoder.info();
-    let mut meter = LoudnessMeter::new(info.channels, info.sample_rate);
+    let mut meter = LoudnessMeter::new(info.channels, info.sample_rate)?;
 
     while let Some(samples) = decoder.decode_next()? {
-        meter.process(&samples);
+        meter.process(&samples)?;
     }
 
     Ok(meter.integrated_loudness())

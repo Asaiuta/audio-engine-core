@@ -2,6 +2,9 @@
 
 use crate::channel_layout::{ChannelLayout, ChannelPosition};
 use crate::processor::dsp::linear_to_db;
+use crate::processor::traits::{
+    validate_sample_rate_hz, validated_channel_count, AudioBlockRef, ProcessError,
+};
 use std::sync::OnceLock;
 
 const TRUE_PEAK_PHASES: usize = 4;
@@ -24,7 +27,7 @@ pub(crate) struct TruePeakFir {
 /// EBU R128 loudness meter using the ebur128 crate
 /// Measures integrated, short-term, momentary loudness and loudness range
 pub struct LoudnessMeter {
-    ebur128: Option<ebur128::EbuR128>,
+    ebur128: ebur128::EbuR128,
     sample_rate: u32,
     channels: usize,
     // Cached results
@@ -39,8 +42,12 @@ pub struct LoudnessMeter {
 }
 
 impl LoudnessMeter {
-    pub fn new(channels: usize, sample_rate: u32) -> Self {
-        Self::with_layout(&ChannelLayout::from_count(channels), sample_rate)
+    pub fn new(channels: usize, sample_rate: u32) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("LoudnessMeter", sample_rate)?;
+        let ebur128 = new_ebur128(channels, sample_rate)?;
+        let layout = ChannelLayout::from_count(channels);
+        Self::with_backend(&layout, sample_rate, ebur128)
     }
 
     /// Create a meter with an explicit channel layout.
@@ -54,39 +61,39 @@ impl LoudnessMeter {
     ///
     /// For mono/stereo/5.1 the derived map matches ebur128's default, so
     /// existing measurements are unchanged.
-    pub fn with_layout(layout: &ChannelLayout, sample_rate: u32) -> Self {
+    pub fn with_layout(layout: &ChannelLayout, sample_rate: u32) -> Result<Self, ProcessError> {
+        let channels = layout.channel_count();
+        validated_channel_count(channels)?;
+        validate_sample_rate_hz("LoudnessMeter", sample_rate)?;
+        let ebur128 = new_ebur128(channels, sample_rate)?;
+        Self::with_backend(layout, sample_rate, ebur128)
+    }
+
+    fn with_backend(
+        layout: &ChannelLayout,
+        sample_rate: u32,
+        mut ebur128: ebur128::EbuR128,
+    ) -> Result<Self, ProcessError> {
         let channels = layout.channel_count();
         // Construction-time only (not the hot path): allocating the channel map
         // and (re)designing the ebur128 state here is allowed.
-        let ebur128 =
-            match ebur128::EbuR128::new(channels as u32, sample_rate, ebur128::Mode::all()) {
-                Ok(mut ebur) => {
-                    let channel_map: Vec<ebur128::Channel> = layout
-                        .positions()
-                        .iter()
-                        .map(|p| ebur128_channel(*p))
-                        .collect();
-                    // Falls back to the ebur128 default map if this ever fails;
-                    // never blocks meter creation.
-                    let _ = ebur.set_channel_map(&channel_map);
-                    Some(ebur)
-                }
-                Err(error) => {
-                    // Setup-time path, so logging is permitted here. Without this
-                    // the meter would look identical to a working one that has
-                    // simply not been fed yet.
-                    log::warn!(
-                        "EBU R128 meter unavailable for {channels} channels at {sample_rate} Hz: \
-                         {error:?}; loudness and true-peak measurements will report unavailable"
-                    );
-                    None
-                }
-            };
+        let channel_map: Vec<ebur128::Channel> = layout
+            .positions()
+            .iter()
+            .map(|position| ebur128_channel(*position))
+            .collect();
+        ebur128
+            .set_channel_map(&channel_map)
+            .map_err(|_| ProcessError::Backend {
+                processor: "LoudnessMeter",
+                operation: "configure EBU R128 channel map",
+                message: "EBU R128 rejected the channel map",
+            })?;
 
         // Create true peak detector for each channel
         let true_peak_detectors = (0..channels).map(|_| TruePeakDetector::new()).collect();
 
-        Self {
+        Ok(Self {
             ebur128,
             sample_rate,
             channels,
@@ -97,14 +104,12 @@ impl LoudnessMeter {
             true_peak: -70.0,
             samples_processed: 0,
             true_peak_detectors,
-        }
+        })
     }
 
     /// Reset meter state (call when starting a new track)
     pub fn reset(&mut self) {
-        if let Some(ref mut ebur) = self.ebur128 {
-            ebur.reset();
-        }
+        self.ebur128.reset();
         self.integrated_loudness = -70.0;
         self.short_term_loudness = -70.0;
         self.momentary_loudness = -70.0;
@@ -118,42 +123,38 @@ impl LoudnessMeter {
     }
 
     /// Process interleaved f64 samples
-    pub fn process(&mut self, samples: &[f64]) {
-        let Some(ref mut ebur) = self.ebur128 else {
-            return;
-        };
-        if self.channels == 0 {
-            return;
-        }
-
-        let frames = samples.len() / self.channels;
+    pub fn process(&mut self, samples: &[f64]) -> Result<(), ProcessError> {
+        let block = AudioBlockRef::new(samples, self.channels)?;
+        let frames = block.frames();
         if frames == 0 {
-            return;
+            return Ok(());
         }
-        let sample_count = frames * self.channels;
-        let samples = &samples[..sample_count];
+        let samples = block.samples();
 
-        if let Err(e) = ebur.add_frames_f64(samples) {
-            log::warn!("EBU R128 add_frames error: {:?}", e);
-            return;
-        }
+        self.ebur128
+            .add_frames_f64(samples)
+            .map_err(|_| ProcessError::Backend {
+                processor: "LoudnessMeter",
+                operation: "ingest interleaved frames",
+                message: "EBU R128 rejected the audio block",
+            })?;
 
         self.samples_processed += frames as u64;
 
         // Update measurements
-        if let Ok(loudness) = ebur.loudness_global() {
+        if let Ok(loudness) = self.ebur128.loudness_global() {
             self.integrated_loudness = loudness;
         }
 
-        if let Ok(loudness) = ebur.loudness_shortterm() {
+        if let Ok(loudness) = self.ebur128.loudness_shortterm() {
             self.short_term_loudness = loudness;
         }
 
-        if let Ok(loudness) = ebur.loudness_momentary() {
+        if let Ok(loudness) = self.ebur128.loudness_momentary() {
             self.momentary_loudness = loudness;
         }
 
-        if let Ok(lra) = ebur.loudness_range() {
+        if let Ok(lra) = self.ebur128.loudness_range() {
             self.loudness_range = lra;
         }
 
@@ -176,6 +177,7 @@ impl LoudnessMeter {
             let peak_db = 20.0 * max_true_peak.log10();
             self.true_peak = peak_db.max(self.true_peak);
         }
+        Ok(())
     }
 
     pub fn integrated_loudness(&self) -> f64 {
@@ -197,29 +199,29 @@ impl LoudnessMeter {
         self.samples_processed
     }
 
-    /// Whether the underlying EBU R128 state was created successfully.
-    ///
-    /// A meter reports `false` when its geometry was rejected at construction
-    /// (for example a zero channel count or zero sample rate). Such a meter
-    /// never consumes audio, so every reader keeps returning its initial
-    /// placeholder value; treat those values as absent rather than measured.
-    pub fn is_available(&self) -> bool {
-        self.ebur128.is_some()
-    }
-
     /// Whether enough audio has been measured for the readers to be meaningful.
     ///
-    /// This is false for an unavailable meter, and false until at least one
-    /// EBU R128 momentary window (400 ms) of audio has actually been consumed,
-    /// so a degenerate sample rate cannot make a zero-sample meter look
-    /// measured.
+    /// This remains false until at least one EBU R128 momentary window (400 ms)
+    /// of audio has actually been consumed.
     pub fn has_reliable_measurement(&self) -> bool {
-        if !self.is_available() {
-            return false;
-        }
-        let min_samples = ((self.sample_rate as f64 * 0.4) as u64).max(1);
+        let min_samples = (self.sample_rate as f64 * 0.4) as u64;
         self.samples_processed >= min_samples
     }
+}
+
+fn new_ebur128(channels: usize, sample_rate: u32) -> Result<ebur128::EbuR128, ProcessError> {
+    let channels = u32::try_from(channels).map_err(|_| ProcessError::InvalidGeometry {
+        processor: "LoudnessMeter",
+        operation: "initialize EBU R128",
+        message: "channel count exceeds the EBU R128 backend domain",
+    })?;
+    ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::all()).map_err(|_| {
+        ProcessError::Backend {
+            processor: "LoudnessMeter",
+            operation: "initialize EBU R128",
+            message: "EBU R128 rejected the channel or sample-rate geometry",
+        }
+    })
 }
 
 /// True peak detector using 4x polyphase FIR oversampling.
@@ -466,63 +468,83 @@ mod tests {
     }
 
     #[test]
-    fn loudness_meter_truncates_partial_frames() {
-        let mut meter = LoudnessMeter::new(2, 48_000);
+    fn loudness_meter_rejects_partial_frames_without_mutation() {
+        let mut meter = LoudnessMeter::new(2, 48_000).unwrap();
+        meter.process(&deterministic_interleaved(64, 2)).unwrap();
         let samples = vec![0.1, -0.1, 0.2];
+        let before = (
+            meter.samples_processed(),
+            meter.integrated_loudness().to_bits(),
+            meter.short_term_loudness().to_bits(),
+            meter.momentary_loudness().to_bits(),
+            meter.loudness_range().to_bits(),
+            meter.true_peak().to_bits(),
+        );
 
-        meter.process(&samples);
+        assert_eq!(
+            meter.process(&samples),
+            Err(ProcessError::InvalidBlock(
+                crate::processor::traits::AudioBlockError::IncompleteFrame {
+                    samples: 3,
+                    channels: 2,
+                }
+            ))
+        );
 
-        assert_eq!(meter.samples_processed(), 1);
+        assert_eq!(
+            (
+                meter.samples_processed(),
+                meter.integrated_loudness().to_bits(),
+                meter.short_term_loudness().to_bits(),
+                meter.momentary_loudness().to_bits(),
+                meter.loudness_range().to_bits(),
+                meter.true_peak().to_bits(),
+            ),
+            before
+        );
     }
 
     #[test]
-    fn unavailable_meter_never_reports_a_reliable_measurement() {
-        // A zero sample rate is rejected by ebur128, so this meter can never
-        // consume audio. It must not present its placeholder readers as a
-        // measurement, which the previous elapsed-sample-only rule allowed
-        // because the 400 ms threshold rounded to zero samples.
-        for (channels, sample_rate) in [(2_usize, 0_u32), (0, 48_000)] {
-            let mut meter = LoudnessMeter::new(channels, sample_rate);
-            assert!(
-                !meter.is_available(),
-                "channels={channels}, sample_rate={sample_rate}"
-            );
-            assert!(
-                !meter.has_reliable_measurement(),
-                "channels={channels}, sample_rate={sample_rate}"
-            );
-
-            meter.process(&[0.5; 4_096]);
-
-            assert_eq!(meter.samples_processed(), 0);
-            assert!(!meter.has_reliable_measurement());
-            assert_eq!(meter.integrated_loudness(), -70.0);
-        }
+    fn invalid_meter_geometry_is_rejected_at_construction() {
+        assert!(matches!(
+            LoudnessMeter::new(0, 48_000),
+            Err(ProcessError::InvalidBlock(
+                crate::processor::traits::AudioBlockError::ZeroChannels
+            ))
+        ));
+        assert!(matches!(
+            LoudnessMeter::new(2, 0),
+            Err(ProcessError::InvalidSampleRate {
+                processor: "LoudnessMeter",
+                sample_rate_hz: 0,
+            })
+        ));
     }
 
     #[test]
     fn available_meter_becomes_reliable_only_after_one_momentary_window() {
         let sample_rate = 48_000;
-        let mut meter = LoudnessMeter::new(2, sample_rate);
-        assert!(meter.is_available());
+        let mut meter = LoudnessMeter::new(2, sample_rate).unwrap();
         assert!(!meter.has_reliable_measurement());
 
         let window_frames = (sample_rate as f64 * 0.4) as usize;
-        meter.process(&deterministic_interleaved(window_frames - 1, 2));
+        meter
+            .process(&deterministic_interleaved(window_frames - 1, 2))
+            .unwrap();
         assert!(!meter.has_reliable_measurement());
 
-        meter.process(&deterministic_interleaved(1, 2));
+        meter.process(&deterministic_interleaved(1, 2)).unwrap();
         assert!(meter.has_reliable_measurement());
     }
 
     #[test]
     fn loudness_meter_process_is_steady_state_no_alloc() {
-        let mut meter = LoudnessMeter::new(2, 48_000);
+        let mut meter = LoudnessMeter::new(2, 48_000).unwrap();
         let samples = deterministic_interleaved(64, 2);
 
         assert_no_alloc::assert_no_alloc(|| {
             for _ in 0..1_000 {
-                meter.process(&samples);
+                assert_eq!(meter.process(&samples), Ok(()));
             }
         });
     }
@@ -530,10 +552,10 @@ mod tests {
     #[test]
     fn loudness_meter_handles_surround_channel_counts() {
         for channels in [1, 2, 6, 8] {
-            let mut meter = LoudnessMeter::new(channels, 48_000);
+            let mut meter = LoudnessMeter::new(channels, 48_000).unwrap();
             let samples = deterministic_interleaved(256, channels);
 
-            meter.process(&samples);
+            meter.process(&samples).unwrap();
 
             assert_eq!(meter.samples_processed(), 256);
             assert!(meter.true_peak().is_finite());
@@ -614,8 +636,10 @@ mod tests {
         let layout = ChannelLayout::surround_7_1();
 
         let measure = |channel: usize| {
-            let mut meter = LoudnessMeter::with_layout(&layout, sample_rate);
-            meter.process(&tone_in_channel(8, channel, sample_rate));
+            let mut meter = LoudnessMeter::with_layout(&layout, sample_rate).unwrap();
+            meter
+                .process(&tone_in_channel(8, channel, sample_rate))
+                .unwrap();
             meter.integrated_loudness()
         };
 
@@ -644,8 +668,9 @@ mod tests {
         let default_loudness = default_ebur.loudness_global().unwrap_or(f64::NEG_INFINITY);
 
         // Our layout-mapped meter weights channel 6 as a surround.
-        let mut meter = LoudnessMeter::with_layout(&ChannelLayout::surround_7_1(), sample_rate);
-        meter.process(&samples);
+        let mut meter =
+            LoudnessMeter::with_layout(&ChannelLayout::surround_7_1(), sample_rate).unwrap();
+        meter.process(&samples).unwrap();
         let mapped_loudness = meter.integrated_loudness();
 
         assert!(mapped_loudness > -70.0, "mapped loudness {mapped_loudness}");

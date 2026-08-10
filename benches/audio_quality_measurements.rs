@@ -2416,9 +2416,12 @@ fn measure_loudness_fixture(
 }
 
 fn measure_engine_loudness(samples: &[f64]) -> LoudnessValues {
-    let mut meter = LoudnessMeter::new(CHANNELS, SAMPLE_RATE);
+    let mut meter = LoudnessMeter::new(CHANNELS, SAMPLE_RATE)
+        .expect("quality fixture uses valid loudness meter geometry");
     for chunk in samples.chunks(CHANNELS * 1024) {
-        meter.process(chunk);
+        meter
+            .process(chunk)
+            .expect("quality fixture contains complete interleaved frames");
     }
     LoudnessValues {
         integrated_lufs: meter.integrated_loudness(),
@@ -2726,9 +2729,9 @@ fn synthetic_intersample_stress(frames: usize, sample_rate: u32) -> Vec<f64> {
 }
 
 fn measure_true_peak_db(samples: &[f64], channels: usize, sample_rate: u32) -> Result<f64, String> {
-    let mut meter = LoudnessMeter::new(channels, sample_rate);
+    let mut meter = LoudnessMeter::new(channels, sample_rate).map_err(|error| error.to_string())?;
     for chunk in samples.chunks(channels * 4096) {
-        meter.process(chunk);
+        meter.process(chunk).map_err(|error| error.to_string())?;
     }
     let true_peak = meter.true_peak();
     if true_peak.is_finite() {
