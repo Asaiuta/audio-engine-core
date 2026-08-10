@@ -12,6 +12,98 @@ swallowed and never surfaced as HTTP responses (the consuming app owns that).
 Error enums are defined with `thiserror::Error` and carry a `#[error("...")]`
 display string per variant.
 
+## Scenario: Public Typed Error Boundaries
+
+### 1. Scope / Trigger
+
+Apply this scenario when adding or changing a public fallible operation, or
+when a crate-private backend feeds errors into a public API or realtime
+processor boundary.
+
+### 2. Signatures
+
+```rust
+LoudnessDatabase::open(path) -> Result<LoudnessDatabase, LoudnessDatabaseError>
+analyze_automix(...) -> Result<AutomixAnalysis, AutomixError>
+StreamingResampler::with_quality(...) -> Result<StreamingResampler, ResamplerError>
+
+#[non_exhaustive]
+pub enum AutomixError {
+    Canceled,
+    Decoder(DecoderError),
+    TailSeekPastStart { planned_frame: u64, realized_frame: u64 },
+}
+```
+
+`LoudnessDatabaseError`, `AutomixError`, and `ResamplerError` are module-owned,
+public, non-exhaustive `thiserror` enums. Resampler backends use crate-private
+`BackendInitError` and allocation-free `BackendProcessError` envelopes before
+the facade maps them to the public boundary.
+
+### 3. Contracts
+
+- Matchable variants describe policy-relevant classes; display text is for
+  humans and is never a control-flow API.
+- Use `#[from]` only when conversion is lossless. `AutomixError::Decoder` and
+  the I/O/SQLite database variants retain their source chains.
+- Cancellation has its own variant rather than a magic message inside a
+  decoder or analysis error.
+- Backend diagnostic strings may remain payloads inside typed setup/offline
+  variants when the third-party API exposes no stable class.
+- Callback-facing backend errors carry `&'static str`; constructing a `String`
+  on process/finish is forbidden by the realtime allocation contract.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required public class |
+| --- | --- |
+| AutoMix token is canceled | `AutomixError::Canceled` |
+| AutoMix open/seek/decode fails | `AutomixError::Decoder` with `DecoderError` source |
+| Coarse tail seek lands past the planned start | `AutomixError::TailSeekPastStart` with both frames |
+| Loudness directory creation fails | `LoudnessDatabaseError::CreateDirectory` with I/O source |
+| SQLite operation fails | `LoudnessDatabaseError::Database` with SQLite source |
+| Loudness connection mutex is poisoned | `LoudnessDatabaseError::LockPoisoned` |
+| Resampler facade geometry/capacity fails | Structured `ResamplerError` geometry/capacity variant |
+| Backend process fails on the callback path | Allocation-free `ProcessError::Backend` with static diagnostic |
+
+### 5. Good / Base / Bad Cases
+
+- Good: callers match cancellation separately from media failure and retain
+  the decoder source for detailed policy.
+- Base: an opaque native initialization diagnostic remains a `String` payload
+  inside `ResamplerError::BackendInitialization`.
+- Bad: expose `Result<_, String>`, parse `Display`, or allocate a formatted
+  diagnostic while processing audio.
+
+### 6. Tests Required
+
+- Match every policy-relevant error by variant, not `contains()` on display
+  text, and verify retained sources where applicable.
+- Exercise both all-feature and Rubato-only matrices so feature-gated variants
+  and backend mappings compile.
+- Keep process/finish failure probes inside `assert_no_alloc` where they are
+  callback-reachable.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+decoder.seek(position).map_err(|error| format!("seek failed: {error}"))?;
+if error.to_string().contains("canceled") { /* policy */ }
+```
+
+#### Correct
+
+```rust
+decoder.seek(position)?;
+match error {
+    AutomixError::Canceled => cancel_work(),
+    AutomixError::Decoder(source) => report_decoder(source),
+    other => report_analysis(other),
+}
+```
+
 ## The Decoder Error Type
 
 `DecoderError` (`src/decoder/error.rs`) is the primary error enum:

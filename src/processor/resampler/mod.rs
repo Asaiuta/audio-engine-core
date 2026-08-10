@@ -12,6 +12,7 @@
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use rayon::prelude::*;
+use thiserror::Error;
 
 #[cfg(not(any(feature = "soxr", feature = "rubato")))]
 compile_error!(
@@ -50,32 +51,173 @@ struct BackendProgress {
     output_frames: usize,
 }
 
+#[derive(Debug, Error)]
+enum BackendInitError {
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("channel count must be at least one")]
+    ZeroChannels,
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("invalid {backend} geometry")]
+    InvalidGeometry { backend: &'static str },
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("{backend} requires nonlinear phase")]
+    NonlinearPhaseRequired { backend: &'static str },
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("reduced ratio {up}:{down} exceeds nonlinear phase limit {limit}")]
+    RatioExceedsLimit {
+        up: usize,
+        down: usize,
+        limit: usize,
+    },
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("nonlinear coefficient count overflow")]
+    CoefficientCountOverflow,
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error(
+        "nonlinear coefficient bank is too large: {coefficients} coefficients (maximum {maximum})"
+    )]
+    CoefficientBankTooLarge { coefficients: usize, maximum: usize },
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("{buffer} storage overflow")]
+    StorageOverflow { buffer: &'static str },
+    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+    #[error("nonlinear minimum-phase factor was empty")]
+    EmptyMinimumPhaseFactor,
+    #[error("backend rejected initialization: {message}")]
+    Backend { message: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[error("{message}")]
+struct BackendProcessError {
+    message: &'static str,
+}
+
+impl BackendProcessError {
+    const fn new(message: &'static str) -> Self {
+        Self { message }
+    }
+
+    const fn message(self) -> &'static str {
+        self.message
+    }
+}
+
+impl From<&'static str> for BackendProcessError {
+    fn from(message: &'static str) -> Self {
+        Self::new(message)
+    }
+}
+
 use super::traits::{
     AudioBlockMut, AudioBlockRef, FrameDuration, ProcessBufferMode, ProcessBufferParts,
     ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
-/// Error type for resampler operations
-#[derive(Debug, Clone)]
+/// Error type for resampler construction and offline operations.
+#[derive(Debug, Clone, Error)]
+#[non_exhaustive]
 pub enum ResamplerError {
-    /// Backend initialization failed (e.g., invalid sample rate combination)
-    InitializationFailed(String),
-    /// Processing failed
-    ProcessFailed(String),
+    /// Either input or output sample rate is zero.
+    #[error("invalid resampler sample rates: {from_rate} Hz -> {to_rate} Hz")]
+    InvalidSampleRate { from_rate: u32, to_rate: u32 },
+    /// Interleaved resampling requires at least one channel.
+    #[error("resampler channel count must be at least one")]
+    ZeroChannels,
+    /// Checked sizing of a reusable buffer or working set overflowed.
+    #[error("resampler {buffer} capacity overflow")]
+    CapacityOverflow { buffer: &'static str },
+    /// A nonlinear reduced ratio exceeds the supported bounded design.
+    #[error("reduced ratio {up}:{down} exceeds nonlinear phase limit {limit}")]
+    RatioExceedsLimit {
+        up: usize,
+        down: usize,
+        limit: usize,
+    },
+    /// Nonlinear coefficient-count arithmetic overflowed.
+    #[error("nonlinear resampler coefficient count overflow")]
+    CoefficientCountOverflow,
+    /// A nonlinear coefficient bank exceeds its bounded maximum.
+    #[error(
+        "nonlinear coefficient bank is too large: {coefficients} coefficients (maximum {maximum})"
+    )]
+    CoefficientBankTooLarge { coefficients: usize, maximum: usize },
+    /// The selected internal backend rejected its geometry or phase contract.
+    #[error("{backend} backend geometry is invalid")]
+    InvalidBackendGeometry { backend: &'static str },
+    /// Minimum-phase conversion produced no usable factor.
+    #[error("nonlinear minimum-phase factor was empty")]
+    EmptyMinimumPhaseFactor,
+    /// A third-party backend rejected initialization.
+    #[error("{backend} backend initialization failed for channel {channel:?}: {message}")]
+    BackendInitialization {
+        backend: &'static str,
+        channel: Option<usize>,
+        message: String,
+    },
+    /// A timing value derived from the backend violated the lifecycle contract.
+    #[error("invalid resampler {metric}: {message}")]
+    InvalidTiming {
+        metric: &'static str,
+        message: String,
+    },
+    /// A backend returned consumed/produced counts outside caller capacity.
+    #[error("resampler backend returned invalid {operation} progress for channel {channel:?}")]
+    InvalidBackendProgress {
+        operation: &'static str,
+        channel: Option<usize>,
+    },
+    /// A backend made no progress while work remained.
+    #[error("resampler backend stalled during {operation} for channel {channel:?}")]
+    BackendStalled {
+        operation: &'static str,
+        channel: Option<usize>,
+    },
+    /// A backend operation failed with a backend-owned diagnostic.
+    #[error("resampler backend {operation} failed for channel {channel:?}: {message}")]
+    BackendProcess {
+        operation: &'static str,
+        channel: Option<usize>,
+        message: &'static str,
+    },
 }
 
-impl std::fmt::Display for ResamplerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ResamplerError::InitializationFailed(msg) => {
-                write!(f, "Resampler backend initialization failed: {}", msg)
+fn map_backend_init_error(error: BackendInitError, channel: Option<usize>) -> ResamplerError {
+    match error {
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::ZeroChannels => ResamplerError::ZeroChannels,
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::InvalidGeometry { .. }
+        | BackendInitError::NonlinearPhaseRequired { .. } => {
+            ResamplerError::InvalidBackendGeometry {
+                backend: BACKEND_NAME,
             }
-            ResamplerError::ProcessFailed(msg) => write!(f, "Resampling process failed: {}", msg),
         }
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::RatioExceedsLimit { up, down, limit } => {
+            ResamplerError::RatioExceedsLimit { up, down, limit }
+        }
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::CoefficientCountOverflow => ResamplerError::CoefficientCountOverflow,
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::CoefficientBankTooLarge {
+            coefficients,
+            maximum,
+        } => ResamplerError::CoefficientBankTooLarge {
+            coefficients,
+            maximum,
+        },
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::StorageOverflow { buffer } => ResamplerError::CapacityOverflow { buffer },
+        #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+        BackendInitError::EmptyMinimumPhaseFactor => ResamplerError::EmptyMinimumPhaseFactor,
+        BackendInitError::Backend { message } => ResamplerError::BackendInitialization {
+            backend: BACKEND_NAME,
+            channel,
+            message,
+        },
     }
 }
-
-impl std::error::Error for ResamplerError {}
 
 /// High-quality resampler driving one backend stream per channel.
 pub struct Resampler {
@@ -224,17 +366,15 @@ impl Resampler {
 
         // Validate sample rates
         if self.from_rate == 0 || self.to_rate == 0 {
-            return Err(ResamplerError::InitializationFailed(format!(
-                "Invalid sample rate: from_rate={}, to_rate={}",
-                self.from_rate, self.to_rate
-            )));
+            return Err(ResamplerError::InvalidSampleRate {
+                from_rate: self.from_rate,
+                to_rate: self.to_rate,
+            });
         }
 
         // Guard channels==0: a zero channel count would divide by zero below.
         if self.channels == 0 {
-            return Err(ResamplerError::InitializationFailed(
-                "channel count must be >= 1".to_string(),
-            ));
+            return Err(ResamplerError::ZeroChannels);
         }
 
         // 1. De-interleave
@@ -250,12 +390,7 @@ impl Resampler {
                 // One backend stream per channel with the requested phase
                 // response and quality level.
                 let mut backend = MonoBackend::new(self.from_rate, self.to_rate, phase, quality)
-                    .map_err(|e| {
-                        ResamplerError::InitializationFailed(format!(
-                            "{BACKEND_NAME} channel {}: {}",
-                            ch_idx, e
-                        ))
-                    })?;
+                    .map_err(|error| map_backend_init_error(error, Some(ch_idx)))?;
 
                 // Output estimation
                 let expected_frames = (channel_data.len() as f64 * self.to_rate as f64
@@ -294,27 +429,26 @@ impl Resampler {
                     while input_offset < chunk.len() {
                         let processed = backend
                             .process(&chunk[input_offset..], &mut output_scratch)
-                            .map_err(|e| {
-                                ResamplerError::ProcessFailed(format!(
-                                    "Channel {} chunk {}: {}",
-                                    ch_idx, i, e
-                                ))
+                            .map_err(|error| ResamplerError::BackendProcess {
+                                operation: "process",
+                                channel: Some(ch_idx),
+                                message: error.message(),
                             })?;
 
                         if processed.input_frames > chunk.len() - input_offset
                             || processed.output_frames > output_scratch.len()
                         {
-                            return Err(ResamplerError::ProcessFailed(format!(
-                                "Channel {} chunk {} returned out-of-bounds progress",
-                                ch_idx, i
-                            )));
+                            return Err(ResamplerError::InvalidBackendProgress {
+                                operation: "process",
+                                channel: Some(ch_idx),
+                            });
                         }
 
                         if processed.input_frames == 0 && processed.output_frames == 0 {
-                            return Err(ResamplerError::ProcessFailed(format!(
-                                "Channel {} chunk {} made no progress",
-                                ch_idx, i
-                            )));
+                            return Err(ResamplerError::BackendStalled {
+                                operation: "process",
+                                channel: Some(ch_idx),
+                            });
                         }
                         input_offset += processed.input_frames;
                         channel_output
@@ -334,19 +468,20 @@ impl Resampler {
                     match backend.drain(&mut output_scratch) {
                         Ok(output_frames) if output_frames > 0 => {
                             if output_frames > output_scratch.len() {
-                                return Err(ResamplerError::ProcessFailed(format!(
-                                    "Channel {} drain returned out-of-bounds progress",
-                                    ch_idx
-                                )));
+                                return Err(ResamplerError::InvalidBackendProgress {
+                                    operation: "drain",
+                                    channel: Some(ch_idx),
+                                });
                             }
                             channel_output.extend_from_slice(&output_scratch[..output_frames]);
                         }
                         Ok(_) => break,
                         Err(e) => {
-                            return Err(ResamplerError::ProcessFailed(format!(
-                                "Channel {} drain: {}",
-                                ch_idx, e
-                            )));
+                            return Err(ResamplerError::BackendProcess {
+                                operation: "drain",
+                                channel: Some(ch_idx),
+                                message: e.message(),
+                            });
                         }
                     }
                 }
@@ -415,10 +550,10 @@ fn streaming_buffer_layout(
     to_rate: u32,
 ) -> Result<StreamingBufferLayout, ResamplerError> {
     if channels == 0 || from_rate == 0 || to_rate == 0 {
-        return Err(ResamplerError::InitializationFailed(format!(
-            "Invalid streaming resampler geometry: channels={}, from_rate={}, to_rate={}",
-            channels, from_rate, to_rate
-        )));
+        if channels == 0 {
+            return Err(ResamplerError::ZeroChannels);
+        }
+        return Err(ResamplerError::InvalidSampleRate { from_rate, to_rate });
     }
     let ratio = to_rate as f64 / from_rate as f64;
     let max_output_per_channel = (STREAMING_MAX_INPUT_FRAMES as f64 * ratio).ceil() as usize + 64;
@@ -428,23 +563,20 @@ fn streaming_buffer_layout(
     } else {
         let input_samples = channels
             .checked_mul(STREAMING_MAX_INPUT_FRAMES)
-            .ok_or_else(|| {
-                ResamplerError::InitializationFailed("input capacity overflow".into())
-            })?;
-        let channel_output_samples =
-            channels
-                .checked_mul(max_output_per_channel)
-                .ok_or_else(|| {
-                    ResamplerError::InitializationFailed("output capacity overflow".into())
-                })?;
+            .ok_or(ResamplerError::CapacityOverflow { buffer: "input" })?;
+        let channel_output_samples = channels
+            .checked_mul(max_output_per_channel)
+            .ok_or(ResamplerError::CapacityOverflow { buffer: "output" })?;
         let total_samples = max_output_per_channel
             .checked_add(input_samples)
             .and_then(|samples| samples.checked_add(channel_output_samples))
-            .ok_or_else(|| ResamplerError::InitializationFailed("working-set overflow".into()))?;
+            .ok_or(ResamplerError::CapacityOverflow {
+                buffer: "working-set samples",
+            })?;
         total_samples
             .checked_mul(std::mem::size_of::<f64>())
-            .ok_or_else(|| {
-                ResamplerError::InitializationFailed("working-set byte overflow".into())
+            .ok_or(ResamplerError::CapacityOverflow {
+                buffer: "working-set bytes",
             })?
     };
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
@@ -536,52 +668,35 @@ impl StreamingResampler {
     ) -> Result<Self, ResamplerError> {
         // Validate sample rates before creating backend streams
         if from_rate == 0 || to_rate == 0 {
-            return Err(ResamplerError::InitializationFailed(format!(
-                "Invalid sample rate: from_rate={}, to_rate={}",
-                from_rate, to_rate
-            )));
+            return Err(ResamplerError::InvalidSampleRate { from_rate, to_rate });
         }
 
         // Guard channels==0: interleaved frame handling requires a non-zero divisor.
         if channels == 0 {
-            return Err(ResamplerError::InitializationFailed(
-                "channel count must be >= 1".to_string(),
-            ));
+            return Err(ResamplerError::ZeroChannels);
         }
 
         #[cfg(feature = "soxr")]
         let backends = if channels == 2 {
-            vec![MonoBackend::new_interleaved_stereo(
-                from_rate, to_rate, phase, quality,
-            )
-            .map_err(|error| {
-                ResamplerError::InitializationFailed(format!(
-                    "{BACKEND_NAME} interleaved stereo failed: {error} (from={from_rate}Hz, to={to_rate}Hz)"
-                ))
-            })?]
+            vec![
+                MonoBackend::new_interleaved_stereo(from_rate, to_rate, phase, quality)
+                    .map_err(|error| map_backend_init_error(error, None))?,
+            ]
         } else {
             let mut backends = Vec::with_capacity(channels);
             for ch_idx in 0..channels {
                 match MonoBackend::new(from_rate, to_rate, phase, quality) {
                     Ok(backend) => backends.push(backend),
                     Err(error) => {
-                        return Err(ResamplerError::InitializationFailed(format!(
-                            "{BACKEND_NAME} failed for channel {ch_idx}: {error} (from={from_rate}Hz, to={to_rate}Hz)"
-                        )));
+                        return Err(map_backend_init_error(error, Some(ch_idx)));
                     }
                 }
             }
             backends
         };
         #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-        let backend =
-            MonoBackend::new_interleaved(from_rate, to_rate, phase, quality, channels).map_err(
-                |error| {
-                    ResamplerError::InitializationFailed(format!(
-                        "{BACKEND_NAME} failed: {error} (channels={channels}, from={from_rate}Hz, to={to_rate}Hz)"
-                    ))
-                },
-            )?;
+        let backend = MonoBackend::new_interleaved(from_rate, to_rate, phase, quality, channels)
+            .map_err(|error| map_backend_init_error(error, None))?;
 
         #[cfg(feature = "soxr")]
         let latency_frames = if from_rate == to_rate {
@@ -613,15 +728,19 @@ impl StreamingResampler {
             FrameDuration::ZERO
         } else {
             FrameDuration::new(latency_frames, to_rate).map_err(|error| {
-                ResamplerError::InitializationFailed(format!("invalid resampler latency: {error}"))
+                ResamplerError::InvalidTiming {
+                    metric: "latency",
+                    message: error.to_string(),
+                }
             })?
         };
         let tail = TailSpec::finite(
             finish_extension_frames.saturating_sub(latency_frames),
             to_rate,
         )
-        .map_err(|error| {
-            ResamplerError::InitializationFailed(format!("invalid resampler tail: {error}"))
+        .map_err(|error| ResamplerError::InvalidTiming {
+            metric: "tail",
+            message: error.to_string(),
         })?;
 
         // Pre-allocate all SoXR buffers from the same checked layout exposed
@@ -735,7 +854,7 @@ impl StreamingResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<BackendProgress, &'static str> {
+    ) -> Result<BackendProgress, BackendProcessError> {
         self.backends
             .first_mut()
             .ok_or("resampler backend set was empty")?
@@ -748,7 +867,7 @@ impl StreamingResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<BackendProgress, &'static str> {
+    ) -> Result<BackendProgress, BackendProcessError> {
         self.backend.process(input, output)
     }
 
@@ -802,10 +921,10 @@ impl StreamingResampler {
                         &self.channel_inputs[channel],
                         &mut self.output_scratch[..output_step_capacity],
                     )
-                    .map_err(|message| ProcessError::Backend {
+                    .map_err(|error| ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "process",
-                        message,
+                        message: error.message(),
                     })?;
 
                 if processed.input_frames > input_step_frames
@@ -921,10 +1040,10 @@ impl StreamingResampler {
                     &input_samples[consumed_frames * channels..],
                     &mut output_samples[produced_frames * channels..],
                 )
-                .map_err(|message| ProcessError::Backend {
+                .map_err(|error| ProcessError::Backend {
                     processor: "StreamingResampler",
                     operation: "process",
-                    message,
+                    message: error.message(),
                 })?;
             if processed.input_frames > input_frames - consumed_frames
                 || processed.output_frames > output_frames - produced_frames
@@ -977,7 +1096,10 @@ impl StreamingResampler {
     }
 
     #[cfg(feature = "soxr")]
-    fn drain_interleaved_backend(&mut self, output: &mut [f64]) -> Result<usize, &'static str> {
+    fn drain_interleaved_backend(
+        &mut self,
+        output: &mut [f64],
+    ) -> Result<usize, BackendProcessError> {
         self.backends
             .first_mut()
             .ok_or("resampler backend set was empty")?
@@ -986,7 +1108,10 @@ impl StreamingResampler {
 
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
     #[inline]
-    fn drain_interleaved_backend(&mut self, output: &mut [f64]) -> Result<usize, &'static str> {
+    fn drain_interleaved_backend(
+        &mut self,
+        output: &mut [f64],
+    ) -> Result<usize, BackendProcessError> {
         self.backend.drain(output)
     }
 
@@ -1019,10 +1144,10 @@ impl StreamingResampler {
             for channel in 0..channels {
                 let channel_frames = self.backends[channel]
                     .drain(&mut self.output_scratch[..output_step_capacity])
-                    .map_err(|message| ProcessError::Backend {
+                    .map_err(|error| ProcessError::Backend {
                         processor: "StreamingResampler",
                         operation: "finish",
-                        message,
+                        message: error.message(),
                     })?;
                 if channel_frames > output_step_capacity {
                     return Err(ProcessError::Backend {
@@ -1097,10 +1222,10 @@ impl StreamingResampler {
         let output_frames = output.frames();
         let produced_frames = self
             .drain_interleaved_backend(output.samples_mut())
-            .map_err(|message| ProcessError::Backend {
+            .map_err(|error| ProcessError::Backend {
                 processor: "StreamingResampler",
                 operation: "finish",
-                message,
+                message: error.message(),
             })?;
         if produced_frames > output_frames {
             return Err(ProcessError::Backend {
@@ -1299,11 +1424,14 @@ mod tests {
 
     #[test]
     fn streaming_resampler_rejects_invalid_geometry() {
-        for (channels, from_rate, to_rate) in [(0, 48_000, 96_000), (2, 0, 96_000), (2, 48_000, 0)]
-        {
+        assert!(matches!(
+            StreamingResampler::new(0, 48_000, 96_000),
+            Err(ResamplerError::ZeroChannels)
+        ));
+        for (from_rate, to_rate) in [(0, 96_000), (48_000, 0)] {
             assert!(matches!(
-                StreamingResampler::new(channels, from_rate, to_rate),
-                Err(ResamplerError::InitializationFailed(_))
+                StreamingResampler::new(2, from_rate, to_rate),
+                Err(ResamplerError::InvalidSampleRate { .. })
             ));
         }
     }
@@ -1315,13 +1443,53 @@ mod tests {
 
         for phase in [PhaseResponse::Minimum, PhaseResponse::Maximum] {
             match StreamingResampler::with_phase(1, 44_100, 44_101, phase) {
-                Err(ResamplerError::InitializationFailed(message)) => {
-                    assert!(message.contains("reduced ratio"), "{message}");
+                Err(ResamplerError::RatioExceedsLimit { up, down, limit }) => {
+                    assert_eq!((up, down, limit), (44_101, 44_100, 1_024));
                 }
                 Err(error) => panic!("{phase:?} returned an unexpected error: {error}"),
                 Ok(_) => panic!("{phase:?} unexpectedly selected a linear backend"),
             }
         }
+    }
+
+    #[cfg(feature = "soxr")]
+    #[test]
+    fn working_buffer_size_overflow_has_a_typed_class() {
+        assert!(matches!(
+            StreamingResampler::working_buffer_bytes(usize::MAX, 48_000, 96_000),
+            Err(ResamplerError::CapacityOverflow { .. })
+        ));
+    }
+
+    #[test]
+    fn backend_failure_classes_are_structured() {
+        let initialization = map_backend_init_error(
+            BackendInitError::Backend {
+                message: "fixture".to_string(),
+            },
+            Some(2),
+        );
+        assert!(matches!(
+            initialization,
+            ResamplerError::BackendInitialization {
+                channel: Some(2),
+                ..
+            }
+        ));
+        assert!(matches!(
+            ResamplerError::InvalidBackendProgress {
+                operation: "process",
+                channel: None,
+            },
+            ResamplerError::InvalidBackendProgress { .. }
+        ));
+        assert!(matches!(
+            ResamplerError::BackendStalled {
+                operation: "process",
+                channel: None,
+            },
+            ResamplerError::BackendStalled { .. }
+        ));
     }
 
     #[test]

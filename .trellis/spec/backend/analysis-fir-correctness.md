@@ -1,6 +1,6 @@
 # AutoMix Analysis and FIR Design Correctness
 
-> Executable contracts for AutoMix tempo/key output and FIR-EQ impulse-response
+> Executable contracts for AutoMix tempo output and FIR-EQ impulse-response
 > design. Read this before changing `automix_analysis.rs`, `fir_eq.rs`, or the
 > FIR performance evidence path.
 
@@ -9,7 +9,7 @@
 This spec applies when code changes:
 
 * spectral-flux window/hop geometry, tempo lag search, or `AutomixAnalysis`;
-* musical-key fields or their serialization contract;
+* the analysis schema or any future musical-key capability;
 * FIR tap normalization, windowing, phase conversion, or band interpolation;
 * `audio_fir_eq_perf`, its JSON schema, CI invocation, or documented FIR
   timing values.
@@ -38,21 +38,18 @@ decode_segment(
     skip_frames: u64,
     take_frames: u64,
     cancel_token: Option<&DecodeCancelToken>,
-) -> Result<(), String>;
+) -> Result<(), AutomixError>;
 
 #[non_exhaustive]
-pub enum AutomixKeyStatus {
-    Unsupported,
+pub enum AutomixError {
+    Canceled,
+    Decoder(DecoderError),
+    TailSeekPastStart { planned_frame: u64, realized_frame: u64 },
 }
 
 pub struct AutomixAnalysis {
-    pub version: u32,                 // current schema: 2
-    pub key_status: AutomixKeyStatus, // serialized as "unsupported"
-    pub key_root: Option<i32>,
-    pub key_mode: Option<i32>,
-    pub key_confidence: Option<f64>,
-    pub camelot_key: Option<String>,
-    // ... timing/loudness/mix fields unchanged
+    pub version: u32, // current schema: 3
+    // timing/loudness/mix fields; no reserved key fields
 }
 
 FirEq::new(sample_rate_hz: f64, num_taps: usize) -> FirEq
@@ -91,13 +88,12 @@ flat energy return no result rather than a fabricated tempo.
 
 ### Key capability honesty
 
-Analysis schema version 2 reports `key_status = "unsupported"`. While that is
-the status, root/mode/confidence/Camelot fields are all null. Reserved root
-encoding is 0=C through 11=B; reserved mode encoding is 0=major, 1=minor.
-
-Do not add a `Detected` or low-confidence status from synthetic chords alone.
-A real detector requires independently labeled music-corpus evidence, tuning
-and harmonic/segmentation policy, and calibrated confidence behavior.
+Analysis schema version 3 has no key-status or key-payload fields because no
+key detector runs. Do not reserve an always-empty capability model or add a
+detected/low-confidence state from synthetic chords alone. A future schema may
+add a coherent key result only with independently labeled music-corpus
+evidence, explicit tuning and harmonic/segmentation policy, and calibrated
+confidence behavior.
 
 ### Bounded analysis interval ownership
 
@@ -177,7 +173,7 @@ overlap-save routing; absolute nanoseconds remain report-only.
 | Spectral flux at 44.1/48 kHz | Convert with ~86.1328/~93.75 Hz, never 50 Hz |
 | Observation rate is zero, negative, NaN, or infinite | `(None, None, None)` |
 | Input is short or has negligible positive-flux energy | No fabricated BPM |
-| Analysis version 2 has no key estimator | `unsupported` plus four null payload fields |
+| Analysis version 3 has no key estimator | No key status or key payload fields are serialized |
 | Known track ends at or before one window | Head covers the available frames; no tail |
 | Full track is just over one window or exactly two windows | Tail starts at `head.end`; no overlap or uncovered suffix |
 | Full track exceeds two windows | Tail is the final full window; the middle gap remains intentionally unanalyzed |
@@ -196,8 +192,8 @@ overlap-save routing; absolute nanoseconds remain report-only.
 
 * Good: a 120 BPM fixture analyzed at 44.1 kHz uses `44_100 / 512` and lands
   within the declared 2% integer-lag tolerance.
-* Base: a flat/short track returns no tempo, and schema v2 explicitly reports
-  key analysis as unsupported.
+* Base: a flat/short track returns no tempo, and schema v3 makes no key-analysis
+  claim or reservation.
 * Good: with a 60-second window, 61/120/121-second tracks plan tails at
   `[60,61)`, `[60,120)`, and `[61,121)` seconds respectively.
 * Base: Head mode or unknown track length analyzes only the bounded head.
@@ -219,8 +215,8 @@ overlap-save routing; absolute nanoseconds remain report-only.
   with at most 2% relative error, plus invalid-rate, short, and flat inputs.
 * `finalize_analysis` has a regression that would produce ~70 BPM if it reused
   50 Hz for a 44.1 kHz spectral fixture.
-* Serialization asserts schema version 2, `key_status = "unsupported"`, and
-  null root/mode/confidence/Camelot payloads.
+* Serialization asserts schema version 3 and the absence of `key_status`,
+  root/mode/confidence, and Camelot payloads.
 * Pure planner tests cover at/below one window, just above one window, exactly
   two windows, above two windows, Head mode, and unknown length; every planned
   head/tail pair is disjoint.
@@ -273,7 +269,10 @@ if let Some(tail) = plan.tail {
     let preroll = tail
         .start
         .checked_sub(decoder.current_frame())
-        .ok_or("coarse seek landed after planned tail start")?;
+        .ok_or(AutomixError::TailSeekPastStart {
+            planned_frame: tail.start,
+            realized_frame: decoder.current_frame(),
+        })?;
     let selected = &packet[frame_start * channels..frame_end * channels];
     analyzer.process(selected, meter, segment); // every metric sees this slice
 }

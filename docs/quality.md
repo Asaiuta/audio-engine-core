@@ -251,12 +251,12 @@ explicitly a pure scalar at the 1 kHz reference (flat 0 dB is `[1.0]`).
 
 ## AutoMix analysis contract
 
-AutoMix analysis schema version 2 converts spectral-flux lag using the actual
+AutoMix analysis schema version 3 converts spectral-flux lag using the actual
 `sample_rate / 512` observation cadence and derives lag bounds from the
-supported tempo range. Musical-key detection is not implemented or claimed:
-`AutomixKeyStatus::Unsupported` is serialized as `key_status: "unsupported"`,
-and the reserved root/mode/confidence/Camelot fields remain null until a future
-detector is validated against an independently labeled music corpus.
+supported tempo range. Musical-key detection is not implemented or claimed,
+so the serialized result has no key status or reserved key payload fields. A
+future key contract requires a detector validated against an independently
+labeled music corpus rather than pre-freezing an always-empty DTO shape.
 
 ## FFT convolution routing
 

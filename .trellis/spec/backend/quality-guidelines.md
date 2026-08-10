@@ -848,11 +848,11 @@ RubatoEngine::new(
     quality: ResampleQuality,
     channels: usize,
 )
-    -> Result<RubatoEngine, String>
+    -> Result<(RubatoEngine, usize), BackendInitError>
 MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
-    -> Result<BackendProgress, &'static str>
-MonoBackend::drain(&mut self, output: &mut [f64]) -> Result<usize, &'static str>
-MonoBackend::clear(&mut self) -> Result<(), &'static str>
+    -> Result<BackendProgress, BackendProcessError>
+MonoBackend::drain(&mut self, output: &mut [f64]) -> Result<usize, BackendProcessError>
+MonoBackend::clear(&mut self) -> Result<(), BackendProcessError>
 ```
 
 Evidence commands:

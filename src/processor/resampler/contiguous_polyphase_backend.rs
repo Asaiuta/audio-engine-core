@@ -33,6 +33,7 @@ use super::polyphase_backend::{
     normalize_kernel, phase_peak_latency_frames, polyphase_coefficients, taps_per_phase,
     MAX_POLYPHASE_COEFFICIENTS, MAX_REDUCED_RATE,
 };
+use super::{BackendInitError, BackendProcessError};
 
 pub(super) struct ContiguousPolyphaseResampler {
     channels: usize,
@@ -192,36 +193,41 @@ impl ContiguousPolyphaseResampler {
         quality: ResampleQuality,
         channels: usize,
         chunk_frames: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         if channels == 0 {
-            return Err("channel count must be >= 1".to_string());
+            return Err(BackendInitError::ZeroChannels);
         }
         if chunk_frames == 0 || from_rate == 0 || to_rate == 0 {
-            return Err("invalid nonlinear resampler geometry".to_string());
+            return Err(BackendInitError::InvalidGeometry {
+                backend: "contiguous polyphase",
+            });
         }
         if matches!(phase, PhaseResponse::Linear) {
-            return Err("polyphase backend requires a nonlinear phase".to_string());
+            return Err(BackendInitError::NonlinearPhaseRequired {
+                backend: "contiguous polyphase",
+            });
         }
 
         let divisor = gcd(from_rate, to_rate);
         let up = (to_rate / divisor) as usize;
         let down = (from_rate / divisor) as usize;
         if up > MAX_REDUCED_RATE || down > MAX_REDUCED_RATE {
-            return Err(format!(
-                "reduced ratio {}:{} exceeds nonlinear phase limit {}",
-                up, down, MAX_REDUCED_RATE
-            ));
+            return Err(BackendInitError::RatioExceedsLimit {
+                up,
+                down,
+                limit: MAX_REDUCED_RATE,
+            });
         }
 
         let taps_per_phase = taps_per_phase(quality);
         let coefficient_count = up
             .checked_mul(taps_per_phase)
-            .ok_or_else(|| "nonlinear coefficient count overflow".to_string())?;
+            .ok_or(BackendInitError::CoefficientCountOverflow)?;
         if coefficient_count > MAX_POLYPHASE_COEFFICIENTS {
-            return Err(format!(
-                "nonlinear coefficient bank is too large: {} coefficients",
-                coefficient_count
-            ));
+            return Err(BackendInitError::CoefficientBankTooLarge {
+                coefficients: coefficient_count,
+                maximum: MAX_POLYPHASE_COEFFICIENTS,
+            });
         }
 
         let prototype = design_linear_prototype(up, down, taps_per_phase, quality);
@@ -250,15 +256,22 @@ impl ContiguousPolyphaseResampler {
         // input base just before the next chunk boundary. Retain that maximum
         // rational lag in addition to the FIR's ordinary `taps - 1` history.
         let maximum_base_lag = (down - 1).div_ceil(up);
-        let history_head_frames = (taps_per_phase - 1)
-            .checked_add(maximum_base_lag)
-            .ok_or_else(|| "nonlinear history size overflow".to_string())?;
-        let history_stride = history_head_frames
-            .checked_add(chunk_frames)
-            .ok_or_else(|| "nonlinear history size overflow".to_string())?;
-        let history_len = history_stride
-            .checked_mul(channels)
-            .ok_or_else(|| "nonlinear history size overflow".to_string())?;
+        let history_head_frames = (taps_per_phase - 1).checked_add(maximum_base_lag).ok_or(
+            BackendInitError::StorageOverflow {
+                buffer: "nonlinear history",
+            },
+        )?;
+        let history_stride = history_head_frames.checked_add(chunk_frames).ok_or(
+            BackendInitError::StorageOverflow {
+                buffer: "nonlinear history",
+            },
+        )?;
+        let history_len =
+            history_stride
+                .checked_mul(channels)
+                .ok_or(BackendInitError::StorageOverflow {
+                    buffer: "nonlinear history",
+                })?;
         Ok(Self {
             channels,
             up,
@@ -297,16 +310,16 @@ impl ContiguousPolyphaseResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
         {
-            return Err("nonlinear backend received an incomplete frame");
+            return Err("nonlinear backend received an incomplete frame".into());
         }
         let input_frames = input.len() / self.channels;
         let output_capacity = output.len() / self.channels;
         let expected_max = (input_frames * self.up).div_ceil(self.down) + 1;
         if output_capacity < expected_max {
-            return Err("nonlinear backend output stage is too small");
+            return Err("nonlinear backend output stage is too small".into());
         }
 
         let mut consumed = 0usize;
@@ -330,7 +343,7 @@ impl ContiguousPolyphaseResampler {
         input: &[f64],
         output: &mut [f64],
         take: usize,
-    ) -> Result<usize, &'static str> {
+    ) -> Result<usize, BackendProcessError> {
         let taps = self.taps_per_phase;
         let chunk_start = self.total_input;
         // Deinterleave the chunk behind the retained history head.
@@ -347,13 +360,13 @@ impl ContiguousPolyphaseResampler {
         let mut produced = 0usize;
         while self.next_output < target_output {
             if (produced + 1) * self.channels > output.len() {
-                return Err("nonlinear backend returned too much output");
+                return Err("nonlinear backend returned too much output".into());
             }
             let q = self.next_output as u128 * self.down as u128;
             let base = (q / self.up as u128) as u64;
             let phase = (q % self.up as u128) as usize;
             if base >= self.total_input {
-                return Err("nonlinear backend requested future input history");
+                return Err("nonlinear backend requested future input history".into());
             }
             let window_origin = self.history_head_frames - (taps - 1);
             let start = if base >= chunk_start {
@@ -373,7 +386,7 @@ impl ContiguousPolyphaseResampler {
                 .checked_add(taps)
                 .is_none_or(|end| end > self.history_head_frames + take)
             {
-                return Err("nonlinear backend history window overrun");
+                return Err("nonlinear backend history window overrun".into());
             }
             let coefficients = &self.coefficients_reversed[phase * taps..(phase + 1) * taps];
             let output_start = produced * self.channels;
@@ -432,7 +445,7 @@ mod tests {
     }
 
     type EngineProcess<'a> =
-        &'a mut dyn FnMut(&[f64], &mut [f64]) -> Result<(usize, usize), &'static str>;
+        &'a mut dyn FnMut(&[f64], &mut [f64]) -> Result<(usize, usize), BackendProcessError>;
 
     fn render_engine_chunks(
         process: EngineProcess<'_>,
@@ -620,7 +633,14 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("pathological ratio unexpectedly accepted"),
         };
-        assert!(error.contains("reduced ratio"), "{error}");
+        assert!(matches!(
+            error,
+            BackendInitError::RatioExceedsLimit {
+                up: 44_101,
+                down: 44_100,
+                limit: MAX_REDUCED_RATE,
+            }
+        ));
         assert!(ContiguousPolyphaseResampler::new(
             44_100,
             48_000,

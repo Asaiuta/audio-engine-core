@@ -18,8 +18,83 @@ loudness metadata only — there is no user data, no business entities, no ORM.
 - Feature status: `loudness-db` is **default-on but optional**. With it off,
   the EBU R128 measurement helpers (`LoudnessMeter`, `LoudnessNormalizer`,
   `TruePeakDetector`) still work fully; only the on-disk cache disappears.
-- Public surface (feature-gated): `LoudnessDatabase`, `TrackLoudness`,
-  `DatabaseStats`, `CURRENT_SCAN_VERSION`, and the default target constants.
+- Public surface (feature-gated): `LoudnessDatabase`,
+  `LoudnessDatabaseError`, `TrackLoudness`, `DatabaseStats`,
+  `CURRENT_SCAN_VERSION`, and the default target constants.
+
+## Typed Operation Boundary
+
+### 1. Scope / Trigger
+
+Apply this contract when changing database opening, schema migration, queries,
+transactions, or the connection-lock boundary.
+
+### 2. Signatures
+
+```rust
+#[non_exhaustive]
+pub enum LoudnessDatabaseError {
+    CreateDirectory(std::io::Error),
+    Database(rusqlite::Error),
+    LockPoisoned,
+}
+
+LoudnessDatabase::open(path) -> Result<LoudnessDatabase, LoudnessDatabaseError>
+LoudnessDatabase::in_memory() -> Result<LoudnessDatabase, LoudnessDatabaseError>
+// Every query and mutation returns Result<_, LoudnessDatabaseError>.
+```
+
+### 3. Contracts
+
+- Directory creation retains the original `std::io::Error` as its source.
+- SQLite open, migration, query, row-decode, and transaction failures retain
+  the original `rusqlite::Error` as their source.
+- A poisoned `Mutex<Connection>` maps explicitly to `LockPoisoned`; the
+  guard-dependent `PoisonError` is not exposed or stringified.
+- Callers decide whether a typed failure means rebuild, retry, or report. The
+  library does not silently convert a corrupt/missing cache into an empty row.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Parent directory creation fails | `LoudnessDatabaseError::CreateDirectory` with I/O source |
+| SQLite open/schema/query/row decode fails | `LoudnessDatabaseError::Database` with SQLite source |
+| A prior panic poisoned the connection mutex | `LoudnessDatabaseError::LockPoisoned` |
+| Query returns no matching row | `Ok(None)`, not an error |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a caller matches `Database` to invalidate and rebuild a disposable
+  cache while retaining the SQLite source for diagnostics.
+- Base: a missing track returns `Ok(None)` and leaves the database usable.
+- Bad: map every failure through `to_string()` or treat a row-decoding failure
+  as an empty/outdated list.
+
+### 6. Tests Required
+
+- Match directory-I/O, SQLite, and poisoned-lock failures by variant without
+  inspecting display text.
+- Assert `std::error::Error::source` is present for I/O and SQLite variants.
+- Keep the malformed-row regression for `get_outdated_tracks` so collection
+  propagates row decoding failure.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let conn = self.conn.lock().map_err(|error| error.to_string())?;
+```
+
+#### Correct
+
+```rust
+let conn = self
+    .conn
+    .lock()
+    .map_err(|_| LoudnessDatabaseError::LockPoisoned)?;
+```
 
 ## Schema & Migration
 

@@ -6,7 +6,7 @@ use audio_engine_core::{
     DownmixCoefficients, Downmixer, LoudnessMeter, RingBuffer, SpectrumAnalyzer, TruePeakDetector,
 };
 #[cfg(feature = "loudness-db")]
-use audio_engine_core::{LoudnessDatabase, TrackLoudness};
+use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, TrackLoudness};
 use serde::{Deserialize, Serialize};
 
 pub mod support;
@@ -521,12 +521,11 @@ fn benchmark_automix(
         let analysis = analyze_automix(fixture_path.to_string(), None, options.clone())
             .map_err(|error| format!("timed AutoMix {mode_name} analysis failed: {error}"))?;
         samples.push(ns_per_work(start, 1));
-        valid &= analysis.version == 2
+        valid &= analysis.version == 3
             && analysis.mode == mode
             && analysis.duration > 0.0
             && !analysis.energy_profile.is_empty()
-            && analysis.key_root.is_none()
-            && analysis.key_mode.is_none();
+            && analysis.mix_center_pos.is_finite();
         checksum += analysis.duration
             + analysis.energy_profile.iter().sum::<f64>()
             + analysis.bpm.unwrap_or(0.0)
@@ -599,6 +598,11 @@ fn benchmark_ring_buffer(
 }
 
 #[cfg(feature = "loudness-db")]
+fn report_database<T>(result: Result<T, LoudnessDatabaseError>) -> Result<T, String> {
+    result.map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "loudness-db")]
 fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<ComponentCase>, String> {
     let rows = 512usize;
     let records = database_records(rows);
@@ -608,7 +612,7 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
     let mut open_samples = Vec::with_capacity(workload.trials);
     for _ in 0..workload.trials {
         let start = Instant::now();
-        let database = LoudnessDatabase::in_memory()?;
+        let database = report_database(LoudnessDatabase::in_memory())?;
         open_samples.push(ns_per_work(start, 1));
         black_box(database);
     }
@@ -630,13 +634,13 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
     let mut upsert_samples = Vec::with_capacity(workload.trials);
     let mut upsert_checksum = 0.0;
     for _ in 0..workload.trials {
-        let database = LoudnessDatabase::in_memory()?;
+        let database = report_database(LoudnessDatabase::in_memory())?;
         let start = Instant::now();
         for iteration in 0..operation_iterations {
-            database.upsert(&records[iteration % records.len()])?;
+            report_database(database.upsert(&records[iteration % records.len()]))?;
         }
         upsert_samples.push(ns_per_work(start, operation_iterations));
-        upsert_checksum += database.stats()?.total_tracks as f64;
+        upsert_checksum += report_database(database.stats())?.total_tracks as f64;
     }
     cases.push(component_case(ComponentCaseInput {
         case_key: format!(
@@ -658,13 +662,13 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
     let mut get_samples = Vec::with_capacity(workload.trials);
     let mut get_checksum = 0.0;
     for _ in 0..workload.trials {
-        let database = LoudnessDatabase::in_memory()?;
-        database.batch_upsert(&records)?;
+        let database = report_database(LoudnessDatabase::in_memory())?;
+        report_database(database.batch_upsert(&records))?;
         let start = Instant::now();
         for iteration in 0..operation_iterations {
-            let record = database
-                .get(&records[iteration % records.len()].file_path)?
-                .ok_or_else(|| "seeded LoudnessDatabase row was not found".to_string())?;
+            let record =
+                report_database(database.get(&records[iteration % records.len()].file_path))?
+                    .ok_or_else(|| "seeded LoudnessDatabase row was not found".to_string())?;
             get_checksum += record.integrated_lufs;
             black_box(record);
         }
@@ -691,9 +695,9 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
     let mut batch_samples = Vec::with_capacity(workload.trials);
     let mut batch_checksum = 0.0;
     for _ in 0..workload.trials {
-        let database = LoudnessDatabase::in_memory()?;
+        let database = report_database(LoudnessDatabase::in_memory())?;
         let start = Instant::now();
-        let inserted = database.batch_upsert(&records[..batch_rows])?;
+        let inserted = report_database(database.batch_upsert(&records[..batch_rows]))?;
         batch_samples.push(ns_per_work(start, batch_rows));
         batch_checksum += inserted as f64;
     }
@@ -717,11 +721,11 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
     let mut stats_samples = Vec::with_capacity(workload.trials);
     let mut stats_checksum = 0.0;
     for _ in 0..workload.trials {
-        let database = LoudnessDatabase::in_memory()?;
-        database.batch_upsert(&records)?;
+        let database = report_database(LoudnessDatabase::in_memory())?;
+        report_database(database.batch_upsert(&records))?;
         let start = Instant::now();
         for _ in 0..operation_iterations {
-            let stats = database.stats()?;
+            let stats = report_database(database.stats())?;
             stats_checksum += stats.total_tracks as f64;
             black_box(stats);
         }

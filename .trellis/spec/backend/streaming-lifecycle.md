@@ -422,7 +422,10 @@ MonoBackend::new_interleaved(
     phase: PhaseResponse,
     quality: ResampleQuality,
     channels: usize,
-) -> Result<MonoBackend, String>
+) -> Result<MonoBackend, BackendInitError>
+
+MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
+    -> Result<BackendProgress, BackendProcessError>
 ```
 
 ### 3. Contracts
@@ -488,7 +491,8 @@ MonoBackend::new_interleaved(
 
 | Condition | Required result |
 | --- | --- |
-| `channels == 0` or either rate is zero | `ResamplerError::InitializationFailed` before backend processing |
+| `channels == 0` | `ResamplerError::ZeroChannels` before backend construction |
+| Either rate is zero | `ResamplerError::InvalidSampleRate { from_rate, to_rate }` before backend construction |
 | Rubato input/output length is not divisible by channels | static backend error; no division, slice overrun, or panic |
 | Backend consumed/produced frames exceed caller capacity | allocation-free `ProcessError::Backend` |
 | A Rubato FIFO push exceeds fixed capacity | static backend error; no overwrite, resize, or log |
@@ -500,7 +504,10 @@ MonoBackend::new_interleaved(
 | UltraHigh at a common audio ratio | FFT engine with one sub-chunk (2x longer FIR than High) |
 | Minimum/Maximum with reduced `up <= 16` | one interleaved spectral nonlinear engine |
 | Minimum/Maximum with reduced `up > 16` and valid geometry | one interleaved contiguous polyphase engine |
-| Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::InitializationFailed`; no linear fallback |
+| Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::RatioExceedsLimit { up, down, limit }`; no linear fallback |
+| Checked working-buffer sizing overflows | `ResamplerError::CapacityOverflow { buffer }` |
+| Third-party backend rejects setup | `ResamplerError::BackendInitialization { backend, channel, message }` |
+| Backend returns out-of-bounds progress or stalls | `InvalidBackendProgress` or `BackendStalled`, without parsing diagnostic text |
 
 ### 5. Good / Base / Bad Cases
 

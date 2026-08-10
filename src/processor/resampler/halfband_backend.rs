@@ -18,6 +18,7 @@ use std::arch::x86_64::{
     __m256d, _mm256_add_pd, _mm256_fmadd_pd, _mm256_loadu_pd, _mm256_set1_pd, _mm256_storeu_pd,
 };
 
+use super::{BackendInitError, BackendProcessError};
 use crate::processor::fir_design::modified_bessel_i0;
 
 /// Odd length keeps the half-band center on an exact output frame. A 127-tap
@@ -50,24 +51,34 @@ pub(super) struct Halfband2xResampler {
 }
 
 impl Halfband2xResampler {
-    pub(super) fn new(channels: usize, chunk_frames: usize) -> Result<Self, String> {
+    pub(super) fn new(channels: usize, chunk_frames: usize) -> Result<Self, BackendInitError> {
         if channels == 0 {
-            return Err("channel count must be >= 1".to_string());
+            return Err(BackendInitError::ZeroChannels);
         }
         if chunk_frames == 0 {
-            return Err("invalid half-band resampler chunk size".to_string());
+            return Err(BackendInitError::InvalidGeometry {
+                backend: "half-band",
+            });
         }
 
         let (even_coefficients, center_gain) = design_coefficients();
-        let input_span_frames = HISTORY_PREFIX_FRAMES
-            .checked_add(chunk_frames)
-            .ok_or_else(|| "half-band input span overflow".to_string())?;
-        let input_samples = input_span_frames
-            .checked_mul(channels)
-            .ok_or_else(|| "half-band input storage overflow".to_string())?;
-        let stage_samples = chunk_frames
-            .checked_mul(channels)
-            .ok_or_else(|| "half-band output storage overflow".to_string())?;
+        let input_span_frames = HISTORY_PREFIX_FRAMES.checked_add(chunk_frames).ok_or(
+            BackendInitError::StorageOverflow {
+                buffer: "half-band input span",
+            },
+        )?;
+        let input_samples =
+            input_span_frames
+                .checked_mul(channels)
+                .ok_or(BackendInitError::StorageOverflow {
+                    buffer: "half-band input",
+                })?;
+        let stage_samples =
+            chunk_frames
+                .checked_mul(channels)
+                .ok_or(BackendInitError::StorageOverflow {
+                    buffer: "half-band output",
+                })?;
         Ok(Self {
             channels,
             chunk_frames,
@@ -91,21 +102,21 @@ impl Halfband2xResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
         {
-            return Err("half-band backend received an incomplete frame");
+            return Err("half-band backend received an incomplete frame".into());
         }
         let input_frames = input.len() / self.channels;
         let output_capacity_frames = output.len() / self.channels;
         if input_frames != self.chunk_frames {
-            return Err("half-band backend received an unexpected input chunk");
+            return Err("half-band backend received an unexpected input chunk".into());
         }
         let output_frames = input_frames
             .checked_mul(2)
             .ok_or("half-band backend output frame overflow")?;
         if output_capacity_frames < output_frames {
-            return Err("half-band backend output stage is too small");
+            return Err("half-band backend output stage is too small".into());
         }
 
         let input_span_frames = HISTORY_PREFIX_FRAMES + self.chunk_frames;

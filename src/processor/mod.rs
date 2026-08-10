@@ -53,7 +53,7 @@ pub mod traits;
 // Public processor API re-exports.
 pub use automix_analysis::{
     analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
-    AutomixAnalysisOptions, AutomixKeyStatus,
+    AutomixAnalysisOptions, AutomixError,
 };
 pub use convolver::{
     ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
@@ -70,7 +70,7 @@ pub use loudness::{
 };
 #[cfg(feature = "loudness-db")]
 pub use loudness_db::{
-    DatabaseStats, LoudnessDatabase, TrackLoudness, CURRENT_SCAN_VERSION,
+    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, TrackLoudness, CURRENT_SCAN_VERSION,
     DEFAULT_STREAMING_TARGET_LUFS,
 };
 pub use output_chain::{
