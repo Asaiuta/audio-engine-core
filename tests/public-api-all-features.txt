@@ -1678,6 +1678,8 @@ pub fn audio_engine_core::processor::traits::AudioBlockError::clone(&self) -> au
 impl core::cmp::Eq for audio_engine_core::processor::traits::AudioBlockError
 impl core::cmp::PartialEq for audio_engine_core::processor::traits::AudioBlockError
 pub fn audio_engine_core::processor::traits::AudioBlockError::eq(&self, &audio_engine_core::processor::traits::AudioBlockError) -> bool
+impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::ResamplerError
+pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::AudioBlockError
@@ -2151,6 +2153,8 @@ pub fn audio_engine_core::processor::traits::AudioBlockError::clone(&self) -> au
 impl core::cmp::Eq for audio_engine_core::processor::traits::AudioBlockError
 impl core::cmp::PartialEq for audio_engine_core::processor::traits::AudioBlockError
 pub fn audio_engine_core::processor::traits::AudioBlockError::eq(&self, &audio_engine_core::processor::traits::AudioBlockError) -> bool
+impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::ResamplerError
+pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::AudioBlockError
@@ -2627,6 +2631,7 @@ pub audio_engine_core::processor::ResamplerError::InvalidBackendGeometry::backen
 pub audio_engine_core::processor::ResamplerError::InvalidBackendProgress
 pub audio_engine_core::processor::ResamplerError::InvalidBackendProgress::channel: core::option::Option<usize>
 pub audio_engine_core::processor::ResamplerError::InvalidBackendProgress::operation: &'static str
+pub audio_engine_core::processor::ResamplerError::InvalidBlock(audio_engine_core::processor::traits::AudioBlockError)
 pub audio_engine_core::processor::ResamplerError::InvalidSampleRate
 pub audio_engine_core::processor::ResamplerError::InvalidSampleRate::from_rate: u32
 pub audio_engine_core::processor::ResamplerError::InvalidSampleRate::to_rate: u32
@@ -2640,7 +2645,10 @@ pub audio_engine_core::processor::ResamplerError::RatioExceedsLimit::up: usize
 pub audio_engine_core::processor::ResamplerError::ZeroChannels
 impl core::clone::Clone for audio_engine_core::processor::ResamplerError
 pub fn audio_engine_core::processor::ResamplerError::clone(&self) -> audio_engine_core::processor::ResamplerError
+impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::ResamplerError
+pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::error::Error for audio_engine_core::processor::ResamplerError
+pub fn audio_engine_core::processor::ResamplerError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Debug for audio_engine_core::processor::ResamplerError
 pub fn audio_engine_core::processor::ResamplerError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for audio_engine_core::processor::ResamplerError
@@ -4029,7 +4037,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RenderedOutp
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RenderedOutput
 pub struct audio_engine_core::processor::Resampler
 impl audio_engine_core::Resampler
-pub fn audio_engine_core::Resampler::new(usize, u32, u32) -> Self
+pub fn audio_engine_core::Resampler::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::Resampler::resample_parallel(&self, &[f64], audio_engine_core::config::PhaseResponse, audio_engine_core::config::ResampleQuality) -> core::result::Result<alloc::vec::Vec<f64>, audio_engine_core::processor::ResamplerError>
 impl core::marker::Freeze for audio_engine_core::Resampler
 impl core::marker::Send for audio_engine_core::Resampler
@@ -4182,10 +4190,8 @@ impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyz
 pub struct audio_engine_core::processor::StreamingResampler
 impl audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::from_rate(&self) -> u32
-pub fn audio_engine_core::StreamingResampler::input_frames_for_output_frames(&self, usize) -> usize
-pub fn audio_engine_core::StreamingResampler::max_output_len_for_input(&self, usize) -> usize
-pub fn audio_engine_core::StreamingResampler::max_output_samples_per_chunk(&self) -> usize
 pub fn audio_engine_core::StreamingResampler::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
+pub fn audio_engine_core::StreamingResampler::process_output_capacity_frames(&self, usize) -> core::result::Result<usize, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::StreamingResampler::to_rate(&self) -> u32
 pub fn audio_engine_core::StreamingResampler::with_phase(usize, u32, u32, audio_engine_core::config::PhaseResponse) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::StreamingResampler::with_quality(usize, u32, u32, audio_engine_core::config::PhaseResponse, audio_engine_core::config::ResampleQuality) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
@@ -4487,6 +4493,8 @@ pub fn audio_engine_core::processor::traits::AudioBlockError::clone(&self) -> au
 impl core::cmp::Eq for audio_engine_core::processor::traits::AudioBlockError
 impl core::cmp::PartialEq for audio_engine_core::processor::traits::AudioBlockError
 pub fn audio_engine_core::processor::traits::AudioBlockError::eq(&self, &audio_engine_core::processor::traits::AudioBlockError) -> bool
+impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::ResamplerError
+pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::AudioBlockError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::AudioBlockError
@@ -6180,7 +6188,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RenderedOutp
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RenderedOutput
 pub struct audio_engine_core::Resampler
 impl audio_engine_core::Resampler
-pub fn audio_engine_core::Resampler::new(usize, u32, u32) -> Self
+pub fn audio_engine_core::Resampler::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::Resampler::resample_parallel(&self, &[f64], audio_engine_core::config::PhaseResponse, audio_engine_core::config::ResampleQuality) -> core::result::Result<alloc::vec::Vec<f64>, audio_engine_core::processor::ResamplerError>
 impl core::marker::Freeze for audio_engine_core::Resampler
 impl core::marker::Send for audio_engine_core::Resampler
@@ -6261,10 +6269,8 @@ impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingDecod
 pub struct audio_engine_core::StreamingResampler
 impl audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::from_rate(&self) -> u32
-pub fn audio_engine_core::StreamingResampler::input_frames_for_output_frames(&self, usize) -> usize
-pub fn audio_engine_core::StreamingResampler::max_output_len_for_input(&self, usize) -> usize
-pub fn audio_engine_core::StreamingResampler::max_output_samples_per_chunk(&self) -> usize
 pub fn audio_engine_core::StreamingResampler::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
+pub fn audio_engine_core::StreamingResampler::process_output_capacity_frames(&self, usize) -> core::result::Result<usize, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::StreamingResampler::to_rate(&self) -> u32
 pub fn audio_engine_core::StreamingResampler::with_phase(usize, u32, u32, audio_engine_core::config::PhaseResponse) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>
 pub fn audio_engine_core::StreamingResampler::with_quality(usize, u32, u32, audio_engine_core::config::PhaseResponse, audio_engine_core::config::ResampleQuality) -> core::result::Result<Self, audio_engine_core::processor::ResamplerError>

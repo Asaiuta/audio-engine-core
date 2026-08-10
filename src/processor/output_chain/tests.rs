@@ -503,6 +503,38 @@ fn convolver_tail_flows_through_limiter_and_resampler_independent_of_block_size(
         .any(|sample| sample.abs() > 1.0e-5));
 }
 
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+#[test]
+fn resampler_finish_bound_includes_nonlinear_latency_and_tail() {
+    let input_frames = 1_024;
+    let block_frames = 1_024;
+    let mut resampler =
+        StreamingResampler::with_phase(CHANNELS, 8_000, 192_000, PhaseResponse::Minimum).unwrap();
+    let declared_frames = resampler.latency().frames()
+        + resampler
+            .tail()
+            .finite_duration()
+            .expect("nonlinear resampler has a finite tail")
+            .frames();
+    let old_process_estimate = resampler
+        .process_output_capacity_frames(input_frames)
+        .unwrap()
+        + block_frames;
+    let mut boundary = RateBoundary::new(CHANNELS, Some(&mut resampler), block_frames).unwrap();
+    boundary.input_frames_seen = input_frames;
+
+    let limit = boundary
+        .finish_frame_limit(OfflineRenderPolicy::default(), block_frames)
+        .unwrap();
+    let converted_frames = input_frames * 24;
+
+    assert_eq!(limit, converted_frames + declared_frames + block_frames);
+    assert!(
+        limit > old_process_estimate,
+        "the nonlinear timing contract must exceed the old process-capacity estimate"
+    );
+}
+
 #[test]
 fn production_iir_tail_stops_early_and_is_block_size_independent() {
     let params = transparent_render_params(SAMPLE_RATE);

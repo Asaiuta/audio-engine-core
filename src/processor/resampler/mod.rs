@@ -110,8 +110,9 @@ impl From<&'static str> for BackendProcessError {
 }
 
 use super::traits::{
-    AudioBlockMut, AudioBlockRef, FrameDuration, ProcessBufferMode, ProcessBufferParts,
-    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration, FrameRounding, ProcessBufferMode,
+    ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
+    StreamingProcessor, TailSpec,
 };
 
 /// Error type for resampler construction and offline operations.
@@ -124,6 +125,9 @@ pub enum ResamplerError {
     /// Interleaved resampling requires at least one channel.
     #[error("resampler channel count must be at least one")]
     ZeroChannels,
+    /// One-shot input does not contain complete interleaved frames.
+    #[error(transparent)]
+    InvalidBlock(#[from] AudioBlockError),
     /// Checked sizing of a reusable buffer or working set overflowed.
     #[error("resampler {buffer} capacity overflow")]
     CapacityOverflow { buffer: &'static str },
@@ -226,6 +230,49 @@ pub struct Resampler {
     to_rate: u32,
 }
 
+const ONE_SHOT_INPUT_CHUNK_FRAMES: usize = 8_192;
+const PROCESS_OUTPUT_BURST_SLACK_FRAMES: usize = 64;
+
+fn validate_resampler_geometry(
+    channels: usize,
+    from_rate: u32,
+    to_rate: u32,
+) -> Result<(), ResamplerError> {
+    if channels == 0 {
+        return Err(ResamplerError::ZeroChannels);
+    }
+    if from_rate == 0 || to_rate == 0 {
+        return Err(ResamplerError::InvalidSampleRate { from_rate, to_rate });
+    }
+    Ok(())
+}
+
+fn converted_output_frames(
+    input_frames: usize,
+    from_rate: u32,
+    to_rate: u32,
+    buffer: &'static str,
+) -> Result<usize, ResamplerError> {
+    FrameDuration::new(input_frames, from_rate)
+        .and_then(|duration| duration.rounded_frames_at_rate(to_rate, FrameRounding::Ceil))
+        .map_err(|_| ResamplerError::CapacityOverflow { buffer })
+}
+
+fn process_output_capacity_frames(
+    input_frames: usize,
+    from_rate: u32,
+    to_rate: u32,
+) -> Result<usize, ResamplerError> {
+    if input_frames == 0 {
+        return Ok(0);
+    }
+    converted_output_frames(input_frames, from_rate, to_rate, "process output")?
+        .checked_add(PROCESS_OUTPUT_BURST_SLACK_FRAMES)
+        .ok_or(ResamplerError::CapacityOverflow {
+            buffer: "process output",
+        })
+}
+
 fn deinterleave_frame_major(
     input: &[f64],
     channels: usize,
@@ -254,15 +301,21 @@ fn interleave_channel_outputs_to_vec(
     channel_outputs: &[Vec<f64>],
     channels: usize,
     output: &mut Vec<f64>,
-) -> usize {
+) -> Result<usize, ResamplerError> {
     if channel_outputs.is_empty() || channel_outputs[0].is_empty() {
         output.clear();
-        return 0;
+        return Ok(0);
     }
 
     let out_frames = channel_outputs[0].len();
     output.clear();
-    output.reserve(out_frames * channels);
+    let output_samples =
+        out_frames
+            .checked_mul(channels)
+            .ok_or(ResamplerError::CapacityOverflow {
+                buffer: "one-shot interleaved output",
+            })?;
+    output.reserve(output_samples);
 
     if channel_outputs_have_frames(channel_outputs, channels, out_frames) {
         for frame in 0..out_frames {
@@ -278,7 +331,7 @@ fn interleave_channel_outputs_to_vec(
         }
     }
 
-    out_frames
+    Ok(out_frames)
 }
 
 #[cfg(feature = "soxr")]
@@ -323,12 +376,14 @@ fn interleave_channel_outputs_to_slice(
 }
 
 impl Resampler {
-    pub fn new(channels: usize, from_rate: u32, to_rate: u32) -> Self {
-        Self {
+    /// Create a one-shot resampler with validated interleaved geometry.
+    pub fn new(channels: usize, from_rate: u32, to_rate: u32) -> Result<Self, ResamplerError> {
+        validate_resampler_geometry(channels, from_rate, to_rate)?;
+        Ok(Self {
             channels,
             from_rate,
             to_rate,
-        }
+        })
     }
 
     /// Resample audio data using the configured backend (SoX VHQ polyphase
@@ -360,27 +415,15 @@ impl Resampler {
         phase: PhaseResponse,
         quality: ResampleQuality,
     ) -> Result<Vec<f64>, ResamplerError> {
+        let input = AudioBlockRef::new(input, self.channels)?;
         if self.from_rate == self.to_rate {
-            return Ok(input.to_vec());
-        }
-
-        // Validate sample rates
-        if self.from_rate == 0 || self.to_rate == 0 {
-            return Err(ResamplerError::InvalidSampleRate {
-                from_rate: self.from_rate,
-                to_rate: self.to_rate,
-            });
-        }
-
-        // Guard channels==0: a zero channel count would divide by zero below.
-        if self.channels == 0 {
-            return Err(ResamplerError::ZeroChannels);
+            return Ok(input.samples().to_vec());
         }
 
         // 1. De-interleave
-        let frames = input.len() / self.channels;
+        let frames = input.frames();
         let mut plan_channels: Vec<Vec<f64>> = vec![Vec::with_capacity(frames); self.channels];
-        deinterleave_frame_major(input, self.channels, frames, &mut plan_channels);
+        deinterleave_frame_major(input.samples(), self.channels, frames, &mut plan_channels);
 
         // 2. Process channels in parallel
         let resampled_channels: Result<Vec<Vec<f64>>, ResamplerError> = plan_channels
@@ -392,28 +435,23 @@ impl Resampler {
                 let mut backend = MonoBackend::new(self.from_rate, self.to_rate, phase, quality)
                     .map_err(|error| map_backend_init_error(error, Some(ch_idx)))?;
 
-                // Output estimation
-                let expected_frames = (channel_data.len() as f64 * self.to_rate as f64
-                    / self.from_rate as f64)
-                    .ceil() as usize
-                    + 100;
+                let expected_frames = converted_output_frames(
+                    channel_data.len(),
+                    self.from_rate,
+                    self.to_rate,
+                    "one-shot output",
+                )?;
                 let mut channel_output = Vec::with_capacity(expected_frames);
 
                 // Chunked processing to avoid massive single-pass overhead
-                // 8192 frames is a good balance for cache usage
-                let inner_chunk_size = 8192;
-                // Size scratch by the actual conversion ratio, not a fixed 1.5x.
-                // Upsampling ratios above 1.5 (e.g. 44.1->96k = 2.18, 44.1->192k
-                // = 4.35) produce more output than input per chunk; the old 1.5x
-                // buffer silently truncated the surplus on every chunk. A margin
-                // above the nominal ratio absorbs the backend's per-call
-                // batching, and the flush below drains any residual backlog in
-                // a loop.
-                let ratio = self.to_rate as f64 / self.from_rate as f64;
-                let scratch_frames = (inner_chunk_size as f64 * ratio).ceil() as usize + 64;
+                // 8192 frames is a good balance for cache usage. The shared
+                // process-capacity contract owns the backend burst slack.
+                let inner_chunk_size = ONE_SHOT_INPUT_CHUNK_FRAMES;
+                let scratch_frames =
+                    process_output_capacity_frames(inner_chunk_size, self.from_rate, self.to_rate)?;
                 let mut output_scratch = vec![0.0; scratch_frames];
 
-                let total_chunks = channel_data.len() / inner_chunk_size + 1;
+                let total_chunks = channel_data.len().div_ceil(inner_chunk_size);
 
                 // Log only for first channel to avoid spam
                 if ch_idx == 0 {
@@ -497,8 +535,14 @@ impl Resampler {
             return Ok(Vec::new());
         }
 
-        let mut final_output = Vec::with_capacity(resampled_channels[0].len() * self.channels);
-        interleave_channel_outputs_to_vec(&resampled_channels, self.channels, &mut final_output);
+        let final_capacity = resampled_channels[0]
+            .len()
+            .checked_mul(self.channels)
+            .ok_or(ResamplerError::CapacityOverflow {
+                buffer: "one-shot interleaved output",
+            })?;
+        let mut final_output = Vec::with_capacity(final_capacity);
+        interleave_channel_outputs_to_vec(&resampled_channels, self.channels, &mut final_output)?;
 
         Ok(final_output)
     }
@@ -549,14 +593,9 @@ fn streaming_buffer_layout(
     from_rate: u32,
     to_rate: u32,
 ) -> Result<StreamingBufferLayout, ResamplerError> {
-    if channels == 0 || from_rate == 0 || to_rate == 0 {
-        if channels == 0 {
-            return Err(ResamplerError::ZeroChannels);
-        }
-        return Err(ResamplerError::InvalidSampleRate { from_rate, to_rate });
-    }
-    let ratio = to_rate as f64 / from_rate as f64;
-    let max_output_per_channel = (STREAMING_MAX_INPUT_FRAMES as f64 * ratio).ceil() as usize + 64;
+    validate_resampler_geometry(channels, from_rate, to_rate)?;
+    let max_output_per_channel =
+        process_output_capacity_frames(STREAMING_MAX_INPUT_FRAMES, from_rate, to_rate)?;
     #[cfg(feature = "soxr")]
     let pcm_bytes = if channels == 2 {
         0
@@ -609,31 +648,18 @@ impl StreamingResampler {
         self.to_rate
     }
 
-    /// Conservative interleaved output capacity for one caller input block.
-    /// Backpressure remains authoritative; callers must still advance using
-    /// [`ProcessProgress`] rather than assuming the estimate consumes all input.
-    pub fn max_output_len_for_input(&self, input_samples: usize) -> usize {
-        if self.channels == 0 {
-            return 0;
-        }
-        let input_frames = input_samples / self.channels;
-        let ratio = self.to_rate as f64 / self.from_rate as f64;
-        (input_frames as f64 * ratio).ceil() as usize * self.channels + self.channels * 64
-    }
-
-    /// Maximum interleaved output produced by one internal backend step.
-    pub fn max_output_samples_per_chunk(&self) -> usize {
-        streaming_buffer_layout(self.channels, self.from_rate, self.to_rate)
-            .map_or(0, |layout| layout.max_output_per_channel * self.channels)
-    }
-
-    pub fn input_frames_for_output_frames(&self, output_frames: usize) -> usize {
-        if output_frames == 0 || self.to_rate == 0 {
-            return 0;
-        }
-
-        let ratio = self.from_rate as f64 / self.to_rate as f64;
-        (output_frames as f64 * ratio).ceil() as usize + 64
+    /// Conservative per-channel output capacity for one caller input block.
+    ///
+    /// This setup/provisioning helper uses frame units and exact rational
+    /// ceiling conversion plus a fixed backend-burst allowance. Backpressure
+    /// remains authoritative: callers must advance from [`ProcessProgress`]
+    /// rather than assume the capacity guarantees complete input consumption
+    /// for every possible prior backend state.
+    pub fn process_output_capacity_frames(
+        &self,
+        input_frames: usize,
+    ) -> Result<usize, ResamplerError> {
+        process_output_capacity_frames(input_frames, self.from_rate, self.to_rate)
     }
 
     /// Create a new streaming resampler with default (linear) phase and High quality
@@ -666,15 +692,7 @@ impl StreamingResampler {
         phase: PhaseResponse,
         quality: ResampleQuality,
     ) -> Result<Self, ResamplerError> {
-        // Validate sample rates before creating backend streams
-        if from_rate == 0 || to_rate == 0 {
-            return Err(ResamplerError::InvalidSampleRate { from_rate, to_rate });
-        }
-
-        // Guard channels==0: interleaved frame handling requires a non-zero divisor.
-        if channels == 0 {
-            return Err(ResamplerError::ZeroChannels);
-        }
+        validate_resampler_geometry(channels, from_rate, to_rate)?;
 
         #[cfg(feature = "soxr")]
         let backends = if channels == 2 {
@@ -1423,6 +1441,108 @@ mod tests {
         }
     }
 
+    #[test]
+    fn one_shot_resampler_rejects_invalid_geometry_at_construction() {
+        assert!(matches!(
+            Resampler::new(0, 48_000, 96_000),
+            Err(ResamplerError::ZeroChannels)
+        ));
+        for (from_rate, to_rate) in [(0, 96_000), (48_000, 0)] {
+            assert!(matches!(
+                Resampler::new(2, from_rate, to_rate),
+                Err(ResamplerError::InvalidSampleRate { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn one_shot_resampler_rejects_incomplete_frames_before_rate_bypass() {
+        for (from_rate, to_rate) in [(48_000, 48_000), (48_000, 96_000)] {
+            let error = Resampler::new(2, from_rate, to_rate)
+                .unwrap()
+                .resample_parallel(
+                    &[0.25, -0.25, 0.5],
+                    PhaseResponse::Linear,
+                    ResampleQuality::High,
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                ResamplerError::InvalidBlock(AudioBlockError::IncompleteFrame {
+                    samples: 3,
+                    channels: 2,
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn one_shot_equal_rate_preserves_valid_and_empty_input() {
+        let resampler = Resampler::new(2, 48_000, 48_000).unwrap();
+        let input = [0.25, -0.25, 0.5, -0.5];
+        assert_eq!(
+            resampler
+                .resample_parallel(&input, PhaseResponse::Linear, ResampleQuality::High,)
+                .unwrap(),
+            input
+        );
+        assert!(resampler
+            .resample_parallel(&[], PhaseResponse::Linear, ResampleQuality::High)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn process_capacity_is_checked_exact_frame_domain_provisioning() {
+        let resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        assert_eq!(resampler.process_output_capacity_frames(0).unwrap(), 0);
+        assert_eq!(
+            resampler.process_output_capacity_frames(441).unwrap(),
+            480 + PROCESS_OUTPUT_BURST_SLACK_FRAMES
+        );
+
+        let equal_rate = StreamingResampler::new(2, 48_000, 48_000).unwrap();
+        assert!(matches!(
+            equal_rate.process_output_capacity_frames(usize::MAX),
+            Err(ResamplerError::CapacityOverflow {
+                buffer: "process output"
+            })
+        ));
+        assert!(matches!(
+            process_output_capacity_frames(usize::MAX, 1, u32::MAX),
+            Err(ResamplerError::CapacityOverflow {
+                buffer: "process output"
+            })
+        ));
+    }
+
+    #[test]
+    fn process_capacity_bounds_repeated_canonical_blocks() {
+        for (from_rate, to_rate) in [
+            (48_000, 48_000),
+            (44_100, 48_000),
+            (48_000, 44_100),
+            (8_000, 192_000),
+        ] {
+            let mut resampler = StreamingResampler::new(2, from_rate, to_rate).unwrap();
+            let input = fixture(512, 2);
+            let capacity_frames = resampler.process_output_capacity_frames(512).unwrap();
+            let mut output = vec![0.0; capacity_frames * 2];
+
+            for _ in 0..8 {
+                let input_block = AudioBlockRef::new(&input, 2).unwrap();
+                let output_block = AudioBlockMut::new(&mut output, 2).unwrap();
+                let progress = process_checked(
+                    &mut resampler,
+                    ProcessBuffers::out_of_place(input_block, output_block).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(progress.consumed_frames(), 512);
+                assert!(progress.produced_frames() <= capacity_frames);
+            }
+        }
+    }
+
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
     #[test]
     fn nonlinear_phase_rejects_pathological_geometry_without_linear_fallback() {
@@ -1523,6 +1643,7 @@ mod tests {
     fn stereo_soxr_matches_independent_mono_reference_bits() {
         let input = fixture(4_097, 2);
         let expected = Resampler::new(2, 44_100, 48_000)
+            .unwrap()
             .resample_parallel(&input, PhaseResponse::Linear, ResampleQuality::High)
             .unwrap();
         let mut streaming = StreamingResampler::with_quality(
@@ -1752,6 +1873,7 @@ mod tests {
     fn one_shot_parallel_matches_unified_streaming_length() {
         let input = fixture(24_000, 2);
         let parallel = Resampler::new(2, 44_100, 192_000)
+            .unwrap()
             .resample_parallel(&input, PhaseResponse::Linear, ResampleQuality::High)
             .unwrap();
         let mut streaming = StreamingResampler::with_quality(

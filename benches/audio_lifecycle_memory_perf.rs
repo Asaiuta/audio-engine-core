@@ -1104,7 +1104,9 @@ fn feed_resampler(
 ) -> Result<(usize, usize), String> {
     let input_frames = input.len() / CHANNELS;
     let output_samples = resampler
-        .max_output_len_for_input(input.len())
+        .process_output_capacity_frames(input_frames)
+        .map_err(|error| format!("resampler capacity failed: {error}"))?
+        .saturating_mul(CHANNELS)
         .saturating_mul(8)
         .saturating_add(8_192);
     let mut output = vec![0.0; output_samples];

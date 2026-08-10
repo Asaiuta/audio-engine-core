@@ -510,17 +510,23 @@ impl<'a> RateBoundary<'a> {
         Ok(())
     }
 
-    fn finish_frame_limit(&self, block_frames: usize) -> Result<usize, ProcessError> {
+    fn finish_frame_limit(
+        &self,
+        policy: OfflineRenderPolicy,
+        block_frames: usize,
+    ) -> Result<usize, ProcessError> {
         let Some(resampler) = self.resampler.as_ref() else {
             return Ok(1);
         };
-        let input_samples = self
-            .input_frames_seen
-            .checked_mul(self.channels)
-            .ok_or(TimingError::FrameCountOverflow)?;
-        let estimated_output_samples = resampler.max_output_len_for_input(input_samples);
-        let estimated_output_frames = estimated_output_samples / self.channels;
-        Ok(checked_frame_sum(estimated_output_frames, block_frames)?.max(1))
+        finish_frame_limit(
+            self.input_frames_seen,
+            resampler.from_rate(),
+            resampler.to_rate(),
+            resampler.latency(),
+            resampler.tail(),
+            policy,
+            block_frames,
+        )
     }
 
     fn finish(
@@ -1825,7 +1831,7 @@ impl OutputRenderChain {
                 }
             }
 
-            let resampler_finish_limit = boundary.finish_frame_limit(block_frames)?;
+            let resampler_finish_limit = boundary.finish_frame_limit(policy, block_frames)?;
             boundary.finish(&mut collector, resampler_finish_limit)?;
 
             let limiter_finish_limit = finish_frame_limit(

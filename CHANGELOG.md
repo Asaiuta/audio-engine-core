@@ -125,6 +125,20 @@ SemVer for pre-1.0 releases.
     processed crossfade branch with `clone_from`, which carries delay state.
 
 ### Changed
+- **Breaking:** `Resampler::new` now returns `Result<Self, ResamplerError>` and
+  rejects zero channel/rate geometry before one-shot work begins.
+  `resample_parallel` validates complete interleaved frames before its
+  equal-rate bypass, so enabling rate conversion can no longer silently drop a
+  trailing partial frame. `ResamplerError::InvalidBlock` preserves the typed
+  `AudioBlockError` details.
+- **Breaking:** `StreamingResampler::max_output_len_for_input`,
+  `max_output_samples_per_chunk`, and `input_frames_for_output_frames` are
+  replaced by checked, frame-domain
+  `process_output_capacity_frames`. Capacity overflow is typed, process
+  provisioning remains subordinate to `ProcessProgress`, and complete render
+  bounds now use declared latency/tail rather than a process estimate.
+- SoXR `Low`, `Standard`, `High`, and `UltraHigh` now resolve to the distinct
+  `Low`, `Medium`, 20-bit high, and 28-bit very-high recipes respectively.
 - **Breaking:** `DspChain::add` now requires `FixedInPlaceProcessor`, which is
   implemented by the fixed 1:1 callback stages but intentionally not by
   `StreamingResampler`. `DspChain::new` and `with_capacity` return
