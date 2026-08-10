@@ -26,6 +26,7 @@ processor boundary.
 LoudnessDatabase::open(path) -> Result<LoudnessDatabase, LoudnessDatabaseError>
 analyze_automix(...) -> Result<AutomixAnalysis, AutomixError>
 StreamingResampler::with_quality(...) -> Result<StreamingResampler, ResamplerError>
+MediaLocation::http(input) -> Result<MediaLocation, MediaLocationError>
 
 #[non_exhaustive]
 pub enum AutomixError {
@@ -48,6 +49,9 @@ the facade maps them to the public boundary.
   the I/O/SQLite database variants retain their source chains.
 - Cancellation has its own variant rather than a magic message inside a
   decoder or analysis error.
+- `MediaLocationError` separates URL syntax, unsupported scheme, and missing
+  host. URL parse failures retain `url::ParseError`; routing code never parses
+  display text to recover the class.
 - Backend diagnostic strings may remain payloads inside typed setup/offline
   variants when the third-party API exposes no stable class.
 - Callback-facing backend errors carry `&'static str`; constructing a `String`
@@ -65,6 +69,9 @@ the facade maps them to the public boundary.
 | Loudness connection mutex is poisoned | `LoudnessDatabaseError::LockPoisoned` |
 | Resampler facade geometry/capacity fails | Structured `ResamplerError` geometry/capacity variant |
 | Backend process fails on the callback path | Allocation-free `ProcessError::Backend` with static diagnostic |
+| HTTP media text is malformed | `MediaLocationError::InvalidUrl` with parse source |
+| Media URL uses a non-HTTP scheme | `MediaLocationError::UnsupportedScheme` |
+| HTTP media URL has no host | `MediaLocationError::MissingHost` |
 
 ### 5. Good / Base / Bad Cases
 
@@ -79,6 +86,8 @@ the facade maps them to the public boundary.
 
 - Match every policy-relevant error by variant, not `contains()` on display
   text, and verify retained sources where applicable.
+- Cover all `MediaLocationError` variants without asserting their display
+  strings; URL syntax errors retain a source and policy rejections do not.
 - Exercise both all-feature and Rubato-only matrices so feature-gated variants
   and backend mappings compile.
 - Keep process/finish failure probes inside `assert_no_alloc` where they are

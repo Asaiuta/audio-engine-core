@@ -3,7 +3,7 @@
   "name": "introduce-typed-media-location",
   "title": "Introduce a typed media location for decoder sources",
   "description": "1.0 gate 4 of 9. Audit P2-5 and P2-7: local-vs-HTTP selection uses AsRef<Path>, lossy string conversion, and repeated case-sensitive prefix checks. A typed MediaLocation is the natural boundary and also centralizes URL redaction and loudness-cache source identity/freshness.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

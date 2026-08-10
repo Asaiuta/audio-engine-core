@@ -80,7 +80,8 @@ Unsupported architectures use an empty initializer plus the software
 
 ```rust
 impl std::fmt::Debug for HttpCredentials;
-fn http_url_log_identity(raw_url: &str) -> String;
+HttpMediaLocation::log_identity(&self) -> String;
+MediaLocation::log_identity(&self) -> String;
 impl From<reqwest::Error> for NetworkError;
 ```
 
@@ -89,11 +90,11 @@ impl From<reqwest::Error> for NetworkError;
 - `HttpCredentials` debug output always shows two `[REDACTED]` markers and
   never reveals either field. Basic-auth tokens can occupy the username as well
   as the password.
-- HTTP lifecycle logs use `http_url_log_identity`, which parses the URL and
-  returns only `scheme://host[:port]`. Userinfo, path, query, and fragment are
-  absent. Invalid input becomes the fixed `<invalid-http-url>` placeholder.
-- Raw URLs remain internal inputs to request construction and media hint
-  parsing. Never pass one directly to `log::*`.
+- HTTP lifecycle logs use `HttpMediaLocation::log_identity`, which returns only
+  `scheme://host[:port]` from an already-validated URL. Userinfo, path, query,
+  and fragment are absent. Invalid input is rejected before a location exists.
+- Full URLs remain behind `HttpMediaLocation::url` for request construction and
+  media hint parsing. Never pass that value directly to `log::*`.
 - `reqwest::Error::without_url()` runs before timeout/status/source-chain/
   message classification. All branches operate on the stripped error.
 - Response-body `io::Error` messages and malformed response-header text are not
@@ -106,15 +107,15 @@ impl From<reqwest::Error> for NetworkError;
 | --- | --- |
 | `format!("{credentials:?}")` | type/field names plus redaction markers; no values |
 | URL with userinfo/path/query/fragment | lifecycle identity contains origin only |
-| Invalid raw URL | fixed placeholder; no raw substring |
+| Invalid raw URL | typed construction error before formatting or transport |
 | reqwest send error with signed URL | converted/displayed error contains no URL/token |
 | HTTP body error with opaque message | classify stable `ErrorKind` or emit kind-only text |
 | Malformed `Content-Range` containing attacker text | named protocol failure without reflected header value |
 
 ### 5. Good / Base / Bad Cases
 
-- Good: `log::info!("HTTP origin ... {}", http_url_log_identity(url))` and
-  `let error = error.without_url()` at the conversion entry.
+- Good: `log::info!("HTTP origin ... {}", location.log_identity())` and `let
+  error = error.without_url()` at the conversion entry.
 - Base: retain origin for operational correlation while requiring callers to
   attach their own non-secret request ID for finer tracing.
 - Bad: redact only `password`, strip only query strings, log path components,
@@ -124,8 +125,9 @@ impl From<reqwest::Error> for NetworkError;
 
 - Credential debug test supplies distinct secrets in both fields and asserts
   neither appears.
-- URL identity test includes userinfo, password, port, private path, signed
-  query, and fragment; assert exact origin output and fixed invalid fallback.
+- Typed URL identity test includes userinfo, password, port, private path,
+  signed query, and fragment; assert exact origin output. Invalid inputs are
+  covered by `MediaLocationError` variant tests.
 - A loopback server accepts then closes a signed-URL request. Assert the raw
   reqwest error retained the URL before conversion and `NetworkError` display
   contains no token, userinfo, or address afterward.
@@ -141,7 +143,7 @@ impl From<reqwest::Error> for NetworkError;
 ```rust
 #[derive(Debug)]
 pub struct HttpCredentials { pub username: String, pub password: String }
-log::info!("opening {url}");
+log::info!("opening {}", location.url());
 let text = reqwest_error.to_string();
 ```
 
@@ -149,7 +151,7 @@ let text = reqwest_error.to_string();
 
 ```rust
 impl Debug for HttpCredentials { /* both fields -> [REDACTED] */ }
-log::info!("opening {}", http_url_log_identity(url));
+log::info!("opening {}", location.log_identity());
 let reqwest_error = reqwest_error.without_url();
 let network_error = NetworkError::from(reqwest_error);
 ```

@@ -5,6 +5,114 @@
 > errors remain in `error-handling.md`; callback safety remains in
 > `realtime-safety.md`.
 
+## Scenario: Typed Media Location Owns Source Routing
+
+### 1. Scope / Trigger
+
+- Trigger: changing `MediaLocation`, `HttpMediaLocation`, decoder source
+  opening, AutoMix source inputs, or a downstream identity derived from a
+  media source.
+- A path-like string cannot preserve native local paths and also prove that an
+  HTTP URL is validated. The enum variant is therefore the routing decision.
+
+### 2. Signatures
+
+```rust
+pub enum MediaLocation {
+    Local(PathBuf),
+    Http(HttpMediaLocation),
+}
+
+impl MediaLocation {
+    pub fn local(path: impl Into<PathBuf>) -> Self;
+    pub fn http(input: impl AsRef<str>) -> Result<Self, MediaLocationError>;
+}
+
+impl HttpMediaLocation {
+    pub fn parse(input: impl AsRef<str>) -> Result<Self, MediaLocationError>;
+    pub fn from_url(url: url::Url) -> Result<Self, MediaLocationError>;
+    pub fn url(&self) -> &url::Url;
+}
+
+StreamingDecoder::open(location: MediaLocation) -> Result<StreamingDecoder, DecoderError>
+analyze_automix(location: MediaLocation, ...) -> Result<AutomixAnalysis, AutomixError>
+```
+
+`url` is a direct dependency because these public types and constructors exist
+in local-only builds. The `http` feature gates transport, not representation.
+
+### 3. Contracts
+
+- Construct local and HTTP locations explicitly. No public combined-source
+  entry point guesses a variant from a string or path prefix.
+- `Local(PathBuf)` reaches `File::open` without UTF-8 conversion or mandatory
+  canonicalization. A lossy rendering may be used only as a diagnostic label,
+  never for routing, opening, or cache identity.
+- `HttpMediaLocation` keeps its `Url` private and accepts only `http` or
+  `https` URLs with a host. Callers cannot construct an invalid HTTP variant.
+- Source opening matches the enum variant. With `http` disabled, an HTTP
+  variant returns `DecoderError::FeatureUnavailable`; it is never retried as a
+  local path.
+- HTTP request code receives the already-validated full URL. `Debug`,
+  `Display`, and library logs use the origin-only `log_identity`; path, query,
+  fragment, and userinfo never reach library-controlled diagnostics.
+- AutoMix and staged/direct decoder opening consume the same typed location so
+  routing, credentials, cancellation, and redaction cannot drift by caller.
+
+### 4. Validation & Error Matrix
+
+| Input / build | Required result |
+| --- | --- |
+| Arbitrary native local `PathBuf` | `MediaLocation::Local`; byte-exact local open |
+| Mixed-case `HTTP://` or `HTTPS://` input | parsed and normalized by `url`, then routed as HTTP |
+| `ftp://...` | `MediaLocationError::UnsupportedScheme` |
+| HTTP URL without a host | `MediaLocationError::MissingHost` |
+| Malformed URL | `MediaLocationError::InvalidUrl` with parse source |
+| HTTP location in a no-`http` build | `DecoderError::FeatureUnavailable` |
+| URL containing credentials and signed components | full URL is used for the request; only origin is formatted |
+
+### 5. Good / Base / Bad Cases
+
+- Good: construct `MediaLocation::http`, validate once, and pass that value
+  through playback, AutoMix, and cache identity construction.
+- Base: construct `MediaLocation::local` without touching the filesystem; a
+  later open reports any I/O failure.
+- Bad: call `to_string_lossy`, inspect `http://` prefixes, reparse the value in
+  each consumer, or expose `MediaLocation::Http(url::Url)` directly.
+
+### 6. Tests Required
+
+- On Unix, create a non-UTF-8 filename and prove staged and direct local opens
+  decode it without classification or byte loss.
+- Cover mixed-case schemes, malformed URLs, unsupported schemes, missing
+  hosts, and the no-HTTP `FeatureUnavailable` branch by typed variant.
+- Assert `Debug`, `Display`, and log identity omit username, password, private
+  path, signed query, and fragment while `url()` retains the request URL.
+- Compile and test all-features and Rubato-only matrices; run both public API
+  snapshots after changing any signature or re-export.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let text = path.as_ref().to_string_lossy();
+if text.starts_with("http://") || text.starts_with("https://") {
+    open_http(&text)
+} else {
+    File::open(text.as_ref())
+}
+```
+
+#### Correct
+
+```rust
+match location {
+    MediaLocation::Local(path) => open_local_media_source(path),
+    MediaLocation::Http(http) => open_validated_http(http),
+}
+```
+
 ## Scenario: Channel Metadata Preserves Slot Identity
 
 ### 1. Scope / Trigger

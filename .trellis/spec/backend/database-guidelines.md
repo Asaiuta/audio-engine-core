@@ -19,8 +19,8 @@ loudness metadata only — there is no user data, no business entities, no ORM.
   the EBU R128 measurement helpers (`LoudnessMeter`, `LoudnessNormalizer`,
   `TruePeakDetector`) still work fully; only the on-disk cache disappears.
 - Public surface (feature-gated): `LoudnessDatabase`,
-  `LoudnessDatabaseError`, `TrackLoudness`, `DatabaseStats`,
-  `CURRENT_SCAN_VERSION`, and the default target constants.
+  `LoudnessDatabaseError`, `LoudnessSourceIdentity`, `TrackLoudness`,
+  `DatabaseStats`, `CURRENT_SCAN_VERSION`, and the default target constants.
 
 ## Typed Operation Boundary
 
@@ -96,47 +96,140 @@ let conn = self
     .map_err(|_| LoudnessDatabaseError::LockPoisoned)?;
 ```
 
-## Schema & Migration
+## Scenario: Typed Source Identity, Schema, And Freshness
 
-- Single table, created idempotently: `CREATE TABLE IF NOT EXISTS
-  track_loudness (...)`.
-- Schema evolution is version-gated by `CURRENT_SCAN_VERSION` (currently `1`).
-  Rows carry the `scan_version` they were written with; a row whose
-  `version != CURRENT_SCAN_VERSION` is treated as stale and re-scanned rather
-  than trusted. The comparison is exact, not `<`: a row written by a *newer*
-  scanner is no more verifiable by this build than an older one.
-- Additive column changes are reconciled by inspecting
-  `PRAGMA table_info(track_loudness)` rather than assuming the column set. Bump
-  `CURRENT_SCAN_VERSION` when the measurement meaning changes so stale rows are
-  invalidated.
+### 1. Scope / Trigger
 
-## Cache Freshness Contract
+- Trigger: changing `MediaLocation` consumption, cache-key derivation, persisted
+  source columns, schema migration, freshness, deletion, album updates, or
+  outdated-track enumeration.
+- Loudness data is a disposable cache, but its identity is security- and
+  correctness-sensitive: raw signed URLs must not be persisted, and local and
+  remote sources must never share a namespace by textual coincidence.
 
-`LoudnessDatabase::needs_scan` is the single freshness gate; `get_fresh` is
-`needs_scan` plus `get`. Its evidence differs by identity, and the difference is
-part of the contract rather than an implementation detail:
+### 2. Signatures
 
-- **Local identity** — the scanner version, whole-second mtime, and size must
-  all match. A file that cannot be stat-ed (deleted, renamed, unmounted volume,
-  permission denied) reports "needs scan": there is no evidence the stored
-  measurement still describes that path, and reporting it fresh served a stale
-  gain for content nobody could confirm.
-- **Remote identity** — `http://` / `https://`, matched case-insensitively so it
-  agrees with the decoder's `MediaLocation` router. Only the scanner version is
-  checked, because no mtime or size is stored. A replaced remote body is
-  therefore **not** detected; a caller that must notice replacement has to
-  invalidate the entry itself.
+```rust
+pub struct LoudnessSourceIdentity { /* private validated fields */ }
 
-A query that returns rows must not silently drop undecodable ones.
-`get_outdated_tracks` propagates a row-decoding failure, because a silently
-short list reads as "nothing left to rescan" — the opposite of what the failure
-means.
+LoudnessSourceIdentity::from_location(&MediaLocation) -> LoudnessSourceIdentity
+TrackLoudness::new(&MediaLocation, ...) -> TrackLoudness
+LoudnessDatabase::get(&LoudnessSourceIdentity) -> Result<Option<TrackLoudness>, LoudnessDatabaseError>
+LoudnessDatabase::get_fresh(&LoudnessSourceIdentity) -> Result<Option<TrackLoudness>, LoudnessDatabaseError>
+LoudnessDatabase::needs_scan(&LoudnessSourceIdentity) -> Result<bool, LoudnessDatabaseError>
+LoudnessDatabase::delete(&LoudnessSourceIdentity) -> Result<bool, LoudnessDatabaseError>
+LoudnessDatabase::get_outdated_tracks() -> Result<Vec<LoudnessSourceIdentity>, LoudnessDatabaseError>
+```
 
-Known limitations, recorded rather than silently accepted: whole-second mtime
-plus size misses a same-size replacement inside one second; `compute_track_id`
-normalizes separators and folds case on Windows only, but does not canonicalize
-local paths, so `./a.flac` and `/music/a.flac` are two rows for one file.
-Closing these needs distinct typed local/remote identities.
+Schema version 2 stores:
+
+```sql
+track_id TEXT PRIMARY KEY,
+source_kind TEXT NOT NULL CHECK(source_kind IN ('local', 'http')),
+source_locator BLOB,
+source_label TEXT NOT NULL,
+-- loudness values, scanner version, timestamps, local mtime/size
+CHECK (
+  (source_kind = 'local' AND source_locator IS NOT NULL) OR
+  (source_kind = 'http' AND source_locator IS NULL)
+)
+```
+
+### 3. Contracts
+
+- Derive identity only from `MediaLocation`; database APIs never guess source
+  kind from `&str`.
+- Cache IDs use SHA-256 with a crate/domain prefix and explicit source
+  namespace. They render as `local:sha256:<digest>` or
+  `http:sha256:<digest>`, so equal textual payloads cannot collide across
+  namespaces.
+- A local identity hashes and persists the platform-native path encoding in
+  `source_locator`. It does not lowercase, canonicalize, or round-trip through
+  UTF-8. Filesystem alias resolution remains the caller's responsibility.
+- An HTTP identity hashes the full validated request URL, preserving
+  case-sensitive path/query distinctions, but persists no plaintext locator.
+  `source_label` is origin-only. Userinfo, path, query, and fragment never
+  appear in library-controlled rows, `Debug`, or `Display`.
+- Row decoding reconstructs the typed identity and verifies its namespace,
+  locator policy, safe label, and cache ID. A hash hit that reconstructs to a
+  different requested identity is an error, not a cache hit.
+- `needs_scan` is the single freshness gate. A local row is fresh only when
+  scanner version, whole-second mtime, and size all match and the native path
+  is readable. An HTTP row is always stale because this API stores no ETag,
+  Last-Modified value, digest, or caller revision. `get_fresh` therefore never
+  returns an HTTP row.
+- `CURRENT_SCAN_VERSION` versions measurement semantics; SQLite
+  `PRAGMA user_version = 2` versions identity/schema semantics. They are
+  independent gates.
+- On open, inspect both `user_version` and the full required column set. Any
+  pre-v2 or incompatible table is dropped and recreated transactionally, then
+  `VACUUM` runs after commit to remove legacy signed-URL bytes. Reopening the
+  current schema is idempotent and preserves rows.
+- Queries returning multiple identities propagate any row-decoding error;
+  they never silently shorten the result.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Same text used as a local path and HTTP URL | distinct local/http cache IDs |
+| HTTP path/query differs only by case | distinct HTTP cache IDs |
+| Signed HTTP URL | hash plus origin-only label; no plaintext locator or secret |
+| Local native path cannot be stat-ed | `needs_scan == true`; row remains queryable with `get` |
+| Local mtime/size or scanner version differs | stale |
+| HTTP row at current scanner version | stale and included in outdated results |
+| Persisted kind/locator/cache ID/safe label is inconsistent | typed database error; no row returned |
+| Legacy string-identity table or wrong `user_version` | drop, recreate v2, `VACUUM`; no legacy rows retained |
+| Current v2 database reopened | schema and rows preserved |
+
+### 5. Good / Base / Bad Cases
+
+- Good: construct one identity from the playback `MediaLocation`, use it for
+  upsert/get/freshness/delete, and rescan every remote source until revision
+  evidence is added explicitly.
+- Base: a missing identity returns `Ok(None)` from `get` and `true` from
+  `needs_scan`.
+- Bad: persist a raw signed URL, infer remote identity from a case-insensitive
+  prefix, treat scanner-version equality as remote freshness, or reinterpret a
+  legacy string row under the v2 contract.
+
+### 6. Tests Required
+
+- Prove local and HTTP namespaces differ and HTTP path/query case remains
+  significant.
+- Persist a credentialed signed URL and search the record, formatted values,
+  and SQLite columns for username, password, path token, query secret, and
+  fragment secret; none may appear.
+- Round-trip a non-UTF-8 local path on supported platforms and assert its cache
+  ID and native path are unchanged.
+- Cover present, replaced, unreadable, and newer-scanner local rows. Assert
+  every validator-less HTTP row is stale, absent from `get_fresh`, and present
+  in outdated results.
+- Create a real legacy SQLite table containing a secret marker, open it twice,
+  and assert v2 schema/version, zero legacy rows, secret removal from database
+  bytes after `VACUUM`, and idempotent second open.
+- Insert malformed typed rows and assert query/enumeration propagates a
+  database error rather than omitting them.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let remote = path.to_ascii_lowercase().starts_with("http://");
+let track_id = normalize_path(path);
+let fresh = row.scan_version == CURRENT_SCAN_VERSION;
+```
+
+#### Correct
+
+```rust
+let source = LoudnessSourceIdentity::from_location(location);
+let fresh = match source.kind() {
+    MediaLocationKind::Local => local_metadata_matches(&source, &row),
+    MediaLocationKind::Http => false,
+};
+```
 
 ## Hard Rule: Never On The Realtime Path
 

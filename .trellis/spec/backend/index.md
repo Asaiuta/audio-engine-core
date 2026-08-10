@@ -23,11 +23,11 @@ obey its hot-path prohibitions (no alloc/lock/log/IO/panic/unbounded work).
 | [Listening & Nonlinear DSP Correctness](./listening-nonlinear-correctness.md) | Saturation continuity/gain semantics, noise-shaper signed boundaries, and Bauer crossfeed topology/transitions. |
 | [AutoMix & FIR Correctness](./analysis-fir-correctness.md) | Bounded head/tail interval ownership, metric scope, spectral cadence/tempo, honest omission of unsupported key output, FIR design, and benchmark evidence. |
 | [Directory Structure](./directory-structure.md) | Live `src/` layout: `decoder/`, `processor/`, `processor/loudness/`, benches, examples, and where new code goes. |
-| [Decoder Correctness](./decoder-correctness.md) | Codec metadata adaptation, exact channel-slot identity, conservative unknown-role handling, and checked full-decode allocation planning. |
+| [Decoder Correctness](./decoder-correctness.md) | Typed local/HTTP source routing, native-path preservation, codec metadata adaptation, exact channel-slot identity, and checked full-decode allocation planning. |
 | [Error Handling](./error-handling.md) | Module-owned public errors, typed backend mappings, `DecoderError` / `NetworkError`, `?` propagation, and callback-safe diagnostics. |
 | [Logging Guidelines](./logging-guidelines.md) | `log`-facade conventions for non-RT paths; logging is forbidden on the hot path. |
 | [Quality Guidelines](./quality-guidelines.md) | The evidence policy, versioned benchmark/baseline/CI contracts, forbidden/required patterns, and review checklist. |
-| [Database Guidelines](./database-guidelines.md) | The optional `loudness-db` SQLite cache only — not a business DB; never on the realtime path. |
+| [Database Guidelines](./database-guidelines.md) | Typed source identity, explicit SQLite cache invalidation, location-aware freshness, and the off-realtime `loudness-db` boundary. |
 
 ## Cross-References
 
