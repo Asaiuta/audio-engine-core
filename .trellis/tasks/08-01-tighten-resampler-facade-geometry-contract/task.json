@@ -3,7 +3,7 @@
   "name": "tighten-resampler-facade-geometry-contract",
   "title": "Tighten the resampler facade geometry contract",
   "description": "1.0 gate 7 of 9. Audit P2-8: the one-shot API accepts zero geometry and truncates a final partial frame where streaming rejects both, SoXR maps Standard and High to one recipe presented as two quality levels, and three sizing helpers mix incompatible units with magic margins and unchecked arithmetic.",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,

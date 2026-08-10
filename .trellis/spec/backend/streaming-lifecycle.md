@@ -510,6 +510,27 @@ StreamingResampler::working_buffer_bytes(
     to_rate: u32,
 ) -> Result<usize, ResamplerError>
 
+StreamingResampler::process_output_capacity_frames(
+    &self,
+    input_frames: usize,
+) -> Result<usize, ResamplerError>
+
+// One-shot facade: fallible construction plus validated interleaved input.
+Resampler::new(channels: usize, from_rate: u32, to_rate: u32)
+    -> Result<Resampler, ResamplerError>
+Resampler::resample_parallel(
+    &self,
+    input: &[f64],
+    phase: PhaseResponse,
+    quality: ResampleQuality,
+) -> Result<Vec<f64>, ResamplerError>
+
+ResamplerError::InvalidBlock(AudioBlockError)
+
+// Removed in Gate 7: max_output_len_for_input, max_output_samples_per_chunk,
+// input_frames_for_output_frames (mixed sample/frame units, magic margins,
+// unchecked arithmetic). There are no compatibility wrappers.
+
 // Private pure-Rubato adapter boundary.
 MonoBackend::new_interleaved(
     from_rate: u32,
@@ -558,6 +579,32 @@ MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
   SoXR path and pure Rubato, and the exact deinterleave/per-channel/reinterleave
   scratch capacity for the SoXR mono fallback. Setup-allocation measurements
   capture opaque native or Rubato engine memory separately.
+* One-shot geometry is validated, not inferred. `Resampler::new` is fallible
+  and rejects zero channels or rates before any work. `resample_parallel`
+  validates complete interleaved frames (`AudioBlockRef`) before its
+  equal-rate bypass, so a trailing partial frame is never silently dropped by
+  "enabling" conversion, empty input still returns `Ok(vec![])`, and
+  `ResamplerError::InvalidBlock` preserves the typed `AudioBlockError`.
+* `process_output_capacity_frames` is the single checked frame-domain
+  provisioning contract: exact rational ceiling conversion at the output rate
+  plus a fixed 64-frame per-channel burst allowance, `Ok(0)` for zero input,
+  and `CapacityOverflow { buffer: "process output" }` on checked overflow. It
+  replaces the three removed mixed-unit/unchecked helpers and is shared by
+  one-shot chunk scratch, the streaming layout, offline finish bounds, and
+  every resampler bench. Backpressure remains authoritative: callers advance
+  from `ProcessProgress`, never from the capacity estimate alone.
+* SoXR recipe identity resolves every public tier to a distinct pinned recipe:
+  `Low -> QualityRecipe::Low`, `Standard -> QualityRecipe::Medium`,
+  `High -> QualityRecipe::high()` (20-bit), and
+  `UltraHigh -> QualityRecipe::very_high()` (28-bit). No two tiers share a
+  recipe; quality labels are never aliases.
+* Offline finish bounds use declared timing, not process estimates.
+  `finish_frame_limit` converts input frames exactly (`FrameRounding::Ceil` at
+  the output rate), adds declared latency plus finite tail plus one block for
+  `None`/`Finite` tails, or `max_tail_ms` plus latency for `Unknown`/`Infinite`,
+  floors at 1, and uses checked sums (`TimingError::FrameCountOverflow`). For
+  nonlinear resamplers this declared-latency/tail bound exceeds any
+  process-capacity estimate.
 * Backend consumed/produced values are frame counts. Interleaved slice lengths
   must be divisible by the configured channel count before division or
   slicing, and returned progress must be checked against caller frame
@@ -601,6 +648,12 @@ MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
 | Minimum/Maximum with reduced `up > 16` and valid geometry | one interleaved contiguous polyphase engine |
 | Pure-Rust Minimum/Maximum reduced ratio exceeds the nonlinear bound | `ResamplerError::RatioExceedsLimit { up, down, limit }`; no linear fallback |
 | Checked working-buffer sizing overflows | `ResamplerError::CapacityOverflow { buffer }` |
+| `Resampler::new` receives zero channels | `ResamplerError::ZeroChannels` before one-shot work |
+| `Resampler::new` receives either rate zero | `ResamplerError::InvalidSampleRate { from_rate, to_rate }` |
+| one-shot input length is not whole interleaved frames | `ResamplerError::InvalidBlock(AudioBlockError::IncompleteFrame { .. })` before the equal-rate bypass |
+| `process_output_capacity_frames` arithmetic overflows | `ResamplerError::CapacityOverflow { buffer: "process output" }` |
+| `process_output_capacity_frames` receives zero input frames | `Ok(0)` |
+| offline finish-limit checked sum overflows | `TimingError::FrameCountOverflow` |
 | Third-party backend rejects setup | `ResamplerError::BackendInitialization { backend, channel, message }` |
 | Backend returns out-of-bounds progress or stalls | `InvalidBackendProgress` or `BackendStalled`, without parsing diagnostic text |
 
@@ -635,6 +688,9 @@ MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
   measurements even though the process block looked correct.
 * Bad: reuse an overwrite-on-full/logging pipeline ring for Rubato staging, or
   restore per-chunk `copy_within` prefix shifts after the measured ring layout.
+* Bad: restore an infallible `Resampler::new`, sample/mixed-unit capacity
+  helpers, or a `Standard`/`High` SoXR recipe alias after the distinct mapping
+  is pinned.
 
 ### 6. Tests Required
 
@@ -667,6 +723,13 @@ MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
 * Assert `working_buffer_bytes` is zero for stereo SoXR and pure Rubato, and
   equals compiled adapter capacities for the SoXR mono fallback. Measure total
   setup memory instead of adding opaque engine estimates.
+* Assert the Gate-7 facade contracts: `Resampler::new` rejects zero
+  channels/rates, one-shot input rejects a trailing partial frame before the
+  equal-rate bypass, equal-rate valid and empty input stay identity, capacity
+  is the checked exact frame-domain formula (`process_capacity_*` tests),
+  every public SoXR tier resolves to a distinct recipe, and the offline render
+  finish bound includes nonlinear latency plus finite tail
+  (`resampler_finish_bound_includes_nonlinear_latency_and_tail`).
 * Run quality, output-render, and streaming benchmarks after a channel
   architecture change; update the streaming algorithm identifier so stale
   baselines cannot compare as the same implementation. The hybrid route uses
