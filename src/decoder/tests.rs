@@ -6,7 +6,8 @@ use std::sync::Arc;
 #[cfg(feature = "http")]
 use super::{error::network_error_to_decoder_error, NetworkError};
 use super::{
-    DecodeCancelToken, DecoderError, HttpCredentials, OpenedMediaSource, StreamingDecoder,
+    DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, MediaLocationError,
+    MediaLocationKind, OpenedMediaSource, StreamingDecoder,
 };
 
 /// Monotonic counter for unique temp filenames within this test process.
@@ -91,6 +92,10 @@ fn decode_all_samples(decoder: &mut StreamingDecoder) -> Vec<f64> {
     decoder.decode_all().expect("decode_all")
 }
 
+fn local(path: impl Into<PathBuf>) -> MediaLocation {
+    MediaLocation::local(path)
+}
+
 #[cfg(feature = "http")]
 #[test]
 fn network_error_classifies_retriable_errors() {
@@ -168,7 +173,7 @@ fn cancelled_open_returns_before_touching_source() {
     let token = DecodeCancelToken::from_flag(cancelled);
 
     let result = StreamingDecoder::open_with_credentials_and_cancel(
-        "Z:/definitely/not/a/real/audio-file.flac",
+        local("Z:/definitely/not/a/real/audio-file.flac"),
         None,
         Some(token),
     );
@@ -188,7 +193,7 @@ fn cancel_token_owns_its_own_flag() {
 
     assert!(token.is_cancelled());
     let result = StreamingDecoder::open_with_credentials_and_cancel(
-        "Z:/definitely/not/a/real/audio-file.flac",
+        local("Z:/definitely/not/a/real/audio-file.flac"),
         None,
         Some(token),
     );
@@ -217,7 +222,7 @@ fn borrowed_decode_exposes_decoder_storage_without_caller_staging() {
         (frame as f64 + channel as f64) / 128.0
     });
     let fixture = TempAudio::new("wav", &wav);
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open decoder");
+    let mut decoder = StreamingDecoder::open(local(fixture.path_str())).expect("open decoder");
 
     let samples = decoder
         .decode_next_borrowed()
@@ -331,7 +336,7 @@ fn garbage_input_yields_unsupported_format() {
         .collect();
     let fixture = TempAudio::new("bin", &garbage);
 
-    let result = StreamingDecoder::open(fixture.path_str());
+    let result = StreamingDecoder::open(local(fixture.path_str()));
     assert!(
         matches!(result, Err(DecoderError::UnsupportedFormat)),
         "garbage input should map to the typed UnsupportedFormat variant, got {:?}",
@@ -342,7 +347,7 @@ fn garbage_input_yields_unsupported_format() {
 #[test]
 fn empty_input_yields_unsupported_format() {
     let fixture = TempAudio::new("wav", &[]);
-    let result = StreamingDecoder::open(fixture.path_str());
+    let result = StreamingDecoder::open(local(fixture.path_str()));
     assert!(
         matches!(result, Err(DecoderError::UnsupportedFormat)),
         "empty input should map to UnsupportedFormat, got {:?}",
@@ -372,7 +377,7 @@ fn riff_without_audio_track_is_not_a_panic() {
     buf.extend_from_slice(&0u32.to_le_bytes());
     let fixture = TempAudio::new("wav", &buf);
 
-    let result = StreamingDecoder::open(fixture.path_str());
+    let result = StreamingDecoder::open(local(fixture.path_str()));
     assert!(
         matches!(
             result,
@@ -402,7 +407,7 @@ fn truncated_wav_has_defined_policy_no_panic() {
     let fixture = TempAudio::new("wav", &truncated);
 
     let mut decoder =
-        StreamingDecoder::open(fixture.path_str()).expect("open truncated wav header");
+        StreamingDecoder::open(local(fixture.path_str())).expect("open truncated wav header");
     // Drain; must not panic and must terminate.
     let mut total = 0usize;
     loop {
@@ -439,7 +444,7 @@ fn wav_format_capability_matrix() {
             base * (1.0 - 0.25 * ch as f64)
         });
         let fixture = TempAudio::new("wav", &bytes);
-        let mut decoder = StreamingDecoder::open(fixture.path_str())
+        let mut decoder = StreamingDecoder::open(local(fixture.path_str()))
             .unwrap_or_else(|e| panic!("open {sample_rate}Hz/{channels}ch wav: {e:?}"));
 
         // Metadata assertions.
@@ -482,7 +487,7 @@ fn seek_lands_within_documented_coarse_tolerance() {
         (frame as f64 / frames as f64) * 2.0 - 1.0
     });
     let fixture = TempAudio::new("wav", &bytes);
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    let mut decoder = StreamingDecoder::open(local(fixture.path_str())).expect("open wav");
 
     let target_secs = 1.0;
     let target_frame = (target_secs * sample_rate as f64) as u64;
@@ -523,7 +528,7 @@ fn seek_does_not_retrim_encoder_delay() {
     let fixture = TempAudio::new("wav", &bytes);
 
     // Baseline: how many samples does a plain seek + decode yield at the target?
-    let mut baseline = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    let mut baseline = StreamingDecoder::open(local(fixture.path_str())).expect("open wav");
     baseline.seek(1.0).expect("seek baseline");
     let baseline_first = baseline
         .decode_next()
@@ -531,7 +536,7 @@ fn seek_does_not_retrim_encoder_delay() {
         .expect("baseline samples");
 
     // Now inject a large synthetic encoder_delay before seeking.
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    let mut decoder = StreamingDecoder::open(local(fixture.path_str())).expect("open wav");
     decoder.set_gapless_counters_for_test(5_000, 0); // far larger than one packet
     decoder.seek(1.0).expect("seek with injected delay");
     let after = decoder
@@ -566,7 +571,7 @@ fn start_of_stream_still_trims_encoder_delay() {
     let fixture = TempAudio::new("wav", &bytes);
 
     let delay = 1_000u32;
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    let mut decoder = StreamingDecoder::open(local(fixture.path_str())).expect("open wav");
     decoder.set_gapless_counters_for_test(delay, 0);
     let samples = decode_all_samples(&mut decoder);
 
@@ -588,7 +593,7 @@ fn end_of_stream_trims_encoder_padding_once() {
         (frame as f64 / frames as f64) * 2.0 - 1.0
     });
     let fixture = TempAudio::new("wav", &bytes);
-    let mut decoder = StreamingDecoder::open(fixture.path_str()).expect("open wav");
+    let mut decoder = StreamingDecoder::open(local(fixture.path_str())).expect("open wav");
     decoder.set_gapless_counters_for_test(0, padding);
 
     let decoded = decode_all_samples(&mut decoder);
@@ -596,11 +601,7 @@ fn end_of_stream_trims_encoder_padding_once() {
 }
 
 #[test]
-fn media_location_scheme_match_is_case_insensitive() {
-    use std::path::Path;
-
-    use super::source::MediaLocation;
-
+fn media_location_http_constructor_validates_once() {
     for url in [
         "http://example.invalid/a.flac",
         "https://example.invalid/a.flac",
@@ -608,35 +609,50 @@ fn media_location_scheme_match_is_case_insensitive() {
         "HTTPS://example.invalid/a.flac",
         "HtTpS://example.invalid/a.flac",
     ] {
-        assert_eq!(
-            MediaLocation::classify(Path::new(url), url),
-            MediaLocation::Http(url),
-            "RFC 3986 schemes are case-insensitive, so {url} must not be opened as a file path"
-        );
+        let location = MediaLocation::http(url).expect("valid HTTP URL");
+        assert_eq!(location.kind(), MediaLocationKind::Http);
+        assert!(location.as_local_path().is_none());
+        assert!(matches!(
+            location.as_http().expect("HTTP variant").url().scheme(),
+            "http" | "https"
+        ));
     }
 
-    for local in [
-        "C:/music/a.flac",
-        "/music/a.flac",
-        "relative/a.flac",
-        // Near-misses that must stay local rather than reaching the HTTP source.
-        "httpx://example.invalid/a.flac",
-        "http:/example.invalid/a.flac",
-        "ftp://example.invalid/a.flac",
-        "http",
+    assert!(matches!(
+        MediaLocation::http("ftp://example.invalid/a.flac"),
+        Err(MediaLocationError::UnsupportedScheme { .. })
+    ));
+    assert!(matches!(
+        MediaLocation::http("not a URL"),
+        Err(MediaLocationError::InvalidUrl(_))
+    ));
+}
+
+#[test]
+fn media_location_debug_redacts_http_secrets() {
+    let location = MediaLocation::http(
+        "https://basic-user:basic-password@example.test:8443/private/token.flac?signature=query-secret#fragment-secret",
+    )
+    .expect("valid HTTP URL");
+    let rendered = format!("{location:?}");
+    assert!(rendered.contains("https://example.test:8443"));
+    for secret in [
+        "basic-user",
+        "basic-password",
+        "private",
+        "token.flac",
+        "query-secret",
+        "fragment-secret",
     ] {
-        assert_eq!(
-            MediaLocation::classify(Path::new(local), local),
-            MediaLocation::Local(Path::new(local)),
-            "{local} must be treated as a local path"
-        );
+        assert!(!rendered.contains(secret));
     }
 }
 
 #[cfg(not(feature = "http"))]
 #[test]
 fn http_url_without_the_http_feature_reports_the_missing_feature() {
-    let result = StreamingDecoder::open("https://example.invalid/a.flac");
+    let location = MediaLocation::http("https://example.invalid/a.flac").expect("valid URL");
+    let result = StreamingDecoder::open(location);
 
     assert!(
         matches!(
@@ -648,4 +664,45 @@ fn http_url_without_the_http_feature_reports_the_missing_feature() {
         ),
         "a disabled build feature must not be reported as a probe failure"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_local_path_reaches_file_open_without_url_conversion() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let path = PathBuf::from(OsString::from_vec(b"missing-\xFF-audio.flac".to_vec()));
+    let location = MediaLocation::local(path.clone());
+    assert_eq!(location.as_local_path(), Some(path.as_path()));
+    assert!(matches!(
+        StreamingDecoder::open(location),
+        Err(DecoderError::FileOpen(_))
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn non_utf8_local_path_reaches_file_open_without_url_conversion() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    let path = PathBuf::from(OsString::from_wide(&[
+        b'm' as u16,
+        b'i' as u16,
+        b's' as u16,
+        b's' as u16,
+        0xD800,
+        b'.' as u16,
+        b'f' as u16,
+        b'l' as u16,
+        b'a' as u16,
+        b'c' as u16,
+    ]));
+    let location = MediaLocation::local(path.clone());
+    assert_eq!(location.as_local_path(), Some(path.as_path()));
+    assert!(matches!(
+        StreamingDecoder::open(location),
+        Err(DecoderError::FileOpen(_))
+    ));
 }

@@ -115,7 +115,9 @@ pub mod runtime;
 
 pub use channel_layout::{ChannelLayout, ChannelPosition};
 pub use config::{LoudnessConfig, NormalizationMode};
-pub use decoder::StreamingDecoder;
+pub use decoder::{
+    HttpMediaLocation, MediaLocation, MediaLocationError, MediaLocationKind, StreamingDecoder,
+};
 pub use pipeline::{
     CallbackSpec, DynamicLoudnessTelemetry, PlaybackBuilder, PlaybackConfig, PlaybackController,
     PlaybackCrossfeedConfig, PlaybackDynamicLoudnessConfig, PlaybackLifecycleState,
@@ -144,5 +146,6 @@ pub use processor::{
 /// Loudness-database persistence types (requires the `loudness-db` feature).
 #[cfg(feature = "loudness-db")]
 pub use processor::{
-    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, TrackLoudness, CURRENT_SCAN_VERSION,
+    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
+    CURRENT_SCAN_VERSION,
 };

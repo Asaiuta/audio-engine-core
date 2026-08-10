@@ -31,6 +31,8 @@ log = "0.4"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
+sha2 = { version = "0.10", optional = true }
+url = "2.5"
 
 [features]
 default = ["http", "loudness-db", "soxr"]
@@ -39,7 +41,7 @@ default = ["http", "loudness-db", "soxr"]
 http = ["dep:reqwest"]
 # SQLite-backed loudness metadata persistence (LoudnessDatabase, TrackLoudness).
 # Disable if you only need realtime DSP/decoding and not on-disk loudness storage.
-loudness-db = ["dep:rusqlite"]
+loudness-db = ["dep:rusqlite", "dep:sha2"]
 # Native SoXR (libsoxr) resampler backend: SoX VHQ quality, LGPL-2.1 native
 # library required at build/link time. At least one resampler backend must be
 # enabled; when both are enabled, soxr wins.

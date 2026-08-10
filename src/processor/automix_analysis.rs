@@ -4,7 +4,9 @@
 //! windows off the realtime callback path and returns a stable DTO for later
 //! transition planning.
 
-use crate::decoder::{DecodeCancelToken, DecoderError, HttpCredentials, StreamingDecoder};
+use crate::decoder::{
+    DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
+};
 use crate::processor::LoudnessMeter;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
@@ -368,15 +370,15 @@ impl SpectralFluxAccumulator {
 }
 
 pub fn analyze_automix(
-    path: String,
+    location: MediaLocation,
     credentials: Option<HttpCredentials>,
     options: AutomixAnalysisOptions,
 ) -> Result<AutomixAnalysis, AutomixError> {
-    analyze_automix_with_cancel(path, credentials, options, None)
+    analyze_automix_with_cancel(location, credentials, options, None)
 }
 
 pub fn analyze_automix_with_cancel(
-    path: String,
+    location: MediaLocation,
     credentials: Option<HttpCredentials>,
     options: AutomixAnalysisOptions,
     cancel_token: Option<DecodeCancelToken>,
@@ -384,7 +386,7 @@ pub fn analyze_automix_with_cancel(
     let options = options.normalized();
     check_cancel(cancel_token.as_ref())?;
     let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
-        &path,
+        location,
         credentials.as_ref(),
         cancel_token.clone(),
     )?;
@@ -1072,7 +1074,7 @@ mod tests {
         let fixture = TempAudio::wav(&wav);
 
         analyze_automix(
-            fixture.path_string(),
+            MediaLocation::local(fixture.path_string()),
             None,
             AutomixAnalysisOptions {
                 mode: AutomixAnalysisMode::Full,
@@ -1404,7 +1406,7 @@ mod tests {
         token.cancel();
 
         let error = analyze_automix_with_cancel(
-            "unused.wav".to_string(),
+            MediaLocation::local("unused.wav"),
             None,
             AutomixAnalysisOptions::default(),
             Some(token),
@@ -1424,7 +1426,7 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&path);
         let error = analyze_automix(
-            path.to_string_lossy().into_owned(),
+            MediaLocation::local(path),
             None,
             AutomixAnalysisOptions::default(),
         )

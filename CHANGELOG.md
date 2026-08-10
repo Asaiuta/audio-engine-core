@@ -12,6 +12,13 @@ SemVer for pre-1.0 releases.
 ## [Unreleased]
 
 ### Added
+- `MediaLocation`, `HttpMediaLocation`, `MediaLocationKind`, and
+  `MediaLocationError` provide one owned, validated decoder-source boundary.
+  Local paths retain their native `PathBuf`; HTTP debug/display output is
+  origin-only and remains available even when the `http` transport feature is
+  disabled.
+- `LoudnessSourceIdentity` provides typed, non-secret loudness-cache keys with
+  separate local and HTTP SHA-256 namespaces.
 - Public typed failure boundaries for pre-1.0 callers:
   `LoudnessDatabaseError` preserves directory-I/O and SQLite sources while
   naming poisoned locks, `AutomixError` separates cancellation, decoder, and
@@ -112,6 +119,16 @@ SemVer for pre-1.0 releases.
     processed crossfade branch with `clone_from`, which carries delay state.
 
 ### Changed
+- **Breaking:** `StreamingDecoder::open*`, staged `OpenedMediaSource` opening,
+  and AutoMix analysis now accept `MediaLocation` instead of path-like/string
+  values. Source routing no longer performs lossy path conversion or URL-prefix
+  classification.
+- **Breaking:** `TrackLoudness::new` takes a typed `MediaLocation` reference;
+  database lookup, freshness, album-gain, and deletion operations use
+  `LoudnessSourceIdentity`, and `get_outdated_tracks` returns typed identities.
+  The pre-1.0 string-identity SQLite schema is invalidated for rescan. Signed
+  URLs are not persisted, and validator-less HTTP entries never produce a
+  fresh cache hit.
 - **Breaking:** `StreamingDecoder::info` and `StreamingDecoderBuilder::info` are
   now read-only accessors returning `&AudioInfo`; the `info` field is private.
   Replace `decoder.info.sample_rate` with `decoder.info().sample_rate`. The

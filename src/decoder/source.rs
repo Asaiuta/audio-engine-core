@@ -1,9 +1,11 @@
 use std::fmt;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
+use thiserror::Error;
+use url::Url;
 
 use super::error::{DecodeCancelToken, DecoderError};
 
@@ -41,42 +43,150 @@ pub struct OpenedMediaSource {
     pub(super) hint: Hint,
 }
 
-/// Where a decode source lives, resolved once from the caller's path-like input.
-///
-/// Callers still pass a `Path`, because the public open APIs accept one, but the
-/// remote/local decision is made in exactly one place instead of being
-/// re-derived from string prefixes at each call site. That also keeps the URL
-/// text in one branch, which is where redaction and cache identity belong.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MediaLocation<'a> {
-    /// A local filesystem path. Kept as a `Path` so a non-UTF-8 path opens
-    /// byte-exactly rather than through a lossy string.
-    Local(&'a Path),
-    /// An `http`/`https` URL, in its original spelling.
-    Http(&'a str),
+/// Errors returned while constructing a typed HTTP media location.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum MediaLocationError {
+    /// The input is not a syntactically valid URL.
+    #[error("invalid media URL")]
+    InvalidUrl(#[source] url::ParseError),
+    /// The URL uses a scheme that this crate does not decode.
+    #[error("unsupported media URL scheme: {scheme}")]
+    UnsupportedScheme { scheme: String },
+    /// An HTTP URL without a host cannot be fetched safely.
+    #[error("HTTP media URL has no host")]
+    MissingHost,
 }
 
-/// Schemes routed to the HTTP source. RFC 3986 defines schemes as
-/// case-insensitive, so `HTTPS://host/track.flac` is a URL, not a relative
-/// directory named `HTTPS:`.
-const HTTP_SCHEMES: [&str; 2] = ["http://", "https://"];
+/// A validated HTTP(S) media URL.
+///
+/// The URL is kept private so callers cannot construct an invalid scheme or a
+/// host-less HTTP location through a public enum variant. Use [`Self::parse`]
+/// or [`Self::from_url`] to construct one.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct HttpMediaLocation {
+    url: Url,
+}
 
-impl<'a> MediaLocation<'a> {
-    /// Classify a caller-supplied path.
-    ///
-    /// `path_text` is the caller's path rendered as UTF-8. A path that is not
-    /// valid UTF-8 cannot be a URL, so a lossy rendering can only ever be
-    /// classified as local, and the original `Path` is what gets opened.
-    pub(super) fn classify(path: &'a Path, path_text: &'a str) -> Self {
-        if HTTP_SCHEMES.iter().any(|scheme| {
-            path_text.len() >= scheme.len()
-                && path_text[..scheme.len()].eq_ignore_ascii_case(scheme)
-        }) {
-            Self::Http(path_text)
-        } else {
-            Self::Local(path)
+impl HttpMediaLocation {
+    /// Parse and validate an HTTP(S) media URL.
+    pub fn parse(input: impl AsRef<str>) -> Result<Self, MediaLocationError> {
+        let url = Url::parse(input.as_ref()).map_err(MediaLocationError::InvalidUrl)?;
+        Self::from_url(url)
+    }
+
+    /// Validate an already parsed URL.
+    pub fn from_url(url: Url) -> Result<Self, MediaLocationError> {
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err(MediaLocationError::UnsupportedScheme {
+                scheme: url.scheme().to_string(),
+            });
+        }
+        if url.host_str().is_none() {
+            return Err(MediaLocationError::MissingHost);
+        }
+        Ok(Self { url })
+    }
+
+    /// Return the validated request URL.
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    /// Return an origin-only identity suitable for logs and diagnostics.
+    pub fn log_identity(&self) -> String {
+        self.url.origin().ascii_serialization()
+    }
+}
+
+impl fmt::Debug for HttpMediaLocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("HttpMediaLocation")
+            .field(&self.log_identity())
+            .finish()
+    }
+}
+
+impl fmt::Display for HttpMediaLocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.log_identity())
+    }
+}
+
+/// An owned local or validated HTTP(S) media source.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum MediaLocation {
+    /// A local filesystem path. The owned `PathBuf` preserves non-UTF-8 paths.
+    Local(PathBuf),
+    /// A validated HTTP(S) URL.
+    Http(HttpMediaLocation),
+}
+
+impl MediaLocation {
+    /// Construct a local media location without filesystem I/O.
+    pub fn local(path: impl Into<PathBuf>) -> Self {
+        Self::Local(path.into())
+    }
+
+    /// Parse and construct an HTTP(S) media location.
+    pub fn http(input: impl AsRef<str>) -> Result<Self, MediaLocationError> {
+        HttpMediaLocation::parse(input).map(Self::Http)
+    }
+
+    /// Return the location kind without exposing its representation.
+    pub fn kind(&self) -> MediaLocationKind {
+        match self {
+            Self::Local(_) => MediaLocationKind::Local,
+            Self::Http(_) => MediaLocationKind::Http,
         }
     }
+
+    /// Borrow the local path when this is a local location.
+    pub fn as_local_path(&self) -> Option<&Path> {
+        match self {
+            Self::Local(path) => Some(path),
+            Self::Http(_) => None,
+        }
+    }
+
+    /// Borrow the validated HTTP URL when this is an HTTP location.
+    pub fn as_http(&self) -> Option<&HttpMediaLocation> {
+        match self {
+            Self::Local(_) => None,
+            Self::Http(url) => Some(url),
+        }
+    }
+
+    /// Return a safe identity for logs and diagnostics.
+    pub fn log_identity(&self) -> String {
+        match self {
+            Self::Local(path) => path.to_string_lossy().into_owned(),
+            Self::Http(url) => url.log_identity(),
+        }
+    }
+}
+
+impl fmt::Debug for MediaLocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Local(path) => formatter.debug_tuple("Local").field(path).finish(),
+            Self::Http(url) => formatter.debug_tuple("Http").field(url).finish(),
+        }
+    }
+}
+
+impl fmt::Display for MediaLocation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.log_identity())
+    }
+}
+
+/// The stable source namespace used by cache and diagnostics layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum MediaLocationKind {
+    Local,
+    Http,
 }
 
 /// Open a local file and derive its extension hint.
@@ -101,12 +211,12 @@ impl OpenedMediaSource {
     /// This lets a player reserve decoder memory after source opening but before
     /// decoder construction while preserving Range transport, credentials, and
     /// cancellation state in the returned source.
-    pub fn open_path_with_credentials_and_cancel<P: AsRef<Path>>(
-        path: P,
+    pub fn open_with_credentials_and_cancel(
+        location: MediaLocation,
         credentials: Option<&HttpCredentials>,
         cancel_token: Option<DecodeCancelToken>,
     ) -> Result<Self, DecoderError> {
-        let (stream, hint) = open_media_source(path.as_ref(), credentials, cancel_token)?;
+        let (stream, hint) = open_media_source(&location, credentials, cancel_token)?;
         Ok(Self { stream, hint })
     }
 
@@ -137,11 +247,10 @@ pub(super) fn bytes_to_mib(bytes: usize) -> usize {
 }
 
 pub(super) fn open_media_source(
-    path: &Path,
+    location: &MediaLocation,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<(MediaSourceStream<'static>, Hint), DecoderError> {
-    let path_text = path.to_string_lossy();
     if cancel_token
         .as_ref()
         .is_some_and(DecodeCancelToken::is_cancelled)
@@ -149,7 +258,7 @@ pub(super) fn open_media_source(
         return Err(DecoderError::Canceled);
     }
 
-    match MediaLocation::classify(path, path_text.as_ref()) {
+    match location {
         MediaLocation::Http(url) => {
             #[cfg(feature = "http")]
             {
