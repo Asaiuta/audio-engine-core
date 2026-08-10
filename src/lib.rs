@@ -45,7 +45,8 @@ pub use config::{LoudnessConfig, NormalizationMode};
 pub use decoder::StreamingDecoder;
 pub use pipeline::RingBuffer;
 pub use processor::{
-    analyze_automix, callback_stage_names, callback_stage_order_csv,
+    analyze_automix, analyze_automix_with_cancel, analyze_automix_with_http_policy,
+    analyze_automix_with_http_policy_and_cancel, callback_stage_names, callback_stage_order_csv,
     canonical_output_stage_descriptors, offline_stage_names, offline_stage_order_csv,
     AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
     ConvolutionStrategy, DownmixCoefficients, DownmixError, Downmixer, Equalizer, FFTConvolver,
