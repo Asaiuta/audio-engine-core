@@ -50,6 +50,10 @@ impl DoublerProcessor {
             processed_count: 0,
         }
     }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
 }
 
 impl StreamingProcessor for DoublerProcessor {
@@ -68,14 +72,6 @@ impl StreamingProcessor for DoublerProcessor {
     fn reset(&mut self) -> Result<(), ProcessError> {
         self.processed_count = 0;
         Ok(())
-    }
-
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
     }
 }
 
@@ -102,14 +98,6 @@ impl StreamingProcessor for AdderProcessor {
     fn reset(&mut self) -> Result<(), ProcessError> {
         Ok(())
     }
-
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-    }
 }
 
 /// Minimal stage that reports a different output rate than its input rate,
@@ -132,16 +120,6 @@ impl StreamingProcessor for RateChangingStage {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn supports_bypass(&self) -> bool {
-        false
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
-
     fn output_sample_rate_hz(&self, _input_sample_rate_hz: u32) -> Result<u32, ProcessError> {
         Ok(self.output_sample_rate_hz)
     }
@@ -149,7 +127,7 @@ impl StreamingProcessor for RateChangingStage {
 
 #[test]
 fn add_rejects_a_stage_that_does_not_map_the_chain_rate_to_itself() {
-    let mut chain = DspChain::new(48_000);
+    let mut chain = DspChain::new(48_000).unwrap();
 
     let Err(error) = chain.add(RateChangingStage {
         output_sample_rate_hz: 96_000,
@@ -177,30 +155,21 @@ fn add_rejects_a_stage_that_does_not_map_the_chain_rate_to_itself() {
 }
 
 #[test]
-fn add_rejects_every_stage_on_a_zero_rate_chain() {
-    for mut chain in [DspChain::new(0), DspChain::with_capacity(4, 0)] {
-        let Err(error) = chain.add(DoublerProcessor::new()) else {
-            panic!("a zero-rate chain cannot express any stage timing");
-        };
-
+fn constructors_reject_a_zero_rate_before_a_chain_exists() {
+    for result in [DspChain::new(0), DspChain::with_capacity(4, 0)] {
         assert!(matches!(
-            error,
-            ProcessError::InvalidSampleRate {
+            result,
+            Err(ProcessError::InvalidSampleRate {
                 processor: "DspChain",
                 sample_rate_hz: 0,
-            }
+            })
         ));
-        assert!(chain.is_empty());
-        // A zero-rate chain therefore stays empty, so its composed timing is
-        // trivially well defined instead of silently degrading.
-        assert_eq!(chain.latency(), FrameDuration::ZERO);
-        assert_eq!(chain.tail(), TailSpec::None);
     }
 }
 
 #[test]
 fn test_empty_chain() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     let mut buffer = vec![1.0, 2.0, 3.0];
     let progress = chain.process(&mut buffer, 1).unwrap();
     assert_eq!(buffer, vec![1.0, 2.0, 3.0]);
@@ -211,7 +180,7 @@ fn test_empty_chain() {
 
 #[test]
 fn test_single_processor() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     chain.add(DoublerProcessor::new()).unwrap();
 
     let mut buffer = vec![1.0, 2.0, 3.0];
@@ -222,7 +191,7 @@ fn test_single_processor() {
 
 #[test]
 fn test_chain_order() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     chain.add(DoublerProcessor::new()).unwrap(); // Doubles first
     chain.add(AdderProcessor::new()).unwrap(); // Then adds 1
 
@@ -234,7 +203,7 @@ fn test_chain_order() {
 
 #[test]
 fn test_processor_names_follow_execution_order() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     chain.add(DoublerProcessor::new()).unwrap();
     chain.add(AdderProcessor::new()).unwrap();
 
@@ -243,7 +212,7 @@ fn test_processor_names_follow_execution_order() {
 
 #[test]
 fn test_bypassed_processor() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     let mut doubler = DoublerProcessor::new();
     doubler.set_enabled(false);
     chain.add(doubler).unwrap();
@@ -258,7 +227,7 @@ fn test_bypassed_processor() {
 
 #[test]
 fn test_reset() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     chain.add(DoublerProcessor::new()).unwrap();
 
     let mut buffer = vec![1.0; 100];
@@ -268,7 +237,7 @@ fn test_reset() {
 
 #[test]
 fn process_rejects_invalid_interleaved_shape() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     let mut buffer = [0.0; 3];
 
     assert!(matches!(
@@ -279,7 +248,7 @@ fn process_rejects_invalid_interleaved_shape() {
 
 #[test]
 fn set_sample_rate_rejects_zero() {
-    let mut chain = DspChain::new(44_100);
+    let mut chain = DspChain::new(44_100).unwrap();
     assert_eq!(
         chain.set_sample_rate(0),
         Err(ProcessError::InvalidSampleRate {
@@ -291,7 +260,7 @@ fn set_sample_rate_rejects_zero() {
 
 #[test]
 fn steady_state_process_is_allocation_free() {
-    let mut chain = DspChain::new(48_000);
+    let mut chain = DspChain::new(48_000).unwrap();
     chain.add(DoublerProcessor::new()).unwrap();
     let mut buffer = [0.25; 512 * 2];
     let _ = chain.process(&mut buffer, 2).unwrap();
@@ -351,12 +320,6 @@ impl StreamingProcessor for UnknownImpulseThenSilence {
     fn tail(&self) -> TailSpec {
         TailSpec::Unknown
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 impl StreamingProcessor for UnknownDecay {
@@ -412,12 +375,6 @@ impl StreamingProcessor for UnknownDecay {
     fn tail(&self) -> TailSpec {
         TailSpec::Unknown
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 struct GainProcessor;
@@ -449,12 +406,6 @@ impl StreamingProcessor for GainProcessor {
     fn reset(&mut self) -> Result<(), ProcessError> {
         Ok(())
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 struct TerminalNoise {
@@ -489,12 +440,6 @@ impl StreamingProcessor for FractionalTail {
     fn tail(&self) -> TailSpec {
         TailSpec::Finite(self.0)
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 impl StreamingProcessor for TerminalNoise {
@@ -525,15 +470,9 @@ impl StreamingProcessor for TerminalNoise {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
     fn tail_energy_observation_barrier(&self) -> bool {
         true
     }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 struct LateFinitePulse {
@@ -591,17 +530,21 @@ impl StreamingProcessor for LateFinitePulse {
     fn tail(&self) -> TailSpec {
         TailSpec::finite(self.delay_frames, 48_000).unwrap()
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
+
+impl FixedInPlaceProcessor for DoublerProcessor {}
+impl FixedInPlaceProcessor for AdderProcessor {}
+impl FixedInPlaceProcessor for RateChangingStage {}
+impl FixedInPlaceProcessor for UnknownImpulseThenSilence {}
+impl FixedInPlaceProcessor for UnknownDecay {}
+impl FixedInPlaceProcessor for GainProcessor {}
+impl FixedInPlaceProcessor for FractionalTail {}
+impl FixedInPlaceProcessor for TerminalNoise {}
+impl FixedInPlaceProcessor for LateFinitePulse {}
 
 #[test]
 fn finish_drives_unknown_tail_through_downstream_without_scratch() {
-    let mut chain = DspChain::with_capacity(2, 48_000);
+    let mut chain = DspChain::with_capacity(2, 48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -644,7 +587,7 @@ fn finish_drives_unknown_tail_through_downstream_without_scratch() {
 #[test]
 fn unknown_tail_stops_at_hold_boundary_independent_of_output_capacity() {
     fn render(output_frames: usize) -> (Vec<f64>, bool) {
-        let mut chain = DspChain::new(48_000);
+        let mut chain = DspChain::new(48_000).unwrap();
         chain
             .add(UnknownImpulseThenSilence {
                 generated_frames: 0,
@@ -674,7 +617,7 @@ fn unknown_tail_stops_at_hold_boundary_independent_of_output_capacity() {
 
 #[test]
 fn unknown_tail_waits_for_downstream_finite_support_before_energy_stop() {
-    let mut chain = DspChain::with_capacity(2, 48_000);
+    let mut chain = DspChain::with_capacity(2, 48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -713,7 +656,7 @@ fn unknown_tail_waits_for_downstream_finite_support_before_energy_stop() {
 
 #[test]
 fn unknown_tail_energy_is_observed_before_terminal_noise() {
-    let mut chain = DspChain::with_capacity(2, 48_000);
+    let mut chain = DspChain::with_capacity(2, 48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -742,7 +685,7 @@ fn unknown_tail_energy_is_observed_before_terminal_noise() {
 
 #[test]
 fn unknown_tail_safety_cap_does_not_overshoot_large_output_blocks() {
-    let mut chain = DspChain::new(48_000);
+    let mut chain = DspChain::new(48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -764,7 +707,7 @@ fn unknown_tail_safety_cap_does_not_overshoot_large_output_blocks() {
 
 #[test]
 fn capped_unknown_tail_continues_to_downstream_finish_in_the_same_call() {
-    let mut chain = DspChain::with_capacity(2, 48_000);
+    let mut chain = DspChain::with_capacity(2, 48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -788,7 +731,7 @@ fn capped_unknown_tail_continues_to_downstream_finish_in_the_same_call() {
 
 #[test]
 fn chain_composes_latency_and_unknown_tail() {
-    let mut chain = DspChain::new(48_000);
+    let mut chain = DspChain::new(48_000).unwrap();
     chain
         .add(UnknownDecay {
             state: 0.0,
@@ -801,7 +744,7 @@ fn chain_composes_latency_and_unknown_tail() {
 
 #[test]
 fn finite_tail_rounding_happens_after_cross_rate_sum() {
-    let mut chain = DspChain::new(48_000);
+    let mut chain = DspChain::new(48_000).unwrap();
     chain
         .add(FractionalTail(FrameDuration::new(1, 96_000).unwrap()))
         .unwrap();

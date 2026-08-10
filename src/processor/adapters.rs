@@ -27,8 +27,8 @@ use super::saturation::Saturation;
 use super::saturation::SATURATION_LATENCY_FRAMES;
 use super::traits::{
     validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
-    StreamingProcessor, TailSpec,
+    FixedInPlaceProcessor, FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError,
+    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 #[derive(Default)]
@@ -268,20 +268,12 @@ impl StreamingProcessor for EqProcessor {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        self.cached.enabled
-    }
-
     fn tail(&self) -> TailSpec {
         if self.cached.enabled {
             TailSpec::Unknown
         } else {
             TailSpec::None
         }
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
@@ -676,8 +668,9 @@ impl SaturationProcessor {
 
     /// Switch the setup/reset-time zero-latency bypass.
     ///
-    /// Runtime automation must use [`StreamingProcessor::set_enabled`]; a hard
-    /// bypass change after processing starts would change the public timeline.
+    /// Runtime automation must publish through
+    /// [`AtomicSaturationParams::set_enabled`]; a hard bypass change after
+    /// processing starts would change the public timeline.
     pub fn set_hard_bypassed(&mut self, bypassed: bool) -> Result<(), ProcessError> {
         if self.stream_started {
             return Err(ProcessError::Backend {
@@ -945,14 +938,6 @@ impl StreamingProcessor for SaturationProcessor {
         }
     }
 
-    fn is_enabled(&self) -> bool {
-        !self.hard_bypassed
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
-    }
-
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         let sample_rate = validate_sample_rate("Saturation", sample_rate_hz)?;
         self.sample_rate = sample_rate;
@@ -1068,20 +1053,12 @@ impl StreamingProcessor for CrossfeedProcessor {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        self.cached.enabled
-    }
-
     fn tail(&self) -> TailSpec {
         if self.cached.enabled && self.stream_channels.unwrap_or(2) == 2 {
             TailSpec::Unknown
         } else {
             TailSpec::None
         }
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
@@ -1394,14 +1371,6 @@ impl StreamingProcessor for PeakLimiterProcessor {
             .unwrap_or(FrameDuration::ZERO)
     }
 
-    fn is_enabled(&self) -> bool {
-        self.cached.enabled
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
-    }
-
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("PeakLimiter", sample_rate_hz)?;
         self.sample_rate = sample_rate_hz;
@@ -1562,19 +1531,6 @@ impl StreamingProcessor for VolumeProcessor {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        true // Volume is always active
-    }
-
-    fn supports_bypass(&self) -> bool {
-        // Volume is always applied; silence is requested through set_muted.
-        false
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {
-        // Use set_muted instead
-    }
-
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         let sample_rate = validate_sample_rate("Volume", sample_rate_hz)?;
         if (self.sample_rate - sample_rate).abs() > 1.0 {
@@ -1715,16 +1671,8 @@ impl StreamingProcessor for NoiseShaperProcessor {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        self.cached.enabled
-    }
-
     fn tail_energy_observation_barrier(&self) -> bool {
         true
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
@@ -1845,20 +1793,12 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
         Ok(())
     }
 
-    fn is_enabled(&self) -> bool {
-        self.cached.enabled
-    }
-
     fn tail(&self) -> TailSpec {
         if self.cached.enabled {
             TailSpec::Unknown
         } else {
             TailSpec::None
         }
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.params.set_enabled(enabled);
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
@@ -1870,6 +1810,14 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
         Ok(())
     }
 }
+
+impl FixedInPlaceProcessor for EqProcessor {}
+impl FixedInPlaceProcessor for SaturationProcessor {}
+impl FixedInPlaceProcessor for CrossfeedProcessor {}
+impl FixedInPlaceProcessor for PeakLimiterProcessor {}
+impl FixedInPlaceProcessor for VolumeProcessor {}
+impl FixedInPlaceProcessor for NoiseShaperProcessor {}
+impl FixedInPlaceProcessor for DynamicLoudnessProcessor {}
 
 mod convolver;
 

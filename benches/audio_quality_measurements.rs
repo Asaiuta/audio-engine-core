@@ -2652,7 +2652,6 @@ fn render_full_output_chain(
 
     let mut chain = OutputChainBuilder::new(OutputChainParams {
         channels,
-        source_sample_rate,
         output_sample_rate: RESAMPLE_TO,
         eq_params,
         saturation_params,
@@ -2664,7 +2663,7 @@ fn render_full_output_chain(
         limiter_params,
         noise_shaper_params,
     })
-    .build_render_chain_with_policy(render_policy)
+    .build_render_chain_with_policy(source_sample_rate, render_policy)
     .map_err(|error| error.to_string())?;
 
     chain

@@ -638,7 +638,7 @@ fn measure_chain_setup(scenario: Scenario) -> Result<MemoryEvidence, String> {
     let scope = AllocationScope::start();
     let params = build_params(scenario);
     let chain = OutputChainBuilder::new(params)
-        .build_render_chain_with_policy(OfflineRenderPolicy::default())
+        .build_render_chain_with_policy(scenario.source_rate_hz(), OfflineRenderPolicy::default())
         .map_err(|error| error.to_string())?;
     let snapshot = scope.finish();
     black_box(&chain);
@@ -792,7 +792,7 @@ fn build_chain_with_activity(
     active: bool,
 ) -> Result<OutputRenderChain, String> {
     OutputChainBuilder::new(build_params_with_activity(scenario, active))
-        .build_render_chain_with_policy(OfflineRenderPolicy::default())
+        .build_render_chain_with_policy(scenario.source_rate_hz(), OfflineRenderPolicy::default())
         .map_err(|error| error.to_string())
 }
 
@@ -856,7 +856,6 @@ fn build_params_with_activity(scenario: Scenario, active: bool) -> OutputChainPa
 
     OutputChainParams {
         channels: CHANNELS,
-        source_sample_rate: source_rate_hz,
         output_sample_rate: output_rate_hz,
         eq_params,
         saturation_params,

@@ -31,8 +31,9 @@
 //! ```
 
 use super::traits::{
-    finish_checked, process_checked, validate_sample_rate_hz, AudioBlockMut, FrameDuration,
-    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    finish_checked, process_checked, validate_sample_rate_hz, AudioBlockMut, FixedInPlaceProcessor,
+    FrameDuration, ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor,
+    TailSpec,
 };
 
 /// Policy used by [`DspChain::finish`] for processors with asymptotic tails.
@@ -106,9 +107,10 @@ impl Default for ChainFinishPolicy {
 /// The chain drives one fixed in-place 1:1 topology at a single sample rate. It
 /// owns no variable-rate scratch buffer, by design: allocating one would break
 /// the callback's allocation-free contract. [`Self::add`] therefore only accepts
-/// a processor that maps the chain rate to itself, so a rate-transforming stage
-/// is rejected at build time instead of failing inside the audio callback. The
-/// offline [`OutputRenderChain`](super::output_chain::OutputRenderChain) owns the
+/// a [`FixedInPlaceProcessor`], and defensively verifies that the stage maps the
+/// chain rate to itself, so incompatible geometry is rejected at build time
+/// instead of failing inside the audio callback. The offline
+/// [`OutputRenderChain`](super::output_chain::OutputRenderChain) owns the
 /// resampler boundary.
 pub struct DspChain {
     /// Processors in execution order
@@ -127,22 +129,24 @@ pub struct DspChain {
 }
 
 impl DspChain {
-    /// Create an empty DSP chain
-    pub fn new(_sample_rate_hz: u32) -> Self {
-        Self {
+    /// Create an empty DSP chain in a valid sample-rate domain.
+    pub fn new(sample_rate_hz: u32) -> Result<Self, ProcessError> {
+        validate_sample_rate_hz("DspChain", sample_rate_hz)?;
+        Ok(Self {
             processors: Vec::new(),
-            sample_rate_hz: _sample_rate_hz,
+            sample_rate_hz,
             ..Self::empty_state()
-        }
+        })
     }
 
-    /// Create a chain with pre-allocated capacity
-    pub fn with_capacity(capacity: usize, _sample_rate_hz: u32) -> Self {
-        Self {
+    /// Create a chain with pre-allocated capacity in a valid rate domain.
+    pub fn with_capacity(capacity: usize, sample_rate_hz: u32) -> Result<Self, ProcessError> {
+        validate_sample_rate_hz("DspChain", sample_rate_hz)?;
+        Ok(Self {
             processors: Vec::with_capacity(capacity),
-            sample_rate_hz: _sample_rate_hz,
+            sample_rate_hz,
             ..Self::empty_state()
-        }
+        })
     }
 
     const fn empty_state() -> Self {
@@ -167,11 +171,9 @@ impl DspChain {
     /// Rejects a processor the chain cannot honor, rather than accepting it and
     /// failing later on the audio thread:
     ///
-    /// - a chain whose sample rate is zero, because no stage timing could then
-    ///   be expressed in a frame domain;
     /// - a stage that does not map the chain rate to itself, because the chain
     ///   drives a fixed in-place 1:1 topology (see the type-level docs).
-    pub fn add<P: StreamingProcessor + 'static>(
+    pub fn add<P: FixedInPlaceProcessor + 'static>(
         &mut self,
         processor: P,
     ) -> Result<&mut Self, ProcessError> {
@@ -651,12 +653,6 @@ impl DspChain {
         self.finish_quiet_frames = 0;
         self.finish_generated_frames = 0;
         self.finish_capped = false;
-    }
-}
-
-impl Default for DspChain {
-    fn default() -> Self {
-        Self::new(44_100)
     }
 }
 

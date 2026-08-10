@@ -1334,7 +1334,6 @@ fn source_finish_frame_limit(
 #[derive(Clone)]
 pub struct OutputChainParams {
     pub channels: usize,
-    pub source_sample_rate: u32,
     pub output_sample_rate: u32,
     pub eq_params: Arc<AtomicEqParams>,
     pub saturation_params: Arc<AtomicSaturationParams>,
@@ -1378,33 +1377,20 @@ impl OutputChainBuilder {
 
     /// Build the callback-safe DSP chain from the canonical callback order.
     ///
-    /// The callback chain is built at [`OutputChainParams::output_sample_rate`],
-    /// because a device callback delivers buffers in its own domain. That is the
-    /// rate validated first here; `source_sample_rate` is only meaningful to the
-    /// offline renderer, which owns the resampler boundary, but a zero value
-    /// still means the params are malformed and is rejected as well.
+    /// The callback chain is built at [`OutputChainParams::output_sample_rate`]
+    /// because a device callback delivers buffers in its own domain. Source
+    /// rates belong to the offline render operations that own resampling.
     pub fn build_callback_chain(&self) -> Result<DspChain, ProcessError> {
         let params = &self.params;
-        // The rate this chain actually uses must be validated before the rate it
-        // ignores; the reverse order let a zero device rate reach stage
-        // construction and be reported against an inner processor.
         if params.output_sample_rate == 0 {
             return Err(ProcessError::InvalidSampleRate {
                 processor: "OutputChainBuilder::output_sample_rate",
                 sample_rate_hz: 0,
             });
         }
-        if params.source_sample_rate == 0 {
-            return Err(ProcessError::InvalidSampleRate {
-                processor: "OutputChainBuilder::source_sample_rate",
-                sample_rate_hz: 0,
-            });
-        }
-        // Playback callbacks receive buffers in the actual device domain; the
-        // offline renderer alone owns the source-rate/resampler boundary.
         let sample_rate_hz = self.params.output_sample_rate;
         let noise_latch = NoiseShaperSnapshotLatch::new(params.noise_shaper_params.read());
-        let mut chain = DspChain::with_capacity(CALLBACK_STAGE_COUNT, sample_rate_hz);
+        let mut chain = DspChain::with_capacity(CALLBACK_STAGE_COUNT, sample_rate_hz)?;
         output_stage_manifest!(
             build_callback_stages,
             chain,
@@ -1418,17 +1404,29 @@ impl OutputChainBuilder {
     }
 
     /// Build the offline render chain from the canonical offline order.
-    pub fn build_render_chain(&self) -> Result<OutputRenderChain, ProcessError> {
-        OutputRenderChain::new(&self.params, OfflineRenderPolicy::default())
+    ///
+    /// `source_sample_rate_hz` names the input buffer's rate domain. Unlike a
+    /// callback chain, an offline render chain owns the optional conversion
+    /// from that domain to [`OutputChainParams::output_sample_rate`].
+    pub fn build_render_chain(
+        &self,
+        source_sample_rate_hz: u32,
+    ) -> Result<OutputRenderChain, ProcessError> {
+        OutputRenderChain::new(
+            &self.params,
+            source_sample_rate_hz,
+            OfflineRenderPolicy::default(),
+        )
     }
 
-    /// Build an offline chain with an explicit default render policy.
+    /// Build an offline chain with an explicit source rate and render policy.
     pub fn build_render_chain_with_policy(
         &self,
+        source_sample_rate_hz: u32,
         policy: OfflineRenderPolicy,
     ) -> Result<OutputRenderChain, ProcessError> {
         policy.validate()?;
-        OutputRenderChain::new(&self.params, policy)
+        OutputRenderChain::new(&self.params, source_sample_rate_hz, policy)
     }
 }
 
@@ -1484,11 +1482,12 @@ pub struct OutputRenderChain {
 impl OutputRenderChain {
     fn new(
         params: &OutputChainParams,
+        source_sample_rate_hz: u32,
         default_policy: OfflineRenderPolicy,
     ) -> Result<Self, ProcessError> {
         // The offline chain uses both rates, so both are rejected here rather
         // than surfacing as an inner stage's error with a misleading owner.
-        if params.source_sample_rate == 0 {
+        if source_sample_rate_hz == 0 {
             return Err(ProcessError::InvalidSampleRate {
                 processor: "OutputRenderChain::source_sample_rate",
                 sample_rate_hz: 0,
@@ -1500,15 +1499,15 @@ impl OutputRenderChain {
                 sample_rate_hz: 0,
             });
         }
-        let source_sample_rate = params.source_sample_rate as f64;
+        let source_sample_rate = source_sample_rate_hz as f64;
         let noise_latch = NoiseShaperSnapshotLatch::new(params.noise_shaper_params.read());
-        let resampler = if params.source_sample_rate == params.output_sample_rate {
+        let resampler = if source_sample_rate_hz == params.output_sample_rate {
             None
         } else {
             Some(
                 StreamingResampler::with_quality(
                     params.channels,
-                    params.source_sample_rate,
+                    source_sample_rate_hz,
                     params.output_sample_rate,
                     PhaseResponse::Linear,
                     ResampleQuality::UltraHigh,
@@ -1518,7 +1517,7 @@ impl OutputRenderChain {
                     operation: "create resampler",
                     message: format!(
                         "{}->{} Hz: {error}",
-                        params.source_sample_rate, params.output_sample_rate,
+                        source_sample_rate_hz, params.output_sample_rate,
                     ),
                 })?,
             )
@@ -1526,7 +1525,7 @@ impl OutputRenderChain {
 
         let mut chain = Self {
             channels: params.channels,
-            source_sample_rate: params.source_sample_rate,
+            source_sample_rate: source_sample_rate_hz,
             output_sample_rate: params.output_sample_rate,
             volume: VolumeProcessor::new(Arc::clone(&params.volume_params)),
             eq: EqProcessor::new(
@@ -1545,7 +1544,7 @@ impl OutputRenderChain {
             convolver: ConvolverProcessor::new(params.convolver_control.clone())?,
             dynamic_loudness: DynamicLoudnessProcessor::new(
                 params.channels,
-                params.source_sample_rate,
+                source_sample_rate_hz,
                 Arc::clone(&params.dynamic_loudness_params),
                 Arc::clone(&params.dynamic_loudness_telemetry),
             )?,
@@ -1566,7 +1565,7 @@ impl OutputRenderChain {
             default_policy,
         };
 
-        chain.set_source_sample_rate(params.source_sample_rate)?;
+        chain.set_source_sample_rate(source_sample_rate_hz)?;
         chain
             .noise_shaper
             .set_sample_rate(params.output_sample_rate)?;

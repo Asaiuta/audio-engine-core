@@ -110,7 +110,8 @@ pub use lockfree_params::{
     SATURATION_MIX_MIN, SATURATION_THRESHOLD_MAX, SATURATION_THRESHOLD_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 pub use traits::{
-    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration,
-    FrameRounding, ProcessBufferMode, ProcessBufferParts, ProcessBuffers, ProcessCapacity,
-    ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec, TimingError,
+    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef,
+    FixedInPlaceProcessor, FrameDuration, FrameRounding, ProcessBufferMode, ProcessBufferParts,
+    ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState,
+    StreamingProcessor, TailSpec, TimingError,
 };

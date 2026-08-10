@@ -12,8 +12,8 @@ use handoff::AudioOwned;
 
 use super::{process_fixed_1_to_1, validate_sample_rate, FixedLifecycle};
 use crate::processor::traits::{
-    validate_processor_channels, AudioBlockMut, ProcessBufferParts, ProcessBuffers, ProcessError,
-    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    validate_processor_channels, AudioBlockMut, FixedInPlaceProcessor, ProcessBufferParts,
+    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 const CONVOLVER_ACTIVATION_MS: u32 = 5;
@@ -551,14 +551,6 @@ impl StreamingProcessor for ConvolverProcessor {
         TailSpec::finite(frames, self.sample_rate_hz).unwrap_or(TailSpec::Unknown)
     }
 
-    fn is_enabled(&self) -> bool {
-        self.control.is_enabled()
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.control.set_enabled(enabled);
-    }
-
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         validate_sample_rate("Convolver", sample_rate_hz)?;
         self.sample_rate_hz = sample_rate_hz;
@@ -579,3 +571,5 @@ impl StreamingProcessor for ConvolverProcessor {
         Ok(())
     }
 }
+
+impl FixedInPlaceProcessor for ConvolverProcessor {}

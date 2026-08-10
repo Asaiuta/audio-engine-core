@@ -1146,7 +1146,6 @@ impl PlaybackBuilder {
         let lifecycle = Arc::new(LifecycleChannel::new());
         let params = OutputChainParams {
             channels: self.spec.channels,
-            source_sample_rate: self.spec.sample_rate_hz,
             output_sample_rate: self.spec.sample_rate_hz,
             eq_params: Arc::clone(&eq),
             saturation_params: Arc::clone(&saturation),

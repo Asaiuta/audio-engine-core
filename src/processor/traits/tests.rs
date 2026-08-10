@@ -51,14 +51,6 @@ impl StreamingProcessor for StreamingGain {
     fn reset(&mut self) -> Result<(), ProcessError> {
         Ok(())
     }
-
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
-    }
 }
 
 struct FiniteTailProcessor {
@@ -138,12 +130,6 @@ impl StreamingProcessor for FiniteTailProcessor {
         TailSpec::finite(self.tail_frames, self.sample_rate_hz)
             .expect("test processor uses a non-zero sample rate")
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 }
 
 #[test]
@@ -296,7 +282,7 @@ fn process_capacity_rejects_overrun_wrong_direction_and_stall() {
 }
 
 #[test]
-fn streaming_processor_supports_in_place_out_of_place_and_bypass() {
+fn streaming_processor_supports_in_place_out_of_place_and_reported_bypass() {
     let mut processor = StreamingGain {
         enabled: true,
         gain: 0.5,
@@ -322,7 +308,7 @@ fn streaming_processor_supports_in_place_out_of_place_and_bypass() {
     assert_eq!(progress.consumed_frames(), 1);
     assert_eq!(output, [1.0, 2.0]);
 
-    processor.set_enabled(false);
+    processor.enabled = false;
     let mut bypassed = [3.0, 5.0];
     let block = AudioBlockMut::new(&mut bypassed, 1).unwrap();
     let progress = process_checked(&mut processor, ProcessBuffers::in_place(block)).unwrap();

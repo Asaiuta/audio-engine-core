@@ -29,7 +29,7 @@ fn callback_runtime_order_matches_offline_shared_stage_intersection() {
 
 #[test]
 fn callback_builder_retains_convolver_control_after_type_erasure() {
-    let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+    let params = transparent_render_params(SAMPLE_RATE);
     let builder = OutputChainBuilder::new(params);
     let control = builder.convolver_control();
     let mut chain = builder.build_callback_chain().unwrap();
@@ -54,15 +54,15 @@ fn convolver_consumer_lease_is_shared_by_direct_callback_and_render_entries() {
     let builder = test_builder();
     let direct = ConvolverProcessor::new(builder.convolver_control()).unwrap();
     assert_consumer_conflict(builder.build_callback_chain());
-    assert_consumer_conflict(builder.build_render_chain());
+    assert_consumer_conflict(builder.build_render_chain(SAMPLE_RATE));
 
     drop(direct);
     let callback = builder.build_callback_chain().unwrap();
-    assert_consumer_conflict(builder.build_render_chain());
+    assert_consumer_conflict(builder.build_render_chain(SAMPLE_RATE));
     assert_consumer_conflict(ConvolverProcessor::new(builder.convolver_control()));
 
     drop(callback);
-    let render = builder.build_render_chain().unwrap();
+    let render = builder.build_render_chain(SAMPLE_RATE).unwrap();
     assert_consumer_conflict(builder.build_callback_chain());
 
     drop(render);
@@ -101,7 +101,7 @@ fn render_build_failure_releases_convolver_consumer_lease() {
     let control = params.convolver_control.clone();
     let builder = OutputChainBuilder::new(params);
 
-    let Err(error) = builder.build_render_chain() else {
+    let Err(error) = builder.build_render_chain(SAMPLE_RATE) else {
         panic!("a zero channel count must fail the render build");
     };
     assert!(
@@ -126,25 +126,9 @@ fn callback_build_rejects_the_device_rate_it_actually_uses() {
 }
 
 #[test]
-fn callback_build_rejects_a_zero_source_rate_in_the_params() {
-    let mut params = test_params();
-    params.source_sample_rate = 0;
-
-    assert!(matches!(
-        OutputChainBuilder::new(params).build_callback_chain(),
-        Err(ProcessError::InvalidSampleRate {
-            processor: "OutputChainBuilder::source_sample_rate",
-            sample_rate_hz: 0,
-        })
-    ));
-}
-
-#[test]
 fn render_build_rejects_both_zero_rates_before_any_stage() {
-    let mut source_zero = test_params();
-    source_zero.source_sample_rate = 0;
     assert!(matches!(
-        OutputChainBuilder::new(source_zero).build_render_chain(),
+        OutputChainBuilder::new(test_params()).build_render_chain(0),
         Err(ProcessError::InvalidSampleRate {
             processor: "OutputRenderChain::source_sample_rate",
             sample_rate_hz: 0,
@@ -154,7 +138,7 @@ fn render_build_rejects_both_zero_rates_before_any_stage() {
     let mut output_zero = test_params();
     output_zero.output_sample_rate = 0;
     assert!(matches!(
-        OutputChainBuilder::new(output_zero).build_render_chain(),
+        OutputChainBuilder::new(output_zero).build_render_chain(SAMPLE_RATE),
         Err(ProcessError::InvalidSampleRate {
             processor: "OutputRenderChain::output_sample_rate",
             sample_rate_hz: 0,
@@ -165,7 +149,6 @@ fn render_build_rejects_both_zero_rates_before_any_stage() {
 #[test]
 fn callback_chain_uses_the_device_output_rate() {
     let mut params = test_params();
-    params.source_sample_rate = 44_100;
     params.output_sample_rate = 96_000;
     let control = params.convolver_control.clone();
     let chain = OutputChainBuilder::new(params)
@@ -242,7 +225,9 @@ fn stage_metadata_marks_stateful_and_latency_stages() {
 #[test]
 fn render_chain_matches_callback_chain_pre_quantize_when_no_resampler() {
     let mut callback_chain = active_test_builder().build_callback_chain().unwrap();
-    let mut render_chain = active_test_builder().build_render_chain().unwrap();
+    let mut render_chain = active_test_builder()
+        .build_render_chain(SAMPLE_RATE)
+        .unwrap();
 
     let input = fixture_signal(512);
     let mut callback = input.clone();
@@ -286,14 +271,14 @@ fn final_output_guard_covers_every_bit_depth_and_noise_shaper_curve() {
     ] {
         let mut previous_guard_db = f64::INFINITY;
         for bits in 8..=32 {
-            let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+            let params = transparent_render_params(SAMPLE_RATE);
             params.limiter_params.set_enabled(true);
             params.limiter_params.set_threshold(TARGET_DBTP);
             params.noise_shaper_params.set_enabled(true);
             params.noise_shaper_params.set_bits(bits);
             params.noise_shaper_params.set_curve(curve);
             let mut chain = OutputChainBuilder::new(params)
-                .build_render_chain()
+                .build_render_chain(SAMPLE_RATE)
                 .unwrap();
 
             let rendered = chain.render(&input).unwrap();
@@ -339,10 +324,10 @@ fn final_output_guard_covers_every_bit_depth_and_noise_shaper_curve() {
 
 #[test]
 fn reused_render_starts_settled_at_the_latest_parameter_snapshot() {
-    let reused_params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+    let reused_params = transparent_render_params(SAMPLE_RATE);
     let reused_eq = Arc::clone(&reused_params.eq_params);
     let mut reused = OutputChainBuilder::new(reused_params)
-        .build_render_chain()
+        .build_render_chain(SAMPLE_RATE)
         .unwrap();
     let input = fixture_signal(512);
     let _ = reused.render(&input).unwrap();
@@ -350,10 +335,10 @@ fn reused_render_starts_settled_at_the_latest_parameter_snapshot() {
     let gains = [3.0; EQ_BANDS];
     reused_eq.write(&gains, true);
 
-    let fresh_params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+    let fresh_params = transparent_render_params(SAMPLE_RATE);
     fresh_params.eq_params.write(&gains, true);
     let mut fresh = OutputChainBuilder::new(fresh_params)
-        .build_render_chain()
+        .build_render_chain(SAMPLE_RATE)
         .unwrap();
 
     let actual = reused.render(&input).unwrap();
@@ -447,10 +432,10 @@ fn callback_chain_reset_isolates_prior_stream_state() {
 
 #[test]
 fn default_render_compensates_limiter_latency_and_preserves_last_impulse() {
-    let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+    let params = transparent_render_params(SAMPLE_RATE);
     params.limiter_params.set_enabled(true);
     let builder = OutputChainBuilder::new(params);
-    let mut chain = builder.build_render_chain().unwrap();
+    let mut chain = builder.build_render_chain(SAMPLE_RATE).unwrap();
     let mut input = vec![0.0; 128 * CHANNELS];
     let input_len = input.len();
     input[input_len - 2] = 0.5;
@@ -479,7 +464,7 @@ fn default_render_compensates_limiter_latency_and_preserves_last_impulse() {
 
 #[test]
 fn convolver_tail_flows_through_limiter_and_resampler_independent_of_block_size() {
-    let params = transparent_render_params(48_000, 96_000);
+    let params = transparent_render_params(96_000);
     params.limiter_params.set_enabled(true);
     let builder = OutputChainBuilder::new(params);
     let control = builder.convolver_control();
@@ -490,7 +475,7 @@ fn convolver_tail_flows_through_limiter_and_resampler_independent_of_block_size(
             48_000,
         )
         .unwrap();
-    let mut chain = builder.build_render_chain().unwrap();
+    let mut chain = builder.build_render_chain(48_000).unwrap();
     let mut input = vec![0.0; 64 * CHANNELS];
     let input_len = input.len();
     input[input_len - 2] = 0.4;
@@ -520,13 +505,13 @@ fn convolver_tail_flows_through_limiter_and_resampler_independent_of_block_size(
 
 #[test]
 fn production_iir_tail_stops_early_and_is_block_size_independent() {
-    let params = transparent_render_params(SAMPLE_RATE, SAMPLE_RATE);
+    let params = transparent_render_params(SAMPLE_RATE);
     let mut gains = [0.0; EQ_BANDS];
     gains[EQ_BANDS - 1] = 6.0;
     params.eq_params.write(&gains, true);
     params.limiter_params.set_enabled(true);
     let builder = OutputChainBuilder::new(params);
-    let mut chain = builder.build_render_chain().unwrap();
+    let mut chain = builder.build_render_chain(SAMPLE_RATE).unwrap();
     let mut input = vec![0.0; 256 * CHANNELS];
     let last = input.len();
     input[last - 2] = 0.5;
@@ -566,13 +551,13 @@ fn production_iir_tail_stops_early_and_is_block_size_independent() {
 fn resampled_unknown_tail_with_single_frame_blocks_respects_cap_without_backend_error() {
     let source_rate = 48_000;
     let output_rate = 8_000;
-    let params = transparent_render_params(source_rate, output_rate);
+    let params = transparent_render_params(output_rate);
     let mut gains = [0.0; EQ_BANDS];
     gains[EQ_BANDS - 1] = 6.0;
     params.eq_params.write(&gains, true);
 
     let builder = OutputChainBuilder::new(params);
-    let mut chain = builder.build_render_chain().unwrap();
+    let mut chain = builder.build_render_chain(source_rate).unwrap();
     let mut input = vec![0.0; 32 * CHANNELS];
     input[..CHANNELS].fill(0.5);
     let policy = OfflineRenderPolicy {
@@ -605,8 +590,8 @@ fn resampled_unknown_tail_with_single_frame_blocks_respects_cap_without_backend_
 
 #[test]
 fn render_rejects_zero_block_size_before_processing() {
-    let mut chain = OutputChainBuilder::new(transparent_render_params(SAMPLE_RATE, SAMPLE_RATE))
-        .build_render_chain()
+    let mut chain = OutputChainBuilder::new(transparent_render_params(SAMPLE_RATE))
+        .build_render_chain(SAMPLE_RATE)
         .unwrap();
 
     assert!(matches!(
@@ -695,12 +680,6 @@ impl StreamingProcessor for UnknownTailProcessor {
     fn tail(&self) -> TailSpec {
         TailSpec::Unknown
     }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    fn set_enabled(&mut self, _enabled: bool) {}
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
         self.sample_rate_hz = sample_rate_hz;
@@ -860,7 +839,6 @@ fn active_test_builder() -> OutputChainBuilder {
 fn test_params() -> OutputChainParams {
     OutputChainParams {
         channels: CHANNELS,
-        source_sample_rate: SAMPLE_RATE,
         output_sample_rate: SAMPLE_RATE,
         eq_params: Arc::new(AtomicEqParams::new()),
         saturation_params: Arc::new(AtomicSaturationParams::new()),
@@ -874,12 +852,8 @@ fn test_params() -> OutputChainParams {
     }
 }
 
-fn transparent_render_params(
-    source_sample_rate: u32,
-    output_sample_rate: u32,
-) -> OutputChainParams {
+fn transparent_render_params(output_sample_rate: u32) -> OutputChainParams {
     let mut params = test_params();
-    params.source_sample_rate = source_sample_rate;
     params.output_sample_rate = output_sample_rate;
     params.eq_params.write(&[0.0; EQ_BANDS], false);
     params.saturation_params.set_enabled(false);
