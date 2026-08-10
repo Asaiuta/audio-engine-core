@@ -15,7 +15,7 @@ use soxr::{
     Soxr,
 };
 
-use super::BackendProgress;
+use super::{BackendInitError, BackendProcessError, BackendProgress};
 
 pub(super) const BACKEND_NAME: &str = "soxr";
 
@@ -52,7 +52,7 @@ impl MonoBackend {
         to_rate: u32,
         phase: PhaseResponse,
         quality: ResampleQuality,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         let quality_spec = make_quality_spec(quality_to_recipe(quality), phase);
         let runtime_spec = RuntimeSpec::new(1);
         Soxr::<Mono<f64>>::new_with_params(
@@ -64,7 +64,9 @@ impl MonoBackend {
         .map(|soxr| Self {
             soxr: NativeBackend::Mono(soxr),
         })
-        .map_err(|error| format!("{error:?}"))
+        .map_err(|error| BackendInitError::Backend {
+            message: format!("{error:?}"),
+        })
     }
 
     pub(super) fn new_interleaved_stereo(
@@ -72,7 +74,7 @@ impl MonoBackend {
         to_rate: u32,
         phase: PhaseResponse,
         quality: ResampleQuality,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         let quality_spec = make_quality_spec(quality_to_recipe(quality), phase);
         let runtime_spec = RuntimeSpec::new(1);
         Soxr::<Stereo<f64>>::new_with_params(
@@ -84,7 +86,9 @@ impl MonoBackend {
         .map(|soxr| Self {
             soxr: NativeBackend::Stereo(soxr),
         })
-        .map_err(|error| format!("{error:?}"))
+        .map_err(|error| BackendInitError::Backend {
+            message: format!("{error:?}"),
+        })
     }
 
     pub(super) fn is_interleaved_stereo(&self) -> bool {
@@ -95,13 +99,13 @@ impl MonoBackend {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<BackendProgress, &'static str> {
+    ) -> Result<BackendProgress, BackendProcessError> {
         let NativeBackend::Mono(soxr) = &mut self.soxr else {
-            return Err("mono resampler entry received interleaved backend");
+            return Err("mono resampler entry received interleaved backend".into());
         };
         let processed = soxr
             .process(input, output)
-            .map_err(|_| "resampler backend process failed")?;
+            .map_err(|_| BackendProcessError::new("resampler backend process failed"))?;
         Ok(BackendProgress {
             input_frames: processed.input_frames,
             output_frames: processed.output_frames,
@@ -112,46 +116,46 @@ impl MonoBackend {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<BackendProgress, &'static str> {
+    ) -> Result<BackendProgress, BackendProcessError> {
         let NativeBackend::Stereo(soxr) = &mut self.soxr else {
-            return Err("interleaved resampler entry received mono backend");
+            return Err("interleaved resampler entry received mono backend".into());
         };
         let input = stereo_frames(input)?;
         let output = stereo_frames_mut(output)?;
         let processed = soxr
             .process(input, output)
-            .map_err(|_| "resampler backend process failed")?;
+            .map_err(|_| BackendProcessError::new("resampler backend process failed"))?;
         Ok(BackendProgress {
             input_frames: processed.input_frames,
             output_frames: processed.output_frames,
         })
     }
 
-    pub(super) fn drain(&mut self, output: &mut [f64]) -> Result<usize, &'static str> {
+    pub(super) fn drain(&mut self, output: &mut [f64]) -> Result<usize, BackendProcessError> {
         let NativeBackend::Mono(soxr) = &mut self.soxr else {
-            return Err("mono resampler drain received interleaved backend");
+            return Err("mono resampler drain received interleaved backend".into());
         };
         soxr.drain(output)
-            .map_err(|_| "resampler backend drain failed")
+            .map_err(|_| BackendProcessError::new("resampler backend drain failed"))
     }
 
     pub(super) fn drain_interleaved_stereo(
         &mut self,
         output: &mut [f64],
-    ) -> Result<usize, &'static str> {
+    ) -> Result<usize, BackendProcessError> {
         let NativeBackend::Stereo(soxr) = &mut self.soxr else {
-            return Err("interleaved resampler drain received mono backend");
+            return Err("interleaved resampler drain received mono backend".into());
         };
         soxr.drain(stereo_frames_mut(output)?)
-            .map_err(|_| "resampler backend drain failed")
+            .map_err(|_| BackendProcessError::new("resampler backend drain failed"))
     }
 
-    pub(super) fn clear(&mut self) -> Result<(), &'static str> {
+    pub(super) fn clear(&mut self) -> Result<(), BackendProcessError> {
         match &mut self.soxr {
             NativeBackend::Mono(soxr) => soxr.clear(),
             NativeBackend::Stereo(soxr) => soxr.clear(),
         }
-        .map_err(|_| "resampler backend clear failed")
+        .map_err(|_| BackendProcessError::new("resampler backend clear failed"))
     }
 
     pub(super) fn latency_frames(&self) -> usize {
@@ -163,18 +167,18 @@ impl MonoBackend {
     }
 }
 
-fn stereo_frames(samples: &[f64]) -> Result<&[[f64; 2]], &'static str> {
+fn stereo_frames(samples: &[f64]) -> Result<&[[f64; 2]], BackendProcessError> {
     if !samples.len().is_multiple_of(2) {
-        return Err("resampler backend received an incomplete stereo frame");
+        return Err("resampler backend received an incomplete stereo frame".into());
     }
     // SAFETY: `[f64; 2]` has the same alignment and contiguous layout as two
     // adjacent f64 values, and the sample count was validated as even.
     Ok(unsafe { std::slice::from_raw_parts(samples.as_ptr().cast(), samples.len() / 2) })
 }
 
-fn stereo_frames_mut(samples: &mut [f64]) -> Result<&mut [[f64; 2]], &'static str> {
+fn stereo_frames_mut(samples: &mut [f64]) -> Result<&mut [[f64; 2]], BackendProcessError> {
     if !samples.len().is_multiple_of(2) {
-        return Err("resampler backend received an incomplete stereo frame");
+        return Err("resampler backend received an incomplete stereo frame".into());
     }
     // SAFETY: the mutable slice is uniquely borrowed; `[f64; 2]` has the same
     // alignment/layout as two adjacent f64 values, and its length is even.

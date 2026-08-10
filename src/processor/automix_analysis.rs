@@ -4,13 +4,14 @@
 //! windows off the realtime callback path and returns a stable DTO for later
 //! transition planning.
 
-use crate::decoder::{DecodeCancelToken, HttpCredentials, StreamingDecoder};
+use crate::decoder::{DecodeCancelToken, DecoderError, HttpCredentials, StreamingDecoder};
 use crate::processor::LoudnessMeter;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use thiserror::Error;
 
-const ANALYSIS_VERSION: u32 = 2;
+const ANALYSIS_VERSION: u32 = 3;
 const DEFAULT_MAX_ANALYZE_TIME_SEC: f64 = 60.0;
 const MIN_ANALYZE_TIME_SEC: f64 = 5.0;
 const MAX_ANALYZE_TIME_SEC: f64 = 300.0;
@@ -52,20 +53,6 @@ impl AutomixAnalysisMode {
     }
 }
 
-/// Availability of musical-key analysis in an [`AutomixAnalysis`] result.
-///
-/// Version 2 reports [`Self::Unsupported`] explicitly instead of exposing
-/// permanently empty key fields as though a detector had run. A future key
-/// estimator must add evidence-calibrated result states before populating the
-/// reserved key payload.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum AutomixKeyStatus {
-    /// This build does not run a musical-key estimator.
-    Unsupported,
-}
-
 #[derive(Clone, Debug, Serialize)]
 pub struct AutomixAnalysis {
     pub version: u32,
@@ -97,22 +84,26 @@ pub struct AutomixAnalysis {
     pub vocal_out_pos: Option<f64>,
     pub vocal_last_in_pos: Option<f64>,
     pub outro_energy_level: Option<f64>,
-    /// Whether musical-key analysis ran for this result.
-    pub key_status: AutomixKeyStatus,
-    /// Reserved pitch-class root (`0 = C` through `11 = B`).
-    ///
-    /// This is `None` while [`Self::key_status`] is
-    /// [`AutomixKeyStatus::Unsupported`].
-    pub key_root: Option<i32>,
-    /// Reserved mode encoding (`0 = major`, `1 = minor`).
-    ///
-    /// This is `None` while [`Self::key_status`] is
-    /// [`AutomixKeyStatus::Unsupported`].
-    pub key_mode: Option<i32>,
-    /// Reserved detector confidence in the inclusive range `0.0..=1.0`.
-    pub key_confidence: Option<f64>,
-    /// Reserved Camelot-wheel label corresponding to the detected root/mode.
-    pub camelot_key: Option<String>,
+}
+
+/// Failures produced by bounded offline AutoMix analysis.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum AutomixError {
+    /// Analysis was cooperatively canceled.
+    #[error("AutoMix analysis canceled")]
+    Canceled,
+    /// Opening, seeking, or decoding the media source failed.
+    #[error("AutoMix decoder operation failed")]
+    Decoder(#[from] DecoderError),
+    /// A coarse decoder seek landed after the requested tail boundary.
+    #[error(
+        "AutoMix tail seek landed after planned frame {planned_frame}: realized frame {realized_frame}"
+    )]
+    TailSeekPastStart {
+        planned_frame: u64,
+        realized_frame: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -380,7 +371,7 @@ pub fn analyze_automix(
     path: String,
     credentials: Option<HttpCredentials>,
     options: AutomixAnalysisOptions,
-) -> Result<AutomixAnalysis, String> {
+) -> Result<AutomixAnalysis, AutomixError> {
     analyze_automix_with_cancel(path, credentials, options, None)
 }
 
@@ -389,15 +380,14 @@ pub fn analyze_automix_with_cancel(
     credentials: Option<HttpCredentials>,
     options: AutomixAnalysisOptions,
     cancel_token: Option<DecodeCancelToken>,
-) -> Result<AutomixAnalysis, String> {
+) -> Result<AutomixAnalysis, AutomixError> {
     let options = options.normalized();
     check_cancel(cancel_token.as_ref())?;
     let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
         &path,
         credentials.as_ref(),
         cancel_token.clone(),
-    )
-    .map_err(|e| format!("Failed to open file for AutoMix analysis: {}", e))?;
+    )?;
 
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels.max(1);
@@ -431,16 +421,14 @@ pub fn analyze_automix_with_cancel(
 
     if let Some(tail_window) = plan.tail {
         check_cancel(cancel_token.as_ref())?;
-        decoder
-            .seek(tail_window.start_time(sample_rate))
-            .map_err(|e| format!("Failed to seek tail for AutoMix analysis: {}", e))?;
+        decoder.seek(tail_window.start_time(sample_rate))?;
         let realized_start = decoder.current_frame();
-        let skip_frames = tail_window.start.checked_sub(realized_start).ok_or_else(|| {
-            format!(
-                "AutoMix tail seek landed after the planned start: planned frame {}, realized frame {}",
-                tail_window.start, realized_start
-            )
-        })?;
+        let skip_frames = tail_window.start.checked_sub(realized_start).ok_or(
+            AutomixError::TailSeekPastStart {
+                planned_frame: tail_window.start,
+                realized_frame: realized_start,
+            },
+        )?;
         tail = AnalysisSegment::at(tail_window.start_time(sample_rate));
         decode_segment(
             &mut decoder,
@@ -470,7 +458,7 @@ fn decode_segment(
     skip_frames: u64,
     take_frames: u64,
     cancel_token: Option<&DecodeCancelToken>,
-) -> Result<(), String> {
+) -> Result<(), AutomixError> {
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels.max(1);
     let window_size = (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1);
@@ -482,10 +470,7 @@ fn decode_segment(
     while take_remaining > 0 {
         check_cancel(cancel_token)?;
         chunk.clear();
-        let Some(sample_count) = decoder
-            .decode_next_into(&mut chunk)
-            .map_err(|e| e.to_string())?
-        else {
+        let Some(sample_count) = decoder.decode_next_into(&mut chunk)? else {
             break;
         };
         if sample_count == 0 {
@@ -540,9 +525,9 @@ fn is_plausible_duration(duration: &f64) -> bool {
     duration.is_finite() && *duration > 0.0 && *duration <= MAX_DECLARED_DURATION_SEC
 }
 
-fn check_cancel(cancel_token: Option<&DecodeCancelToken>) -> Result<(), String> {
+fn check_cancel(cancel_token: Option<&DecodeCancelToken>) -> Result<(), AutomixError> {
     if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
-        Err("Analysis task canceled".to_string())
+        Err(AutomixError::Canceled)
     } else {
         Ok(())
     }
@@ -638,11 +623,6 @@ fn finalize_analysis(
         vocal_last_in_pos: tail.and(vocal_last_in),
         outro_energy_level: tail
             .and_then(|segment| calculate_outro_energy(&segment.envelope, ENVELOPE_RATE)),
-        key_status: AutomixKeyStatus::Unsupported,
-        key_root: None,
-        key_mode: None,
-        key_confidence: None,
-        camelot_key: None,
     }
 }
 
@@ -1402,17 +1382,58 @@ mod tests {
     }
 
     #[test]
-    fn serialized_analysis_marks_key_detection_unsupported() {
+    fn serialized_analysis_omits_unimplemented_key_placeholders() {
         let analysis = empty_analysis_with_flux(48_000, Vec::new());
         let json = serde_json::to_value(&analysis).expect("analysis should serialize");
 
-        assert_eq!(json["version"], 2);
-        assert_eq!(json["key_status"], "unsupported");
-        for field in ["key_root", "key_mode", "key_confidence", "camelot_key"] {
-            assert!(
-                json[field].is_null(),
-                "{field} must be null when unsupported"
-            );
+        assert_eq!(json["version"], 3);
+        for field in [
+            "key_status",
+            "key_root",
+            "key_mode",
+            "key_confidence",
+            "camelot_key",
+        ] {
+            assert!(json.get(field).is_none(), "{field} must not be reserved");
         }
+    }
+
+    #[test]
+    fn analysis_reports_cancellation_as_a_typed_variant() {
+        let token = DecodeCancelToken::new();
+        token.cancel();
+
+        let error = analyze_automix_with_cancel(
+            "unused.wav".to_string(),
+            None,
+            AutomixAnalysisOptions::default(),
+            Some(token),
+        )
+        .expect_err("pre-canceled analysis must stop before opening the source");
+
+        assert!(matches!(error, AutomixError::Canceled));
+    }
+
+    #[test]
+    fn analysis_preserves_decoder_error_source() {
+        let id = TEMP_AUDIO_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "aec_automix_missing_{}_{}.wav",
+            std::process::id(),
+            id
+        ));
+        let _ = std::fs::remove_file(&path);
+        let error = analyze_automix(
+            path.to_string_lossy().into_owned(),
+            None,
+            AutomixAnalysisOptions::default(),
+        )
+        .expect_err("missing source must fail");
+
+        assert!(matches!(
+            &error,
+            AutomixError::Decoder(DecoderError::FileOpen(_))
+        ));
+        assert!(std::error::Error::source(&error).is_some());
     }
 }

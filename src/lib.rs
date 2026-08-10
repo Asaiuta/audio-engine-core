@@ -128,7 +128,7 @@ pub use processor::{
     offline_render_stage_names, offline_render_stage_order_csv, post_render_analysis_names,
     post_render_analysis_order_csv, process_checked, AtomicLoudnessState, AudioBlockError,
     AudioBlockMut, AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
-    AutomixKeyStatus, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl, ConvolverStatus,
+    AutomixError, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl, ConvolverStatus,
     DownmixCoefficients, DownmixError, Downmixer, DspChain, Equalizer, FFTConvolver, FrameDuration,
     FrameRounding, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper,
     OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, OutputRenderChain,
@@ -143,4 +143,6 @@ pub use processor::{
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).
 #[cfg(feature = "loudness-db")]
-pub use processor::{DatabaseStats, LoudnessDatabase, TrackLoudness, CURRENT_SCAN_VERSION};
+pub use processor::{
+    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, TrackLoudness, CURRENT_SCAN_VERSION,
+};

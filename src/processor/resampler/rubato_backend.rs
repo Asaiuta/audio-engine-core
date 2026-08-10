@@ -51,7 +51,7 @@ use rubato::{
 use super::{
     contiguous_polyphase_backend::ContiguousPolyphaseResampler,
     halfband_backend::Halfband2xResampler, spectral_backend::SpectralNonlinearResampler,
-    BackendProgress,
+    BackendInitError, BackendProcessError, BackendProgress,
 };
 
 pub(super) const BACKEND_NAME: &str = "rubato";
@@ -181,9 +181,9 @@ impl SampleRing {
         self.len = 0;
     }
 
-    fn push(&mut self, source: &[f64]) -> Result<(), &'static str> {
+    fn push(&mut self, source: &[f64]) -> Result<(), BackendProcessError> {
         if source.len() > self.free() {
-            return Err("resampler backend FIFO capacity exceeded");
+            return Err("resampler backend FIFO capacity exceeded".into());
         }
         if source.is_empty() {
             return Ok(());
@@ -209,9 +209,9 @@ impl SampleRing {
         Some(&self.data[self.head..end])
     }
 
-    fn consume(&mut self, samples: usize) -> Result<(), &'static str> {
+    fn consume(&mut self, samples: usize) -> Result<(), BackendProcessError> {
         if samples > self.len {
-            return Err("resampler backend FIFO underflow");
+            return Err("resampler backend FIFO underflow".into());
         }
         self.len -= samples;
         if self.len == 0 {
@@ -258,12 +258,16 @@ struct SplitInterleavedInput<'a> {
 }
 
 impl<'a> SplitInterleavedInput<'a> {
-    fn new(prefix: &'a [f64], suffix: &'a [f64], channels: usize) -> Result<Self, &'static str> {
+    fn new(
+        prefix: &'a [f64],
+        suffix: &'a [f64],
+        channels: usize,
+    ) -> Result<Self, BackendProcessError> {
         if channels == 0
             || !prefix.len().is_multiple_of(channels)
             || !suffix.len().is_multiple_of(channels)
         {
-            return Err("resampler split input received invalid geometry");
+            return Err("resampler split input received invalid geometry".into());
         }
         let prefix_frames = prefix.len() / channels;
         let suffix_frames = suffix.len() / channels;
@@ -372,12 +376,16 @@ struct DirectInterleavedOutput<'a> {
 }
 
 impl<'a> DirectInterleavedOutput<'a> {
-    fn new(output: &'a mut [f64], channels: usize, frames: usize) -> Result<Self, &'static str> {
+    fn new(
+        output: &'a mut [f64],
+        channels: usize,
+        frames: usize,
+    ) -> Result<Self, BackendProcessError> {
         let samples = channels
             .checked_mul(frames)
             .ok_or("resampler direct output length overflowed")?;
         if channels == 0 || output.len() < samples {
-            return Err("resampler direct output received invalid geometry");
+            return Err("resampler direct output received invalid geometry".into());
         }
         Ok(Self {
             output: &mut output[..samples],
@@ -468,18 +476,18 @@ impl<'a> TerminalInterleavedOutput<'a> {
         native_frames: usize,
         drop_frames: usize,
         direct_frames: usize,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, BackendProcessError> {
         if channels == 0
             || drop_frames > native_frames
             || direct_frames > native_frames - drop_frames
         {
-            return Err("resampler terminal output received invalid geometry");
+            return Err("resampler terminal output received invalid geometry".into());
         }
         let direct_samples = direct_frames
             .checked_mul(channels)
             .ok_or("resampler terminal output length overflowed")?;
         if output.len() < direct_samples {
-            return Err("resampler terminal output backing storage was too small");
+            return Err("resampler terminal output backing storage was too small".into());
         }
         Ok(Self {
             output: &mut output[..direct_samples],
@@ -588,13 +596,13 @@ impl<'a> SplitInterleavedOutput<'a> {
         native_frames: usize,
         drop_frames: usize,
         direct_frames: usize,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, BackendProcessError> {
         if channels == 0 || drop_frames > native_frames {
-            return Err("resampler split output received invalid geometry");
+            return Err("resampler split output received invalid geometry".into());
         }
         let kept_frames = native_frames - drop_frames;
         if direct_frames > kept_frames {
-            return Err("resampler split output direct prefix exceeded native output");
+            return Err("resampler split output direct prefix exceeded native output".into());
         }
         let direct_samples = direct_frames
             .checked_mul(channels)
@@ -603,7 +611,7 @@ impl<'a> SplitInterleavedOutput<'a> {
             .checked_mul(channels)
             .ok_or("resampler split output spill length overflowed")?;
         if direct.len() < direct_samples || spill.len() < spill_samples {
-            return Err("resampler split output backing storage was too small");
+            return Err("resampler split output backing storage was too small".into());
         }
         Ok(Self {
             direct: &mut direct[..direct_samples],
@@ -742,7 +750,7 @@ impl NonlinearEngine {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         match self {
             Self::Spectral(resampler) => resampler.process_chunk(input, output),
             Self::Polyphase(resampler) => resampler.process_chunk(input, output),
@@ -772,7 +780,7 @@ impl RubatoEngine {
         phase: PhaseResponse,
         quality: ResampleQuality,
         channels: usize,
-    ) -> Result<(Self, usize), String> {
+    ) -> Result<(Self, usize), BackendInitError> {
         if !matches!(phase, PhaseResponse::Linear) {
             let nonlinear = if nonlinear_uses_spectral(from_rate, to_rate) {
                 SpectralNonlinearResampler::new(
@@ -804,7 +812,9 @@ impl RubatoEngine {
             )
             .map(Box::new)
             .map(|engine| (Self::Fft(engine), chunk_in))
-            .map_err(|error| format!("{error}"))
+            .map_err(|error| BackendInitError::Backend {
+                message: error.to_string(),
+            })
         } else {
             let ratio = to_rate as f64 / from_rate as f64;
             let parameters = sinc_parameters(quality);
@@ -817,7 +827,9 @@ impl RubatoEngine {
                 FixedAsync::Input,
             )
             .map(|engine| (Self::Sinc(engine), CHUNK_IN))
-            .map_err(|error| format!("{error}"))
+            .map_err(|error| BackendInitError::Backend {
+                message: error.to_string(),
+            })
         }
     }
 
@@ -865,7 +877,7 @@ impl RubatoEngine {
         input: &[f64],
         output: &mut [f64],
         channels: usize,
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         match self {
             Self::Halfband(resampler) => return resampler.process_chunk(input, output),
             Self::Nonlinear(resampler) => return resampler.process_chunk(input, output),
@@ -873,9 +885,11 @@ impl RubatoEngine {
                 let input_frames = input.len() / channels;
                 let output_frames = output.len() / channels;
                 let input = InterleavedSlice::new(input, channels, input_frames)
-                    .map_err(|_| "resampler backend input view failed")?;
+                    .map_err(|_| BackendProcessError::new("resampler backend input view failed"))?;
                 let mut output = InterleavedSlice::new_mut(output, channels, output_frames)
-                    .map_err(|_| "resampler backend output view failed")?;
+                    .map_err(|_| {
+                        BackendProcessError::new("resampler backend output view failed")
+                    })?;
                 resampler.process_into_buffer(&input, &mut output, None)
             }
             Self::Fft(resampler) => {
@@ -883,15 +897,15 @@ impl RubatoEngine {
                 let output_frames = output.len() / channels;
                 let input = SplitInterleavedInput::new(input, &[], channels)?;
                 if input.frames() != input_frames {
-                    return Err("resampler backend input view changed frame count");
+                    return Err("resampler backend input view changed frame count".into());
                 }
                 let mut output = DirectInterleavedOutput::new(output, channels, output_frames)?;
                 return resampler
                     .process_into_buffer(&input, &mut output, None)
-                    .map_err(|_| "resampler backend process failed");
+                    .map_err(|_| BackendProcessError::new("resampler backend process failed"));
             }
         }
-        .map_err(|_| "resampler backend process failed")
+        .map_err(|_| BackendProcessError::new("resampler backend process failed"))
     }
 
     fn process_fft_adapters(
@@ -899,13 +913,13 @@ impl RubatoEngine {
         input: &dyn Adapter<f64>,
         output: &mut dyn AdapterMut<f64>,
         indexing: Option<&Indexing>,
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         let Self::Fft(resampler) = self else {
-            return Err("resampler split input requires the FFT engine");
+            return Err("resampler split input requires the FFT engine".into());
         };
         resampler
             .process_into_buffer(input, output, indexing)
-            .map_err(|_| "resampler backend process failed")
+            .map_err(|_| BackendProcessError::new("resampler backend process failed"))
     }
 
     fn reset(&mut self) {
@@ -975,15 +989,15 @@ fn process_chunk_into(
     chunk_in: usize,
     channels: usize,
     delay_remaining: &mut usize,
-) -> Result<usize, &'static str> {
+) -> Result<usize, BackendProcessError> {
     let chunk_samples = chunk_in * channels;
     if input.len() != chunk_samples {
-        return Err("resampler backend received an invalid native input chunk");
+        return Err("resampler backend received an invalid native input chunk".into());
     }
     let (input_used, output_written) = engine.process_chunk(input, output, channels)?;
     let output_capacity_frames = output.len() / channels;
     if input_used != chunk_in || output_written > output_capacity_frames {
-        return Err("resampler backend reported out-of-bounds progress");
+        return Err("resampler backend reported out-of-bounds progress".into());
     }
 
     let skip = (*delay_remaining).min(output_written);
@@ -1002,7 +1016,7 @@ fn process_fifo_chunk_into(
     chunk_in: usize,
     channels: usize,
     delay_remaining: &mut usize,
-) -> Result<usize, &'static str> {
+) -> Result<usize, BackendProcessError> {
     let chunk_samples = chunk_in * channels;
     let input = in_fifo
         .front_contiguous(chunk_samples)
@@ -1019,12 +1033,12 @@ fn process_fft_adapter_into(
     chunk_in: usize,
     channels: usize,
     delay_remaining: &mut usize,
-) -> Result<usize, &'static str> {
+) -> Result<usize, BackendProcessError> {
     if input.channels() != channels
         || input.frames() != chunk_in
         || !output.len().is_multiple_of(channels)
     {
-        return Err("resampler backend FFT adapter received invalid geometry");
+        return Err("resampler backend FFT adapter received invalid geometry".into());
     }
     let output_frames = output.len() / channels;
     let (input_used, output_written) = {
@@ -1032,7 +1046,7 @@ fn process_fft_adapter_into(
         engine.process_fft_adapters(input, &mut output_view, None)?
     };
     if input_used != chunk_in || output_written > output_frames {
-        return Err("resampler backend FFT adapter reported out-of-bounds progress");
+        return Err("resampler backend FFT adapter reported out-of-bounds progress".into());
     }
 
     let skip = (*delay_remaining).min(output_written);
@@ -1056,9 +1070,9 @@ fn process_fft_chunk_into_split(
     delay_remaining: &mut usize,
     emitted: &mut u64,
     authorized_total: u64,
-) -> Result<Option<usize>, &'static str> {
+) -> Result<Option<usize>, BackendProcessError> {
     if input.len() != chunk_in * channels {
-        return Err("resampler backend FFT split received invalid input geometry");
+        return Err("resampler backend FFT split received invalid input geometry".into());
     }
     let input = SplitInterleavedInput::new(input, &[], channels)?;
     process_fft_adapter_into_split(
@@ -1089,17 +1103,17 @@ fn process_fft_adapter_into_split(
     emitted: &mut u64,
     authorized_total: u64,
     indexing: Option<&Indexing>,
-) -> Result<Option<usize>, &'static str> {
+) -> Result<Option<usize>, BackendProcessError> {
     let Some(native_frames) = engine.fft_output_frames_next() else {
         return Ok(None);
     };
     let required_input_frames = if let Some(indexing) = indexing {
         if indexing.output_offset != 0 || indexing.active_channels_mask.is_some() {
-            return Err("resampler backend FFT split received unsupported indexing");
+            return Err("resampler backend FFT split received unsupported indexing".into());
         }
         let partial_frames = indexing.partial_len.unwrap_or(chunk_in);
         if partial_frames > chunk_in {
-            return Err("resampler backend FFT split partial input exceeded native chunk");
+            return Err("resampler backend FFT split partial input exceeded native chunk".into());
         }
         indexing
             .input_offset
@@ -1113,7 +1127,7 @@ fn process_fft_adapter_into_split(
         || (indexing.is_none() && input.frames() != chunk_in)
         || !output.len().is_multiple_of(channels)
     {
-        return Err("resampler backend FFT split received invalid geometry");
+        return Err("resampler backend FFT split received invalid geometry".into());
     }
 
     let budget = authorized_total
@@ -1158,13 +1172,13 @@ fn process_fft_adapter_into_split(
         engine.process_fft_adapters(input, &mut split_output, indexing)?
     };
     if input_used != chunk_in || output_written != native_frames {
-        return Err("resampler backend FFT split output reported invalid progress");
+        return Err("resampler backend FFT split output reported invalid progress".into());
     }
 
     *delay_remaining -= drop_frames;
     let emitted_pending = out_fifo.pop_into(&mut output[..pending_samples]) / channels;
     if emitted_pending != pending_direct {
-        return Err("resampler backend pending split output changed unexpectedly");
+        return Err("resampler backend pending split output changed unexpectedly".into());
     }
     *emitted = emitted
         .checked_add((emitted_pending + current_direct) as u64)
@@ -1186,7 +1200,7 @@ fn process_fft_partial_zero_into_split(
     delay_remaining: &mut usize,
     emitted: &mut u64,
     authorized_total: u64,
-) -> Result<Option<usize>, &'static str> {
+) -> Result<Option<usize>, BackendProcessError> {
     let input = SplitInterleavedInput::new(&[], &[], channels)?;
     let indexing = Indexing::new().partial_len(0);
     process_fft_adapter_into_split(
@@ -1213,15 +1227,15 @@ fn process_fft_partial_zero_into_terminal(
     delay_remaining: &mut usize,
     emitted: &mut u64,
     expected_total: u64,
-) -> Result<Option<usize>, &'static str> {
+) -> Result<Option<usize>, BackendProcessError> {
     let Some(native_frames) = engine.fft_output_frames_next() else {
         return Ok(None);
     };
     if !output.len().is_multiple_of(channels) {
-        return Err("resampler terminal output received incomplete frames");
+        return Err("resampler terminal output received incomplete frames".into());
     }
     let remaining = usize::try_from(expected_total.saturating_sub(*emitted))
-        .map_err(|_| "resampler terminal output length exceeded usize")?;
+        .map_err(|_| BackendProcessError::new("resampler terminal output length exceeded usize"))?;
     let drop_frames = (*delay_remaining).min(native_frames);
     let kept_frames = native_frames - drop_frames;
     if remaining == 0 || remaining > kept_frames || remaining > output.len() / channels {
@@ -1241,7 +1255,7 @@ fn process_fft_partial_zero_into_terminal(
         engine.process_fft_adapters(&input, &mut output, Some(&indexing))?
     };
     if input_used != chunk_in || output_written != native_frames {
-        return Err("resampler terminal FFT output reported invalid progress");
+        return Err("resampler terminal FFT output reported invalid progress".into());
     }
 
     *delay_remaining -= drop_frames;
@@ -1257,7 +1271,7 @@ impl MonoBackend {
         to_rate: u32,
         phase: PhaseResponse,
         quality: ResampleQuality,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         Self::new_interleaved(from_rate, to_rate, phase, quality, 1)
     }
 
@@ -1267,9 +1281,9 @@ impl MonoBackend {
         phase: PhaseResponse,
         quality: ResampleQuality,
         channels: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         if channels == 0 {
-            return Err("channel count must be >= 1".to_string());
+            return Err(BackendInitError::ZeroChannels);
         }
         let (engine, chunk_in) = RubatoEngine::new(from_rate, to_rate, phase, quality, channels)?;
         let out_max = engine.output_frames_max();
@@ -1324,7 +1338,7 @@ impl MonoBackend {
 
     /// Run rubato over the first `chunk_in` frames of `in_fifo` and append the
     /// produced frames to `out_fifo`.
-    fn run_chunk(&mut self) -> Result<(), &'static str> {
+    fn run_chunk(&mut self) -> Result<(), BackendProcessError> {
         let emitted = process_fifo_chunk_into(
             &mut self.engine,
             &mut self.in_fifo,
@@ -1363,7 +1377,7 @@ impl MonoBackend {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<Option<usize>, &'static str> {
+    ) -> Result<Option<usize>, BackendProcessError> {
         // Let the generic direct-native path handle an entire Rubato output
         // block. Its ordinary interleaved adapter avoids the per-sample split
         // mapping; this adapter is only beneficial when caller capacity forces
@@ -1416,7 +1430,7 @@ impl MonoBackend {
         &mut self,
         suffix: &[f64],
         output: &mut [f64],
-    ) -> Result<Option<(usize, usize)>, &'static str> {
+    ) -> Result<Option<(usize, usize)>, BackendProcessError> {
         #[cfg(test)]
         if !self.split_input_enabled {
             return Ok(None);
@@ -1464,7 +1478,7 @@ impl MonoBackend {
             let input =
                 SplitInterleavedInput::new(prefix, &suffix[..suffix_samples], self.channels)?;
             if input.frames() != self.chunk_in {
-                return Err("resampler backend split input did not complete a native chunk");
+                return Err("resampler backend split input did not complete a native chunk".into());
             }
 
             if output_frames < native_output_frames {
@@ -1556,13 +1570,13 @@ impl MonoBackend {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<BackendProgress, &'static str> {
+    ) -> Result<BackendProgress, BackendProcessError> {
         if self.draining {
-            return Err("resampler backend already draining");
+            return Err("resampler backend already draining".into());
         }
         if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
         {
-            return Err("resampler backend received an incomplete frame");
+            return Err("resampler backend received an incomplete frame".into());
         }
         let mut consumed = 0usize;
         let mut produced = 0usize;
@@ -1741,9 +1755,9 @@ impl MonoBackend {
         })
     }
 
-    pub(super) fn drain(&mut self, output: &mut [f64]) -> Result<usize, &'static str> {
+    pub(super) fn drain(&mut self, output: &mut [f64]) -> Result<usize, BackendProcessError> {
         if !output.len().is_multiple_of(self.channels) {
-            return Err("resampler backend received an incomplete output frame");
+            return Err("resampler backend received an incomplete output frame".into());
         }
         if !self.draining {
             self.draining = true;
@@ -1860,7 +1874,7 @@ impl MonoBackend {
             if self.out_fifo.len() == before_fifo && self.emitted == before_emitted {
                 stall_rounds += 1;
                 if stall_rounds > MAX_DRAIN_STALL_ROUNDS {
-                    return Err("resampler backend drain stalled");
+                    return Err("resampler backend drain stalled".into());
                 }
             } else {
                 stall_rounds = 0;
@@ -1868,7 +1882,7 @@ impl MonoBackend {
         }
     }
 
-    pub(super) fn clear(&mut self) -> Result<(), &'static str> {
+    pub(super) fn clear(&mut self) -> Result<(), BackendProcessError> {
         self.engine.reset();
         self.in_fifo.clear();
         self.out_fifo.clear();

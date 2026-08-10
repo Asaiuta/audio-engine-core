@@ -12,6 +12,12 @@ SemVer for pre-1.0 releases.
 ## [Unreleased]
 
 ### Added
+- Public typed failure boundaries for pre-1.0 callers:
+  `LoudnessDatabaseError` preserves directory-I/O and SQLite sources while
+  naming poisoned locks, `AutomixError` separates cancellation, decoder, and
+  invalid tail-seek failures, and `ResamplerError` now exposes structured
+  geometry, capacity, initialization, timing, progress, stall, and processing
+  classes.
 - Lock-free playback lifecycle command channel, so a control thread can drive
   stream transitions while the pipeline lives in an audio callback (its
   `&mut self` methods are unreachable from elsewhere):
@@ -76,6 +82,10 @@ SemVer for pre-1.0 releases.
 - `PlaybackSaturationConfig` gains `enabled()` plus `with_*` builders.
 
 ### Removed
+- **Breaking:** AutoMix schema version 3 removes the unsupported
+  `AutomixKeyStatus` reservation and the always-empty `key_root`, `key_mode`,
+  `key_confidence`, and `camelot_key` fields. A key result contract will be
+  introduced only with a validated detector.
 - **Breaking:** the legacy public surface has been given an explicit lifecycle
   ahead of 1.0. Every item below had no consumer in this crate's production
   code, and each is superseded by a live equivalent. They are removed rather
@@ -227,6 +237,11 @@ SemVer for pre-1.0 releases.
 - Ubuntu CI quick gates that upload all four quality/performance JSON reports.
 
 ### Changed
+- **Breaking:** every `LoudnessDatabase` operation and both AutoMix analysis
+  entry points now return their module-owned typed error instead of `String`.
+  `ResamplerError::InitializationFailed(String)` and
+  `ProcessFailed(String)` are replaced by structured variants; callers should
+  match error classes and retain a wildcard arm for these non-exhaustive enums.
 - `NetworkError` is now `#[non_exhaustive]`: future transport classifications
   can be added without a breaking release. Downstream `match` expressions need
   a wildcard arm; treat unknown variants as non-retriable.

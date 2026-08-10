@@ -10,6 +10,9 @@ use std::f64::consts::PI;
 
 use rustfft::{num_complex::Complex, FftPlanner};
 
+use super::BackendInitError;
+#[cfg(test)]
+use super::BackendProcessError;
 #[cfg(test)]
 use crate::config::PhaseResponse;
 use crate::config::ResampleQuality;
@@ -44,36 +47,41 @@ impl PolyphaseResampler {
         quality: ResampleQuality,
         channels: usize,
         chunk_frames: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         if channels == 0 {
-            return Err("channel count must be >= 1".to_string());
+            return Err(BackendInitError::ZeroChannels);
         }
         if chunk_frames == 0 || from_rate == 0 || to_rate == 0 {
-            return Err("invalid nonlinear resampler geometry".to_string());
+            return Err(BackendInitError::InvalidGeometry {
+                backend: "polyphase",
+            });
         }
         if matches!(phase, PhaseResponse::Linear) {
-            return Err("polyphase backend requires a nonlinear phase".to_string());
+            return Err(BackendInitError::NonlinearPhaseRequired {
+                backend: "polyphase",
+            });
         }
 
         let divisor = gcd(from_rate, to_rate);
         let up = (to_rate / divisor) as usize;
         let down = (from_rate / divisor) as usize;
         if up > MAX_REDUCED_RATE || down > MAX_REDUCED_RATE {
-            return Err(format!(
-                "reduced ratio {}:{} exceeds nonlinear phase limit {}",
-                up, down, MAX_REDUCED_RATE
-            ));
+            return Err(BackendInitError::RatioExceedsLimit {
+                up,
+                down,
+                limit: MAX_REDUCED_RATE,
+            });
         }
 
         let taps_per_phase = taps_per_phase(quality);
         let coefficient_count = up
             .checked_mul(taps_per_phase)
-            .ok_or_else(|| "nonlinear coefficient count overflow".to_string())?;
+            .ok_or(BackendInitError::CoefficientCountOverflow)?;
         if coefficient_count > MAX_POLYPHASE_COEFFICIENTS {
-            return Err(format!(
-                "nonlinear coefficient bank is too large: {} coefficients",
-                coefficient_count
-            ));
+            return Err(BackendInitError::CoefficientBankTooLarge {
+                coefficients: coefficient_count,
+                maximum: MAX_POLYPHASE_COEFFICIENTS,
+            });
         }
 
         let prototype = design_linear_prototype(up, down, taps_per_phase, quality);
@@ -91,7 +99,9 @@ impl PolyphaseResampler {
         let history_frames = taps_per_phase
             .checked_add(down.div_ceil(up))
             .and_then(|frames| frames.checked_add(2))
-            .ok_or_else(|| "nonlinear history size overflow".to_string())?;
+            .ok_or(BackendInitError::StorageOverflow {
+                buffer: "nonlinear history",
+            })?;
 
         Ok(Self {
             channels,
@@ -126,17 +136,17 @@ impl PolyphaseResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
         {
-            return Err("nonlinear backend received an incomplete frame");
+            return Err("nonlinear backend received an incomplete frame".into());
         }
 
         let input_frames = input.len() / self.channels;
         let output_capacity = output.len() / self.channels;
         let expected_max = (input_frames * self.up).div_ceil(self.down) + 1;
         if output_capacity < expected_max {
-            return Err("nonlinear backend output stage is too small");
+            return Err("nonlinear backend output stage is too small".into());
         }
 
         let mut produced = 0usize;
@@ -152,7 +162,7 @@ impl PolyphaseResampler {
                 ((self.total_input as u128 * self.up as u128) / self.down as u128) as u64;
             while self.next_output < target_output {
                 if produced == output_capacity {
-                    return Err("nonlinear backend returned too much output");
+                    return Err("nonlinear backend returned too much output".into());
                 }
                 let q = self.next_output as u128 * self.down as u128;
                 let base = (q / self.up as u128) as u64;
@@ -246,16 +256,20 @@ pub(super) fn design_linear_prototype(
     kernel
 }
 
-pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, String> {
+pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, BackendInitError> {
     let mut fft_size = 1usize;
     let required = prototype
         .len()
         .checked_mul(4)
-        .ok_or_else(|| "nonlinear phase FFT size overflow".to_string())?;
+        .ok_or(BackendInitError::StorageOverflow {
+            buffer: "nonlinear phase FFT",
+        })?;
     while fft_size < required {
         fft_size = fft_size
             .checked_mul(2)
-            .ok_or_else(|| "nonlinear phase FFT size overflow".to_string())?;
+            .ok_or(BackendInitError::StorageOverflow {
+                buffer: "nonlinear phase FFT",
+            })?;
     }
 
     let mut spectrum = vec![Complex::new(0.0, 0.0); fft_size];
@@ -273,7 +287,7 @@ pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, Str
     }
     let mut minimum = minimum_phase_from_log_magnitude(&log_magnitude, prototype.len());
     if minimum.iter().all(|sample| sample.abs() < 1.0e-15) {
-        return Err("nonlinear minimum-phase factor was empty".to_string());
+        return Err(BackendInitError::EmptyMinimumPhaseFactor);
     }
     normalize_kernel(&mut minimum);
     Ok(minimum)

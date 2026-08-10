@@ -23,7 +23,8 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
+use thiserror::Error;
 
 /// Current scanner algorithm version
 /// Increment when measurement algorithm changes to trigger rescan
@@ -185,6 +186,21 @@ impl TrackLoudness {
 // Loudness Database
 // ============================================================================
 
+/// Failures from the optional SQLite loudness cache.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum LoudnessDatabaseError {
+    /// The parent directory for an on-disk database could not be created.
+    #[error("failed to create loudness database directory")]
+    CreateDirectory(#[from] std::io::Error),
+    /// SQLite rejected an open, schema, query, or transaction operation.
+    #[error("loudness database operation failed")]
+    Database(#[from] rusqlite::Error),
+    /// A previous panic poisoned the connection lock.
+    #[error("loudness database lock poisoned")]
+    LockPoisoned,
+}
+
 /// SQLite database for track loudness metadata
 pub struct LoudnessDatabase {
     conn: Mutex<Connection>,
@@ -193,19 +209,17 @@ pub struct LoudnessDatabase {
 
 impl LoudnessDatabase {
     /// Open or create the loudness database
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, LoudnessDatabaseError> {
         let db_path = path.as_ref().to_path_buf();
 
         // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create database directory: {}", e))?;
+                std::fs::create_dir_all(parent)?;
             }
         }
 
-        let conn =
-            Connection::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let conn = Connection::open(&db_path)?;
 
         let db = Self {
             conn: Mutex::new(conn),
@@ -217,9 +231,8 @@ impl LoudnessDatabase {
     }
 
     /// Create an in-memory database (for testing)
-    pub fn in_memory() -> Result<Self, String> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| format!("Failed to create in-memory database: {}", e))?;
+    pub fn in_memory() -> Result<Self, LoudnessDatabaseError> {
+        let conn = Connection::open_in_memory()?;
 
         let db = Self {
             conn: Mutex::new(conn),
@@ -231,8 +244,8 @@ impl LoudnessDatabase {
     }
 
     /// Initialize database schema
-    fn init_schema(&self) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    fn init_schema(&self) -> Result<(), LoudnessDatabaseError> {
+        let conn = self.connection()?;
 
         conn.execute_batch(
             r#"
@@ -253,39 +266,32 @@ impl LoudnessDatabase {
             CREATE INDEX IF NOT EXISTS idx_file_path ON track_loudness(file_path);
             CREATE INDEX IF NOT EXISTS idx_scan_version ON track_loudness(scan_version);
         "#,
-        )
-        .map_err(|e| format!("Failed to initialize schema: {}", e))?;
+        )?;
 
-        let mut stmt = conn
-            .prepare("PRAGMA table_info(track_loudness)")
-            .map_err(|e| format!("Failed to inspect schema: {}", e))?;
+        let mut stmt = conn.prepare("PRAGMA table_info(track_loudness)")?;
         let existing_columns: std::collections::HashSet<String> = stmt
-            .query_map([], |row| row.get::<_, String>(1))
-            .map_err(|e| format!("Failed to read schema info: {}", e))?
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Failed to collect schema info: {}", e))?;
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<_, _>>()?;
 
         if !existing_columns.contains("file_mtime") {
             conn.execute(
                 "ALTER TABLE track_loudness ADD COLUMN file_mtime INTEGER",
                 [],
-            )
-            .map_err(|e| format!("Failed to migrate schema (file_mtime): {}", e))?;
+            )?;
         }
         if !existing_columns.contains("file_size") {
             conn.execute(
                 "ALTER TABLE track_loudness ADD COLUMN file_size INTEGER",
                 [],
-            )
-            .map_err(|e| format!("Failed to migrate schema (file_size): {}", e))?;
+            )?;
         }
 
         Ok(())
     }
 
     /// Insert or update a track's loudness data
-    pub fn upsert(&self, track: &TrackLoudness) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn upsert(&self, track: &TrackLoudness) -> Result<(), LoudnessDatabaseError> {
+        let conn = self.connection()?;
 
         conn.execute(
             r#"
@@ -319,15 +325,14 @@ impl LoudnessDatabase {
                 track.file_mtime,
                 track.file_size,
             ],
-        )
-        .map_err(|e| format!("Failed to upsert track: {}", e))?;
+        )?;
 
         Ok(())
     }
 
     /// Get loudness data for a track by file path
-    pub fn get(&self, file_path: &str) -> Result<Option<TrackLoudness>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn get(&self, file_path: &str) -> Result<Option<TrackLoudness>, LoudnessDatabaseError> {
+        let conn = self.connection()?;
         let track_id = TrackLoudness::compute_track_id(file_path);
 
         let result = conn
@@ -358,8 +363,7 @@ impl LoudnessDatabase {
                     })
                 },
             )
-            .optional()
-            .map_err(|e| format!("Failed to query track: {}", e))?;
+            .optional()?;
 
         Ok(result)
     }
@@ -369,7 +373,10 @@ impl LoudnessDatabase {
     /// This centralizes the cache-hit contract used by both HTTP analysis
     /// handlers and playback loading: scan version, file mtime, and file size
     /// must all still match before a record may skip EBU R128 analysis.
-    pub fn get_fresh(&self, file_path: &str) -> Result<Option<TrackLoudness>, String> {
+    pub fn get_fresh(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<TrackLoudness>, LoudnessDatabaseError> {
         if self.needs_scan(file_path)? {
             return Ok(None);
         }
@@ -394,15 +401,15 @@ impl LoudnessDatabase {
     /// The version comparison is exact rather than `<`: a record written by a
     /// newer scanner is not something this build can vouch for either, so it is
     /// rescanned instead of trusted.
-    pub fn needs_scan(&self, file_path: &str) -> Result<bool, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn needs_scan(&self, file_path: &str) -> Result<bool, LoudnessDatabaseError> {
+        let conn = self.connection()?;
         let track_id = TrackLoudness::compute_track_id(file_path);
 
         let result: Option<(i32, Option<i64>, Option<i64>)> = conn.query_row(
             "SELECT scan_version, file_mtime, file_size FROM track_loudness WHERE track_id = ?1",
             params![track_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).optional().map_err(|e| format!("Failed to check track: {}", e))?;
+        ).optional()?;
 
         match result {
             None => Ok(true), // Not in database
@@ -452,28 +459,23 @@ impl LoudnessDatabase {
     /// A row whose `file_path` cannot be decoded fails the whole call rather
     /// than being dropped: a silently short list reads as "nothing else to
     /// rescan", which is the opposite of what a decode failure means.
-    pub fn get_outdated_tracks(&self) -> Result<Vec<String>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn get_outdated_tracks(&self) -> Result<Vec<String>, LoudnessDatabaseError> {
+        let conn = self.connection()?;
 
-        let mut stmt = conn
-            .prepare("SELECT file_path FROM track_loudness WHERE scan_version != ?1")
-            .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT file_path FROM track_loudness WHERE scan_version != ?1")?;
 
         let tracks = stmt
-            .query_map(params![CURRENT_SCAN_VERSION], |row| row.get(0))
-            .map_err(|e| format!("Failed to query outdated tracks: {}", e))?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|e| format!("Failed to decode outdated track row: {}", e))?;
+            .query_map(params![CURRENT_SCAN_VERSION], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
 
         Ok(tracks)
     }
 
     /// Batch insert multiple tracks (for initial scan)
-    pub fn batch_upsert(&self, tracks: &[TrackLoudness]) -> Result<usize, String> {
-        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let tx = conn
-            .transaction()
-            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+    pub fn batch_upsert(&self, tracks: &[TrackLoudness]) -> Result<usize, LoudnessDatabaseError> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
 
         let mut count = 0;
         for track in tracks {
@@ -509,13 +511,11 @@ impl LoudnessDatabase {
                     track.file_mtime,
                     track.file_size,
                 ],
-            )
-            .map_err(|e| format!("Failed to upsert track {}: {}", track.file_path, e))?;
+            )?;
             count += 1;
         }
 
-        tx.commit()
-            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+        tx.commit()?;
         Ok(count)
     }
 
@@ -523,66 +523,59 @@ impl LoudnessDatabase {
     ///
     /// FIX for Defect 41: Wrap in transaction for atomicity.
     /// If any update fails or process crashes, all changes are rolled back.
-    pub fn set_album_gain(&self, track_ids: &[&str], album_gain_db: f64) -> Result<(), String> {
-        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn set_album_gain(
+        &self,
+        track_ids: &[&str],
+        album_gain_db: f64,
+    ) -> Result<(), LoudnessDatabaseError> {
+        let mut conn = self.connection()?;
 
         // FIX for Defect 41: Use transaction for atomic batch update
-        let tx = conn
-            .transaction()
-            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        let tx = conn.transaction()?;
 
         for track_id in track_ids {
             tx.execute(
                 "UPDATE track_loudness SET album_gain_db = ?1 WHERE track_id = ?2",
                 params![album_gain_db, track_id],
-            )
-            .map_err(|e| format!("Failed to update album gain for {}: {}", track_id, e))?;
+            )?;
         }
 
-        tx.commit()
-            .map_err(|e| format!("Failed to commit album gain transaction: {}", e))?;
+        tx.commit()?;
 
         Ok(())
     }
 
     /// Delete a track from the database
-    pub fn delete(&self, file_path: &str) -> Result<bool, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn delete(&self, file_path: &str) -> Result<bool, LoudnessDatabaseError> {
+        let conn = self.connection()?;
         let track_id = TrackLoudness::compute_track_id(file_path);
 
-        let affected = conn
-            .execute(
-                "DELETE FROM track_loudness WHERE track_id = ?1",
-                params![track_id],
-            )
-            .map_err(|e| format!("Failed to delete track: {}", e))?;
+        let affected = conn.execute(
+            "DELETE FROM track_loudness WHERE track_id = ?1",
+            params![track_id],
+        )?;
 
         Ok(affected > 0)
     }
 
     /// Get database statistics
-    pub fn stats(&self) -> Result<DatabaseStats, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+    pub fn stats(&self) -> Result<DatabaseStats, LoudnessDatabaseError> {
+        let conn = self.connection()?;
 
-        let total_tracks: i64 = conn
-            .query_row("SELECT COUNT(*) FROM track_loudness", [], |row| row.get(0))
-            .map_err(|e| format!("Failed to count tracks: {}", e))?;
+        let total_tracks: i64 =
+            conn.query_row("SELECT COUNT(*) FROM track_loudness", [], |row| row.get(0))?;
 
-        let outdated_tracks: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM track_loudness WHERE scan_version < ?1",
-                params![CURRENT_SCAN_VERSION],
-                |row| row.get(0),
-            )
-            .map_err(|e| format!("Failed to count outdated tracks: {}", e))?;
+        let outdated_tracks: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM track_loudness WHERE scan_version < ?1",
+            params![CURRENT_SCAN_VERSION],
+            |row| row.get(0),
+        )?;
 
-        let with_album_gain: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM track_loudness WHERE album_gain_db IS NOT NULL",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|e| format!("Failed to count album gain tracks: {}", e))?;
+        let with_album_gain: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM track_loudness WHERE album_gain_db IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
 
         Ok(DatabaseStats {
             total_tracks,
@@ -595,6 +588,12 @@ impl LoudnessDatabase {
     /// Get database path
     pub fn path(&self) -> &Path {
         &self.db_path
+    }
+
+    fn connection(&self) -> Result<MutexGuard<'_, Connection>, LoudnessDatabaseError> {
+        self.conn
+            .lock()
+            .map_err(|_| LoudnessDatabaseError::LockPoisoned)
     }
 }
 
@@ -784,5 +783,48 @@ mod tests {
         }
 
         assert!(!is_remote_path("/music/http_archive/track.flac"));
+    }
+
+    #[test]
+    fn open_preserves_io_and_database_error_classes() {
+        let file = unique_temp_path("error_classes");
+        std::fs::write(&file, b"not a database").unwrap();
+
+        let nested_database = file.join("missing").join("loudness.sqlite");
+        let io_error = match LoudnessDatabase::open(nested_database) {
+            Err(error) => error,
+            Ok(_) => panic!("directory creation unexpectedly succeeded"),
+        };
+        assert!(matches!(
+            &io_error,
+            LoudnessDatabaseError::CreateDirectory(_)
+        ));
+        assert!(std::error::Error::source(&io_error).is_some());
+
+        let database_error = match LoudnessDatabase::open(&file) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid SQLite file unexpectedly opened"),
+        };
+        assert!(matches!(
+            &database_error,
+            LoudnessDatabaseError::Database(_)
+        ));
+        assert!(std::error::Error::source(&database_error).is_some());
+
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn poisoned_connection_has_a_stable_error_class() {
+        let db = LoudnessDatabase::in_memory().unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = db.conn.lock().unwrap();
+            panic!("poison loudness database lock");
+        }));
+        assert!(panic.is_err());
+        assert!(matches!(
+            db.stats(),
+            Err(LoudnessDatabaseError::LockPoisoned)
+        ));
     }
 }

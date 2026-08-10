@@ -26,6 +26,7 @@ use super::polyphase_backend::{
     normalize_kernel, phase_peak_latency_frames, taps_per_phase, MAX_POLYPHASE_COEFFICIENTS,
     MAX_REDUCED_RATE,
 };
+use super::{BackendInitError, BackendProcessError};
 
 /// One precomputed alias-fold term: output bin `k` accumulates
 /// `(h_re + i·h_im) · (x.re + i·sign·x.im)` from input bin `index`.
@@ -73,36 +74,41 @@ impl SpectralNonlinearResampler {
         quality: ResampleQuality,
         channels: usize,
         chunk_frames: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, BackendInitError> {
         if channels == 0 {
-            return Err("channel count must be >= 1".to_string());
+            return Err(BackendInitError::ZeroChannels);
         }
         if chunk_frames == 0 || from_rate == 0 || to_rate == 0 {
-            return Err("invalid nonlinear resampler geometry".to_string());
+            return Err(BackendInitError::InvalidGeometry {
+                backend: "spectral",
+            });
         }
         if matches!(phase, PhaseResponse::Linear) {
-            return Err("spectral backend requires a nonlinear phase".to_string());
+            return Err(BackendInitError::NonlinearPhaseRequired {
+                backend: "spectral",
+            });
         }
 
         let divisor = gcd(from_rate, to_rate);
         let up = (to_rate / divisor) as usize;
         let down = (from_rate / divisor) as usize;
         if up > MAX_REDUCED_RATE || down > MAX_REDUCED_RATE {
-            return Err(format!(
-                "reduced ratio {}:{} exceeds nonlinear phase limit {}",
-                up, down, MAX_REDUCED_RATE
-            ));
+            return Err(BackendInitError::RatioExceedsLimit {
+                up,
+                down,
+                limit: MAX_REDUCED_RATE,
+            });
         }
 
         let taps_per_phase = taps_per_phase(quality);
         let kernel_len = up
             .checked_mul(taps_per_phase)
-            .ok_or_else(|| "nonlinear coefficient count overflow".to_string())?;
+            .ok_or(BackendInitError::CoefficientCountOverflow)?;
         if kernel_len > MAX_POLYPHASE_COEFFICIENTS {
-            return Err(format!(
-                "nonlinear coefficient bank is too large: {} coefficients",
-                kernel_len
-            ));
+            return Err(BackendInitError::CoefficientBankTooLarge {
+                coefficients: kernel_len,
+                maximum: MAX_POLYPHASE_COEFFICIENTS,
+            });
         }
 
         let prototype = design_linear_prototype(up, down, taps_per_phase, quality);
@@ -125,7 +131,9 @@ impl SpectralNonlinearResampler {
         let n_out_full = 2 * nout;
         let n_up = n_in_full
             .checked_mul(up)
-            .ok_or_else(|| "nonlinear FFT grid overflow".to_string())?;
+            .ok_or(BackendInitError::StorageOverflow {
+                buffer: "nonlinear FFT grid",
+            })?;
         debug_assert!(nin * up >= kernel_len - 1);
 
         // Unnormalized complex FFT of the zero-padded time-domain kernel; the
@@ -224,16 +232,16 @@ impl SpectralNonlinearResampler {
         &mut self,
         input: &[f64],
         output: &mut [f64],
-    ) -> Result<(usize, usize), &'static str> {
+    ) -> Result<(usize, usize), BackendProcessError> {
         if !input.len().is_multiple_of(self.channels) || !output.len().is_multiple_of(self.channels)
         {
-            return Err("nonlinear backend received an incomplete frame");
+            return Err("nonlinear backend received an incomplete frame".into());
         }
         let input_frames = input.len() / self.channels;
         let output_capacity = output.len() / self.channels;
         let block_count = (self.pending_frames + input_frames) / self.nin;
         if output_capacity < block_count * self.nout {
-            return Err("nonlinear backend output stage is too small");
+            return Err("nonlinear backend output stage is too small".into());
         }
 
         let mut consumed = 0usize;
@@ -261,7 +269,7 @@ impl SpectralNonlinearResampler {
 
     /// Run one complete `nin`-input / `nout`-output overlap-save block for
     /// every channel, writing interleaved frames at the start of `output`.
-    fn run_block(&mut self, output: &mut [f64]) -> Result<(), &'static str> {
+    fn run_block(&mut self, output: &mut [f64]) -> Result<(), BackendProcessError> {
         for channel in 0..self.channels {
             let history = &mut self.history[channel * self.nin..(channel + 1) * self.nin];
             let pending = &self.pending[channel * self.nin..(channel + 1) * self.nin];
@@ -275,7 +283,7 @@ impl SpectralNonlinearResampler {
                     &mut self.spec_in,
                     &mut self.forward_scratch,
                 )
-                .map_err(|_| "nonlinear backend forward FFT failed")?;
+                .map_err(|_| BackendProcessError::new("nonlinear backend forward FFT failed"))?;
 
             for (k, entries) in self.fold.chunks_exact(self.down).enumerate() {
                 let mut real = 0.0_f64;
@@ -300,7 +308,7 @@ impl SpectralNonlinearResampler {
                     &mut self.time_out,
                     &mut self.inverse_scratch,
                 )
-                .map_err(|_| "nonlinear backend inverse FFT failed")?;
+                .map_err(|_| BackendProcessError::new("nonlinear backend inverse FFT failed"))?;
 
             let kept = &self.time_out[self.nout..];
             for (frame, &sample) in kept.iter().enumerate() {
@@ -337,7 +345,7 @@ mod tests {
     }
 
     type EngineProcess<'a> =
-        &'a mut dyn FnMut(&[f64], &mut [f64]) -> Result<(usize, usize), &'static str>;
+        &'a mut dyn FnMut(&[f64], &mut [f64]) -> Result<(usize, usize), BackendProcessError>;
 
     fn render_engine_chunks(
         process: EngineProcess<'_>,
@@ -470,7 +478,14 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("pathological ratio unexpectedly accepted"),
         };
-        assert!(error.contains("reduced ratio"), "{error}");
+        assert!(matches!(
+            error,
+            BackendInitError::RatioExceedsLimit {
+                up: 44_101,
+                down: 44_100,
+                limit: MAX_REDUCED_RATE,
+            }
+        ));
     }
 
     #[test]
