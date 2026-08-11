@@ -239,6 +239,7 @@ let mut samples = [0.0_f64; 512 * 2];
 
 // 音频回调。
 let progress = pipeline.process(&mut samples)?;
+# Ok::<(), audio_engine_core::ProcessError>(())
 ```
 
 `CallbackSpec` 描述已转换到设备域的音频,并限制回调块的最大尺寸。
