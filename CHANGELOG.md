@@ -11,6 +11,29 @@ version bumps, as permitted by SemVer.
 ## [Unreleased]
 
 ### Added
+- **README rework**: restructured both READMEs around the three design goals
+  (realtime safety, audio quality, measurability) with dedicated sections for
+  architecture, realtime/lifecycle/parameter contracts, resampling, loudness,
+  and offline rendering — while retaining the full technical record
+  (decoding/format support, feature-flag details, and benchmark traceability
+  such as `audio_lockfree_params_perf` and the 2026-07-27 resampler evidence).
+- **Quality evidence rework**: `docs/quality.md` restructured into
+  `Audio Quality & Performance Evidence` with an explicit evidence model
+  (quality gates / realtime-safety gates / performance regression / report-only),
+  an evidence summary aligned with the README, separated quality / realtime /
+  performance sections, behavioral contracts, regression & baseline policy,
+  reproducibility, CI enforcement, scope & limitations, and exploratory
+  measurements. All existing measurements, gates, and baseline rules are
+  retained.
+- **Resampler study rework**: `docs/resampler-comparison.md` repositioned from
+  a benchmark report into a comparative Pareto study (`Resampler Comparison &
+  Pareto Analysis`) with an executive summary, engine-vs-recipe identity
+  principle, separated quality/performance/lifecycle comparisons, route
+  specialization analysis, SoXR-vs-Rubato decision chapter, engineering
+  evolution record, and historical appendix. Fixed seven stale evidence links
+  that had broken when the 2026-07 task directories were archived
+  (`.trellis/tasks/archive/2026-07/...`); all JSON artifacts and their
+  SHA-256 hashes were verified against the archived files.
 - **Simplified Chinese README**: full translation of the project documentation in
   [README.zh-CN.md](README.zh-CN.md), with language-switch links from the
   English README.
