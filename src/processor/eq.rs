@@ -328,7 +328,7 @@ impl Equalizer {
     /// Coefficients and any in-progress parameter crossfade are preserved: a
     /// transition that was mid-flight continues (now over cleared history)
     /// and still adopts the target coefficients when it completes. Use
-    /// [`Self::reset_settled`] (crate-internal) to start a logically new
+    /// `reset_settled` (crate-internal) to start a logically new
     /// stream directly from the latest target coefficients instead.
     pub fn reset(&mut self) {
         for ch in &mut self.bands {
