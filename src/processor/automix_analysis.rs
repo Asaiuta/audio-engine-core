@@ -43,48 +43,71 @@ const SPECTRAL_HOP_SIZE: usize = FFT_SIZE / 2;
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
+/// Amount of a track covered by an AutoMix analysis pass.
 pub enum AutomixAnalysisMode {
+    /// Analyze only the head/tail windows needed for placement decisions.
     Head,
+    /// Analyze the full track including the interior energy profile.
     #[default]
     Full,
 }
 
 impl AutomixAnalysisMode {
+    /// Whether this mode covers the trailing tail window.
     pub fn includes_tail(self) -> bool {
         matches!(self, Self::Full)
     }
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// Stable offline-analysis result used to plan an AutoMix transition.
 pub struct AutomixAnalysis {
+    /// Analysis algorithm version; consumers may gate on it.
     pub version: u32,
+    /// Analysis mode that produced this result.
     pub mode: AutomixAnalysisMode,
+    /// Analyzed track duration in seconds.
     pub duration: f64,
+    /// Duration of the analyzed head section in seconds.
     pub analyze_window: f64,
+    /// Estimated tempo in BPM, when the beat tracker converged.
     pub bpm: Option<f64>,
+    /// Confidence of the BPM estimate.
     pub bpm_confidence: Option<f64>,
+    /// Position of the first detected beat in seconds.
     pub first_beat_pos: Option<f64>,
+    /// Integrated loudness in LUFS, when measurable.
     pub loudness: Option<f64>,
+    /// True-peak level in dBTP, when measurable.
     pub true_peak_dbtp: Option<f64>,
+    /// Recommended fade-in position in seconds.
     pub fade_in_pos: f64,
+    /// Recommended fade-out position in seconds.
     pub fade_out_pos: f64,
+    /// Beat-aligned cut-in position in seconds, when found.
     pub cut_in_pos: Option<f64>,
+    /// Beat-aligned cut-out position in seconds, when found.
     pub cut_out_pos: Option<f64>,
+    /// Center of the mixable section in seconds.
     pub mix_center_pos: f64,
+    /// Start of the mixable section in seconds.
     pub mix_start_pos: f64,
+    /// End of the mixable section in seconds.
     pub mix_end_pos: f64,
-    /// Whole-track energy envelope at the fixed internal `ENERGY_PROFILE_RATE`
-    /// of 10 slots per second, indexed by absolute track time.
-    ///
-    /// Only the analyzed head and tail windows carry evidence; the interval
-    /// between them stays zero. The length follows [`Self::duration`], which is
-    /// itself bounded by an internal 24-hour `MAX_DECLARED_DURATION_SEC` cap, so
-    /// a file declaring an absurd duration cannot size this vector.
+    /// Energy envelope slots carry evidence; the interval between them stays
+    /// zero. The length follows [`Self::duration`], bounded by an internal
+    /// 24-hour `MAX_DECLARED_DURATION_SEC` cap, so a file declaring an absurd
+    /// duration cannot size this vector.
     pub energy_profile: Vec<f64>,
+    /// Drop (beat-matched break) position in seconds, when found.
     pub drop_pos: Option<f64>,
+    /// First vocal entry position in seconds, when detected.
     pub vocal_in_pos: Option<f64>,
+    /// Final vocal exit position in seconds, when detected.
     pub vocal_out_pos: Option<f64>,
+    /// Last vocal entry position before the outro in seconds, when detected.
     pub vocal_last_in_pos: Option<f64>,
+    /// RMS energy of the outro window, when measured.
     pub outro_energy_level: Option<f64>,
 }
 
@@ -106,14 +129,20 @@ pub enum AutomixError {
         "AutoMix tail seek landed after planned frame {planned_frame}: realized frame {realized_frame}"
     )]
     TailSeekPastStart {
+        /// First frame the bounded tail analysis intended to decode.
         planned_frame: u64,
+        /// Actual decoder position after the coarse seek.
         realized_frame: u64,
     },
 }
 
 #[derive(Clone, Debug)]
+/// Bounds and coverage mode for one AutoMix analysis pass.
 pub struct AutomixAnalysisOptions {
+    /// Which analysis mode to run.
     pub mode: AutomixAnalysisMode,
+    /// Time budget cap for analysis in seconds; non-finite values reset to
+    /// the built-in default.
     pub max_analyze_time_sec: f64,
 }
 
@@ -127,6 +156,7 @@ impl Default for AutomixAnalysisOptions {
 }
 
 impl AutomixAnalysisOptions {
+    /// Clamp analysis time to a finite in-range value.
     pub fn normalized(mut self) -> Self {
         if !self.max_analyze_time_sec.is_finite() {
             self.max_analyze_time_sec = DEFAULT_MAX_ANALYZE_TIME_SEC;
@@ -373,6 +403,7 @@ impl SpectralFluxAccumulator {
     }
 }
 
+/// Run bounded offline AutoMix analysis on a media location.
 pub fn analyze_automix(
     location: MediaLocation,
     credentials: Option<HttpCredentials>,
@@ -381,6 +412,7 @@ pub fn analyze_automix(
     analyze_automix_with_cancel(location, credentials, options, None)
 }
 
+/// Run bounded AutoMix analysis with a cooperative cancel token.
 pub fn analyze_automix_with_cancel(
     location: MediaLocation,
     credentials: Option<HttpCredentials>,

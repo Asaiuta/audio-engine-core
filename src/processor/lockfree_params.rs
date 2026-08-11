@@ -392,6 +392,7 @@ macro_rules! impl_default_via_new {
 macro_rules! impl_snapshot_accessors {
     ($snapshot:ty) => {
         #[inline]
+        /// Load the latest immutable parameter snapshot.
         pub fn load(&self) -> Arc<$snapshot> {
             self.shared.load()
         }
@@ -408,11 +409,13 @@ macro_rules! impl_snapshot_accessors {
         }
 
         #[inline]
+        /// Return a new snapshot only when it differs from `cached`.
         pub fn load_if_changed(&self, cached: &Arc<$snapshot>) -> Option<Arc<$snapshot>> {
             self.shared.load_if_changed(cached)
         }
 
         #[inline]
+        /// Return a new snapshot and generation after `cached_generation`.
         pub fn load_if_changed_since(
             &self,
             cached_generation: u64,
@@ -445,6 +448,7 @@ macro_rules! impl_snapshot_accessors {
 macro_rules! impl_set_enabled_accessor {
     () => {
         #[inline]
+        /// Publish the enabled/bypassed state from the control thread.
         pub fn set_enabled(&self, enabled: bool) {
             self.shared.update(|snapshot| {
                 snapshot.enabled = enabled;
@@ -456,6 +460,7 @@ macro_rules! impl_set_enabled_accessor {
 macro_rules! impl_enabled_reader {
     () => {
         #[inline]
+        /// Read the current enabled/bypassed state.
         pub fn is_enabled(&self) -> bool {
             self.read().enabled
         }
@@ -602,8 +607,11 @@ impl_default_via_new!(AtomicEqParams);
 #[repr(u8)]
 pub enum SaturationTypeValue {
     #[default]
+    /// Tape-style hysteretic saturation.
     Tape = 0,
+    /// Tube-style asymmetric saturation.
     Tube = 1,
+    /// Transistor-style hard-knee saturation.
     Transistor = 2,
 }
 
@@ -635,8 +643,11 @@ impl From<SaturationTypeValue> for crate::processor::SaturationType {
 #[repr(u8)]
 pub enum SaturationQualityValue {
     #[default]
+    /// Source-rate waveshaping without oversampling.
     Direct = 0,
+    /// Two-times oversampled antialiased waveshaping.
     Oversampled2x = 1,
+    /// Four-times oversampled antialiased waveshaping.
     Oversampled4x = 2,
 }
 
@@ -663,15 +674,25 @@ impl From<SaturationQualityValue> for crate::processor::SaturationQuality {
 /// Saturation parameter snapshot
 #[derive(Debug, Clone, Copy)]
 pub struct SaturationParamsSnapshot {
+    /// Input drive amount.
     pub drive: f64,
+    /// Soft-knee saturation threshold.
     pub threshold: f64,
+    /// Wet/dry mix, where zero is transparent.
     pub mix: f64,
+    /// Waveshaper family.
     pub sat_type: SaturationTypeValue,
+    /// Antialiasing quality mode.
     pub quality: SaturationQualityValue,
+    /// Input gain in decibels.
     pub input_gain_db: f64,
+    /// Output gain in decibels.
     pub output_gain_db: f64,
+    /// Whether the optional high-pass stage is active.
     pub highpass_mode: bool,
+    /// High-pass cutoff in hertz.
     pub highpass_cutoff: f64,
+    /// Runtime effect enable state.
     pub enabled: bool,
     /// Setup/reset-time activation of the fixed-latency stage.
     pub armed: bool,
@@ -701,6 +722,7 @@ pub struct AtomicSaturationParams {
 }
 
 impl AtomicSaturationParams {
+    /// Create a parameter publisher initialized with safe saturation defaults.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -926,8 +948,11 @@ impl_default_via_new!(AtomicSaturationParams);
 /// Crossfeed parameter snapshot
 #[derive(Debug, Clone, Copy)]
 pub struct CrossfeedParamsSnapshot {
+    /// Crossfeed wet mix.
     pub mix: f64,
+    /// Low-pass cutoff applied to the crossfed signal, in hertz.
     pub cutoff_hz: f64,
+    /// Whether crossfeed is enabled.
     pub enabled: bool,
 }
 
@@ -947,6 +972,7 @@ pub struct AtomicCrossfeedParams {
 }
 
 impl AtomicCrossfeedParams {
+    /// Create a parameter publisher initialized with crossfeed defaults.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -972,6 +998,7 @@ impl AtomicCrossfeedParams {
     }
 
     #[inline]
+    /// Set the crossfeed wet mix; non-finite input is ignored.
     pub fn set_mix(&self, mix: f64) {
         let Some(mix) = sanitized(mix, CROSSFEED_MIX_MIN, CROSSFEED_MIX_MAX) else {
             return;
@@ -982,6 +1009,7 @@ impl AtomicCrossfeedParams {
     }
 
     #[inline]
+    /// Set the crossfeed cutoff in hertz; non-finite input is ignored.
     pub fn set_cutoff(&self, hz: f64) {
         let Some(hz) = sanitized(hz, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_CUTOFF_HZ_MAX) else {
             return;
@@ -994,6 +1022,7 @@ impl AtomicCrossfeedParams {
     impl_set_enabled_accessor!();
 
     #[inline]
+    /// Read the current crossfeed snapshot coherently.
     pub fn read(&self) -> CrossfeedParamsSnapshot {
         self.shared.read()
     }
@@ -1012,9 +1041,13 @@ impl_default_via_new!(AtomicCrossfeedParams);
 /// Peak limiter parameter snapshot
 #[derive(Debug, Clone, Copy)]
 pub struct PeakLimiterParamsSnapshot {
+    /// Limiter ceiling in decibels.
     pub threshold_db: f64,
+    /// Release time in milliseconds.
     pub release_ms: f64,
+    /// Whether limiting is enabled.
     pub enabled: bool,
+    /// Peak-detection mode.
     pub mode: LimiterMode,
 }
 
@@ -1035,6 +1068,7 @@ pub struct AtomicPeakLimiterParams {
 }
 
 impl AtomicPeakLimiterParams {
+    /// Create a parameter publisher initialized with true-peak limiter defaults.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -1042,6 +1076,7 @@ impl AtomicPeakLimiterParams {
     }
 
     #[inline]
+    /// Set the limiter ceiling in decibels; out-of-range input is clamped.
     pub fn set_threshold(&self, db: f64) {
         let Some(db) = sanitized(db, LIMITER_THRESHOLD_DB_MIN, LIMITER_THRESHOLD_DB_MAX) else {
             return;
@@ -1052,6 +1087,7 @@ impl AtomicPeakLimiterParams {
     }
 
     #[inline]
+    /// Set the limiter release time in milliseconds; out-of-range input is clamped.
     pub fn set_release(&self, ms: f64) {
         let Some(ms) = sanitized(ms, LIMITER_RELEASE_MS_MIN, LIMITER_RELEASE_MS_MAX) else {
             return;
@@ -1076,6 +1112,7 @@ impl AtomicPeakLimiterParams {
     impl_set_enabled_accessor!();
 
     #[inline]
+    /// Read the current limiter snapshot coherently.
     pub fn read(&self) -> PeakLimiterParamsSnapshot {
         self.shared.read()
     }
@@ -1094,7 +1131,9 @@ impl_default_via_new!(AtomicPeakLimiterParams);
 /// Volume parameter snapshot
 #[derive(Debug, Clone, Copy)]
 pub struct VolumeParamsSnapshot {
+    /// Linear gain in the inclusive range 0.0..=1.0.
     pub volume: f64, // 0.0 - 1.0
+    /// Whether the effective gain is forced to zero.
     pub muted: bool,
 }
 
@@ -1113,6 +1152,7 @@ pub struct AtomicVolumeParams {
 }
 
 impl AtomicVolumeParams {
+    /// Create a volume publisher initialized at unity gain and unmuted.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -1169,8 +1209,11 @@ impl_default_via_new!(AtomicVolumeParams);
 /// Noise shaper parameter snapshot
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoiseShaperParamsSnapshot {
+    /// Whether quantization-error feedback is enabled.
     pub enabled: bool,
+    /// Target integer bit depth.
     pub bits: u32,
+    /// Noise-shaping coefficient curve.
     pub curve: super::dsp::NoiseShaperCurve,
 }
 
@@ -1190,6 +1233,7 @@ pub struct AtomicNoiseShaperParams {
 }
 
 impl AtomicNoiseShaperParams {
+    /// Create a publisher initialized with the default 24-bit curve.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -1209,6 +1253,7 @@ impl AtomicNoiseShaperParams {
     impl_set_enabled_accessor!();
 
     #[inline]
+    /// Set the target bit depth, clamped to the supported range.
     pub fn set_bits(&self, bits: u32) {
         self.shared.update(|snapshot| {
             snapshot.bits = bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX);
@@ -1216,6 +1261,7 @@ impl AtomicNoiseShaperParams {
     }
 
     #[inline]
+    /// Select the noise-shaping coefficient curve.
     pub fn set_curve(&self, curve: super::dsp::NoiseShaperCurve) {
         self.shared.update(|snapshot| {
             snapshot.curve = curve;
@@ -1223,6 +1269,7 @@ impl AtomicNoiseShaperParams {
     }
 
     #[inline]
+    /// Read the current noise-shaper snapshot coherently.
     pub fn read(&self) -> NoiseShaperParamsSnapshot {
         self.shared.read()
     }
@@ -1232,11 +1279,13 @@ impl AtomicNoiseShaperParams {
     impl_enabled_reader!();
 
     #[inline]
+    /// Return the current target bit depth.
     pub fn bits(&self) -> u32 {
         self.read().bits
     }
 
     #[inline]
+    /// Return the current noise-shaping curve.
     pub fn curve(&self) -> super::dsp::NoiseShaperCurve {
         self.read().curve
     }
@@ -1251,9 +1300,13 @@ impl_default_via_new!(AtomicNoiseShaperParams);
 /// Dynamic loudness parameter snapshot
 #[derive(Debug, Clone, Copy)]
 pub struct DynamicLoudnessParamsSnapshot {
+    /// Whether loudness compensation is enabled.
     pub enabled: bool,
+    /// Current listening volume as a linear gain.
     pub volume: f64,
+    /// Compensation strength in the inclusive range 0.0..=1.0.
     pub strength: f64,
+    /// Optional dB reference from which `volume` was derived.
     pub ref_volume_db: Option<f64>,
 }
 
@@ -1274,6 +1327,7 @@ pub struct AtomicDynamicLoudnessParams {
 }
 
 impl AtomicDynamicLoudnessParams {
+    /// Create a publisher initialized with neutral dynamic-loudness settings.
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
@@ -1311,6 +1365,7 @@ impl AtomicDynamicLoudnessParams {
     impl_set_enabled_accessor!();
 
     #[inline]
+    /// Set listening volume as a linear gain and clear any dB reference.
     pub fn set_volume(&self, vol: f64) {
         let Some(vol) = sanitized(
             vol,
@@ -1365,6 +1420,7 @@ impl AtomicDynamicLoudnessParams {
     }
 
     #[inline]
+    /// Read the current dynamic-loudness snapshot coherently.
     pub fn read(&self) -> DynamicLoudnessParamsSnapshot {
         self.shared.read()
     }
@@ -1392,6 +1448,7 @@ pub struct AtomicDynamicLoudnessTelemetry {
 }
 
 impl AtomicDynamicLoudnessTelemetry {
+    /// Create a zeroed telemetry publisher for the audio thread.
     pub fn new() -> Self {
         Self {
             factor: AtomicF64::new(0.0),
@@ -1400,6 +1457,7 @@ impl AtomicDynamicLoudnessTelemetry {
     }
 
     #[inline]
+    /// Publish the current compensation factor and seven band gains.
     pub fn update(&self, factor: f64, band_gains: [f64; LOUDNESS_BANDS_N]) {
         self.factor.store(factor, Ordering::Release);
         for (dst, gain) in self.band_gains.iter().zip(band_gains.iter().copied()) {
@@ -1408,11 +1466,13 @@ impl AtomicDynamicLoudnessTelemetry {
     }
 
     #[inline]
+    /// Read the most recently published compensation factor.
     pub fn factor(&self) -> f64 {
         self.factor.load(Ordering::Acquire)
     }
 
     #[inline]
+    /// Read the most recently published seven-band gain array.
     pub fn band_gains(&self) -> [f64; LOUDNESS_BANDS_N] {
         let _ = self.factor.load(Ordering::Acquire);
         std::array::from_fn(|i| self.band_gains[i].load(Ordering::Relaxed))

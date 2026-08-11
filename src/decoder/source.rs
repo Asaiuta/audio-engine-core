@@ -20,7 +20,9 @@ pub(super) const BYTES_PER_MIB: usize = 1024 * 1024;
 /// which require the `http` feature.
 #[derive(Clone, Default)]
 pub struct HttpCredentials {
+    /// Username sent in the HTTP Basic authorization header.
     pub username: String,
+    /// Password sent in the HTTP Basic authorization header.
     pub password: String,
 }
 
@@ -39,7 +41,9 @@ impl fmt::Debug for HttpCredentials {
 /// Keeping the Symphonia transport fields private lets callers separate source
 /// opening from decoder construction without depending on Symphonia's API.
 pub struct OpenedMediaSource {
+    /// Unprobed media stream backed by the opened transport.
     pub(super) stream: MediaSourceStream<'static>,
+    /// Format/codec hint derived from the source extension, if any.
     pub(super) hint: Hint,
 }
 
@@ -52,7 +56,10 @@ pub enum MediaLocationError {
     InvalidUrl(#[source] url::ParseError),
     /// The URL uses a scheme that this crate does not decode.
     #[error("unsupported media URL scheme: {scheme}")]
-    UnsupportedScheme { scheme: String },
+    UnsupportedScheme {
+        /// Rejected URL scheme, normalized by the URL parser.
+        scheme: String,
+    },
     /// An HTTP URL without a host cannot be fetched safely.
     #[error("HTTP media URL has no host")]
     MissingHost,
@@ -185,7 +192,9 @@ impl fmt::Display for MediaLocation {
 /// The stable source namespace used by cache and diagnostics layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum MediaLocationKind {
+    /// A local filesystem path.
     Local,
+    /// An HTTP(S) URL.
     Http,
 }
 

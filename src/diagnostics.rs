@@ -4,9 +4,13 @@ const BYTES_PER_MIB_USIZE: usize = 1024 * 1024;
 
 /// Decoded-buffer budget shared by non-Range downloads, playback loads, and
 /// gapless preload.
+/// Environment variable name for the decode-buffer memory budget override.
 pub const ENV_DECODE_MAX_MEMORY_MB: &str = "DECODE_MAX_MEMORY_MB";
+/// Built-in decode-buffer budget (mebibytes) when the environment is absent.
 pub const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
+/// Smallest accepted decode-buffer budget (mebibytes) before clamping.
 pub const MIN_DECODE_MAX_MEMORY_MB: usize = 64;
+/// Largest accepted decode-buffer budget (mebibytes) before clamping.
 pub const MAX_DECODE_MAX_MEMORY_MB: usize = 32 * 1024;
 
 /// Resolved decode-buffer memory budget.

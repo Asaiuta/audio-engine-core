@@ -880,9 +880,13 @@ impl LoudnessDatabase {
 /// Statistics about the loudness database
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DatabaseStats {
+    /// Total number of tracked media entries.
     pub total_tracks: i64,
+    /// Entries whose cached loudness metadata is stale.
     pub outdated_tracks: i64,
+    /// Entries carrying an album-gain value.
     pub with_album_gain: i64,
+    /// Scan format version the cached rows were written with.
     pub current_scan_version: i32,
 }
 

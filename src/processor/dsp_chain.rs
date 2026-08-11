@@ -43,12 +43,16 @@ use super::traits::{
 /// avoids per-call allocation or policy object ownership.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ChainFinishPolicy {
+    /// RMS level below which generated tail frames count as silent.
     pub energy_threshold_dbfs: f64,
+    /// Consecutive below-threshold frames required before finishing.
     pub silence_hold_frames: usize,
+    /// Hard limit on frames generated for an unknown or infinite tail.
     pub max_tail_frames: usize,
 }
 
 impl ChainFinishPolicy {
+    /// Construct a finish policy from frame-domain limits.
     pub const fn new(
         energy_threshold_dbfs: f64,
         silence_hold_frames: usize,

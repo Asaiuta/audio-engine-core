@@ -21,10 +21,13 @@
 /// Saturation type / character
 #[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SaturationType {
+    /// Warm, gentle compression character.
     #[default]
-    Tape, // Warm, gentle compression
-    Tube,       // Rich even harmonics
-    Transistor, // Edgy, odd harmonics
+    Tape,
+    /// Rich even-harmonic tube character.
+    Tube,
+    /// Edgy odd-harmonic transistor character.
+    Transistor,
 }
 
 /// Saturation processing quality.
@@ -34,9 +37,12 @@ pub enum SaturationType {
 /// decimation to reduce high-frequency aliasing products.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum SaturationQuality {
+    /// Legacy source-rate waveshaper (no oversampling).
     #[default]
     Direct,
+    /// 2x oversampled nonlinear processing with fixed FIR decimation.
     Oversampled2x,
+    /// 4x oversampled nonlinear processing with fixed FIR decimation.
     Oversampled4x,
 }
 
@@ -1144,15 +1150,25 @@ impl Default for Saturation {
 /// reads its values from the lock-free parameter snapshot instead.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SaturationSettings {
+    /// Active saturation transfer character.
     pub sat_type: SaturationType,
+    /// Active processing quality / antialiasing mode.
     pub quality: SaturationQuality,
+    /// Input drive amount (0.0–2.0).
     pub drive: f64,
+    /// Linear threshold where saturation begins.
     pub threshold: f64,
+    /// Dry/wet mix (0.0–1.0).
     pub mix: f64,
+    /// Input gain in dB.
     pub input_gain_db: f64,
+    /// Output gain in dB.
     pub output_gain_db: f64,
+    /// Whether the stage is enabled.
     pub enabled: bool,
+    /// Whether only frequencies above the cutoff are saturated.
     pub highpass_mode: bool,
+    /// Exciter-mode highpass cutoff in Hz.
     pub highpass_cutoff: f64,
 }
 

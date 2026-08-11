@@ -21,6 +21,9 @@ pub struct SpectrumAnalyzer {
 }
 
 impl SpectrumAnalyzer {
+    /// Create an analyzer with the given FFT and output bin geometry.
+    ///
+    /// Rejects `fft_size < 4` and `num_bins == 0` before planning any FFT.
     pub fn new(fft_size: usize, num_bins: usize) -> Result<Self, ProcessError> {
         if fft_size < 4 {
             return Err(ProcessError::InvalidGeometry {
@@ -56,6 +59,10 @@ impl SpectrumAnalyzer {
         })
     }
 
+    /// Analyze a block of samples and return the binned magnitudes.
+    ///
+    /// Rejects a zero sample rate before touching cached state; blocks shorter
+    /// than the FFT size produce a zero-filled result.
     pub fn analyze(&mut self, samples: &[f64], sample_rate: u32) -> Result<&[f32], ProcessError> {
         validate_sample_rate_hz("SpectrumAnalyzer", sample_rate)?;
         if samples.len() < self.fft_size {

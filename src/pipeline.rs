@@ -190,8 +190,11 @@ impl PlaybackLifecycleState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PlaybackLifecycleStatus {
+    /// Current lifecycle state of the pipeline.
     pub state: PlaybackLifecycleState,
+    /// Newest request generation published by the controller.
     pub requested_generation: u64,
+    /// Newest request generation consumed by the audio callback.
     pub applied_generation: u64,
 }
 impl PlaybackLifecycleStatus {
@@ -283,14 +286,23 @@ impl LifecycleChannel {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct PlaybackSaturationConfig {
+    /// Whether the saturation stage is active.
     pub enabled: bool,
+    /// Tube or tape-style transfer curve.
     pub saturation_type: SaturationType,
+    /// Processing quality / antialiasing mode.
     pub quality: SaturationQuality,
+    /// Drive amount (0.0–2.0, default 0.25).
     pub drive: f64,
+    /// Linear threshold where saturation begins (default 0.88).
     pub threshold: f64,
+    /// Dry/wet mix (0.0–1.0, default 0.2).
     pub mix: f64,
+    /// Input gain applied before the transfer curve, in dB.
     pub input_gain_db: f64,
+    /// Output gain applied after the transfer curve, in dB.
     pub output_gain_db: f64,
+    /// Highpass cutoff for the "exciter" mode; saturates only above it.
     pub highpass_cutoff_hz: Option<f64>,
 }
 impl PlaybackSaturationConfig {
@@ -364,8 +376,11 @@ impl Default for PlaybackSaturationConfig {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct PlaybackCrossfeedConfig {
+    /// Whether the crossfeed stage is active.
     pub enabled: bool,
+    /// Dry/wet linear crossfeed mix.
     pub mix: f64,
+    /// Crossfeed lowpass cutoff in Hz.
     pub cutoff_hz: f64,
 }
 impl PlaybackCrossfeedConfig {
@@ -403,8 +418,11 @@ impl Default for PlaybackCrossfeedConfig {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct PlaybackDynamicLoudnessConfig {
+    /// Whether dynamic-loudness compensation is active.
     pub enabled: bool,
+    /// Current playback volume in dBFS used as the compensation reference.
     pub listening_volume_db: f64,
+    /// Compensation amount (0.0–1.0).
     pub strength: f64,
 }
 impl PlaybackDynamicLoudnessConfig {
@@ -438,8 +456,11 @@ impl Default for PlaybackDynamicLoudnessConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PlaybackNoiseShapingConfig {
+    /// Whether output noise shaping / dithering is active.
     pub enabled: bool,
+    /// Target quantizer bit depth of the noise-shaping stage.
     pub bits: u32,
+    /// Noise-shaping error curve.
     pub curve: NoiseShaperCurve,
 }
 impl PlaybackNoiseShapingConfig {
@@ -661,6 +682,7 @@ impl Default for PlaybackConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct DynamicLoudnessTelemetry {
+    /// Latest measured gain factor applied by the loudness model.
     pub factor: f64,
     /// One gain per band of the dynamic-loudness model, in model band order.
     /// Sized by [`LOUDNESS_BANDS_N`] so the model and its readout cannot drift.
@@ -1190,7 +1212,9 @@ impl PlaybackBuilder {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct PlaybackTiming {
+    /// Algorithmic latency in the pipeline's output sample-rate domain.
     pub latency: FrameDuration,
+    /// Declared semantic tail after end of input.
     pub tail: TailSpec,
 }
 /// Callback-owned processor for the canonical DSP stage order.
@@ -1505,6 +1529,7 @@ pub struct RingBuffer {
 }
 
 impl RingBuffer {
+    /// Create a ring buffer with fixed interleaved `f64` storage.
     pub fn new(capacity_frames: usize, channels: usize) -> Self {
         Self {
             data: vec![0.0; capacity_frames * channels],

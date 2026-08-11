@@ -299,13 +299,18 @@ pub const SATURATION_TRANSITION_FRAMES: usize = 32;
 /// Sample-accurate Saturation automation event relative to one source block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SaturationEvent {
+    /// Zero-based source-frame offset within the current block.
     pub frame_offset: usize,
+    /// Control change applied at the frame offset.
     pub kind: SaturationEventKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Sparse control change accepted by [`SaturationProcessor::process_with_events`].
 pub enum SaturationEventKind {
+    /// Transition to a new saturation quality mode.
     Quality(SaturationQualityValue),
+    /// Smoothly enable or disable the audible effect while preserving state.
     EffectEnabled(bool),
 }
 
@@ -334,6 +339,7 @@ pub struct SaturationProcessor {
 }
 
 impl SaturationProcessor {
+    /// Construct a processor and preallocate per-channel saturation state.
     pub fn new(channels: usize, params: Arc<AtomicSaturationParams>) -> Self {
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
         let mut saturation = Saturation::new();
@@ -687,6 +693,7 @@ impl SaturationProcessor {
         Ok(())
     }
 
+    /// Return whether setup-time hard bypass is active.
     pub const fn is_hard_bypassed(&self) -> bool {
         self.hard_bypassed
     }
@@ -979,6 +986,7 @@ pub struct CrossfeedProcessor {
 }
 
 impl CrossfeedProcessor {
+    /// Construct a crossfeed adapter from the current parameter snapshot.
     pub fn new(sample_rate: f64, params: Arc<AtomicCrossfeedParams>) -> Self {
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
         let mut crossfeed = Crossfeed::with_params(sample_rate, cached.cutoff_hz, cached.mix);
@@ -1144,6 +1152,7 @@ pub struct PeakLimiterProcessor {
 }
 
 impl PeakLimiterProcessor {
+    /// Construct a limiter adapter after validating channels and sample rate.
     pub fn new(
         channels: usize,
         sample_rate: u32,
@@ -1421,6 +1430,7 @@ pub struct VolumeProcessor {
 impl VolumeProcessor {
     const SETTLE_EPSILON: f64 = 1.0e-6;
 
+    /// Construct a volume adapter from the current atomic parameter snapshot.
     pub fn new(params: Arc<AtomicVolumeParams>) -> Self {
         let smoothing_coeff = Self::calc_smoothing_coeff(44100.0);
         let one_minus_smoothing_coeff = 1.0 - smoothing_coeff;
@@ -1561,6 +1571,7 @@ pub struct NoiseShaperProcessor {
 }
 
 impl NoiseShaperProcessor {
+    /// Construct a noise-shaper adapter after validating stream geometry.
     pub fn new(
         channels: usize,
         sample_rate: u32,
@@ -1705,6 +1716,7 @@ pub struct DynamicLoudnessProcessor {
 }
 
 impl DynamicLoudnessProcessor {
+    /// Construct a dynamic-loudness adapter and attach its telemetry sink.
     pub fn new(
         channels: usize,
         sample_rate: u32,

@@ -182,6 +182,10 @@ impl StreamingDecoderBuilder {
             .ok_or_else(|| DecoderError::Decoder("decoder staging size overflow".to_string()))
     }
 
+    /// Construct the decoder from the probed track and codec parameters.
+    ///
+    /// Rejects a cancelled [`DecodeCancelToken`], a missing audio track, or
+    /// unresolvable codec parameters before allocating decode buffers.
     pub fn build(self) -> Result<StreamingDecoder, DecoderError> {
         if self
             .cancel_token
@@ -255,10 +259,12 @@ impl StreamingDecoder {
         self.info.end_padding = end_padding;
     }
 
+    /// Open a media location and return a probed [`StreamingDecoder`].
     pub fn open(location: MediaLocation) -> Result<Self, DecoderError> {
         Self::open_with_credentials(location, None)
     }
 
+    /// Open a media location with optional HTTP Basic credentials.
     pub fn open_with_credentials(
         location: MediaLocation,
         credentials: Option<&HttpCredentials>,
@@ -266,6 +272,10 @@ impl StreamingDecoder {
         Self::open_with_credentials_and_cancel(location, credentials, None)
     }
 
+    /// Open a media location with credentials and a cooperative cancel token.
+    ///
+    /// The token is checked before transport work; a cancelled token produces
+    /// [`DecoderError::Canceled`].
     pub fn open_with_credentials_and_cancel(
         location: MediaLocation,
         credentials: Option<&HttpCredentials>,
@@ -290,6 +300,10 @@ impl StreamingDecoder {
         Self::probe_opened_source(source, cancel_token)?.build()
     }
 
+    /// Probe an already-opened source and expose the configurable builder.
+    ///
+    /// The builder can change staging geometry before [`StreamingDecoderBuilder::build`]; probe
+    /// failures and cancelled tokens surface as typed errors here.
     pub fn probe_opened_source(
         source: OpenedMediaSource,
         cancel_token: Option<DecodeCancelToken>,
@@ -410,6 +424,7 @@ impl StreamingDecoder {
     /// common packet sizes (e.g. AAC 1024, MP3 1152) plus codec priming.
     pub const SEEK_COARSE_TOLERANCE_FRAMES: u64 = 4_096;
 
+    /// Live staging capacity of the interleaved `f64` sample buffer.
     pub fn staging_buffer_bytes(&self) -> usize {
         self.sample_buf
             .as_ref()
@@ -553,6 +568,9 @@ impl StreamingDecoder {
         Ok(Some(&sample_buf[start..end]))
     }
 
+    /// Decode the next packet's samples, appending into `out`.
+    ///
+    /// Returns the number of samples appended, or `None` at end of stream.
     pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
         let Some(samples) = self.decode_next_borrowed()? else {
             return Ok(None);
@@ -562,6 +580,10 @@ impl StreamingDecoder {
         Ok(Some(appended))
     }
 
+    /// Decode the next packet's samples into a fresh `Vec<f64>`.
+    ///
+    /// Returns `None` at end of stream. Owns the output allocation, unlike
+    /// [`Self::decode_next_into`].
     pub fn decode_next(&mut self) -> Result<Option<Vec<f64>>, DecoderError> {
         let mut samples = Vec::new();
         match self.decode_next_into(&mut samples)? {
@@ -570,6 +592,10 @@ impl StreamingDecoder {
         }
     }
 
+    /// Decode the full stream into memory, bounded by the configured budget.
+    ///
+    /// Plans the decoded-buffer size from container metadata and rejects a
+    /// file whose estimate exceeds `DECODE_MAX_MEMORY_MB` before decoding.
     pub fn decode_all(&mut self) -> Result<Vec<f64>, DecoderError> {
         let (max_memory_mb, max_memory_bytes) = configured_decode_memory_limit();
 

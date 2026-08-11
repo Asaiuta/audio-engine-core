@@ -121,7 +121,12 @@ use super::traits::{
 pub enum ResamplerError {
     /// Either input or output sample rate is zero.
     #[error("invalid resampler sample rates: {from_rate} Hz -> {to_rate} Hz")]
-    InvalidSampleRate { from_rate: u32, to_rate: u32 },
+    InvalidSampleRate {
+        /// Rejected input sample rate in hertz.
+        from_rate: u32,
+        /// Rejected output sample rate in hertz.
+        to_rate: u32,
+    },
     /// Interleaved resampling requires at least one channel.
     #[error("resampler channel count must be at least one")]
     ZeroChannels,
@@ -130,12 +135,18 @@ pub enum ResamplerError {
     InvalidBlock(#[from] AudioBlockError),
     /// Checked sizing of a reusable buffer or working set overflowed.
     #[error("resampler {buffer} capacity overflow")]
-    CapacityOverflow { buffer: &'static str },
+    CapacityOverflow {
+        /// Logical buffer whose checked capacity calculation overflowed.
+        buffer: &'static str,
+    },
     /// A nonlinear reduced ratio exceeds the supported bounded design.
     #[error("reduced ratio {up}:{down} exceeds nonlinear phase limit {limit}")]
     RatioExceedsLimit {
+        /// Reduced interpolation factor.
         up: usize,
+        /// Reduced decimation factor.
         down: usize,
+        /// Maximum supported factor on either side of the ratio.
         limit: usize,
     },
     /// Nonlinear coefficient-count arithmetic overflowed.
@@ -145,43 +156,63 @@ pub enum ResamplerError {
     #[error(
         "nonlinear coefficient bank is too large: {coefficients} coefficients (maximum {maximum})"
     )]
-    CoefficientBankTooLarge { coefficients: usize, maximum: usize },
+    CoefficientBankTooLarge {
+        /// Coefficient count required by the requested geometry.
+        coefficients: usize,
+        /// Maximum bounded coefficient count accepted by the implementation.
+        maximum: usize,
+    },
     /// The selected internal backend rejected its geometry or phase contract.
     #[error("{backend} backend geometry is invalid")]
-    InvalidBackendGeometry { backend: &'static str },
+    InvalidBackendGeometry {
+        /// Selected backend whose geometry contract was rejected.
+        backend: &'static str,
+    },
     /// Minimum-phase conversion produced no usable factor.
     #[error("nonlinear minimum-phase factor was empty")]
     EmptyMinimumPhaseFactor,
     /// A third-party backend rejected initialization.
     #[error("{backend} backend initialization failed for channel {channel:?}: {message}")]
     BackendInitialization {
+        /// Backend that rejected initialization.
         backend: &'static str,
+        /// Affected zero-based channel, or `None` for shared setup.
         channel: Option<usize>,
+        /// Backend-owned initialization diagnostic.
         message: String,
     },
     /// A timing value derived from the backend violated the lifecycle contract.
     #[error("invalid resampler {metric}: {message}")]
     InvalidTiming {
+        /// Timing quantity that violated the streaming contract.
         metric: &'static str,
+        /// Description of the invalid value or relationship.
         message: String,
     },
     /// A backend returned consumed/produced counts outside caller capacity.
     #[error("resampler backend returned invalid {operation} progress for channel {channel:?}")]
     InvalidBackendProgress {
+        /// Backend operation that returned invalid progress.
         operation: &'static str,
+        /// Affected zero-based channel, or `None` for shared processing.
         channel: Option<usize>,
     },
     /// A backend made no progress while work remained.
     #[error("resampler backend stalled during {operation} for channel {channel:?}")]
     BackendStalled {
+        /// Backend operation that failed to make progress.
         operation: &'static str,
+        /// Affected zero-based channel, or `None` for shared processing.
         channel: Option<usize>,
     },
     /// A backend operation failed with a backend-owned diagnostic.
     #[error("resampler backend {operation} failed for channel {channel:?}: {message}")]
     BackendProcess {
+        /// Backend operation that failed.
         operation: &'static str,
+        /// Affected zero-based channel, or `None` for shared processing.
         channel: Option<usize>,
+        /// Static backend diagnostic suitable for realtime propagation.
         message: &'static str,
     },
 }
@@ -640,10 +671,12 @@ impl StreamingResampler {
         Ok(streaming_buffer_layout(channels, from_rate, to_rate)?.pcm_bytes)
     }
 
+    /// Return the configured input sample rate in hertz.
     pub fn from_rate(&self) -> u32 {
         self.from_rate
     }
 
+    /// Return the configured output sample rate in hertz.
     pub fn to_rate(&self) -> u32 {
         self.to_rate
     }

@@ -96,6 +96,7 @@ impl Equalizer {
     ];
     const Q: f64 = 1.41;
 
+    /// Construct a disabled, flat 10-band equalizer for `channels` streams.
     pub fn new(channels: usize, sample_rate: f64) -> Self {
         let bands: Vec<[BiquadSection; EQ_BANDS]> = (0..channels)
             .map(|_| Self::build_channel_bank(sample_rate))
@@ -189,14 +190,21 @@ impl Equalizer {
         }
     }
 
+    /// Enable or bypass filtering without discarding filter state.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
 
+    /// Return whether filtering is currently enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
 
+    /// Filter complete interleaved frames in place.
+    ///
+    /// Any trailing samples that do not form a complete frame are left
+    /// untouched. The caller must configure the same channel count used by
+    /// the buffer.
     pub fn process(&mut self, buffer: &mut [f64]) {
         if !self.enabled || self.channels == 0 {
             return;
@@ -279,6 +287,7 @@ impl Equalizer {
     // It duplicated logic from process() + process_sample_no_counter_update()
     // with subtle differences that could cause bugs. Use process() instead.
 
+    /// Reset all biquad history in every channel and return bands to target.
     pub fn reset(&mut self) {
         for ch in &mut self.bands {
             for band in ch {

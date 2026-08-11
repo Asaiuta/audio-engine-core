@@ -32,9 +32,11 @@ pub const STANDARD_BANDS: [(f64, f64); 10] = [
 /// Supported as part of the [`FirEq`] surface.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FirPhaseMode {
+    /// Linear phase: symmetric IR with half-tap latency.
     #[default]
-    Linear, // Linear phase (symmetric IR, half-tap latency)
-    Minimum, // Minimum phase (zero latency, non-linear phase)
+    Linear,
+    /// Minimum phase: zero added latency, non-linear phase.
+    Minimum,
 }
 
 /// FIR EQ generator: creates IR from band gain specifications

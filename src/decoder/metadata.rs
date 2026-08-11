@@ -6,26 +6,42 @@ use crate::channel_layout::ChannelLayout;
 /// Track metadata extracted from audio file tags.
 #[derive(Debug, Clone, Default)]
 pub struct TrackMetadata {
+    /// Track title.
     pub title: Option<String>,
+    /// Primary performer or artist name.
     pub artist: Option<String>,
+    /// Album name.
     pub album: Option<String>,
+    /// Position of this track within the album.
     pub track_number: Option<u32>,
+    /// Disc number the track appears on.
     pub disc_number: Option<u32>,
+    /// Genre tag, when present.
     pub genre: Option<String>,
+    /// Release year, when tagged.
     pub year: Option<u32>,
+    /// Embedded cover art bytes (format depends on [`Self::cover_art_mime`]).
     pub cover_art: Option<Vec<u8>>,
+    /// MIME type of [`Self::cover_art`], e.g. `image/jpeg`.
     pub cover_art_mime: Option<String>,
+    /// Unsynchronized lyrics or comment text, when tagged.
     pub lyrics: Option<String>,
+    /// ReplayGain track gain in dB, when tagged.
     pub rg_track_gain: Option<f64>,
+    /// ReplayGain track peak (linear), when tagged.
     pub rg_track_peak: Option<f64>,
+    /// ReplayGain album gain in dB, when tagged.
     pub rg_album_gain: Option<f64>,
+    /// ReplayGain album peak (linear), when tagged.
     pub rg_album_peak: Option<f64>,
 }
 
 /// Audio format information extracted from file.
 #[derive(Debug, Clone)]
 pub struct AudioInfo {
+    /// Sample rate in Hz.
     pub sample_rate: u32,
+    /// Interleaved channel count.
     pub channels: usize,
     /// Positional channel layout for the `channels` interleaved channels.
     ///
@@ -37,11 +53,17 @@ pub struct AudioInfo {
     /// information that a bare `channels` count cannot, so downstream downmix
     /// and loudness weighting can reason about which slot is which speaker.
     pub channel_layout: ChannelLayout,
+    /// Bits per sample when the container reports it (e.g. 16, 24, 32).
     pub bits_per_sample: Option<u32>,
+    /// Total decoded frames, when known from the container.
     pub total_frames: Option<u64>,
+    /// Total duration in seconds, when derivable from the container.
     pub duration_secs: Option<f64>,
+    /// Encoder delay in frames that must be skipped at stream start.
     pub encoder_delay: u32,
+    /// Encoder end padding in frames that must be trimmed at stream end.
     pub end_padding: u32,
+    /// Track metadata extracted from file tags.
     pub metadata: TrackMetadata,
 }
 
