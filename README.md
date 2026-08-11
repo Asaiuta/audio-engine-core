@@ -10,7 +10,8 @@ device, the UI, or the application runtime. Extracted from the Lyne audio
 engine as its app-agnostic core layer, it leaves playback, device output, and
 library management to your application.
 
-> ⚠️ Status: 0.1.x — actively evolving; the API may change before 1.0. Requires Rust 1.87+.
+> ✅ Status: 1.0.0 — stable; the public API is documented and SemVer-guarded
+> against breaking changes. Requires Rust 1.87+.
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -57,7 +58,7 @@ These are provided as reusable, measurable, testable components.
 
 ```toml
 [dependencies]
-audio-engine-core = "0.1"
+audio-engine-core = "1"
 ```
 
 Measure the integrated loudness of a file:
@@ -317,7 +318,7 @@ default:
 A fully pure-Rust, DSP-only build with no native dependency:
 
 ```toml
-audio-engine-core = { version = "0.1", default-features = false, features = ["rubato"] }
+audio-engine-core = { version = "1", default-features = false, features = ["rubato"] }
 ```
 
 Windows (vcpkg or MSYS2) and Unix setup instructions for the default SoXR
@@ -377,11 +378,14 @@ not a caller-writable control channel.
 
 ## Project Status
 
-Experimental `0.1.x`, actively used as the audio foundation of the Lyne player,
-with an evolving API. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85;
-the higher crate MSRV reflects existing DSP code in this repository). Stable
-enough for experimentation, personal applications, and integration testing —
-not yet for 1.0-level API compatibility guarantees.
+Stable `1.0.0` release: the public API is fully documented (`missing_docs` is
+denied at compile time), frozen by committed surface snapshots, and guarded by
+a SemVer gate in CI — any breaking change fails the build before it can ship.
+Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85; the higher crate MSRV
+reflects existing DSP code in this repository). Used in production as the
+audio foundation of the Lyne player. Breaking changes are reserved for major
+version bumps per the policy in [CONTRIBUTING.md](CONTRIBUTING.md); notable
+changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

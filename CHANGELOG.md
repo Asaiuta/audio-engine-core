@@ -5,11 +5,12 @@ All notable changes to `audio-engine-core` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-While the crate is in the `0.x` series the public API is considered
-experimental: minor version bumps may contain breaking changes, as permitted by
-SemVer for pre-1.0 releases.
+Since 1.0.0 the public API is stable: breaking changes are reserved for major
+version bumps, as permitted by SemVer.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-08-11
 
 ### Added
 - `MediaLocation`, `HttpMediaLocation`, `MediaLocationKind`, and
@@ -505,5 +506,6 @@ SemVer for pre-1.0 releases.
   - Lock-free DSP parameter snapshots and realtime processor adapters.
   - A streaming pipeline/ring-buffer primitive.
 
-[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Asaiuta/audio-engine-core/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/Asaiuta/audio-engine-core/releases/tag/v0.1.0
