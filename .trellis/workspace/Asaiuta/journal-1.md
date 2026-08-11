@@ -923,3 +923,36 @@ Gate 8 (enforce documented and semver-checked public API) implementation was com
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Release gate 9: cut 1.0.0, verify release, tag and push
+
+**Date**: 2026-08-11
+**Task**: Release gate 9: cut 1.0.0, verify release, tag and push
+**Branch**: `chore/gate2-legacy-public-surface`
+
+### Summary
+
+Cut the stable 1.0.0 release (gate 9 of 9): Cargo.toml 0.1.0 -> 1.0.0, CHANGELOG [1.0.0] - 2026-08-11 entry from the 484-line Unreleased content, README stable-status wording (banner, Quick Start dep '1', Project Status), CONTRIBUTING 1.x SemVer policy + publish runbook. Verified the full Release Documentation Checklist locally: both feature matrices check/clippy(fmt)/doc -D warnings/tests (480 + 500 lib suites), public_api 2/2, cargo semver-checks 223/223 both matrices, cargo package --allow-dirty (776 files) with in-package verification. Decided immediate release (gate sequence + Lyne usage is the soak) and prepare+runbook publish handoff (no token on machine; 0.1.0 was already on crates.io since 2026-06-12 with no git tag — v0.1.0 backfilled at bf9addb). Tagged v1.0.0 at 57d59be, archived gates 3-6, and pushed branch + both tags to origin.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `57d59be` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

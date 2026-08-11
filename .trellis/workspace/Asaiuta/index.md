@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-08-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~925 | Active |
+| `journal-1.md` | ~958 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-11 | Release gate 9: cut 1.0.0, verify release, tag and push | `57d59be` | `chore/gate2-legacy-public-surface` |
 | 24 | 2026-08-11 | Close out gates 7-8: semver/doc gate green, archive tasks | `7c942ba`, `a380e92` | `chore/gate2-legacy-public-surface` |
 | 23 | 2026-08-03 | Gate 2: decide the legacy public surface lifecycle | `64f8de4`, `78afe04` | `chore/gate2-legacy-public-surface` |
 | 22 | 2026-07-31 | Archive completed non-codebase tasks | `9d1eecc`, `abc05e4`, `6e619ea`, `705f8d7`, `0760265`, `1d889a1`, `80ee693`, `1798833`, `3da9a94`, `f0c0445`, `83753ce`, `0c62feb` | `-` |
