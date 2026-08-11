@@ -242,6 +242,7 @@ let mut samples = [0.0_f64; 512 * 2];
 
 // Audio callback.
 let progress = pipeline.process(&mut samples)?;
+# Ok::<(), audio_engine_core::ProcessError>(())
 ```
 
 `CallbackSpec` describes already-converted device-domain audio and bounds the maximum callback block size.
