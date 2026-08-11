@@ -3,7 +3,7 @@
   "name": "release-1-0-0",
   "title": "Release 1.0.0",
   "description": "1.0 gate 9 of 9. Version bump, CHANGELOG release section, README/docs status text replacing the experimental 0.1.x wording, MSRV and SemVer policy statement, git tag, and the publish path. Blocked until gates 1-8 land and the API has had a soak period.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

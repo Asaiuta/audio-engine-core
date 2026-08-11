@@ -159,23 +159,54 @@ The processing path is designed to run on the audio callback thread:
 
 ## Semantic versioning policy
 
-This crate follows [Semantic Versioning](https://semver.org/). While the crate
-is pre-1.0 (`0.y.z`):
+This crate follows [Semantic Versioning](https://semver.org/) with the 1.x
+contract:
 
 - **Breaking changes** (removing or changing public items, altering documented
-  behavior) bump the **minor** version (`0.1` → `0.2`).
-- **New features and non-breaking additions** bump the **patch** version
-  (`0.1.0` → `0.1.1`).
+  behavior) bump the **major** version (`1.0` → `2.0`).
+- **New features and non-breaking additions** bump the **minor** version
+  (`1.0.0` → `1.1.0`).
+- **Bug fixes and documentation-only changes** bump the **patch** version
+  (`1.0.0` → `1.0.1`).
 
 The public API surface is everything re-exported from `lib.rs` and the public
 items of the `config`, `decoder`, `diagnostics`, `pipeline`, `processor`, and
 `runtime` modules. Adding a default-on Cargo feature, or making a previously
 required dependency optional behind a default-on feature, is **not** considered
-a breaking change because existing default builds are unaffected.
+a breaking change because existing default builds are unaffected. Turning a
+previously optional dependency **on** by default is reviewed as if it were
+breaking, because it changes what existing default builds link (as `soxr` did
+at 1.0.0, adding the LGPL-2.1 libsoxr build requirement). Both the SemVer
+guarantee and the MSRV (see above) are enforced by CI: any breaking change
+fails `cargo-semver-checks` against the committed rustdoc-JSON baselines, and
+raising the MSRV is a deliberate, changelog-recorded decision.
 
-Once the API stabilizes the crate will move to `1.0.0` and adopt the standard
-1.x compatibility guarantees. Notable changes are recorded in
-[`CHANGELOG.md`](CHANGELOG.md).
+## Publishing a release
+
+Releases are cut from a green CI state on the release branch:
+
+1. Bump the version in `Cargo.toml`, move the `[Unreleased]` changelog entries
+   into a dated release section, and refresh README status text if it changed.
+2. Verify the release locally with the commands in the Release Documentation
+   Checklist (`.trellis/spec/backend/quality-guidelines.md`): both feature
+   matrices build/test/clippy/doc with `-D warnings`, `cargo test --test
+   public_api` matches the committed snapshots, `cargo semver-checks` passes
+   for both matrices against the committed baselines, and
+   `cargo package --allow-dirty` verifies the package.
+3. Commit the release changes, then create an annotated tag:
+   `git tag -a v1.0.0 -m "audio-engine-core 1.0.0"`.
+4. Push the branch and tags (`git push origin <branch> --tags`); changelog
+   compare links resolve only after the tag lands on origin.
+5. Publish from the tagged commit: `cargo login` (once per machine, token from
+   the crates.io account settings) followed by `cargo publish --dry-run` and
+   then `cargo publish`.
+6. Verify `https://docs.rs/audio-engine-core/<version>` builds the documented
+   surface (the docs.rs parity CI job mirrors its environment) and the GitHub
+   release notes link the changelog entry.
+
+After 1.0.0, `cargo semver-checks` may switch from the committed rustdoc-JSON
+baselines to the registry baseline (`--baseline-version`); that switch is a
+documented CI change, not an automatic one.
 
 ## Licensing
 
