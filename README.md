@@ -1,5 +1,7 @@
 # audio-engine-core
 
+**English** | [简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml)
 
 > A realtime-safe Rust audio processing core for building high-quality music players.
