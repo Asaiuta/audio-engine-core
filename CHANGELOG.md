@@ -10,6 +10,80 @@ version bumps, as permitted by SemVer.
 
 ## [Unreleased]
 
+## [1.0.1] - Unreleased
+
+Defect-fix release for the findings of the 2026-08-11 full-code review. No
+public API surface changes.
+
+### Fixed
+- **Equalizer stability below 32 kHz**: a band whose center frequency sits at
+  or above Nyquist (the 16 kHz band on 22.05/24 kHz material, and lower bands
+  at even lower rates) designed a biquad with poles outside the unit circle
+  and diverged to non-finite output within milliseconds once given gain. Such
+  bands are now stable identity stages at every gain and re-arm when a later
+  sample-rate change brings them back below Nyquist.
+- **Playback lifecycle: stop-fade during a drain**: requesting
+  `request_stop_with_fade` while the pipeline was already `Draining` flipped
+  the state back to `FadingOut`, whose `chain.process` call fails with
+  `AlreadyFinished` once a drain has begun — wedging the callback in an error
+  loop until reset. The request now keeps draining and applies the fade ramp
+  to the remaining tail.
+- **Playback lifecycle: audible history flush after a completed stop fade**:
+  the stop ramp is applied after the chain, so the drain that follows used to
+  flush the chain's internal history (limiter lookahead, convolution tail) at
+  full level after the output had already reached silence. A drain reached
+  through a stop fade now stays at the faded level (silence once the ramp
+  completed); a directly requested drain still plays the tail at unity.
+  Consequently `request_stop_with_fade(0)` now cuts to silence at the next
+  block boundary instead of behaving like `request_drain`.
+- **Playback lifecycle: repeated stop fades**: a second
+  `request_stop_with_fade` during an active fade restarted the ramp from
+  unity, audibly jumping the level back up. A new ramp now starts from the
+  gain currently in effect.
+- **PeakLimiter construction**: the public constructors accepted a non-finite
+  threshold (which silently disables limiting) and a non-finite or negative
+  release time (whose `exp(-1/x) > 1` coefficient makes released gain diverge
+  without bound). Both are now rejected with
+  `ProcessError::InvalidParameter`, and the internal release-coefficient
+  computation shares `set_release_ms`'s one-sample floor.
+- **Transistor saturation fold-back**: the cubic soft clip ran past its
+  extremum (to |x| = 1.5, plateauing at the folded-back 0.375 instead of the
+  peak 2/3), so louder input came out quieter across a 4.9 dB fold-back
+  region with non-harmonic artifacts. The input is now clamped at the curve's
+  extremum, keeping the transfer monotonic and C1.
+- **Metadata revision shadowing**: only the oldest metadata revision was
+  merged, so on the very common dual-tagged MP3 the 30-byte ID3v1 fields
+  shadowed the complete ID3v2 title, artist, cover art, and ReplayGain.
+  Revisions now merge newest-first (older revisions still fill missing
+  fields), and a track `Artist` now wins over `AlbumArtist` regardless of tag
+  order instead of keep-first racing into the same field.
+- **HTTP Range body error classification**: a transport failure while the
+  Range body streamed was relabelled as the non-retriable
+  `InvalidRangeResponse`, defeating the retry policy at the most common
+  failure point and wrongly admitting the bounded full-download fallback for
+  transient faults. Body I/O errors now keep their structured identity
+  (timeout/reset stay retriable); a clean short body is still an invalid
+  Range response.
+- **Post-seek gapless accounting**: for track-fallback codecs the seek path
+  stored the landed position in presentation frames while the delay/padding
+  cursor runs in raw stream frames, so on priming-declaring containers (CAF)
+  every post-seek position was `delay` frames small and end padding leaked
+  into the output. Seek positions are now converted to raw frames (signed,
+  handling landings inside the delay region exactly).
+- **Published package hygiene**: `cargo package` shipped 777 files including
+  the repository's internal workflow directory. An explicit `include`
+  whitelist now ships only the crate sources, benches, examples, docs, and
+  license/notice files (106 files).
+
+### Changed
+- README/docs corrections: the limiter caveat now matches the code (the
+  offline-chain limiter runs in the output-rate domain after resampling, and
+  the full output-chain true-peak probe is an enforced gate, not
+  report-only); removed a stale pre-1.0 "not stable yet" sentence; documented
+  that the gapless fallback cannot trim M4A/AAC today because Symphonia 0.6's
+  MP4 demuxer surfaces no priming metadata; corrected the `Equalizer::reset`
+  and `AutomixAnalysisMode::Full` rustdoc to describe actual behavior.
+
 ## [1.0.0] - 2026-08-11
 
 ### Added

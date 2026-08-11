@@ -360,6 +360,14 @@ impl StreamingDecoder {
             .or_else(|| total_frames.map(|frames| frames as f64 / sample_rate as f64));
         let encoder_delay = track.delay.unwrap_or(0);
         let end_padding = track.padding.unwrap_or(0);
+        // Raw stream length = valid frames plus both trim regions. This
+        // matches demuxers that report `num_frames` as valid presentation
+        // frames (Symphonia's CAF variable-packet path reports
+        // `pakt.valid_frames`). Known gap: the CAF fixed-packet path derives
+        // `num_frames` from the data size, which already includes the trim
+        // regions, so a primed *uncompressed* CAF overcounts here and its end
+        // padding is under-trimmed; compressed CAF (AAC/ALAC) always uses the
+        // variable path and is exact.
         let raw_total_frames = total_frames.map(|frames| {
             frames
                 .saturating_add(u64::from(encoder_delay))
@@ -657,7 +665,11 @@ impl StreamingDecoder {
     /// A sample-exact (`Accurate`) mode is intentionally not offered.
     ///
     /// `samples_output` is reset so fallback end-padding accounting tracks the
-    /// new position. Track-level encoder-delay trimming is **not** re-armed;
+    /// new position; for the track-fallback owner the realized position is
+    /// converted into raw stream frames (presentation offset plus encoder
+    /// delay, matching the raw cursor the no-seek path maintains), so end
+    /// padding is still trimmed at the correct frame after a seek. Track-level
+    /// encoder-delay trimming is **not** re-armed;
     /// native MP3/Vorbis decoders instead consume packet-local trim and reset
     /// preroll according to their codec state.
     pub fn seek(&mut self, time_secs: f64) -> Result<(), DecoderError> {
@@ -692,17 +704,37 @@ impl StreamingDecoder {
     }
 
     fn timestamp_to_frame_offset(&self, timestamp: Timestamp) -> Option<u64> {
+        // The track-fallback owner accounts `samples_output` in raw stream
+        // frames: the no-seek path counts skipped leading delay into it, and
+        // `raw_total_frames` includes the delay region. Containers that carry
+        // priming stamp their packets with presentation timestamps starting
+        // at `-delay` (Symphonia's CAF demuxer does this for both fixed and
+        // variable packetization), so the raw position of a landed packet is
+        // its presentation offset plus the delay, computed signed before
+        // flooring at the true stream start. Native gapless owners account in
+        // presentation frames and add nothing.
+        let raw_delay_frames = if self.gapless_owner.uses_track_fallback() {
+            self.info.encoder_delay
+        } else {
+            0
+        };
         timestamp_to_frame_offset(
             timestamp,
             self.track_start_ts,
             self.track_time_base,
             self.info.sample_rate,
+            raw_delay_frames,
         )
     }
 
     /// Realized first-decoded-frame position after the most recent seek, in
     /// frames. Returns `samples_output / channels`; immediately after a
     /// successful `seek()` this reflects the coarse seek target.
+    ///
+    /// The frame domain follows the gapless owner: the track-fallback owner
+    /// counts raw stream frames (including any leading encoder-delay region),
+    /// native MP3/Vorbis owners count presentation frames. For codecs without
+    /// gapless metadata the two domains coincide.
     pub fn current_frame(&self) -> u64 {
         let channels = self.info.channels.max(1) as u64;
         self.samples_output / channels
@@ -748,21 +780,27 @@ fn timestamp_to_frame_offset(
     start_ts: Timestamp,
     time_base: Option<TimeBase>,
     sample_rate: u32,
+    raw_delay_frames: u32,
 ) -> Option<u64> {
     let relative_ts = timestamp.get().checked_sub(start_ts.get())?;
-    if relative_ts <= 0 {
-        return Some(0);
-    }
 
-    let Some(time_base) = time_base else {
-        return u64::try_from(relative_ts).ok();
+    let presentation_frames = match time_base {
+        None => i128::from(relative_ts),
+        Some(time_base) => {
+            i128::from(relative_ts)
+                .checked_mul(i128::from(time_base.numer.get()))?
+                .checked_mul(i128::from(sample_rate))?
+                / i128::from(time_base.denom.get())
+        }
     };
 
-    let frame_numerator = i128::from(relative_ts)
-        .checked_mul(i128::from(time_base.numer.get()))?
-        .checked_mul(i128::from(sample_rate))?;
-    let frame_count = frame_numerator / i128::from(time_base.denom.get());
-    u64::try_from(frame_count).ok()
+    // A coarse seek near the stream start can land on a packet inside the
+    // encoder-delay region, whose presentation timestamp is negative. Adding
+    // the raw delay before flooring keeps the raw position exact there
+    // (presentation `-delay` is raw frame zero); the floor only defends
+    // against a malformed container stamping before its own declared start.
+    let raw_frames = presentation_frames.checked_add(i128::from(raw_delay_frames))?;
+    u64::try_from(raw_frames.max(0)).ok()
 }
 
 #[cfg(test)]
@@ -787,8 +825,61 @@ mod streaming_tests {
                 Timestamp::new(-25),
                 Some(time_base),
                 48_000,
+                0,
             ),
             Some(48_000)
+        );
+    }
+
+    /// Priming-aware containers (Symphonia's CAF demuxer in both fixed and
+    /// variable packetization) stamp packets with presentation timestamps
+    /// starting at `-delay` while `Track::start_ts` stays zero. The 2026-08
+    /// review: seek accounting stored the presentation offset while the
+    /// fallback delay/padding cursor runs in raw frames, so every post-seek
+    /// position was `delay` frames small and end padding leaked into output.
+    #[test]
+    fn seek_timestamp_converts_presentation_to_raw_for_fallback_delay() {
+        // Mid-stream landing: raw = presentation + delay.
+        assert_eq!(
+            timestamp_to_frame_offset(
+                Timestamp::new(48_000),
+                Timestamp::new(0),
+                None,
+                48_000,
+                2_112,
+            ),
+            Some(50_112)
+        );
+
+        // Landing on the first packet of a primed stream (pts = -delay) is
+        // raw frame zero, not a clamped presentation zero.
+        assert_eq!(
+            timestamp_to_frame_offset(
+                Timestamp::new(-2_112),
+                Timestamp::new(0),
+                None,
+                48_000,
+                2_112,
+            ),
+            Some(0)
+        );
+
+        // Landing inside the delay region keeps the exact raw offset.
+        assert_eq!(
+            timestamp_to_frame_offset(
+                Timestamp::new(-2_000),
+                Timestamp::new(0),
+                None,
+                48_000,
+                2_112,
+            ),
+            Some(112)
+        );
+
+        // Without a fallback delay the presentation floor is preserved.
+        assert_eq!(
+            timestamp_to_frame_offset(Timestamp::new(-25), Timestamp::new(0), None, 48_000, 0),
+            Some(0)
         );
     }
 

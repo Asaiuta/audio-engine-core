@@ -47,7 +47,12 @@ const SPECTRAL_HOP_SIZE: usize = FFT_SIZE / 2;
 pub enum AutomixAnalysisMode {
     /// Analyze only the head/tail windows needed for placement decisions.
     Head,
-    /// Analyze the full track including the interior energy profile.
+    /// Analyze the head window plus the trailing tail window.
+    ///
+    /// Only these two bounded windows are decoded: the track interior between
+    /// them is never read, its `energy_profile` entries stay zero, and the
+    /// reported loudness covers the analyzed windows rather than the whole
+    /// track.
     #[default]
     Full,
 }

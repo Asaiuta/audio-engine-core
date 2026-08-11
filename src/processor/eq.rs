@@ -1,5 +1,7 @@
 //! IIR Biquad Equalizer - 10-band parametric EQ
 
+use std::cmp::Ordering;
+
 use super::lockfree_params::{validate_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
 use super::traits::ProcessError;
 
@@ -38,7 +40,34 @@ pub(crate) struct BiquadSection {
 }
 
 impl BiquadSection {
+    /// A unit-gain pass-through section: `y[n] = x[n]` for every input.
+    fn identity() -> Self {
+        Self {
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
     pub fn peaking_eq(freq: f64, gain_db: f64, q: f64, sample_rate: f64) -> Self {
+        // A center frequency at or above Nyquist has no representable band to
+        // move: `w0 >= PI` makes `sin(w0) <= 0`, which flips the sign of
+        // `alpha` and puts the pole pair on or outside the unit circle, so the
+        // section diverges instead of filtering (a 16 kHz band on 22.05 kHz
+        // material reached |pole| = 2.38 at -12 dB). Such a band is a stable
+        // identity at every gain. Only a strictly-below-Nyquist ordering
+        // designs a filter, so an incomparable (non-finite) frequency or
+        // sample rate also takes the identity path.
+        let strictly_below_nyquist =
+            matches!((freq * 2.0).partial_cmp(&sample_rate), Some(Ordering::Less));
+        if !strictly_below_nyquist {
+            return Self::identity();
+        }
+
         let a = 10.0_f64.powf(gain_db / 40.0);
         let w0 = 2.0 * std::f64::consts::PI * freq / sample_rate;
         let cos_w0 = w0.cos();
@@ -78,6 +107,12 @@ impl BiquadSection {
 }
 
 /// 10-band Parametric EQ
+///
+/// Band centers are fixed at 31 Hz through 16 kHz. A band whose center
+/// frequency is at or above the Nyquist frequency of the configured sample
+/// rate (for example the 16 kHz band on 22.05 kHz material) is a transparent
+/// identity stage at every gain setting; it re-arms automatically when a later
+/// sample-rate change brings the band back below Nyquist.
 pub struct Equalizer {
     bands: Vec<[BiquadSection; EQ_BANDS]>, // current active filters [channel][band]
     target_bands: Vec<[BiquadSection; EQ_BANDS]>, // target filters (new params) [channel][band]
@@ -287,7 +322,14 @@ impl Equalizer {
     // It duplicated logic from process() + process_sample_no_counter_update()
     // with subtle differences that could cause bugs. Use process() instead.
 
-    /// Reset all biquad history in every channel and return bands to target.
+    /// Reset all biquad signal history (`z1`/`z2`) in every channel, for both
+    /// the active and the target filter banks.
+    ///
+    /// Coefficients and any in-progress parameter crossfade are preserved: a
+    /// transition that was mid-flight continues (now over cleared history)
+    /// and still adopts the target coefficients when it completes. Use
+    /// [`Self::reset_settled`] (crate-internal) to start a logically new
+    /// stream directly from the latest target coefficients instead.
     pub fn reset(&mut self) {
         for ch in &mut self.bands {
             for band in ch {
@@ -639,6 +681,113 @@ mod tests {
         kernel.set_all_bands_validated(&gains, 48_000.0);
 
         assert_bank_bit_equal(&checked, &kernel);
+    }
+
+    /// Necessary-and-sufficient stability test for a normalized biquad: both
+    /// poles are strictly inside the unit circle iff `|a2| < 1` and
+    /// `|a1| < 1 + a2` (Schur-Cohn / stability triangle).
+    fn assert_section_is_strictly_stable(section: &BiquadSection, context: &str) {
+        assert!(
+            section.a2.abs() < 1.0 && section.a1.abs() < 1.0 + section.a2,
+            "{context}: unstable poles (a1={}, a2={})",
+            section.a1,
+            section.a2
+        );
+    }
+
+    #[test]
+    fn every_band_is_strictly_stable_across_sample_rates_and_extreme_gains() {
+        // The 2026-08 review found the 16 kHz band diverging on 22.05/24 kHz
+        // material: freq >= Nyquist flips the sign of alpha and pushes the
+        // pole pair outside the unit circle. Every prior test lived at 48 kHz
+        // and could not see it.
+        for sample_rate in [
+            8_000.0, 11_025.0, 16_000.0, 22_050.0, 24_000.0, 32_000.0, 44_100.0, 48_000.0,
+            96_000.0, 192_000.0,
+        ] {
+            for gain_db in [EQ_BAND_GAIN_DB_MIN, -3.0, 0.0, 3.0, EQ_BAND_GAIN_DB_MAX] {
+                for (band, &freq) in Equalizer::FREQUENCIES.iter().enumerate() {
+                    let section =
+                        BiquadSection::peaking_eq(freq, gain_db, Equalizer::Q, sample_rate);
+                    assert_section_is_strictly_stable(
+                        &section,
+                        &format!("band {band} ({freq} Hz) at {gain_db} dB, fs {sample_rate}"),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bands_at_or_above_nyquist_are_transparent_and_bounded() {
+        // 22.05 kHz playback with the full user gain range applied to every
+        // band: the 16 kHz band (and at 8 kHz playback also the 8 kHz band)
+        // must be a stable pass-through instead of diverging to NaN.
+        for sample_rate in [8_000.0, 22_050.0, 24_000.0] {
+            let mut eq = Equalizer::new(2, sample_rate);
+            eq.set_enabled(true);
+            let gains = [EQ_BAND_GAIN_DB_MAX; EQ_BANDS];
+            eq.set_all_bands(&gains, sample_rate).unwrap();
+
+            let mut buffer = (0..2 * (EQ_SMOOTH_SAMPLES as usize + 2048))
+                .map(|sample| ((sample as f64) * 0.037).sin() * 0.5)
+                .collect::<Vec<_>>();
+            eq.process(&mut buffer);
+
+            let max_abs = buffer.iter().fold(0.0_f64, |acc, s| acc.max(s.abs()));
+            assert!(
+                max_abs.is_finite() && max_abs < 1.0e3,
+                "fs {sample_rate}: output diverged (max abs {max_abs:e})"
+            );
+        }
+    }
+
+    #[test]
+    fn nyquist_band_is_bit_exact_identity_once_settled() {
+        // Only the 16 kHz band is driven; at 22.05 kHz it must contribute
+        // exactly nothing (identity coefficients), so once the crossfade has
+        // settled the samples pass through bit-exactly.
+        let mut eq = Equalizer::new(1, 22_050.0);
+        eq.set_enabled(true);
+        eq.set_band_gain(EQ_BANDS - 1, 12.0, 22_050.0).unwrap();
+
+        let mut settle = vec![0.0; EQ_SMOOTH_SAMPLES as usize + 8];
+        eq.process(&mut settle);
+
+        let input = (0..512)
+            .map(|sample| ((sample as f64) * 0.113).cos() * 0.25)
+            .collect::<Vec<_>>();
+        let mut output = input.clone();
+        eq.process(&mut output);
+
+        for (produced, expected) in output.iter().zip(&input) {
+            assert_eq!(produced.to_bits(), expected.to_bits());
+        }
+    }
+
+    #[test]
+    fn nyquist_guard_boundary_designs_strictly_below_and_bypasses_at_and_above() {
+        // Exactly at Nyquist (fs = 32 kHz, 16 kHz band) the double pole sits
+        // on the unit circle, so the guard must include equality.
+        let at_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, 32_000.0);
+        assert_eq!(at_nyquist.b0, 1.0);
+        assert_eq!(at_nyquist.b1, 0.0);
+        assert_eq!(at_nyquist.a2, 0.0);
+
+        let below_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, 32_001.0);
+        assert!(
+            below_nyquist.b0 != 1.0,
+            "band strictly below Nyquist must still be designed"
+        );
+        assert_section_is_strictly_stable(&below_nyquist, "16 kHz at fs 32001");
+
+        // A non-finite or non-positive sample rate cannot construct an
+        // unstable section either.
+        for sample_rate in [f64::NAN, 0.0, -48_000.0] {
+            let guarded = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, sample_rate);
+            assert_eq!(guarded.b0, 1.0);
+            assert_eq!(guarded.a2, 0.0);
+        }
     }
 
     impl Equalizer {

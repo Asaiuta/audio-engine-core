@@ -482,12 +482,14 @@ fn read_bounded_body(
     let mut chunk = [0_u8; READ_CHUNK_SIZE];
     loop {
         check_cancelled(cancel_token)?;
-        let read = stream.read(&mut chunk).map_err(|error| {
-            invalid_range(format!(
-                "failed while reading Range body ({:?})",
-                error.kind()
-            ))
-        })?;
+        // A transport failure while the body streams is not evidence that the
+        // server's Range support is broken: keep the structured I/O identity
+        // (timeout/reset stay retriable) instead of relabelling it as the
+        // non-retriable `InvalidRangeResponse`, which would both defeat
+        // `with_network_retry` and wrongly admit the full-download fallback.
+        // A clean short body still fails the length check below as an invalid
+        // Range response, matching the trust-boundary contract.
+        let read = stream.read(&mut chunk).map_err(NetworkError::from_io)?;
         if read == 0 {
             break;
         }
@@ -803,6 +805,76 @@ mod tests {
         );
         handle.join().expect("test server completed");
         result
+    }
+
+    #[test]
+    fn mid_body_transport_failure_keeps_its_structured_identity() {
+        // A valid 206 whose chunked body ends without the terminating chunk:
+        // deterministic transport failure during the body read, after the
+        // headers were already accepted.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let (request_tx, request_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accept test request");
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut chunk).expect("read test request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+            }
+            request_tx
+                .send(String::from_utf8(request).expect("ASCII test request"))
+                .expect("send captured request");
+            write!(socket, "HTTP/1.1 206 Partial Content\r\n").expect("write status");
+            write!(socket, "Content-Range: bytes 0-15/16\r\n").expect("write range header");
+            write!(socket, "Transfer-Encoding: chunked\r\n").expect("write encoding header");
+            write!(socket, "Connection: close\r\n\r\n").expect("finish headers");
+            // One 8-byte chunk, then close without the terminating `0\r\n\r\n`.
+            write!(socket, "8\r\n").expect("write chunk size");
+            socket.write_all(&[0x55; 8]).expect("write partial body");
+            write!(socket, "\r\n").expect("finish chunk");
+            let _ = socket.flush();
+        });
+
+        let url = Url::parse(&format!("http://localhost:{}/audio.flac", address.port()))
+            .expect("test URL");
+        let client = build_client(Duration::from_secs(2)).expect("test client");
+        let result = fetch_range_once(&client, &url, None, 0, 16, Some(16), None);
+        let request = request_rx.recv().expect("captured request");
+        assert!(
+            request
+                .lines()
+                .any(|line| line.eq_ignore_ascii_case("range: bytes=0-15")),
+            "request did not carry the expected Range header:\n{request}"
+        );
+        handle.join().expect("test server completed");
+        let error = match result {
+            Ok(_) => panic!("a truncated body must fail"),
+            Err(error) => error,
+        };
+
+        // The 2026-08 review: this was misclassified as the non-retriable
+        // `InvalidRangeResponse`, which both defeated `with_network_retry` on
+        // the most common failure point and wrongly admitted the bounded
+        // full-download fallback for a transient transport fault.
+        assert!(
+            !matches!(
+                error,
+                NetworkError::InvalidRangeResponse(_) | NetworkError::RangeNotSupported { .. }
+            ),
+            "transport failure must not be relabelled as a Range protocol failure: {error:?}"
+        );
+        assert!(
+            matches!(
+                error,
+                NetworkError::ConnectionReset | NetworkError::HttpTimeout | NetworkError::Other(_)
+            ),
+            "transport failure lost its structured identity: {error:?}"
+        );
     }
 
     #[test]

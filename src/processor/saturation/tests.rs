@@ -201,6 +201,52 @@ fn transfer_at(
     sample[SATURATION_LATENCY_FRAMES]
 }
 
+/// The 2026-08 review found the Transistor cubic extended past its extremum
+/// (to |x| = 1.5, plateauing at the folded-back 0.375 instead of the peak
+/// 2/3): louder input came out quieter across a 4.9 dB fold-back region.
+/// Every base shape must be a monotonic, odd, bounded saturator.
+#[test]
+fn saturation_base_shapes_are_monotonic_odd_and_bounded() {
+    for sat_type in [
+        SaturationType::Tape,
+        SaturationType::Tube,
+        SaturationType::Transistor,
+    ] {
+        let mut previous = 0.0_f64;
+        for step in 1..=4000 {
+            let x = step as f64 * 0.001; // 0.001 ..= 4.0 covers both clamp points
+            let shaped = Saturation::apply_saturation_type(sat_type, x);
+            assert!(
+                shaped >= previous - 1.0e-12,
+                "{sat_type:?} folded back at {x}: {previous} -> {shaped}"
+            );
+            assert!(
+                shaped.abs() <= 1.0,
+                "{sat_type:?} exceeded unit bound at {x}: {shaped}"
+            );
+            let mirrored = Saturation::apply_saturation_type(sat_type, -x);
+            assert!(
+                (mirrored + shaped).abs() <= 1.0e-12,
+                "{sat_type:?} lost odd symmetry at {x}"
+            );
+            previous = shaped;
+        }
+    }
+}
+
+#[test]
+fn transistor_driven_transfer_no_longer_folds_louder_input_quieter() {
+    // Review scenario: drive 2.0 (drive_plus1 = 3.0) with inputs beyond the
+    // knee. The pre-fix cubic mapped 0.4 -> 0.624 but 0.5 -> 0.375, so the
+    // louder input came out 4.4 dB quieter.
+    let quieter = transfer_at(SaturationType::Transistor, 0.0, 2.0, 0.0, 0.4);
+    let louder = transfer_at(SaturationType::Transistor, 0.0, 2.0, 0.0, 0.5);
+    assert!(
+        louder >= quieter,
+        "louder input must not come out quieter: {quieter} -> {louder}"
+    );
+}
+
 #[test]
 fn threshold_transfer_is_c1_for_every_saturation_type() {
     let threshold = 0.8;

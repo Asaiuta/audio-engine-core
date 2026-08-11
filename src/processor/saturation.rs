@@ -915,13 +915,15 @@ impl Saturation {
             SaturationType::Tape => x.signum() * (1.0 - (-x.abs()).exp()),
             SaturationType::Tube => x.tanh(),
             SaturationType::Transistor => {
-                // Piecewise cubic: x - x³/3 for |x| ≤ 1.5, then smoothly limited
-                // Fix discontinuity: clamp to value at boundary (1.5 - 1.5³/3 = 0.375)
-                if x.abs() <= 1.5 {
-                    x - (x * x * x) / 3.0
-                } else {
-                    x.signum() * 0.375
-                }
+                // Cubic soft clip `x - x³/3`, saturating at its extremum: the
+                // derivative `1 - x²` reaches zero at |x| = 1 (value ±2/3), so
+                // clamping the input there is monotonic and C1. Running the
+                // cubic past its peak (the pre-1.0.1 code extended it to
+                // |x| = 1.5, then plateaued at the folded-back value 0.375)
+                // made louder input quieter across a 4.9 dB fold-back region —
+                // a waveform folder, not a clipper.
+                let x = x.clamp(-1.0, 1.0);
+                x - (x * x * x) / 3.0
             }
         }
     }

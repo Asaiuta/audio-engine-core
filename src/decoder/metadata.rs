@@ -1,5 +1,5 @@
 use symphonia::core::formats::FormatReader;
-use symphonia::core::meta::{MetadataRevision, RawValue, StandardTag};
+use symphonia::core::meta::{Metadata, MetadataRevision, RawValue, StandardTag};
 
 use crate::channel_layout::ChannelLayout;
 
@@ -67,13 +67,29 @@ pub struct AudioInfo {
     pub metadata: TrackMetadata,
 }
 
-pub(super) fn extract_metadata(format_reader: &mut dyn FormatReader) -> TrackMetadata {
-    let mut metadata = TrackMetadata::default();
+/// Merge staging for one extraction pass.
+///
+/// `AlbumArtist` is only a fallback for [`TrackMetadata::artist`]: a real
+/// `Artist` tag must win regardless of the order tags or revisions arrive in,
+/// so it is staged separately instead of racing keep-first into the same
+/// field.
+#[derive(Default)]
+struct MetadataAccumulator {
+    metadata: TrackMetadata,
+    album_artist: Option<String>,
+}
 
-    let metadata_log = format_reader.metadata();
-    if let Some(revision) = metadata_log.current() {
-        merge_metadata_revision(&mut metadata, revision);
+impl MetadataAccumulator {
+    fn finish(mut self) -> TrackMetadata {
+        if self.metadata.artist.is_none() {
+            self.metadata.artist = self.album_artist;
+        }
+        self.metadata
     }
+}
+
+pub(super) fn extract_metadata(format_reader: &mut dyn FormatReader) -> TrackMetadata {
+    let metadata = collect_newest_first(&mut format_reader.metadata());
 
     if metadata.title.is_some() || metadata.artist.is_some() {
         log::debug!(
@@ -87,16 +103,42 @@ pub(super) fn extract_metadata(format_reader: &mut dyn FormatReader) -> TrackMet
     metadata
 }
 
-pub(super) fn merge_metadata_revision(metadata: &mut TrackMetadata, revision: &MetadataRevision) {
+/// Merge every queued metadata revision, newest first.
+///
+/// Symphonia queues revisions oldest-first (a tail scan pushes ID3v1/APE
+/// before the header ID3v2 is read) and `current()` returns that oldest
+/// revision. Reading only `current()` therefore let a 30-byte ID3v1 tag
+/// shadow the complete ID3v2 title, artist, cover art, and ReplayGain on the
+/// very common dual-tagged MP3. Newest-first iteration keeps this module's
+/// keep-first field merge but gives the newest revision priority, while older
+/// revisions still fill any fields the newest one lacks.
+fn collect_newest_first(metadata_log: &mut Metadata<'_>) -> TrackMetadata {
+    let mut older = Vec::new();
+    while let Some(revision) = metadata_log.pop() {
+        older.push(revision);
+    }
+
+    let mut accumulator = MetadataAccumulator::default();
+    if let Some(newest) = metadata_log.current() {
+        merge_metadata_revision(&mut accumulator, newest);
+    }
+    for revision in older.iter().rev() {
+        merge_metadata_revision(&mut accumulator, revision);
+    }
+    accumulator.finish()
+}
+
+fn merge_metadata_revision(accumulator: &mut MetadataAccumulator, revision: &MetadataRevision) {
     for tag in &revision.media.tags {
-        merge_tag(metadata, tag);
+        merge_tag(accumulator, tag);
     }
     for track in &revision.per_track {
         for tag in &track.metadata.tags {
-            merge_tag(metadata, tag);
+            merge_tag(accumulator, tag);
         }
     }
 
+    let metadata = &mut accumulator.metadata;
     if metadata.cover_art.is_none() {
         if let Some(visual) = revision.media.visuals.first() {
             metadata.cover_art = Some(visual.data.to_vec());
@@ -113,7 +155,11 @@ pub(super) fn merge_metadata_revision(metadata: &mut TrackMetadata, revision: &M
     }
 }
 
-fn merge_tag(metadata: &mut TrackMetadata, tag: &symphonia::core::meta::Tag) {
+fn merge_tag(accumulator: &mut MetadataAccumulator, tag: &symphonia::core::meta::Tag) {
+    let MetadataAccumulator {
+        metadata,
+        album_artist,
+    } = accumulator;
     match tag.std.as_ref() {
         Some(StandardTag::TrackTitle(value)) => {
             metadata.title = metadata
@@ -128,10 +174,7 @@ fn merge_tag(metadata: &mut TrackMetadata, tag: &symphonia::core::meta::Tag) {
                 .or_else(|| Some(value.as_ref().clone()));
         }
         Some(StandardTag::AlbumArtist(value)) => {
-            metadata.artist = metadata
-                .artist
-                .take()
-                .or_else(|| Some(value.as_ref().clone()));
+            *album_artist = album_artist.take().or_else(|| Some(value.as_ref().clone()));
         }
         Some(StandardTag::Album(value)) => {
             metadata.album = metadata
@@ -186,19 +229,26 @@ fn merge_tag(metadata: &mut TrackMetadata, tag: &symphonia::core::meta::Tag) {
         _ => {}
     }
 
-    merge_non_standard_tag(metadata, &tag.raw.key, &tag.raw.value);
+    merge_non_standard_tag(accumulator, &tag.raw.key, &tag.raw.value);
 }
 
-fn merge_non_standard_tag(metadata: &mut TrackMetadata, key: &str, value: &RawValue) {
+fn merge_non_standard_tag(accumulator: &mut MetadataAccumulator, key: &str, value: &RawValue) {
+    let MetadataAccumulator {
+        metadata,
+        album_artist,
+    } = accumulator;
     match key.to_lowercase().as_str() {
         "title" => {
             metadata.title = metadata.title.take().or_else(|| tag_value_to_string(value));
         }
-        "artist" | "albumartist" | "album_artist" => {
+        "artist" => {
             metadata.artist = metadata
                 .artist
                 .take()
                 .or_else(|| tag_value_to_string(value));
+        }
+        "albumartist" | "album_artist" => {
+            *album_artist = album_artist.take().or_else(|| tag_value_to_string(value));
         }
         "album" => {
             metadata.album = metadata.album.take().or_else(|| tag_value_to_string(value));
@@ -323,12 +373,15 @@ fn parse_year_str(s: &str) -> Option<u32> {
 mod tests {
     use std::sync::Arc;
 
-    use super::{merge_tag, TrackMetadata};
-    use symphonia::core::meta::{RawValue, StandardTag, Tag};
+    use super::{collect_newest_first, merge_tag, MetadataAccumulator};
+    use symphonia::core::meta::{
+        MetadataContainer, MetadataId, MetadataInfo, MetadataLog, MetadataRevision, RawValue,
+        StandardTag, Tag,
+    };
 
     #[test]
     fn standard_tags_and_raw_aliases_preserve_existing_metadata_contract() {
-        let mut metadata = TrackMetadata::default();
+        let mut accumulator = MetadataAccumulator::default();
         let title = Tag::new_from_parts(
             "TITLE",
             RawValue::String(Arc::new("raw title".to_string())),
@@ -349,12 +402,109 @@ mod tests {
             None,
         );
 
-        merge_tag(&mut metadata, &title);
-        merge_tag(&mut metadata, &album_artist);
-        merge_tag(&mut metadata, &replaygain);
+        merge_tag(&mut accumulator, &title);
+        merge_tag(&mut accumulator, &album_artist);
+        merge_tag(&mut accumulator, &replaygain);
+        let metadata = accumulator.finish();
 
         assert_eq!(metadata.title.as_deref(), Some("standard title"));
         assert_eq!(metadata.artist.as_deref(), Some("album artist"));
         assert_eq!(metadata.rg_track_gain, Some(-7.25));
+    }
+
+    #[test]
+    fn artist_wins_over_album_artist_in_either_arrival_order() {
+        let artist_tag = || {
+            Tag::new_from_parts(
+                "ARTIST",
+                RawValue::String(Arc::new("Track Artist".to_string())),
+                Some(StandardTag::Artist(Arc::new("Track Artist".to_string()))),
+            )
+        };
+        let album_artist_tag = || {
+            Tag::new_from_parts(
+                "ALBUMARTIST",
+                RawValue::String(Arc::new("Album Artist".to_string())),
+                Some(StandardTag::AlbumArtist(Arc::new(
+                    "Album Artist".to_string(),
+                ))),
+            )
+        };
+
+        // Tag enumeration order is not guaranteed by any tag format; the
+        // track artist must win either way instead of being keep-first
+        // shadowed by an earlier album artist.
+        for tags in [
+            [artist_tag(), album_artist_tag()],
+            [album_artist_tag(), artist_tag()],
+        ] {
+            let mut accumulator = MetadataAccumulator::default();
+            for tag in &tags {
+                merge_tag(&mut accumulator, tag);
+            }
+            assert_eq!(accumulator.finish().artist.as_deref(), Some("Track Artist"));
+        }
+    }
+
+    fn revision_with_tags(id: MetadataId, tags: Vec<Tag>) -> MetadataRevision {
+        MetadataRevision {
+            info: MetadataInfo {
+                metadata: id,
+                short_name: "test",
+                long_name: "test revision",
+            },
+            media: MetadataContainer {
+                tags,
+                visuals: Vec::new(),
+            },
+            per_track: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn newest_revision_wins_and_older_revisions_fill_remaining_fields() {
+        use symphonia::core::meta::well_known::{METADATA_ID_ID3V1, METADATA_ID_ID3V2};
+
+        // Symphonia's probe pushes tail metadata (ID3v1) before the header
+        // ID3v2 revision, so the oldest revision sits at the queue front.
+        // Reading only `current()` used to let the truncated ID3v1 fields
+        // shadow the complete ID3v2 metadata on dual-tagged files.
+        let id3v1 = revision_with_tags(
+            METADATA_ID_ID3V1,
+            vec![
+                Tag::new_from_parts(
+                    "TITLE",
+                    RawValue::String(Arc::new("Truncated 30-byte titl".to_string())),
+                    Some(StandardTag::TrackTitle(Arc::new(
+                        "Truncated 30-byte titl".to_string(),
+                    ))),
+                ),
+                Tag::new_from_parts(
+                    "GENRE",
+                    RawValue::String(Arc::new("Rock".to_string())),
+                    Some(StandardTag::Genre(Arc::new("Rock".to_string()))),
+                ),
+            ],
+        );
+        let id3v2 = revision_with_tags(
+            METADATA_ID_ID3V2,
+            vec![Tag::new_from_parts(
+                "TIT2",
+                RawValue::String(Arc::new("The Complete ID3v2 Title".to_string())),
+                Some(StandardTag::TrackTitle(Arc::new(
+                    "The Complete ID3v2 Title".to_string(),
+                ))),
+            )],
+        );
+
+        let mut log = MetadataLog::default();
+        log.push(id3v1);
+        log.push(id3v2);
+        let metadata = collect_newest_first(&mut log.metadata());
+
+        assert_eq!(metadata.title.as_deref(), Some("The Complete ID3v2 Title"));
+        // Fields absent from the newest revision are still filled from the
+        // older one.
+        assert_eq!(metadata.genre.as_deref(), Some("Rock"));
     }
 }

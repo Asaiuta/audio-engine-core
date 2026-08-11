@@ -1045,8 +1045,16 @@ impl PlaybackController {
     /// Ask the audio callback to ramp the output down over `fade_ms` and then
     /// drain, so a track change does not click.
     ///
-    /// `fade_ms` must not exceed [`MAX_STOP_FADE_MS`]; a zero fade behaves
-    /// like [`Self::request_drain`].
+    /// Once the ramp reaches silence the output stays silent while the chain's
+    /// internal history is flushed, and the pipeline settles into
+    /// [`PlaybackLifecycleState::Idle`]. If the pipeline is already draining,
+    /// the ramp is applied to the remaining tail instead of interrupting the
+    /// drain; a repeated stop request continues downward from the level
+    /// already reached.
+    ///
+    /// `fade_ms` must not exceed [`MAX_STOP_FADE_MS`]; a zero fade cuts to
+    /// silence at the next block boundary. Use [`Self::request_drain`] when
+    /// the effect tail should remain audible at full level.
     pub fn request_stop_with_fade(&self, fade_ms: u32) -> Result<u64, ProcessError> {
         if fade_ms > MAX_STOP_FADE_MS {
             return Err(ProcessError::InvalidGeometry {
@@ -1233,6 +1241,11 @@ pub struct PlaybackPipeline {
     /// Remaining and total stop-ramp length, in frames.
     fade_remaining_frames: usize,
     fade_total_frames: usize,
+    /// Gain at the start of the active stop ramp: 1.0 in ordinary operation,
+    /// the mid-ramp level when a stop request lands during an earlier fade,
+    /// and pinned to 0.0 once a stop ramp completes so the drain that follows
+    /// flushes chain history (limiter lookahead, convolution tail) silently.
+    fade_base_gain: f64,
 }
 impl PlaybackPipeline {
     /// Start control-thread configuration for one callback-owned pipeline.
@@ -1285,6 +1298,7 @@ impl PlaybackPipeline {
             drain_policy,
             fade_remaining_frames: 0,
             fade_total_frames: 0,
+            fade_base_gain: 1.0,
         })
     }
     /// Return the prepared callback-domain specification.
@@ -1338,7 +1352,10 @@ impl PlaybackPipeline {
     ///   stop ramp.
     /// - [`PlaybackLifecycleState::Draining`] ignores the caller's samples and
     ///   overwrites the block with the remaining effect tail, silence-filling
-    ///   any unwritten frames. The returned progress reports the real tail
+    ///   any unwritten frames. A drain reached through a stop fade keeps the
+    ///   output at the faded level (silence once the ramp completed) while the
+    ///   chain's internal history is flushed; a drain requested directly plays
+    ///   the tail at unity. The returned progress reports the real tail
     ///   frames produced.
     /// - [`PlaybackLifecycleState::Idle`] writes silence and succeeds, because
     ///   a device callback keeps firing after the stream ends.
@@ -1391,6 +1408,7 @@ impl PlaybackPipeline {
             REQUEST_RESET => {
                 self.fade_remaining_frames = 0;
                 self.fade_total_frames = 0;
+                self.fade_base_gain = 1.0;
                 self.state = PlaybackLifecycleState::Running;
                 self.chain.reset()
             }
@@ -1407,12 +1425,26 @@ impl PlaybackPipeline {
                 let ramp_frames = (fade_ms as u64 * self.spec.sample_rate_hz as u64 / 1_000)
                     .try_into()
                     .unwrap_or(usize::MAX);
+                // A new ramp starts from the gain currently in effect, so a
+                // repeated stop request can only continue downward, never jump
+                // the level back up.
+                let start_gain = self.current_stop_gain();
                 if ramp_frames == 0 {
+                    self.fade_remaining_frames = 0;
+                    self.fade_total_frames = 0;
+                    self.fade_base_gain = 0.0;
                     self.state = PlaybackLifecycleState::Draining;
                 } else {
+                    self.fade_base_gain = start_gain;
                     self.fade_total_frames = ramp_frames;
                     self.fade_remaining_frames = ramp_frames;
-                    self.state = PlaybackLifecycleState::FadingOut;
+                    // Once the chain has begun draining, its finish contract
+                    // forbids further `process` calls (`AlreadyFinished`), so
+                    // a stop request cannot re-enter `FadingOut`. The ramp is
+                    // applied to the remaining drained tail instead.
+                    if self.state != PlaybackLifecycleState::Draining {
+                        self.state = PlaybackLifecycleState::FadingOut;
+                    }
                 }
                 Ok(())
             }
@@ -1427,21 +1459,61 @@ impl PlaybackPipeline {
             .state
             .store(self.state.as_code(), Ordering::Release);
     }
+    /// The stop gain in effect at the current block boundary: 1.0 in ordinary
+    /// operation, the ramp position while a stop fade is active, and 0.0 once
+    /// a stop fade has completed.
+    fn current_stop_gain(&self) -> f64 {
+        if self.fade_remaining_frames > 0 {
+            self.fade_base_gain * self.fade_remaining_frames as f64
+                / self.fade_total_frames.max(1) as f64
+        } else {
+            self.fade_base_gain
+        }
+    }
     /// Apply the remaining stop ramp to an already-filtered block, then switch
     /// to draining once the ramp reaches silence.
     fn apply_stop_ramp(&mut self, samples: &mut [f64], frames: usize) {
         let total = self.fade_total_frames.max(1) as f64;
         for (index, frame) in samples.chunks_exact_mut(self.spec.channels).enumerate() {
             let remaining = self.fade_remaining_frames.saturating_sub(index + 1);
-            let gain = remaining as f64 / total;
+            let gain = self.fade_base_gain * remaining as f64 / total;
             for sample in frame {
                 *sample *= gain;
             }
         }
         self.fade_remaining_frames = self.fade_remaining_frames.saturating_sub(frames);
         if self.fade_remaining_frames == 0 {
+            // The output has reached silence: pin the gain there so the drain
+            // that follows flushes the chain's internal history (limiter
+            // lookahead, convolution tail) silently instead of at full level.
+            self.fade_base_gain = 0.0;
             self.state = PlaybackLifecycleState::Draining;
             self.publish_lifecycle_state();
+        }
+    }
+    /// Attenuate drained tail output by the stop gain. A natural drain runs at
+    /// unity and is untouched; during or after a stop fade the tail is faded
+    /// or silenced, so stopping cannot flush full-level chain history after
+    /// the output already reached silence.
+    fn apply_drain_stop_gain(&mut self, produced_samples: &mut [f64], block_frames: usize) {
+        if self.fade_remaining_frames > 0 {
+            let total = self.fade_total_frames.max(1) as f64;
+            for (index, frame) in produced_samples
+                .chunks_exact_mut(self.spec.channels)
+                .enumerate()
+            {
+                let remaining = self.fade_remaining_frames.saturating_sub(index + 1);
+                let gain = self.fade_base_gain * remaining as f64 / total;
+                for sample in frame {
+                    *sample *= gain;
+                }
+            }
+            self.fade_remaining_frames = self.fade_remaining_frames.saturating_sub(block_frames);
+            if self.fade_remaining_frames == 0 {
+                self.fade_base_gain = 0.0;
+            }
+        } else if self.fade_base_gain == 0.0 {
+            produced_samples.fill(0.0);
         }
     }
     /// Render the bounded tail into the callback block and settle into idle
@@ -1458,6 +1530,7 @@ impl PlaybackPipeline {
         let progress = self.chain.finish_with_policy(block, self.drain_policy)?;
         let produced = progress.produced_frames().min(frames);
         samples[produced * self.spec.channels..].fill(0.0);
+        self.apply_drain_stop_gain(&mut samples[..produced * self.spec.channels], frames);
         if progress.state() == ProcessState::Finished {
             self.state = PlaybackLifecycleState::Idle;
             self.publish_lifecycle_state();
@@ -1494,6 +1567,7 @@ impl PlaybackPipeline {
     pub fn reset(&mut self) -> Result<(), ProcessError> {
         self.fade_remaining_frames = 0;
         self.fade_total_frames = 0;
+        self.fade_base_gain = 1.0;
         self.state = PlaybackLifecycleState::Running;
         self.publish_lifecycle_state();
         self.chain.reset()
@@ -2150,6 +2224,115 @@ mod playback_facade_tests {
             Err(ProcessError::InvalidGeometry { .. })
         ));
         assert!(controller.request_stop_with_fade(MAX_STOP_FADE_MS).is_ok());
+    }
+
+    #[test]
+    fn stop_with_fade_during_an_active_drain_fades_the_tail_and_reaches_idle() {
+        let (mut pipeline, controller) = loaded_pipeline(256);
+        let mut samples = vec![0.5; MAX * 2];
+        for _ in 0..4 {
+            let _ = pipeline.process(&mut samples).unwrap();
+        }
+
+        controller.request_drain();
+        let mut block = vec![0.5; MAX * 2];
+        let _ = pipeline.process(&mut block).unwrap();
+        assert_eq!(pipeline.lifecycle_state(), PlaybackLifecycleState::Draining);
+
+        // The 2026-08 review: this request used to flip the state back to
+        // `FadingOut`, whose `chain.process` call returns `AlreadyFinished`
+        // on every later block because the chain had already begun its
+        // finish, wedging the callback in an error loop until reset.
+        controller.request_stop_with_fade(20).unwrap();
+        let mut blocks = 0;
+        while pipeline.lifecycle_state() != PlaybackLifecycleState::Idle {
+            let mut tail = vec![0.5; MAX * 2];
+            let progress = pipeline.process(&mut tail);
+            assert!(
+                progress.is_ok(),
+                "drain after a stop request errored: {progress:?}"
+            );
+            assert_ne!(
+                pipeline.lifecycle_state(),
+                PlaybackLifecycleState::FadingOut,
+                "a drained chain must not re-enter FadingOut"
+            );
+            blocks += 1;
+            assert!(blocks < 10_000, "drain did not terminate");
+        }
+    }
+
+    #[test]
+    fn completed_stop_fade_drains_chain_history_silently() {
+        // The convolver kernel (like a limiter's lookahead line) holds
+        // pre-fade full-level history. Before the 2026-08 fix that history
+        // was flushed at unity gain after the output had already reached
+        // silence: an audible burst on every faded stop.
+        let (mut pipeline, controller) = loaded_pipeline(256);
+        let mut samples = vec![0.5; MAX * 2];
+        for _ in 0..4 {
+            let _ = pipeline.process(&mut samples).unwrap();
+        }
+
+        // 1 ms at 48 kHz is 48 frames: the ramp completes inside one block.
+        controller.request_stop_with_fade(1).unwrap();
+        let mut block = vec![0.5; MAX * 2];
+        let _ = pipeline.process(&mut block).unwrap();
+        assert_eq!(pipeline.lifecycle_state(), PlaybackLifecycleState::Draining);
+
+        let mut blocks = 0;
+        while pipeline.lifecycle_state() != PlaybackLifecycleState::Idle {
+            let mut tail = vec![0.5; MAX * 2];
+            let _ = pipeline.process(&mut tail).unwrap();
+            assert!(
+                tail.iter().all(|sample| *sample == 0.0),
+                "post-fade drain leaked non-silent chain history"
+            );
+            blocks += 1;
+            assert!(blocks < 10_000, "drain did not terminate");
+        }
+
+        // The pipeline still re-arms normally afterwards.
+        controller.request_reset();
+        let mut resumed = vec![0.5; MAX * 2];
+        let _ = pipeline.process(&mut resumed).unwrap();
+        assert_eq!(pipeline.lifecycle_state(), PlaybackLifecycleState::Running);
+        assert!(resumed.iter().any(|sample| *sample != 0.0));
+    }
+
+    #[test]
+    fn repeated_stop_fade_continues_from_the_current_gain() {
+        let (mut pipeline, controller) = PlaybackPipeline::builder(spec()).build().unwrap();
+        let mut warmup = vec![1.0; MAX * 2];
+        let _ = pipeline.process(&mut warmup).unwrap();
+
+        // 10 ms at 48 kHz is 480 frames: several MAX-frame blocks.
+        controller.request_stop_with_fade(10).unwrap();
+        let mut first = vec![1.0; MAX * 2];
+        let _ = pipeline.process(&mut first).unwrap();
+        // The chain is transparent, so each sample equals the ramp gain.
+        let reached = first[first.len() - 2];
+        assert!(reached > 0.0 && reached < 1.0);
+
+        // Restarting the fade must continue at or below the level already
+        // reached instead of jumping back to unity.
+        controller.request_stop_with_fade(10).unwrap();
+        let mut second = vec![1.0; MAX * 2];
+        let _ = pipeline.process(&mut second).unwrap();
+        assert!(
+            second[0] <= reached,
+            "fade restart jumped upward: {reached} -> {}",
+            second[0]
+        );
+
+        let mut blocks = 0;
+        while pipeline.lifecycle_state() == PlaybackLifecycleState::FadingOut {
+            let mut blockbuf = vec![1.0; MAX * 2];
+            let _ = pipeline.process(&mut blockbuf).unwrap();
+            blocks += 1;
+            assert!(blocks < 10_000, "restarted fade did not complete");
+        }
+        assert_eq!(pipeline.lifecycle_state(), PlaybackLifecycleState::Draining);
     }
 
     #[test]
