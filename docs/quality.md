@@ -487,12 +487,12 @@ unknown or infinite tails.
 `PeakLimiter` defaults to 4x-oversampled intersample (true-peak) detection: on
 an intersample-stress signal whose sample peak sits below the ceiling but whose
 true peak is +0.10 dBTP, true-peak mode pulls the output to -1.00 dBTP while the
-legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. The limiter
-runs at source rate, so resampling plus final quantization downstream of the
-limiter can in principle re-introduce intersample peaks; the full output-chain
-true-peak probe therefore stays report-only rather than a conformance gate. In
-the current quick run the probe meets the target: the worst full-chain output
-true peak is -1.000 dBTP with zero over-limit points across the probe corpus.
-Runs before the 2026-07-18 DSP lifecycle fixes measured -0.610 dBTP, 0.390 dB
-above the -1 dBTP target; the probe is retained as regression evidence for
-exactly that failure mode.
+legacy `LimiterMode::SamplePeak` leaves it untouched at +0.10 dBTP. In the
+offline render chain the limiter runs in the output-rate domain, after any
+resampling; only final quantization (with its derived output-ceiling guard)
+sits downstream of it. The full output-chain true-peak probe is enforced as a
+gate (`full_output_chain_worst_true_peak`, run with `--enforce` in CI). In the
+current quick run the worst full-chain output true peak is -1.000 dBTP with
+zero over-limit points across the probe corpus. Runs before the 2026-07-18 DSP
+lifecycle fixes measured -0.610 dBTP, 0.390 dB above the -1 dBTP target; the
+gate guards exactly that failure mode.

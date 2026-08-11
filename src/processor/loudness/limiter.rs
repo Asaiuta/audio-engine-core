@@ -169,6 +169,39 @@ pub struct PeakLimiter {
     sample_rate: f64,
 }
 
+/// Reject limiter construction values that would disable or destabilize the
+/// limiter: a `NaN` threshold makes every peak comparison false (silent
+/// bypass), a negative release time flips the gain recursion into exponential
+/// growth, and a non-finite lookahead has no meaningful buffer size.
+fn validate_limiter_values(
+    threshold_db: f64,
+    lookahead_ms: f64,
+    release_ms: f64,
+) -> Result<(), ProcessError> {
+    if !threshold_db.is_finite() {
+        return Err(ProcessError::InvalidParameter {
+            processor: "PeakLimiter",
+            parameter: "limiter threshold dB",
+            message: "value must be finite",
+        });
+    }
+    if !lookahead_ms.is_finite() || lookahead_ms < 0.0 {
+        return Err(ProcessError::InvalidParameter {
+            processor: "PeakLimiter",
+            parameter: "limiter lookahead ms",
+            message: "value must be finite and non-negative",
+        });
+    }
+    if !release_ms.is_finite() || release_ms < 0.0 {
+        return Err(ProcessError::InvalidParameter {
+            processor: "PeakLimiter",
+            parameter: "limiter release ms",
+            message: "value must be finite and non-negative",
+        });
+    }
+    Ok(())
+}
+
 impl PeakLimiter {
     /// Create a new peak limiter in the default [`LimiterMode::TruePeak`] mode.
     ///
@@ -178,6 +211,12 @@ impl PeakLimiter {
     /// * `threshold_db` - Threshold in dBTP (default: -1.0)
     /// * `lookahead_ms` - Look-ahead time in ms (default: 10.0)
     /// * `release_ms` - Release time in ms (default: 100.0)
+    ///
+    /// A non-finite `threshold_db` and a non-finite or negative
+    /// `lookahead_ms`/`release_ms` are rejected with
+    /// [`ProcessError::InvalidParameter`]: a `NaN` threshold silently disables
+    /// limiting, a negative release makes the gain recursion diverge, and a
+    /// non-finite lookahead has no meaningful buffer size.
     pub fn new(
         channels: usize,
         sample_rate: u32,
@@ -187,6 +226,7 @@ impl PeakLimiter {
     ) -> Result<Self, ProcessError> {
         validated_channel_count(channels)?;
         validate_sample_rate_hz("PeakLimiter", sample_rate)?;
+        validate_limiter_values(threshold_db, lookahead_ms, release_ms)?;
         Ok(Self::new_validated(
             channels,
             sample_rate,
@@ -214,6 +254,8 @@ impl PeakLimiter {
     }
 
     /// Create a new peak limiter with an explicit detection [`LimiterMode`].
+    ///
+    /// Values are validated as in [`Self::new`].
     pub fn with_mode(
         channels: usize,
         sample_rate: u32,
@@ -224,6 +266,7 @@ impl PeakLimiter {
     ) -> Result<Self, ProcessError> {
         validated_channel_count(channels)?;
         validate_sample_rate_hz("PeakLimiter", sample_rate)?;
+        validate_limiter_values(threshold_db, lookahead_ms, release_ms)?;
         Ok(Self::with_mode_validated(
             channels,
             sample_rate,
@@ -252,9 +295,12 @@ impl PeakLimiter {
         let max_delay_frames = lookahead_frames + TRUE_PEAK_DELAY;
 
         // Release coefficient: exp(-1 / tau) where tau = release_samples
-        // This gives us a coefficient < 1 for multiplication
+        // This gives us a coefficient < 1 for multiplication. The same
+        // one-sample floor as `set_release_ms` keeps the recursion contractive
+        // (a coefficient above 1.0 would make released gain diverge) even for
+        // a kernel caller that skips the public constructor validation.
         let release_samples = (release_ms / 1000.0) * sample_rate as f64;
-        let release_coeff = (-1.0 / release_samples).exp();
+        let release_coeff = (-1.0 / release_samples.max(1.0)).exp();
 
         // Warm the shared FIR table during setup, never on the first callback.
         let _ = true_peak_fir();
@@ -465,6 +511,72 @@ mod tests {
     use super::*;
     use crate::processor::lockfree_params::LIMITER_THRESHOLD_DB_MIN;
     use crate::processor::traits::AudioBlockError;
+
+    /// The 2026-08 review: public construction accepted a negative release
+    /// (whose `exp(-1/negative) > 1` coefficient makes released gain diverge
+    /// without bound after the first limiting event) and a `NaN` threshold
+    /// (which silently disables limiting). Both must fail loudly at the
+    /// build-time boundary, matching the crate's strict-constructor policy.
+    #[test]
+    fn constructors_reject_non_finite_or_negative_values() {
+        let cases: [(f64, f64, f64, &str); 7] = [
+            (f64::NAN, 10.0, 100.0, "limiter threshold dB"),
+            (f64::INFINITY, 10.0, 100.0, "limiter threshold dB"),
+            (-1.0, f64::NAN, 100.0, "limiter lookahead ms"),
+            (-1.0, f64::INFINITY, 100.0, "limiter lookahead ms"),
+            (-1.0, -5.0, 100.0, "limiter lookahead ms"),
+            (-1.0, 10.0, f64::NAN, "limiter release ms"),
+            (-1.0, 10.0, -100.0, "limiter release ms"),
+        ];
+        for (threshold_db, lookahead_ms, release_ms, parameter) in cases {
+            for result in [
+                PeakLimiter::new(2, 48_000, threshold_db, lookahead_ms, release_ms).err(),
+                PeakLimiter::with_mode(
+                    2,
+                    48_000,
+                    threshold_db,
+                    lookahead_ms,
+                    release_ms,
+                    LimiterMode::SamplePeak,
+                )
+                .err(),
+            ] {
+                assert_eq!(
+                    result,
+                    Some(ProcessError::InvalidParameter {
+                        processor: "PeakLimiter",
+                        parameter,
+                        message: if parameter == "limiter threshold dB" {
+                            "value must be finite"
+                        } else {
+                            "value must be finite and non-negative"
+                        },
+                    }),
+                    "({threshold_db}, {lookahead_ms}, {release_ms}) must be rejected"
+                );
+            }
+        }
+
+        // The documented defaults still construct.
+        assert!(PeakLimiter::new(2, 48_000, -1.0, 10.0, 100.0).is_ok());
+        // Zero lookahead/release are meaningful degenerate values: one-frame
+        // lookahead and the same one-sample release floor as `set_release_ms`.
+        assert!(PeakLimiter::new(2, 48_000, -1.0, 0.0, 0.0).is_ok());
+    }
+
+    /// Released gain must decay back toward unity; with the pre-fix negative
+    /// release this recursion diverged instead.
+    #[test]
+    fn release_recursion_is_contractive_for_every_accepted_release() {
+        for release_ms in [0.0, 1.0, 100.0, 5_000.0] {
+            let limiter = PeakLimiter::new(1, 48_000, -1.0, 10.0, release_ms).unwrap();
+            assert!(
+                limiter.release_coeff >= 0.0 && limiter.release_coeff < 1.0,
+                "release {release_ms} ms produced non-contractive coefficient {}",
+                limiter.release_coeff
+            );
+        }
+    }
 
     /// A `NaN` threshold makes every `peak > threshold` comparison false, so
     /// the limiter would silently stop limiting rather than fail loudly.

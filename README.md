@@ -262,12 +262,12 @@ Representative results from a single machine and configuration (reproduce with
 - True-peak limiter: **-1.00 dBTP** on a +0.10 dBTP intersample-stress signal (legacy sample-peak mode never engages: +0.10 dBTP)
 - Dynamic loudness low-volume compensation: **+8.41 dB at 40 Hz / +2.83 dB at 3 kHz**
 
-One structural caveat is kept visible: the limiter runs at source rate, so
-resampling plus final quantization downstream can in principle re-introduce
-intersample peaks, and the full output-chain true-peak probe stays report-only
-rather than a conformance gate. In the current quick run the probe meets the
-target — worst full-chain output true peak -1.000 dBTP with zero over-limit
-points — and it is retained as regression evidence.
+In the offline render chain the limiter runs in the output-rate domain, after
+any resampling, so only final quantization sits downstream of it — and the
+limiter's ceiling already reserves headroom for the quantizer's bounded error
+(the derived output-ceiling guard). The full output-chain true-peak probe is
+enforced as a CI gate: the current quick run measures a worst full-chain
+output true peak of -1.000 dBTP with zero over-limit points.
 
 On the 2026-07-27 core-pinned heavy adapter controls, SoXR v2 measured
 8.569 / 7.424 ns/input-sample for 44.1-to-48 / 48-to-44.1 kHz versus raw
@@ -343,8 +343,8 @@ Good fit if you are:
 - experimenting with high-quality DSP (EQ, crossfeed, saturation, convolution),
 - writing offline loudness-analysis tooling.
 
-May not fit if you need: a complete player, a high-level playback API, an audio
-device abstraction, or a stable 1.0 API today.
+May not fit if you need: a complete player, a high-level playback API, or an
+audio device abstraction.
 
 ## Decoding & Format Support
 
@@ -367,7 +367,10 @@ not a caller-writable control channel.
 - **Gapless ownership** is an explicit per-codec split: Symphonia owns MP3 and
   Vorbis packet trim/reset behavior; other codecs retain the crate's Track-level
   delay/padding fallback. The two paths are mutually exclusive, so delay or
-  padding cannot be trimmed twice.
+  padding cannot be trimmed twice. The fallback can only trim what the
+  container declares: Symphonia 0.6's MP4 demuxer does not surface AAC
+  priming/padding metadata (such as `iTunSMPB`), so M4A/AAC currently plays
+  untrimmed, while CAF declares both and is trimmed exactly.
 - **Seeking** uses Symphonia's `SeekMode::Coarse` only; a sample-exact
   (`Accurate`) mode is intentionally not exposed. A coarse seek lands on a
   packet/frame boundary at or before the requested time — bounded inaccuracy

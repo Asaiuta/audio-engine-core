@@ -1,6 +1,6 @@
 [package]
 name = "audio-engine-core"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.87"
 description = "Reusable decoder, DSP, loudness, resampling, and streaming pipeline primitives"
@@ -11,6 +11,25 @@ documentation = "https://docs.rs/audio-engine-core"
 readme = "README.md"
 keywords = ["audio", "dsp", "decoder", "resampler", "loudness"]
 categories = ["multimedia::audio", "algorithms"]
+# Published-package whitelist. Everything else in the repository (internal
+# workflow files under .trellis/, agent config, the vendored libebur128
+# reference sources, and the multi-megabyte semver-baseline rustdoc JSON under
+# tests/) must not ship to crates.io. benches/ must ship because the explicit
+# [[bench]] targets below are part of the packaged manifest.
+include = [
+    "/src/**",
+    "/build.rs",
+    "/build/**",
+    "/benches/**",
+    "/examples/**",
+    "/docs/**",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/NOTICE",
+]
 
 [lib]
 name = "audio_engine_core"
