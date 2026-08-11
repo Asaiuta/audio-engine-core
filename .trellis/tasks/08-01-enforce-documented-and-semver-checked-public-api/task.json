@@ -3,7 +3,7 @@
   "name": "enforce-documented-and-semver-checked-public-api",
   "title": "Enforce a documented and semver-checked public API",
   "description": "1.0 gate 8 of 9. Once the surface is settled: turn on deny(missing_docs), wire cargo-semver-checks into CI against the committed baseline, and refresh the public-api snapshot. Deliberately last so documentation effort is not spent on items removed by gate 2.",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,

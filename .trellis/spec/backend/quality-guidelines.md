@@ -1133,6 +1133,15 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   - `cargo doc --no-deps`
   - `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`
   - `cargo package --allow-dirty`
+- Public documentation and SemVer checks:
+  - `cargo test --test public_api`
+  - `UPDATE_SNAPSHOTS=1 cargo test --test public_api`
+  - `cargo semver-checks --baseline-rustdoc
+    tests/semver-baseline/all-features/audio_engine_core.json
+    --current-rustdoc
+    target/public-api/all-features/doc/audio_engine_core.json --release-type
+    patch`
+  - repeat the preceding command with the `rubato` baseline/current paths.
 
 ### 3. Contracts
 
@@ -1150,6 +1159,21 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 - README quality/performance numbers must name the benchmark or test family that
   produced them and must preserve explicit limitation notes for report-only
   probes.
+- `src/lib.rs` denies `missing_docs`. Every remaining public module, type,
+  variant, field, constant, function, and method needs meaningful API
+  documentation; `#[doc(hidden)]` and bulk `#[allow(missing_docs)]` are not
+  substitutes for documenting the frozen surface.
+- `tests/public_api.rs`, both `tests/public-api-*.txt` snapshots, and both
+  `tests/semver-baseline/*/audio_engine_core.json` files use
+  `nightly-2026-07-09`. CI installs that exact nightly, runs the public-API test
+  to produce current JSON, then uses pinned `cargo-semver-checks 0.50.0`.
+- Committed JSON is passed through `--baseline-rustdoc`; `--baseline-root`
+  means an old crate source directory and must not be pointed at the JSON
+  baseline directory. Feature flags cannot be combined with explicit baseline
+  and current JSON because their feature surfaces are already encoded.
+- Refreshing a SemVer baseline is an API-policy decision, never an automatic
+  response to a red check. Documentation-only work may refresh the JSON payload
+  but must not change the rendered public-surface snapshots.
 
 ### 4. Validation & Error Matrix
 
@@ -1162,6 +1186,14 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 - `cargo package` fails only while updating the registry/index in a sandboxed
   environment -> rerun in a normal network/credential environment before
   classifying it as a package-content failure.
+- Any public item lacks documentation -> crate-level `deny(missing_docs)` fails
+  both stable docs and pinned-nightly rustdoc JSON generation.
+- Current rustdoc JSON removes or incompatibly changes a baseline item -> the
+  matching `cargo semver-checks --release-type patch` command exits non-zero
+  and names the lint/item.
+- The pinned nightly, cargo-semver-checks version, matrix path, or JSON format
+  drifts -> fail the gate; update producer, committed baselines, CI, and runbook
+  together only after review.
 
 ### 5. Good/Base/Bad Cases
 
@@ -1170,9 +1202,15 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   because resampling is core."
 - Base: "`http` and `loudness-db` are default-on and can be disabled
   independently; the resampler backend is chosen, not omitted."
+- Good: run the public-API test once, feed each generated current JSON to the
+  matching committed `--baseline-rustdoc`, and prove a temporary public-item
+  removal fails before restoring the item and observing a pass.
 - Bad: "`default-features = false` creates a dependency-free DSP-only build",
   "building without resampling avoids libsoxr", or "SoXR remains required" now
   that `rubato` is a supported pure-Rust backend.
+- Bad: refresh the committed JSON merely to make a breaking check green, use a
+  floating nightly/tool version, or pass `tests/semver-baseline/` to
+  `--baseline-root` as though it contained crate source.
 
 ### 6. Tests Required
 
@@ -1185,21 +1223,42 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   so dead direct dependencies fail the check instead of remaining in the manifest.
 - Run examples listed in the README.
 - Run `cargo package --allow-dirty` or `cargo publish --dry-run`.
+- Run both docs matrices with warnings denied and confirm zero missing-doc
+  errors. Run `cargo test --test public_api`, both explicit JSON SemVer checks,
+  and one temporary breaking negative control before accepting new gate wiring.
+- A baseline refresh must update both matrix JSON files from the same pinned
+  nightly run and keep the CI toolchain/version/path constants synchronized.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```text
-If you build without the resampling functionality, libsoxr is not linked.
+`--no-default-features` creates a backend-free DSP build.
 ```
 
 #### Correct
 
 ```text
-SoXR-backed resampling is part of the core crate today. No Cargo feature
-currently disables the `soxr` dependency, so building the crate links libsoxr
-even when default features are disabled.
+One resampler backend is required. Use `--no-default-features --features
+rubato` for the pure-Rust path without libsoxr; bare `--no-default-features`
+must fail the missing-backend guard.
+```
+
+#### Wrong
+
+```text
+cargo semver-checks --baseline-root tests/semver-baseline
+# Red check: overwrite the baseline without reviewing the public break.
+```
+
+#### Correct
+
+```text
+cargo test --test public_api
+cargo semver-checks --baseline-rustdoc <matrix-baseline.json> \
+  --current-rustdoc <matching-current.json> --release-type patch
+# Refresh only after the API/version decision is explicit.
 ```
 
 ## Scenario: Windows MSVC Runtime Deployment for MSYS2 SoXR
