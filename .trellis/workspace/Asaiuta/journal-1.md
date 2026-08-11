@@ -956,3 +956,34 @@ Cut the stable 1.0.0 release (gate 9 of 9): Cargo.toml 0.1.0 -> 1.0.0, CHANGELOG
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Publish audio-engine-core 1.0.0 to crates.io
+
+**Date**: 2026-08-11
+**Task**: Publish audio-engine-core 1.0.0 to crates.io
+**Branch**: `chore/gate2-legacy-public-surface`
+
+### Summary
+
+Found the pre-existing cargo token (CARGO_HOME=D:\Rust\.cargo\credentials.toml, created 2026-06-12), verified it via cargo owner --list (Asaiuta, owner), and published audio-engine-core 1.0.0 live: cargo publish --dry-run then cargo publish both succeeded. crates.io API shows max_version/default_version 1.0.0 (num_versions 2); docs.rs build finished (1.0.0 + latest both 200). Updated the release evidence file (publish section now records the executed result instead of the handoff).
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
