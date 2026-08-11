@@ -10,6 +10,11 @@ version bumps, as permitted by SemVer.
 
 ## [Unreleased]
 
+### Added
+- **Simplified Chinese README**: full translation of the project documentation in
+  [README.zh-CN.md](README.zh-CN.md), with language-switch links from the
+  English README.
+
 ## [1.0.1] - Unreleased
 
 Defect-fix release for the findings of the 2026-08-11 full-code review. No
