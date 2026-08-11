@@ -889,3 +889,37 @@ Audited the legacy public surface ahead of the 1.0 freeze (07-28 audit P2 #9): v
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Close out gates 7-8: semver/doc gate green, archive tasks
+
+**Date**: 2026-08-11
+**Task**: Close out gates 7-8: semver/doc gate green, archive tasks
+**Branch**: `chore/gate2-legacy-public-surface`
+
+### Summary
+
+Gate 8 (enforce documented and semver-checked public API) implementation was committed earlier as 7c942ba: crate-level deny(missing_docs), 270 public items documented, rustdoc JSON baselines for both feature matrices committed under tests/semver-baseline/, CI semver gate wired with pinned cargo-semver-checks 0.50.0, negative control proven to fail. This session recorded the gate-8 evidence docs (prd, validation-2026-08-11, semver-baseline-runbook) and the quality-guidelines Release Documentation Checklist updates as a380e92, then archived gate 8 (aa40b07) and gate 7 tighten-resampler-facade-geometry-contract (3eef9e2). Working tree clean.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c942ba` | (see git log) |
+| `a380e92` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
