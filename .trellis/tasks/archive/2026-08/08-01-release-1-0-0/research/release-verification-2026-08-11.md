@@ -83,13 +83,22 @@ the owner per the decided prepare-and-runbook path (no token on this machine);
 - `v1.0.0` (annotated) at the release commit.
 - Push of branch + tags requires explicit user confirmation (PRD DoD).
 
-## Publish Handoff (owner)
+## Publish Result (2026-08-11, executed) + Handoff
 
-```bash
-git push origin chore/gate2-legacy-public-surface --tags   # branch first, then tags
-cargo login                                                # crates.io token (once)
-cargo publish --dry-run                                    # from the tagged commit
-cargo publish
-# verify https://docs.rs/audio-engine-core/1.0.0 and open a GitHub release
-# linking the CHANGELOG entry
-```
+`cargo login` had been run on this machine before (2026-06-12, the 0.1.0
+publish day): the token lives in `D:\Rust\.cargo\credentials.toml`
+(`CARGO_HOME=D:\Rust\.cargo` — not the default user path, which is why the
+first check missed it). `cargo owner --list audio-engine-core` verified the
+token identity (`Asaiuta`) and publish rights, then:
+
+- `cargo publish --dry-run` — packaged 777 files, verification compiled,
+  auth check passed ("aborting upload due to dry run")
+- `cargo publish` — **Published audio-engine-core v1.0.0 at registry
+  `crates-io`** (2026-08-11 ~19:00 local)
+- crates.io API confirms `max_version = "1.0.0"`, `default_version =
+  "1.0.0"`, `num_versions = 2` (0.1.0 + 1.0.0)
+- docs.rs build finished: `https://docs.rs/audio-engine-core/1.0.0/` and
+  `/latest/` both 200
+
+Remaining optional step (owner): create a GitHub Release at `v1.0.0` linking
+the CHANGELOG entry.
