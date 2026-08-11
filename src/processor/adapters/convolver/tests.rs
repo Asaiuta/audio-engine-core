@@ -20,6 +20,20 @@ fn process_mono(
     )
 }
 
+/// Assert that `actual` matches `expected` with a tolerance that absorbs
+/// FFT/layout rounding (observed on CI Ubuntu x86_64: 0.25 tail tap computed
+/// as 0.24999999999999997).
+fn assert_samples_close(actual: &[f64], expected: &[f64]) {
+    assert_eq!(actual.len(), expected.len(), "sample counts differ");
+    for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+        let tolerance = 1e-12_f64.max(expected.abs() * 1e-12);
+        assert!(
+            (actual - expected).abs() <= tolerance,
+            "sample {index}: {actual} differs from expected {expected} beyond {tolerance}",
+        );
+    }
+}
+
 #[test]
 fn consumer_lease_rejects_second_direct_consumer_and_releases_on_drop() {
     let control = ConvolverControl::new(false);
@@ -347,18 +361,18 @@ fn disable_during_partial_finish_preserves_locked_tail() {
     let first =
         finish_checked(&mut processor, AudioBlockMut::new(&mut output, 1).unwrap()).unwrap();
     assert_eq!(first.state(), ProcessState::NeedOutput);
-    assert_eq!(output, [0.5]);
+    assert_samples_close(&output, &[0.5]);
 
     control.set_enabled(false);
     let second =
         finish_checked(&mut processor, AudioBlockMut::new(&mut output, 1).unwrap()).unwrap();
     assert_eq!(second.state(), ProcessState::NeedOutput);
-    assert_eq!(output, [0.25]);
+    assert_samples_close(&output, &[0.25]);
 
     let third =
         finish_checked(&mut processor, AudioBlockMut::new(&mut output, 1).unwrap()).unwrap();
     assert_eq!(third.state(), ProcessState::Finished);
-    assert_eq!(output, [0.125]);
+    assert_samples_close(&output, &[0.125]);
 
     assert_eq!(
         finish_checked(&mut processor, AudioBlockMut::new(&mut output, 1).unwrap(),).unwrap(),
@@ -385,7 +399,7 @@ fn disable_before_first_finish_preserves_current_kernel_tail() {
 
     assert_eq!(progress.state(), ProcessState::Finished);
     assert_eq!(progress.produced_frames(), 3);
-    assert_eq!(output, [0.5, 0.25, 0.125]);
+    assert_samples_close(&output, &[0.5, 0.25, 0.125]);
     assert_eq!(
         finish_checked(
             &mut processor,
