@@ -2631,10 +2631,11 @@ fn generous_output_capacity(chunk_frames: usize, rate: RatePair) -> usize {
 }
 
 fn div_ceil(value: usize, divisor: usize) -> usize {
-    if divisor == 0 {
-        0
-    } else {
-        value / divisor + usize::from(!value.is_multiple_of(divisor))
+    // `usize::div_ceil` panics on a zero divisor; preserve the prior
+    // defensive zero-divisor semantics (clippy::manual_checked_division).
+    match divisor {
+        0 => 0,
+        _ => value.div_ceil(divisor),
     }
 }
 
