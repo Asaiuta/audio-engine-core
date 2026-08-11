@@ -40,6 +40,10 @@ pub struct AtomicLoudnessState {
 }
 
 impl AtomicLoudnessState {
+    /// Create a normalized state with the given smoothing and sample rate.
+    ///
+    /// Rejects zero sample rate and non-finite/negative smoothing before any
+    /// publication state exists.
     pub fn new(smoothing_time_ms: f64, sample_rate: u32) -> Result<Self, ProcessError> {
         validate_sample_rate_hz("AtomicLoudnessState", sample_rate)?;
         let smoothing_coeff = smoothing_coefficient(smoothing_time_ms, sample_rate).ok_or(

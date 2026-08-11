@@ -68,6 +68,10 @@ fn set_audio_thread_float_mode() {
     }
 }
 
+/// Report whether FTZ/DAZ floating-point mode is active on the audio thread.
+///
+/// Test/debug helper: initializes the audio thread first, then reads the
+/// thread-local CPU flags. Returns `false` on targets without these flags.
 #[cfg(any(test, debug_assertions))]
 pub fn audio_thread_float_mode_is_enabled() -> bool {
     audio_thread_init();
@@ -105,6 +109,8 @@ fn audio_thread_float_mode_is_enabled_unchecked() -> bool {
     false
 }
 
+/// Flush a subnormal sample to signed zero on targets where denormals are
+/// expensive; returns the sample unchanged elsewhere.
 #[inline(always)]
 pub fn flush_subnormal_sample(sample: f64) -> f64 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]

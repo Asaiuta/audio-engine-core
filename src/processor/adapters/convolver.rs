@@ -41,6 +41,10 @@ pub struct ConvolverProcessor {
 }
 
 impl ConvolverProcessor {
+    /// Acquire the control's single audio-consumer lease and create an idle adapter.
+    ///
+    /// Returns [`ProcessError::ConsumerAlreadyActive`] when another processor
+    /// already owns the same control handle.
     pub fn new(control: ConvolverControl) -> Result<Self, ProcessError> {
         let consumer_lease = control.acquire_consumer()?;
         let processor = Self {
@@ -66,6 +70,7 @@ impl ConvolverProcessor {
         Ok(processor)
     }
 
+    /// Clone the control-plane handle associated with this audio consumer.
     pub fn control(&self) -> ConvolverControl {
         self.control.clone()
     }

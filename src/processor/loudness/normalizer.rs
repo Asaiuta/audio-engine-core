@@ -31,6 +31,10 @@ pub struct LoudnessNormalizer {
 }
 
 impl LoudnessNormalizer {
+    /// Create a normalizer for the given geometry and prevalidated config.
+    ///
+    /// Rejects zero channels/rate, invalid config fields, and EBU R128 backend
+    /// failure atomically before any state exists.
     pub fn new(
         channels: usize,
         sample_rate: u32,
@@ -65,15 +69,21 @@ impl LoudnessNormalizer {
         })
     }
 
+    /// Share the normalized control state with a caller-owned handle.
     pub fn atomic_state(&self) -> Arc<AtomicLoudnessState> {
         Arc::clone(&self.atomic_state)
     }
 
+    /// Enable or bypass normalization on the next block.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.config.enabled = enabled;
         self.atomic_state.set_enabled(enabled);
     }
 
+    /// Replace the config after validating every field.
+    ///
+    /// On rejection the previous config, limiter, meter, and gain state are
+    /// left unchanged.
     pub fn set_config(&mut self, config: LoudnessConfig) -> Result<(), ProcessError> {
         validate_config(&config)?;
         if let Some(loudness) = self.track_loudness {
@@ -95,6 +105,7 @@ impl LoudnessNormalizer {
         Ok(())
     }
 
+    /// Change the target loudness; rejects non-finite or out-of-domain values.
     pub fn set_target_lufs(&mut self, target_lufs: f64) -> Result<(), ProcessError> {
         validate_finite("target LUFS", target_lufs)?;
         if let Some(loudness) = self.track_loudness {
@@ -109,18 +120,21 @@ impl LoudnessNormalizer {
         Ok(())
     }
 
+    /// Override the album gain offset; rejects non-finite values.
     pub fn set_album_gain(&self, gain_db: f64) -> Result<(), ProcessError> {
         validate_finite("album gain", gain_db)?;
         self.atomic_state.set_album_gain(gain_db);
         Ok(())
     }
 
+    /// Override the preamp gain offset; rejects non-finite values.
     pub fn set_preamp_gain(&self, gain_db: f64) -> Result<(), ProcessError> {
         validate_finite("preamp gain", gain_db)?;
         self.atomic_state.set_preamp_gain(gain_db);
         Ok(())
     }
 
+    /// Switch the normalization mode (track/album/streaming/ReplayGain).
     pub fn set_mode(&mut self, mode: NormalizationMode) {
         self.config.mode = mode;
         self.atomic_state.set_normalization_mode(mode);
@@ -247,6 +261,7 @@ impl LoudnessNormalizer {
         }
     }
 
+    /// Reset meter, limiter, gain state, and cached track analysis.
     pub fn reset(&mut self) {
         self.meter.reset();
         self.limiter.reset();
@@ -297,6 +312,7 @@ impl LoudnessNormalizer {
         Ok(())
     }
 
+    /// Current measurement/gain readout for UI or status reporting.
     pub fn get_loudness_info(&self) -> LoudnessInfo {
         LoudnessInfo {
             integrated_lufs: self.meter.integrated_loudness(),
@@ -310,9 +326,11 @@ impl LoudnessNormalizer {
         }
     }
 
+    /// Analyzed track loudness in LUFS, when pre-analysis ran.
     pub fn track_loudness(&self) -> Option<f64> {
         self.track_loudness
     }
+    /// Whether track-level analysis has provided a loudness measurement.
     pub fn is_analyzed(&self) -> bool {
         self.track_loudness.is_some()
     }

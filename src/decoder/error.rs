@@ -30,7 +30,10 @@ pub enum NetworkError {
     HttpStatus(u16),
     /// The server returned a successful response but ignored a byte-range
     /// request. Callers may use a bounded full-download fallback.
-    RangeNotSupported { status: u16 },
+    RangeNotSupported {
+        /// HTTP status code returned for the ignored byte-range request.
+        status: u16,
+    },
     /// The server claimed partial-content support but returned invalid or
     /// mismatched range metadata/body geometry.
     InvalidRangeResponse(String),
@@ -253,7 +256,9 @@ pub enum DecoderError {
     /// make it succeed.
     #[error("{source_kind} sources require the `{feature}` feature of audio-engine-core")]
     FeatureUnavailable {
+        /// Source kind name shown in the diagnostic (e.g. `http`).
         source_kind: &'static str,
+        /// Missing Cargo feature name shown in the diagnostic (e.g. `http`).
         feature: &'static str,
     },
     /// The decode was cancelled via a [`DecodeCancelToken`].

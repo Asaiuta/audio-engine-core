@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Reusable audio-engine core.
 //!
 //! This crate owns app-agnostic decoder, DSP, and streaming pipeline building
@@ -108,9 +110,11 @@ struct ReadmeDoctests;
 pub mod channel_layout;
 pub mod config;
 pub mod decoder;
+/// Decode-buffer memory budget environment resolution (off-realtime setup).
 pub mod diagnostics;
 pub mod pipeline;
 pub mod processor;
+/// CPU floating-point mode helpers for realtime audio threads (FTZ/DAZ).
 pub mod runtime;
 
 pub use channel_layout::{ChannelLayout, ChannelPosition};

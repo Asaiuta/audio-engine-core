@@ -91,7 +91,7 @@ jobs:
   # format is unstable, so the toolchain date is pinned; it must be kept in sync
   # with PINNED_NIGHTLY in tests/public_api.rs.
   public-api:
-    name: public API baseline
+    name: public API + SemVer baseline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +116,25 @@ jobs:
 
       - name: Public API surface matches the committed baseline
         run: cargo test --test public_api
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks@0.50.0
+
+      - name: SemVer compatibility (all features)
+        run: >-
+          cargo semver-checks
+          --baseline-rustdoc tests/semver-baseline/all-features/audio_engine_core.json
+          --current-rustdoc target/public-api/all-features/doc/audio_engine_core.json
+          --release-type patch
+
+      - name: SemVer compatibility (pure Rust backend)
+        run: >-
+          cargo semver-checks
+          --baseline-rustdoc tests/semver-baseline/rubato/audio_engine_core.json
+          --current-rustdoc target/public-api/rubato/doc/audio_engine_core.json
+          --release-type patch
 
   test:
     name: test (${{ matrix.os }})

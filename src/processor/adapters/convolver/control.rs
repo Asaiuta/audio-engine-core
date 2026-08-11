@@ -12,20 +12,33 @@ use super::handoff::{AtomicBoxSlot, AudioOwned};
 /// [`ConvolverControl::is_quiescent`] for authoritative teardown decisions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ConvolverStatus {
+    /// Whether convolution is enabled on the control plane.
     pub enabled: bool,
+    /// Generation assigned to the most recently published kernel.
     pub latest_published_generation: u64,
+    /// Most recent generation adopted by the audio consumer.
     pub latest_adopted_generation: u64,
     /// Most recent publication generation fully drained from audio-local state.
     pub audio_drained_generation: u64,
+    /// Number of published kernels adopted by the audio consumer.
     pub adopted_kernels: u64,
+    /// Number of pending kernels replaced before adoption.
     pub superseded_kernels: u64,
+    /// Number of kernels discarded because they could not become active.
     pub discarded_kernels: u64,
+    /// Number of audio-owned kernels returned for control-thread disposal.
     pub retired_kernels: u64,
+    /// Number of retired kernels reclaimed and dropped off the audio thread.
     pub reclaimed_kernels: u64,
+    /// Number of adoptions deferred by retirement-slot backpressure.
     pub deferred_adoptions: u64,
+    /// Number of publications not yet adopted, superseded, or discarded.
     pub pending_kernels: u64,
+    /// Number of retired kernels awaiting control-thread reclamation.
     pub pending_reclamations: u64,
+    /// Whether the audio consumer is waiting for reclamation capacity.
     pub backpressured: bool,
+    /// Whether the audio consumer reports no active or draining kernel.
     pub audio_idle: bool,
     /// Active stream rate reported by the audio consumer.
     pub active_sample_rate_hz: u32,
@@ -95,6 +108,7 @@ impl Drop for ConsumerLease {
 }
 
 impl ConvolverControl {
+    /// Create a control handle with the requested initial enabled state.
     pub fn new(enabled: bool) -> Self {
         Self {
             inner: Arc::new(ConvolverControlInner {
@@ -193,6 +207,9 @@ impl ConvolverControl {
         self.publish_inner(kernel, sample_rate_hz, Some(drop_probe))
     }
 
+    /// Reclaim and drop one retired kernel on the calling control thread.
+    ///
+    /// Returns `true` when a kernel was reclaimed.
     pub fn reclaim_retired(&self) -> bool {
         let _control_guard = self
             .inner
@@ -211,10 +228,12 @@ impl ConvolverControl {
         true
     }
 
+    /// Publish the enabled state for the audio consumer.
     pub fn set_enabled(&self, enabled: bool) {
         self.inner.enabled.store(enabled, Ordering::Release);
     }
 
+    /// Load the current control-plane enabled state.
     pub fn is_enabled(&self) -> bool {
         self.inner.enabled.load(Ordering::Acquire)
     }
@@ -244,6 +263,7 @@ impl ConvolverControl {
         generations_match && self.inner.published.is_empty() && self.inner.retired.is_empty()
     }
 
+    /// Snapshot current convolver generations, counters, and lifecycle state.
     pub fn status(&self) -> ConvolverStatus {
         let latest_published_generation = self
             .inner

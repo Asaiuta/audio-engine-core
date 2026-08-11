@@ -15,13 +15,21 @@ pub enum AudioBlockError {
     ZeroChannels,
     /// The sample slice ends with an incomplete interleaved frame.
     #[error("interleaved sample count {samples} is not divisible by channel count {channels}")]
-    IncompleteFrame { samples: usize, channels: usize },
+    IncompleteFrame {
+        /// Number of interleaved samples supplied by the caller.
+        samples: usize,
+        /// Channel count used to validate the interleaved block.
+        channels: usize,
+    },
     /// An out-of-place call requires the same channel count on both sides.
+    /// The caller supplied an interleaved buffer with invalid frame geometry.
     #[error(
         "input/output channel mismatch: input has {input_channels}, output has {output_channels}"
     )]
     ChannelMismatch {
+        /// Channel count declared by the input view.
         input_channels: usize,
+        /// Channel count declared by the output view.
         output_channels: usize,
     },
 }
@@ -178,7 +186,9 @@ pub enum ProcessBufferParts<'a> {
     InPlace(AudioBlockMut<'a>),
     /// Variable-I/O or caller-separated processing.
     OutOfPlace {
+        /// Read-only input frames.
         input: AudioBlockRef<'a>,
+        /// Writable output capacity.
         output: AudioBlockMut<'a>,
     },
 }
@@ -289,22 +299,27 @@ impl ProcessProgress {
         Self::new(0, produced_frames, ProcessState::Finished)
     }
 
+    /// Number of input frames consumed by the operation.
     pub const fn consumed_frames(self) -> usize {
         self.consumed_frames
     }
 
+    /// Number of output frames produced by the operation.
     pub const fn produced_frames(self) -> usize {
         self.produced_frames
     }
 
+    /// Lifecycle state reported after the operation.
     pub const fn state(self) -> ProcessState {
         self.state
     }
 
+    /// Whether the operation copied input transparently without applying DSP.
     pub const fn is_bypassed(self) -> bool {
         self.bypassed
     }
 
+    /// Whether at least one input frame was consumed or output frame produced.
     pub const fn made_progress(self) -> bool {
         self.consumed_frames > 0 || self.produced_frames > 0
     }
@@ -320,6 +335,7 @@ pub struct ProcessCapacity {
 }
 
 impl ProcessCapacity {
+    /// Describe an out-of-place process call with input and output capacities.
     pub const fn new(input_frames: usize, output_frames: usize) -> Self {
         Self {
             input_frames,
@@ -329,6 +345,7 @@ impl ProcessCapacity {
         }
     }
 
+    /// Describe an in-place call whose input and output capacities are equal.
     pub const fn in_place(frames: usize) -> Self {
         Self {
             input_frames: frames,
@@ -338,6 +355,7 @@ impl ProcessCapacity {
         }
     }
 
+    /// Describe a finish call that has no input and can emit tail frames.
     pub const fn for_finish(output_frames: usize) -> Self {
         Self {
             input_frames: 0,
@@ -347,18 +365,22 @@ impl ProcessCapacity {
         }
     }
 
+    /// Return the input capacity in complete frames.
     pub const fn input_frames(self) -> usize {
         self.input_frames
     }
 
+    /// Return the output capacity in complete frames.
     pub const fn output_frames(self) -> usize {
         self.output_frames
     }
 
+    /// Return whether the call is in-place or out-of-place.
     pub const fn mode(self) -> ProcessBufferMode {
         self.mode
     }
 
+    /// Return whether this capacity describes a tail-draining finish call.
     pub const fn is_finishing(self) -> bool {
         self.finishing
     }
@@ -423,8 +445,10 @@ impl ProcessCapacity {
 /// Failure while constructing or rescaling frame-domain timing metadata.
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum TimingError {
+    /// A timing conversion was requested with a zero sample rate.
     #[error("sample rate must be greater than zero")]
     ZeroSampleRate,
+    /// A converted frame count did not fit in the platform `usize`.
     #[error("rescaled frame count does not fit in usize")]
     FrameCountOverflow,
 }
@@ -432,9 +456,11 @@ pub enum TimingError {
 /// Rounding policy used only after timing values reach a common sample rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameRounding {
+    /// Discard the fractional frame.
     Floor,
     /// Round to the nearest frame; exact half-frame ties round upward.
     Nearest,
+    /// Round upward whenever a fractional frame is present.
     Ceil,
 }
 
@@ -461,6 +487,7 @@ impl FrameDuration {
         })
     }
 
+    /// Return the frame count in this duration's sample-rate domain.
     pub const fn frames(self) -> usize {
         self.frames
     }
@@ -473,6 +500,7 @@ impl FrameDuration {
         }
     }
 
+    /// Return whether this duration represents no frames.
     pub const fn is_zero(self) -> bool {
         self.frames == 0
     }
@@ -539,6 +567,7 @@ impl TailSpec {
         }
     }
 
+    /// Return exact timing for finite tails, or `None` for unknown/infinite tails.
     pub const fn finite_duration(self) -> Option<FrameDuration> {
         match self {
             Self::None => Some(FrameDuration::ZERO),
@@ -555,88 +584,142 @@ impl TailSpec {
 #[derive(Debug, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ProcessError {
+    /// The caller supplied an invalid interleaved block.
     #[error(transparent)]
     InvalidBlock(#[from] AudioBlockError),
+    /// A frame-domain timing conversion failed.
     #[error(transparent)]
     InvalidTiming(#[from] TimingError),
+    /// The processor does not implement the requested buffer shape.
     #[error("processor {processor} does not support {mode:?} processing")]
     UnsupportedBufferMode {
+        /// Processor reporting the unsupported mode.
         processor: &'static str,
+        /// Buffer mode that was requested.
         mode: ProcessBufferMode,
     },
+    /// A processor reported counts outside the caller-provided capacities.
     #[error(
         "processor {processor} returned invalid progress: consumed {consumed_frames}/{input_capacity_frames} input frames, produced {produced_frames}/{output_capacity_frames} output frames"
     )]
     InvalidProgress {
+        /// Processor that returned the invalid counts.
         processor: &'static str,
+        /// Input frames reported as consumed.
         consumed_frames: usize,
+        /// Output frames reported as produced.
         produced_frames: usize,
+        /// Input capacity supplied by the caller.
         input_capacity_frames: usize,
+        /// Output capacity supplied by the caller.
         output_capacity_frames: usize,
     },
+    /// The processor returned no progress despite available work and capacity.
     #[error("processor {processor} made no progress with non-empty input and output capacity")]
-    Stalled { processor: &'static str },
+    Stalled {
+        /// Processor that stalled.
+        processor: &'static str,
+    },
+    /// Input was supplied after the processor entered its terminal state.
     #[error("processor {processor} received input after end-of-stream; reset it first")]
-    AlreadyFinished { processor: &'static str },
+    AlreadyFinished {
+        /// Processor that has already finished.
+        processor: &'static str,
+    },
+    /// A second streaming consumer attempted to use a single-consumer handle.
     #[error("processor {processor} already has an active audio consumer")]
-    ConsumerAlreadyActive { processor: &'static str },
+    ConsumerAlreadyActive {
+        /// Processor or control handle with the existing consumer.
+        processor: &'static str,
+    },
+    /// The incoming block has a different channel geometry than setup allowed.
     #[error(
         "processor {processor} expected {expected_channels} channels but received {actual_channels}"
     )]
     ChannelCountMismatch {
+        /// Processor reporting the mismatch.
         processor: &'static str,
+        /// Channel count configured during setup.
         expected_channels: usize,
+        /// Channel count received at the call boundary.
         actual_channels: usize,
     },
+    /// The processor was asked to operate at a zero or otherwise invalid rate.
     #[error("processor {processor} received invalid sample rate {sample_rate_hz} Hz")]
     InvalidSampleRate {
+        /// Processor reporting the invalid rate.
         processor: &'static str,
+        /// Rejected sample rate in hertz.
         sample_rate_hz: u32,
     },
+    /// The interleaved buffer shape is invalid for the requested operation.
     #[error(
         "processor {processor} received invalid interleaved geometry during {operation}: {message}"
     )]
     InvalidGeometry {
+        /// Processor reporting the malformed geometry.
         processor: &'static str,
+        /// Operation at which geometry was checked.
         operation: &'static str,
+        /// Static reason the geometry was rejected.
         message: &'static str,
     },
+    /// Sparse automation events failed ordering or value validation.
     #[error("processor {processor} received invalid automation events: {message}")]
     InvalidAutomation {
+        /// Processor reporting the malformed automation.
         processor: &'static str,
+        /// Static reason the events were rejected.
         message: &'static str,
     },
     /// A control-thread parameter write was rejected before it could reach DSP
     /// state, for example a non-finite value that would poison filter history.
     #[error("processor {processor} rejected parameter {parameter}: {message}")]
     InvalidParameter {
+        /// Processor reporting the rejected parameter.
         processor: &'static str,
+        /// Parameter name supplied by the caller.
         parameter: &'static str,
+        /// Static reason the value was rejected.
         message: &'static str,
     },
+    /// The incoming block belongs to a different sample-rate domain.
     #[error(
         "processor {processor} expected {expected_sample_rate_hz} Hz input but received {actual_sample_rate_hz} Hz"
     )]
     SampleRateMismatch {
+        /// Processor reporting the rate-domain mismatch.
         processor: &'static str,
+        /// Rate at which the processor was configured.
         expected_sample_rate_hz: u32,
+        /// Rate attached to the incoming block.
         actual_sample_rate_hz: u32,
     },
+    /// An offline render policy contains an unsafe or inconsistent bound.
     #[error("invalid offline render policy: {message}")]
-    InvalidRenderPolicy { message: &'static str },
+    InvalidRenderPolicy {
+        /// Static reason the offline policy was rejected.
+        message: &'static str,
+    },
     /// The processor exists but intentionally does not support this operation
     /// through the current API surface. The message names the supported path.
     #[error("processor {processor} does not support {operation}: {message}")]
     UnsupportedOperation {
+        /// Processor reporting the unsupported operation.
         processor: &'static str,
+        /// Operation requested by the caller.
         operation: &'static str,
+        /// Static explanation of the supported alternative.
         message: &'static str,
     },
     /// Allocation-free backend diagnostic for realtime-capable processing.
     #[error("processor {processor} failed during {operation}: {message}")]
     Backend {
+        /// Processor or backend reporting the failure.
         processor: &'static str,
+        /// Operation that failed.
         operation: &'static str,
+        /// Allocation-free static diagnostic.
         message: &'static str,
     },
     /// Owned diagnostic accepted from existing setup/offline APIs.
@@ -645,8 +728,11 @@ pub enum ProcessError {
     /// error never allocates on the callback thread.
     #[error("processor {processor} failed during {operation}: {message}")]
     Owned {
+        /// Processor reporting the setup/offline failure.
         processor: &'static str,
+        /// Operation that failed.
         operation: &'static str,
+        /// Owned diagnostic retained for non-realtime callers.
         message: String,
     },
 }

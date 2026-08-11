@@ -42,6 +42,10 @@ pub struct LoudnessMeter {
 }
 
 impl LoudnessMeter {
+    /// Create a meter for the given channel count and sample rate.
+    ///
+    /// Rejects zero channels/rate and EBU R128 backend geometry failure with a
+    /// typed error; a failed backend is never represented as a usable meter.
     pub fn new(channels: usize, sample_rate: u32) -> Result<Self, ProcessError> {
         validated_channel_count(channels)?;
         validate_sample_rate_hz("LoudnessMeter", sample_rate)?;
@@ -180,21 +184,27 @@ impl LoudnessMeter {
         Ok(())
     }
 
+    /// Latest integrated loudness in LUFS (unreliable before 400 ms).
     pub fn integrated_loudness(&self) -> f64 {
         self.integrated_loudness
     }
+    /// Latest short-term loudness in LUFS.
     pub fn short_term_loudness(&self) -> f64 {
         self.short_term_loudness
     }
+    /// Latest momentary loudness in LUFS.
     pub fn momentary_loudness(&self) -> f64 {
         self.momentary_loudness
     }
+    /// Latest loudness range in LU.
     pub fn loudness_range(&self) -> f64 {
         self.loudness_range
     }
+    /// Latest true-peak in dBTP.
     pub fn true_peak(&self) -> f64 {
         self.true_peak
     }
+    /// Total samples consumed since construction or reset.
     pub fn samples_processed(&self) -> u64 {
         self.samples_processed
     }
@@ -243,6 +253,7 @@ pub struct TruePeakDetector {
 }
 
 impl TruePeakDetector {
+    /// Create a detector with zeroed FIR history.
     pub fn new() -> Self {
         let _ = true_peak_fir();
         Self {

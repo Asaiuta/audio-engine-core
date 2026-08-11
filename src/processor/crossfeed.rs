@@ -289,6 +289,7 @@ impl Crossfeed {
         self.state.reset();
     }
 
+    /// Enable or bypass the crossfeed stage.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
@@ -344,6 +345,7 @@ impl Crossfeed {
         }
     }
 
+    /// Read the current crossfeed settings.
     pub fn get_settings(&self) -> CrossfeedSettings {
         CrossfeedSettings {
             mix: self.mix.target,
@@ -366,8 +368,11 @@ impl Default for Crossfeed {
 /// reads its values from the lock-free parameter snapshot instead.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CrossfeedSettings {
+    /// Dry/wet linear mix target.
     pub mix: f64,
+    /// Lowpass cutoff in Hz.
     pub cutoff_hz: f64,
+    /// Whether the stage is active.
     pub enabled: bool,
 }
 

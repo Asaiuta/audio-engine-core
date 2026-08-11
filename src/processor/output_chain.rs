@@ -70,11 +70,14 @@ impl Default for UnknownTailPolicy {
 /// Policy for complete offline rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct OfflineRenderPolicy {
+    /// Whether rendered output retains or compensates algorithmic latency.
     pub timeline: RenderTimeline,
+    /// Stop conditions for processors whose tail duration is not finite.
     pub unknown_tail: UnknownTailPolicy,
 }
 
 impl OfflineRenderPolicy {
+    /// Return a policy that retains causal algorithmic latency in the output.
     pub fn raw_causal() -> Self {
         Self {
             timeline: RenderTimeline::RawCausal,
@@ -906,41 +909,62 @@ macro_rules! callback_stage_count_one {
 /// Canonical signal-transform stage identifiers for the output chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutputStageId {
+    /// Lock-free gain smoothing stage.
     Volume,
+    /// Ten-band equalizer stage.
     Equalizer,
+    /// Nonlinear saturation stage.
     Saturation,
+    /// Stereo crossfeed stage.
     Crossfeed,
+    /// Dynamically published FIR convolution stage.
     Convolver,
+    /// Level-dependent equal-loudness compensation stage.
     DynamicLoudness,
+    /// Peak or true-peak limiting stage.
     PeakLimiter,
+    /// Sample-rate conversion stage.
     Resampler,
+    /// Quantization-error feedback stage.
     NoiseShaper,
+    /// Final sample-depth quantization stage.
     Quantize,
 }
 
 /// Static metadata for one executed output-chain stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputStageDescriptor {
+    /// Stable programmatic stage identifier.
     pub id: OutputStageId,
+    /// Human-readable stage name.
     pub name: &'static str,
+    /// Whether the realtime callback chain executes this stage.
     pub callback_stage: bool,
+    /// Whether complete offline rendering executes this stage.
     pub offline_render_stage: bool,
+    /// Whether results depend on history from earlier frames.
     pub carries_state: bool,
+    /// Whether the stage contributes algorithmic latency.
     pub introduces_latency: bool,
+    /// Static explanation of the stage's latency behavior.
     pub latency_note: &'static str,
 }
 
 /// Analysis that consumes rendered output without changing its samples.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PostRenderAnalysisId {
+    /// EBU R128 loudness and true-peak measurement over final samples.
     LoudnessMeterTruePeak,
 }
 
 /// Static metadata for an opt-in post-render analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PostRenderAnalysisDescriptor {
+    /// Stable programmatic analysis identifier.
     pub id: PostRenderAnalysisId,
+    /// Human-readable analysis name.
     pub name: &'static str,
+    /// Static explanation of the measurements performed.
     pub analysis_note: &'static str,
 }
 
@@ -1339,16 +1363,27 @@ fn source_finish_frame_limit(
 /// [`ConvolverControl`], because that control has exactly one audio consumer.
 #[derive(Clone)]
 pub struct OutputChainParams {
+    /// Number of interleaved channels processed by the chain.
     pub channels: usize,
+    /// Final output-device sample rate in hertz.
     pub output_sample_rate: u32,
+    /// Shared equalizer parameter snapshot.
     pub eq_params: Arc<AtomicEqParams>,
+    /// Shared saturation parameter snapshot.
     pub saturation_params: Arc<AtomicSaturationParams>,
+    /// Shared crossfeed parameter snapshot.
     pub crossfeed_params: Arc<AtomicCrossfeedParams>,
+    /// Single-consumer convolver publication handle.
     pub convolver_control: ConvolverControl,
+    /// Shared volume parameter snapshot.
     pub volume_params: Arc<AtomicVolumeParams>,
+    /// Shared dynamic-loudness parameter snapshot.
     pub dynamic_loudness_params: Arc<AtomicDynamicLoudnessParams>,
+    /// Lock-free sink for dynamic-loudness telemetry.
     pub dynamic_loudness_telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
+    /// Shared peak-limiter parameter snapshot.
     pub limiter_params: Arc<AtomicPeakLimiterParams>,
+    /// Shared noise-shaper parameter snapshot.
     pub noise_shaper_params: Arc<AtomicNoiseShaperParams>,
 }
 
@@ -1359,6 +1394,7 @@ pub struct OutputChainBuilder {
 }
 
 impl OutputChainBuilder {
+    /// Create a builder around validated-on-build control handles and geometry.
     pub fn new(params: OutputChainParams) -> Self {
         Self { params }
     }
@@ -1438,7 +1474,9 @@ impl OutputChainBuilder {
 
 /// Render result after the full offline output chain.
 pub struct RenderedOutput {
+    /// Complete interleaved output samples.
     pub samples: Vec<f64>,
+    /// Limiter gain reduction in decibels at the end of rendering.
     pub final_limiter_gain_reduction_db: f64,
     /// Derived internal headroom below the user-facing true-peak ceiling.
     pub final_limiter_ceiling_guard_db: f64,
@@ -1872,10 +1910,12 @@ impl OutputRenderChain {
         })
     }
 
+    /// Return the limiter's current gain reduction in decibels.
     pub fn limiter_gain_reduction_db(&self) -> f64 {
         self.limiter.gain_reduction_db()
     }
 
+    /// Return the internal headroom below the public limiter ceiling.
     pub fn limiter_output_ceiling_guard_db(&self) -> f64 {
         self.limiter.output_ceiling_guard_db()
     }
