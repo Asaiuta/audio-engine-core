@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Adapter gains a second RealtimeSnapshotReader; the added sync_params branch must stay allocation/lock/log/panic-free on the hot path"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "New set_pre_gain_db mutates cached DSP state; defines config publication and coefficient-vs-plain-field update boundaries"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "New facade setters return ProcessError::InvalidParameter; infallible atomic setters clamp via sanitized instead"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Additive-only SemVer contract, public-api baseline regeneration, and the review checklist this change must satisfy"}

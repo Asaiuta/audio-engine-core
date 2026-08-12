@@ -1844,6 +1844,158 @@ fn dynamic_loudness_reset_matches_fresh_without_a_new_publication() {
     );
 }
 
+/// The three curve-tuning values must reach the DSP core through the parameter
+/// layer, not just through the core's own setters.
+#[test]
+fn dynamic_loudness_tuning_reaches_the_dsp_core() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+    let mut proc = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        Arc::clone(&params),
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+
+    // Defaults match the core's own starting curve.
+    assert_eq!(
+        proc.dynamic_loudness.pre_gain_linear(),
+        10.0_f64.powf(-3.0 / 20.0)
+    );
+    assert_eq!(proc.dynamic_loudness.transition_db(), 25.0);
+    assert_eq!(proc.dynamic_loudness.compensation_ref_db(), -15.0);
+
+    params.write_tuning(-6.0, 40.0, -20.0);
+    let mut buffer = vec![0.0; 128 * 2];
+    let _ = proc.process(&mut buffer, 2);
+
+    assert_eq!(
+        proc.dynamic_loudness.pre_gain_linear(),
+        10.0_f64.powf(-6.0 / 20.0)
+    );
+    assert_eq!(proc.dynamic_loudness.transition_db(), 40.0);
+    assert_eq!(proc.dynamic_loudness.compensation_ref_db(), -20.0);
+}
+
+/// Tuning and volume/strength ride separate generations, so an edit to one
+/// never forces the callback to re-apply the other.
+#[test]
+fn dynamic_loudness_tuning_and_volume_generations_are_independent() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+    let mut proc = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        Arc::clone(&params),
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+    let mut buffer = vec![0.0; 64 * 2];
+
+    let volume_generation = proc.cached_generation;
+    let tuning_generation = proc.tuning_generation;
+
+    params.set_pre_gain_db(-5.0);
+    let _ = proc.process(&mut buffer, 2);
+    assert_eq!(proc.cached_generation, volume_generation);
+    assert_ne!(proc.tuning_generation, tuning_generation);
+
+    let tuning_generation = proc.tuning_generation;
+    params.set_strength(0.5);
+    let _ = proc.process(&mut buffer, 2);
+    assert_ne!(proc.cached_generation, volume_generation);
+    assert_eq!(proc.tuning_generation, tuning_generation);
+}
+
+/// The added tuning read is a hot-path read: it must not allocate, whether or
+/// not a new snapshot is waiting.
+#[test]
+fn dynamic_loudness_tuning_sync_does_not_allocate() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+    let mut proc = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        Arc::clone(&params),
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+    let mut buffer = vec![0.0; 128 * 2];
+
+    // Steady state: nothing published since the last block.
+    assert_no_alloc::assert_no_alloc(|| {
+        let _ = proc.process(&mut buffer, 2);
+    });
+
+    // Change edge: a freshly published tuning snapshot is copied and applied.
+    params.write_tuning(-4.5, 30.0, -18.0);
+    assert_no_alloc::assert_no_alloc(|| {
+        let _ = proc.process(&mut buffer, 2);
+    });
+    assert_eq!(proc.dynamic_loudness.transition_db(), 30.0);
+}
+
+/// A caller that never touches the tuning API must get byte-identical output.
+#[test]
+fn dynamic_loudness_default_tuning_is_unchanged() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+    params.write(true, 0.05, 1.0);
+    let mut proc = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        Arc::clone(&params),
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+
+    // Explicitly republishing the documented defaults must be a no-op on the
+    // signal, which pins the defaults against accidental drift.
+    let explicit = Arc::new(AtomicDynamicLoudnessParams::new());
+    explicit.write(true, 0.05, 1.0);
+    explicit.write_tuning(-3.0, 25.0, -15.0);
+    let mut pinned = DynamicLoudnessProcessor::new(
+        2,
+        48_000,
+        explicit,
+        Arc::new(AtomicDynamicLoudnessTelemetry::new()),
+    )
+    .unwrap();
+
+    let input: Vec<f64> = (0..8_192)
+        .map(|index| {
+            let time = index as f64 / (48_000.0 * 2.0);
+            (std::f64::consts::TAU * 110.0 * time).sin() * 0.2
+        })
+        .collect();
+    let mut actual = input.clone();
+    let mut expected = input;
+    let _ = proc.process(&mut actual, 2);
+    let _ = pinned.process(&mut expected, 2);
+
+    assert_eq!(actual, expected);
+}
+
+/// Out-of-range input clamps; non-finite input keeps the previous value.
+#[test]
+fn dynamic_loudness_tuning_rejects_non_finite_and_clamps_range() {
+    let params = Arc::new(AtomicDynamicLoudnessParams::new());
+
+    params.set_pre_gain_db(12.0);
+    assert_eq!(params.read_tuning().pre_gain_db, 0.0);
+    params.set_transition_db(-100.0);
+    assert_eq!(params.read_tuning().transition_db, 10.0);
+    params.set_compensation_ref_db(50.0);
+    assert_eq!(params.read_tuning().compensation_ref_db, 0.0);
+
+    let retained = params.read_tuning();
+    params.set_pre_gain_db(f64::NAN);
+    params.set_transition_db(f64::INFINITY);
+    params.set_compensation_ref_db(f64::NEG_INFINITY);
+    assert_eq!(params.read_tuning(), retained);
+
+    // A non-finite member rejects the whole coherent write.
+    params.write_tuning(-5.0, f64::NAN, -20.0);
+    assert_eq!(params.read_tuning(), retained);
+}
+
 #[test]
 fn peak_limiter_finish_releases_exact_algorithmic_delay() {
     let params = Arc::new(AtomicPeakLimiterParams::new());

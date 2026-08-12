@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verification policy: cargo-semver-checks patch gate, public-api baseline diff review, required test/clippy/fmt gates"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Confirm the new tuning read path introduces no hot-path allocation, lock, or unbounded work"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "Confirm defaults are unchanged and tuning updates do not corrupt filter state or the volume/strength generation"}

@@ -1707,9 +1707,12 @@ pub struct DynamicLoudnessProcessor {
     dynamic_loudness: DynamicLoudness,
     params: Arc<AtomicDynamicLoudnessParams>,
     params_reader: RealtimeSnapshotReader<DynamicLoudnessParamsSnapshot>,
+    tuning_reader: RealtimeSnapshotReader<DynamicLoudnessTuningSnapshot>,
     telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
     cached_generation: u64,
     cached: DynamicLoudnessParamsSnapshot,
+    tuning_generation: u64,
+    tuning: DynamicLoudnessTuningSnapshot,
     sample_rate: u32,
     channels: usize,
     lifecycle: FixedLifecycle,
@@ -1726,24 +1729,43 @@ impl DynamicLoudnessProcessor {
         validated_channel_count(channels)?;
         validate_sample_rate("DynamicLoudness", sample_rate)?;
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
+        let (tuning_reader, tuning, tuning_generation) = params.subscribe_realtime_tuning();
         let mut processor = Self {
             dynamic_loudness: DynamicLoudness::new_validated(channels, sample_rate as f64),
             params,
             params_reader,
+            tuning_reader,
             telemetry,
             cached_generation,
             cached,
+            tuning_generation,
+            tuning,
             sample_rate,
             channels,
             lifecycle: FixedLifecycle::default(),
         };
         processor.apply_cached_params();
+        processor.apply_cached_tuning();
         Ok(processor)
     }
 
     fn apply_cached_params(&mut self) {
         self.dynamic_loudness.set_volume(self.cached.volume);
         self.dynamic_loudness.set_strength(self.cached.strength);
+    }
+
+    /// Push the curve-shaping values into the DSP core.
+    ///
+    /// Each of these is a cached scalar on the core: no filter coefficient is
+    /// redesigned and no delay history is touched, so applying them at a block
+    /// boundary cannot discontinue the signal.
+    fn apply_cached_tuning(&mut self) {
+        self.dynamic_loudness
+            .set_pre_gain_db(self.tuning.pre_gain_db);
+        self.dynamic_loudness
+            .set_transition_db(self.tuning.transition_db);
+        self.dynamic_loudness
+            .set_reference_volume_db(self.tuning.compensation_ref_db);
     }
 
     fn sync_params(&mut self) {
@@ -1754,6 +1776,14 @@ impl DynamicLoudnessProcessor {
             self.cached = current;
             self.cached_generation = generation;
             self.apply_cached_params();
+        }
+        if let Some((current, generation)) = self
+            .params
+            .load_realtime_tuning_if_changed_since(&self.tuning_reader, self.tuning_generation)
+        {
+            self.tuning = current;
+            self.tuning_generation = generation;
+            self.apply_cached_tuning();
         }
     }
 }
