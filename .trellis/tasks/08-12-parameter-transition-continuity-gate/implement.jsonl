@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Evidence policy, bench/baseline/CI contracts, derived-vs-pinned threshold rules, forbidden/required patterns - this task is primarily a quality-evidence addition"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Defines how parameters cross the control/audio thread boundary via Atomic*Params; the probe must step params the same way real callers do"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "Owns the existing saturation continuity and Bauer crossfeed transition conventions the new uniform gate must subsume without contradicting"}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "Stateful branch ownership, config publication, and sample-rate update boundaries - governs what a mid-block parameter step is allowed to touch"}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Block/progress, finish/reset, latency/tail contracts needed to drive processors correctly inside the probe harness"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Where new bench/probe code belongs (benches/, benches/support/) per the live src layout"}

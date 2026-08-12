@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review checklist for evidence claims, CI contract, and the forbidden pattern of pinning thresholds to observed output"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Verify the probe does not weaken or misrepresent the hot-path parameter-handoff invariant"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "Confirm the new uniform rows stay consistent with existing saturation/crossfeed continuity claims"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Changes span benches + docs/quality.md + spec; check cross-layer consistency"}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Defines when a public operation may be fallible; this task removes one Result that guards a programming error, not a runtime condition"}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "process_sample is callback-reachable; debug_assert must not become a release panic on the hot path"}
+{"file": ".trellis/spec/backend/listening-nonlinear-correctness.md", "reason": "Owns noise-shaper signed-boundary contracts that must not change"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Baseline/snapshot and CI evidence policy governing public-api + semver regeneration"}

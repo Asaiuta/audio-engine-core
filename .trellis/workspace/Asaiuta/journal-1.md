@@ -987,3 +987,36 @@ Found the pre-existing cargo token (CARGO_HOME=D:\Rust\.cargo\credentials.toml, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Restore dynamic-loudness curve tuning through the parameter layer
+
+**Date**: 2026-08-13
+**Task**: Restore dynamic-loudness curve tuning through the parameter layer
+**Branch**: `main`
+
+### Summary
+
+Found three dynamic-loudness tuning values (pre_gain_db, transition_db, compensation onset) with no path through the parameter layer: pre_gain had no setter and was hardcoded -3dB; the other two had DSP-core setters the adapter never called. Published them via a second SharedParams on an independent generation counter, added DynamicLoudnessTuningSnapshot (non_exhaustive), facade config/getter/setter, and range constants. Purely additive - semver-checks 223/223 under --release-type patch. Named the new onset control compensation_ref_db to avoid collision with the existing ref_volume_db (listening volume). Also split out a pre-existing uncommitted NoiseShaper::process_sample change into its own commit first (2e992fe).
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b74206e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
