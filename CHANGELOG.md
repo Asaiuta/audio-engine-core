@@ -38,6 +38,51 @@ version bumps, as permitted by SemVer.
   [README.zh-CN.md](README.zh-CN.md), with language-switch links from the
   English README.
 
+## [1.1.0] - Unreleased
+
+### Added
+- **Dynamic-loudness curve tuning is configurable again.** The stage's three
+  curve-shaping values — the bass-boost headroom (`pre_gain_db`), the span from
+  compensation onset to full compensation (`transition_db`), and the listening
+  level below which compensation begins (`compensation_ref_db`) — had no path
+  through the parameter layer. `pre_gain_db` had no setter at all and was a
+  hardcoded −3 dB; the other two had setters on `DynamicLoudness` that the
+  callback adapter never called, because `DynamicLoudnessParamsSnapshot` does
+  not carry them. Downstream applications that expose these as user or
+  environment settings had no way to reach them.
+
+  They are now published through a dedicated snapshot on its own generation
+  counter, so tuning edits and listening-volume automation do not invalidate
+  each other:
+
+  - `DynamicLoudnessTuningSnapshot` (`#[non_exhaustive]`), plus
+    `AtomicDynamicLoudnessParams::{write_tuning, set_pre_gain_db,
+    set_transition_db, set_compensation_ref_db, read_tuning,
+    subscribe_realtime_tuning, load_realtime_tuning_if_changed_since,
+    load_tuning_with_generation}`.
+  - `DynamicLoudness::set_pre_gain_db`, alongside the existing
+    `set_transition_db` / `set_reference_volume_db`.
+  - `PlaybackDynamicLoudnessConfig::with_tuning` and the three matching public
+    fields, validated at build time.
+  - `PlaybackParameters::{set_dynamic_loudness_tuning, dynamic_loudness_tuning}`.
+  - Published ranges: `DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN`/`_MAX` (−6..0),
+    `DYNAMIC_LOUDNESS_TRANSITION_DB_MIN`/`_MAX` (10..40), and
+    `DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN`/`_MAX` (−30..0), re-exported from
+    the facade like the other control ranges.
+
+  **Naming.** The new `compensation_ref_db` is deliberately *not* called
+  `ref_volume_db`. The existing `DynamicLoudnessParamsSnapshot::ref_volume_db`
+  means the current listening volume expressed in dB, from which the linear
+  `volume` is derived; the new value is the threshold *below which*
+  compensation starts. The two were previously conflated under one name, which
+  is part of why the second one was never wired up.
+
+  Defaults are unchanged (−3 dB / 25 dB / −15 dB) and are now sourced from a
+  single place shared by the DSP core and the parameter layer, so a caller that
+  never touches the new API gets bit-identical output. This is an additive
+  change: `cargo semver-checks` passes 223/223 for both feature matrices even
+  under `--release-type patch`.
+
 ## [1.0.2] - Unreleased
 
 ### Changed

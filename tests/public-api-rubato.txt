@@ -591,12 +591,16 @@ impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackCrossfee
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackCrossfeedConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackCrossfeedConfig
 #[non_exhaustive] pub struct audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
+pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::compensation_ref_db: f64
 pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::enabled: bool
 pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::listening_volume_db: f64
+pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::pre_gain_db: f64
 pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::strength: f64
+pub audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::transition_db: f64
 impl audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::disabled() -> Self
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::enabled(f64, f64) -> Self
+pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::with_tuning(self, f64, f64, f64) -> Self
 impl core::clone::Clone for audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::clone(&self) -> audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 impl core::cmp::PartialEq for audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
@@ -665,6 +669,7 @@ impl audio_engine_core::pipeline::PlaybackParameters
 pub fn audio_engine_core::pipeline::PlaybackParameters::crossfeed(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_telemetry(&self) -> audio_engine_core::pipeline::DynamicLoudnessTelemetry
+pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_tuning(&self) -> (f64, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::eq_band_gains_db(&self) -> [f64; 10]
 pub fn audio_engine_core::pipeline::PlaybackParameters::eq_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_enabled(&self) -> bool
@@ -677,6 +682,7 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed(&self, boo
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness(&self, bool, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_enabled(&self, bool)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_tuning(&self, f64, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_enabled(&self, bool)
@@ -794,8 +800,14 @@ pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MAX: f64
 pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::pipeline::CROSSFEED_MIX_MAX: f64
 pub const audio_engine_core::pipeline::CROSSFEED_MIX_MIN: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN: f64
 pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_STRENGTH_MAX: f64
 pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_STRENGTH_MIN: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_TRANSITION_DB_MAX: f64
+pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_TRANSITION_DB_MIN: f64
 pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_VOLUME_DB_MAX: f64
 pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_VOLUME_DB_MIN: f64
 pub const audio_engine_core::pipeline::EQ_BAND_GAIN_DB_MAX: f64
@@ -1292,16 +1304,24 @@ pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParam
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>>
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64)>
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_realtime_tuning_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_tuning_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::new() -> Self
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::read(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::read_tuning(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_compensation_ref_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_enabled(&self, bool)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_pre_gain_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_ref_volume_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_strength(&self, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_transition_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_volume(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::strength(&self) -> f64
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::subscribe_realtime_tuning(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::write(&self, bool, f64, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::write_tuning(&self, f64, f64, f64)
 impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::default() -> Self
 impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
@@ -1491,6 +1511,27 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Dyna
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot
+#[non_exhaustive] pub struct audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::compensation_ref_db: f64
+pub audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::pre_gain_db: f64
+pub audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::transition_db: f64
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::cmp::PartialEq for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::eq(&self, &audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot) -> bool
+impl core::default::Default for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::default() -> Self
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::StructuralPartialEq for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 pub struct audio_engine_core::processor::lockfree_params::EqParamsSnapshot
 pub audio_engine_core::processor::lockfree_params::EqParamsSnapshot::enabled: bool
 pub audio_engine_core::processor::lockfree_params::EqParamsSnapshot::gains: [f64; 10]
@@ -1606,8 +1647,14 @@ pub const audio_engine_core::processor::lockfree_params::CROSSFEED_CUTOFF_HZ_MAX
 pub const audio_engine_core::processor::lockfree_params::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::processor::lockfree_params::CROSSFEED_MIX_MAX: f64
 pub const audio_engine_core::processor::lockfree_params::CROSSFEED_MIX_MIN: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN: f64
 pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_STRENGTH_MAX: f64
 pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_STRENGTH_MIN: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_TRANSITION_DB_MAX: f64
+pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_TRANSITION_DB_MIN: f64
 pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_VOLUME_MAX: f64
 pub const audio_engine_core::processor::lockfree_params::DYNAMIC_LOUDNESS_VOLUME_MIN: f64
 pub const audio_engine_core::processor::lockfree_params::EQ_BANDS: usize
@@ -2815,16 +2862,24 @@ pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParam
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>>
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64)>
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_realtime_tuning_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_tuning_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::new() -> Self
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::read(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::read_tuning(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_compensation_ref_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_enabled(&self, bool)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_pre_gain_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_ref_volume_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_strength(&self, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_transition_db(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::set_volume(&self, f64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::strength(&self) -> f64
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot>, audio_engine_core::processor::lockfree_params::DynamicLoudnessParamsSnapshot, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::subscribe_realtime_tuning(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot>, audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot, u64)
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::write(&self, bool, f64, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::write_tuning(&self, f64, f64, f64)
 impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
 pub fn audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams::default() -> Self
 impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams
@@ -3330,6 +3385,7 @@ pub fn audio_engine_core::processor::DynamicLoudness::new(usize, f64) -> core::r
 pub fn audio_engine_core::processor::DynamicLoudness::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::DynamicLoudness::reset(&mut self)
 pub fn audio_engine_core::processor::DynamicLoudness::set_enabled(&mut self, bool)
+pub fn audio_engine_core::processor::DynamicLoudness::set_pre_gain_db(&mut self, f64)
 pub fn audio_engine_core::processor::DynamicLoudness::set_reference_volume_db(&mut self, f64)
 pub fn audio_engine_core::processor::DynamicLoudness::set_sample_rate(&mut self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::DynamicLoudness::set_strength(&mut self, f64)
@@ -3385,6 +3441,27 @@ impl core::marker::Unpin for audio_engine_core::processor::adapters::DynamicLoud
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+#[non_exhaustive] pub struct audio_engine_core::processor::DynamicLoudnessTuningSnapshot
+pub audio_engine_core::processor::DynamicLoudnessTuningSnapshot::compensation_ref_db: f64
+pub audio_engine_core::processor::DynamicLoudnessTuningSnapshot::pre_gain_db: f64
+pub audio_engine_core::processor::DynamicLoudnessTuningSnapshot::transition_db: f64
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::cmp::PartialEq for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::eq(&self, &audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot) -> bool
+impl core::default::Default for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::default() -> Self
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+pub fn audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::StructuralPartialEq for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 pub struct audio_engine_core::processor::EqParamsSnapshot
 pub audio_engine_core::processor::EqParamsSnapshot::enabled: bool
 pub audio_engine_core::processor::EqParamsSnapshot::gains: [f64; 10]
@@ -4174,8 +4251,14 @@ pub const audio_engine_core::processor::CROSSFEED_CUTOFF_HZ_MAX: f64
 pub const audio_engine_core::processor::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::processor::CROSSFEED_MIX_MAX: f64
 pub const audio_engine_core::processor::CROSSFEED_MIX_MIN: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_STRENGTH_MAX: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_STRENGTH_MIN: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_TRANSITION_DB_MAX: f64
+pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_TRANSITION_DB_MIN: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_VOLUME_MAX: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_VOLUME_MIN: f64
 pub const audio_engine_core::processor::EQ_BANDS: usize
@@ -5666,12 +5749,16 @@ impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackCrossfee
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackCrossfeedConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackCrossfeedConfig
 #[non_exhaustive] pub struct audio_engine_core::PlaybackDynamicLoudnessConfig
+pub audio_engine_core::PlaybackDynamicLoudnessConfig::compensation_ref_db: f64
 pub audio_engine_core::PlaybackDynamicLoudnessConfig::enabled: bool
 pub audio_engine_core::PlaybackDynamicLoudnessConfig::listening_volume_db: f64
+pub audio_engine_core::PlaybackDynamicLoudnessConfig::pre_gain_db: f64
 pub audio_engine_core::PlaybackDynamicLoudnessConfig::strength: f64
+pub audio_engine_core::PlaybackDynamicLoudnessConfig::transition_db: f64
 impl audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::disabled() -> Self
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::enabled(f64, f64) -> Self
+pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::with_tuning(self, f64, f64, f64) -> Self
 impl core::clone::Clone for audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 pub fn audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig::clone(&self) -> audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
 impl core::cmp::PartialEq for audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig
@@ -5740,6 +5827,7 @@ impl audio_engine_core::pipeline::PlaybackParameters
 pub fn audio_engine_core::pipeline::PlaybackParameters::crossfeed(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_telemetry(&self) -> audio_engine_core::pipeline::DynamicLoudnessTelemetry
+pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_tuning(&self) -> (f64, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::eq_band_gains_db(&self) -> [f64; 10]
 pub fn audio_engine_core::pipeline::PlaybackParameters::eq_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_enabled(&self) -> bool
@@ -5752,6 +5840,7 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed(&self, boo
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness(&self, bool, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_enabled(&self, bool)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_tuning(&self, f64, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_enabled(&self, bool)

@@ -390,17 +390,39 @@ const BLOCK_SIZE: usize = 64;
 const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
 const BAND_ACTIVE_EPSILON_DB: f64 = 0.0001;
 
-// Reference-curve bounds owned by this model rather than by the published
-// facade contract in `lockfree_params`: no public control exposes either value,
-// so they are not a second encoding of a published range.
+// Reference-curve bounds owned by this model. `lockfree_params` re-exports
+// them as the published control range for the dynamic-loudness tuning
+// snapshot, so this module stays the single source of truth and the two layers
+// cannot drift apart.
 /// Quietest listening reference the compensation curve is calibrated for.
-const REFERENCE_VOLUME_DB_MIN: f64 = -30.0;
+pub(crate) const REFERENCE_VOLUME_DB_MIN: f64 = -30.0;
 /// Loudest listening reference, at which no compensation is applied.
-const REFERENCE_VOLUME_DB_MAX: f64 = 0.0;
+pub(crate) const REFERENCE_VOLUME_DB_MAX: f64 = 0.0;
 /// Narrowest span over which compensation ramps from none to full.
-const TRANSITION_DB_MIN: f64 = 10.0;
+pub(crate) const TRANSITION_DB_MIN: f64 = 10.0;
 /// Widest such span.
-const TRANSITION_DB_MAX: f64 = 40.0;
+pub(crate) const TRANSITION_DB_MAX: f64 = 40.0;
+/// Deepest pre-gain attenuation the bass-boost headroom control accepts.
+pub(crate) const PRE_GAIN_DB_MIN: f64 = -6.0;
+/// Shallowest pre-gain: no headroom is reserved.
+pub(crate) const PRE_GAIN_DB_MAX: f64 = 0.0;
+/// Default headroom reserved ahead of the low-band boost.
+pub(crate) const PRE_GAIN_DB_DEFAULT: f64 = -3.0;
+/// Default compensation onset: the listening level below which the curve
+/// starts adding gain.
+pub(crate) const REFERENCE_VOLUME_DB_DEFAULT: f64 = -15.0;
+/// Default span from onset to full compensation.
+pub(crate) const TRANSITION_DB_DEFAULT: f64 = 25.0;
+
+/// Convert a pre-gain in dB to the linear multiplier the process loop applies.
+///
+/// Shared by the constructor and [`DynamicLoudness::set_pre_gain_db`] so the
+/// default and a control-thread update cannot encode the same dB value
+/// differently.
+#[inline]
+pub(crate) fn pre_gain_db_to_linear(db: f64) -> f64 {
+    10.0_f64.powf(db / 20.0)
+}
 
 /// Dynamic Loudness Compensation processor
 ///
@@ -462,10 +484,10 @@ impl DynamicLoudness {
             last_applied_gains: [f64::NAN; LOUDNESS_BANDS_N],
             active_bands: [false; LOUDNESS_BANDS_N],
             max_gains,
-            ref_volume_db: -15.0, // Reference: ~50% perceived loudness
-            transition_db: 25.0,  // Compensation starts below -15 dB, max at -40 dB
+            ref_volume_db: REFERENCE_VOLUME_DB_DEFAULT, // Reference: ~50% perceived loudness
+            transition_db: TRANSITION_DB_DEFAULT, // Compensation starts below -15 dB, max at -40 dB
             // Headroom for bass boost (-3 dB).
-            pre_gain_linear: 10.0_f64.powf(-3.0 / 20.0),
+            pre_gain_linear: pre_gain_db_to_linear(PRE_GAIN_DB_DEFAULT),
             sample_rate,
             channels,
             current_loudness_factor: 0.0,
@@ -611,6 +633,22 @@ impl DynamicLoudness {
         if let Some(transition_db) = sanitized(transition_db, TRANSITION_DB_MIN, TRANSITION_DB_MAX)
         {
             self.transition_db = transition_db;
+        }
+    }
+
+    /// Set the headroom reserved ahead of the low-band boost, in dB, clamped
+    /// to the internal `PRE_GAIN_DB_MIN`..=`PRE_GAIN_DB_MAX` range.
+    ///
+    /// The compensation curve adds low-frequency gain, so the stage attenuates
+    /// first to keep the boosted signal from clipping. A shallower pre-gain
+    /// preserves level at the cost of that headroom; `0.0` reserves none.
+    ///
+    /// This updates a cached scalar only — no filter coefficient is redesigned
+    /// and no delay history is touched, so a change is safe between blocks and
+    /// does not disturb the band smoothers. A non-finite value is ignored.
+    pub fn set_pre_gain_db(&mut self, pre_gain_db: f64) {
+        if let Some(pre_gain_db) = sanitized(pre_gain_db, PRE_GAIN_DB_MIN, PRE_GAIN_DB_MAX) {
+            self.pre_gain_linear = pre_gain_db_to_linear(pre_gain_db);
         }
     }
 
@@ -771,6 +809,31 @@ impl DynamicLoudness {
     /// Get strength
     pub fn strength(&self) -> f64 {
         self.strength
+    }
+
+    /// Current linear pre-gain, for tests and crate-internal assertions.
+    ///
+    /// Deliberately not public: the dB value is the published control, and the
+    /// linear cache is an implementation detail of the process loop.
+    #[cfg(test)]
+    pub(crate) fn pre_gain_linear(&self) -> f64 {
+        self.pre_gain_linear
+    }
+
+    /// Current transition span in dB, for tests.
+    #[cfg(test)]
+    pub(crate) fn transition_db(&self) -> f64 {
+        self.transition_db
+    }
+
+    /// Current compensation onset in dB, for tests.
+    ///
+    /// Named after the published control rather than the internal field, which
+    /// shares a name with the unrelated listening-volume reference in
+    /// `DynamicLoudnessParamsSnapshot`.
+    #[cfg(test)]
+    pub(crate) fn compensation_ref_db(&self) -> f64 {
+        self.ref_volume_db
     }
 }
 

@@ -9,9 +9,9 @@ use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, AudioBlockMut, ChainFinishPolicy, ConvolverControl, ConvolverStatus,
-    DspChain, FFTConvolver, FrameDuration, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
-    ProcessError, ProcessProgress, ProcessState, SaturationParamsSnapshot, SaturationQuality,
-    SaturationType, TailSpec, LOUDNESS_BANDS_N,
+    DspChain, DynamicLoudnessTuningSnapshot, FFTConvolver, FrameDuration, NoiseShaperCurve,
+    OutputChainBuilder, OutputChainParams, ProcessError, ProcessProgress, ProcessState,
+    SaturationParamsSnapshot, SaturationQuality, SaturationType, TailSpec, LOUDNESS_BANDS_N,
 };
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -22,7 +22,10 @@ use std::sync::Arc;
 /// can use these bounds directly for its widgets.
 pub use crate::processor::{
     CROSSFEED_CUTOFF_HZ_MAX, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN,
-    DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN, EQ_BAND_GAIN_DB_MAX,
+    DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX, DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,
+    DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX, DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
+    DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN,
+    DYNAMIC_LOUDNESS_TRANSITION_DB_MAX, DYNAMIC_LOUDNESS_TRANSITION_DB_MIN, EQ_BAND_GAIN_DB_MAX,
     EQ_BAND_GAIN_DB_MIN, LIMITER_THRESHOLD_DB_MAX, LIMITER_THRESHOLD_DB_MIN, NOISE_SHAPER_BITS_MAX,
     NOISE_SHAPER_BITS_MIN, SATURATION_DRIVE_MAX, SATURATION_DRIVE_MIN, SATURATION_GAIN_DB_MAX,
     SATURATION_GAIN_DB_MIN, SATURATION_HIGHPASS_CUTOFF_HZ_MAX, SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
@@ -414,6 +417,10 @@ impl Default for PlaybackCrossfeedConfig {
 /// Initial dynamic-loudness settings. Listening volume is the current playback
 /// volume in dBFS; strength is a 0.0–1.0 compensation amount.
 ///
+/// The three curve-tuning fields shape *how* compensation is applied and
+/// default to the stage's own calibration; leave them alone unless you have a
+/// reason to re-tune the curve.
+///
 /// `#[non_exhaustive]`: construct via [`Self::disabled`]/[`Self::enabled`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -424,6 +431,15 @@ pub struct PlaybackDynamicLoudnessConfig {
     pub listening_volume_db: f64,
     /// Compensation amount (0.0–1.0).
     pub strength: f64,
+    /// Headroom reserved ahead of the low-band boost, in dB. Default `-3.0`.
+    pub pre_gain_db: f64,
+    /// Span from compensation onset to full compensation, in dB. Default `25.0`.
+    pub transition_db: f64,
+    /// Listening level below which compensation begins, in dB. Default `-15.0`.
+    ///
+    /// This is the curve's onset threshold, distinct from
+    /// [`Self::listening_volume_db`], which is where playback currently sits.
+    pub compensation_ref_db: f64,
 }
 impl PlaybackDynamicLoudnessConfig {
     /// A bypassed dynamic-loudness stage.
@@ -432,6 +448,7 @@ impl PlaybackDynamicLoudnessConfig {
             enabled: false,
             listening_volume_db: 0.0,
             strength: 1.0,
+            ..Self::default_tuning()
         }
     }
     /// Enable compensation at the current listening volume in dBFS.
@@ -440,6 +457,36 @@ impl PlaybackDynamicLoudnessConfig {
             enabled: true,
             listening_volume_db,
             strength,
+            ..Self::default_tuning()
+        }
+    }
+    /// Replace the curve-tuning values, keeping enablement and volume.
+    ///
+    /// Values outside their published ranges are rejected when the pipeline is
+    /// built by [`PlaybackBuilder::build`].
+    pub fn with_tuning(
+        mut self,
+        pre_gain_db: f64,
+        transition_db: f64,
+        compensation_ref_db: f64,
+    ) -> Self {
+        self.pre_gain_db = pre_gain_db;
+        self.transition_db = transition_db;
+        self.compensation_ref_db = compensation_ref_db;
+        self
+    }
+
+    /// The stage's own calibration, so a config that never mentions tuning
+    /// describes exactly the curve it builds.
+    fn default_tuning() -> Self {
+        let tuning = DynamicLoudnessTuningSnapshot::default();
+        Self {
+            enabled: false,
+            listening_volume_db: 0.0,
+            strength: 1.0,
+            pre_gain_db: tuning.pre_gain_db,
+            transition_db: tuning.transition_db,
+            compensation_ref_db: tuning.compensation_ref_db,
         }
     }
 }
@@ -653,6 +700,24 @@ impl PlaybackConfig {
             self.dynamic_loudness.strength,
             DYNAMIC_LOUDNESS_STRENGTH_MIN,
             DYNAMIC_LOUDNESS_STRENGTH_MAX,
+        )?;
+        checked_config_value(
+            "dynamic loudness pre gain",
+            self.dynamic_loudness.pre_gain_db,
+            DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
+            DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX,
+        )?;
+        checked_config_value(
+            "dynamic loudness transition",
+            self.dynamic_loudness.transition_db,
+            DYNAMIC_LOUDNESS_TRANSITION_DB_MIN,
+            DYNAMIC_LOUDNESS_TRANSITION_DB_MAX,
+        )?;
+        checked_config_value(
+            "dynamic loudness compensation reference",
+            self.dynamic_loudness.compensation_ref_db,
+            DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,
+            DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX,
         )?;
         if self.noise_shaping.bits < NOISE_SHAPER_BITS_MIN
             || self.noise_shaping.bits > NOISE_SHAPER_BITS_MAX
@@ -908,6 +973,45 @@ impl PlaybackParameters {
             .write(enabled, db_to_linear(listening_volume_db), strength);
         Ok(())
     }
+    /// Publish the three dynamic-loudness curve-tuning values as one coherent
+    /// callback snapshot.
+    ///
+    /// These shape *how* compensation is applied and are published on their own
+    /// generation, so changing them does not disturb the listening volume set
+    /// by [`Self::set_dynamic_loudness`]. Each value is clamped to its
+    /// published range:
+    ///
+    /// - `pre_gain_db`: [`DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN`]..=[`DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX`]
+    /// - `transition_db`: [`DYNAMIC_LOUDNESS_TRANSITION_DB_MIN`]..=[`DYNAMIC_LOUDNESS_TRANSITION_DB_MAX`]
+    /// - `compensation_ref_db`: [`DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN`]..=[`DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX`]
+    ///
+    /// `compensation_ref_db` is the level *below which* compensation begins,
+    /// not the current listening volume.
+    pub fn set_dynamic_loudness_tuning(
+        &self,
+        pre_gain_db: f64,
+        transition_db: f64,
+        compensation_ref_db: f64,
+    ) -> Result<(), ProcessError> {
+        let pre_gain_db = checked_parameter(
+            "PlaybackParameters",
+            "dynamic loudness pre gain",
+            pre_gain_db,
+        )?;
+        let transition_db = checked_parameter(
+            "PlaybackParameters",
+            "dynamic loudness transition",
+            transition_db,
+        )?;
+        let compensation_ref_db = checked_parameter(
+            "PlaybackParameters",
+            "dynamic loudness compensation reference",
+            compensation_ref_db,
+        )?;
+        self.dynamic_loudness
+            .write_tuning(pre_gain_db, transition_db, compensation_ref_db);
+        Ok(())
+    }
     /// Enable or bypass output noise shaping.
     pub fn set_noise_shaping_enabled(&self, enabled: bool) {
         self.noise_shaper.set_enabled(enabled);
@@ -977,6 +1081,16 @@ impl PlaybackParameters {
             snapshot.enabled,
             linear_to_db(snapshot.volume),
             snapshot.strength,
+        )
+    }
+    /// Current dynamic-loudness curve tuning as
+    /// `(pre_gain_db, transition_db, compensation_ref_db)`.
+    pub fn dynamic_loudness_tuning(&self) -> (f64, f64, f64) {
+        let tuning = self.dynamic_loudness.read_tuning();
+        (
+            tuning.pre_gain_db,
+            tuning.transition_db,
+            tuning.compensation_ref_db,
         )
     }
     /// Current noise-shaping enablement, bit depth, and curve.
@@ -1164,6 +1278,11 @@ impl PlaybackBuilder {
             self.config.dynamic_loudness.enabled,
             db_to_linear(self.config.dynamic_loudness.listening_volume_db),
             self.config.dynamic_loudness.strength,
+        );
+        dynamic_loudness.write_tuning(
+            self.config.dynamic_loudness.pre_gain_db,
+            self.config.dynamic_loudness.transition_db,
+            self.config.dynamic_loudness.compensation_ref_db,
         );
         let noise_shaper = Arc::new(AtomicNoiseShaperParams::new());
         noise_shaper.write(
@@ -1989,6 +2108,67 @@ mod playback_facade_tests {
     }
 
     #[test]
+    fn dynamic_loudness_tuning_round_trips_through_the_facade() {
+        let (_pipeline, controller) = PlaybackPipeline::builder(spec()).build().unwrap();
+        let parameters = controller.parameters();
+
+        // A config that never mentions tuning still reports the stage's own
+        // calibration, so the defaults are pinned end to end.
+        assert_eq!(parameters.dynamic_loudness_tuning(), (-3.0, 25.0, -15.0));
+
+        parameters
+            .set_dynamic_loudness_tuning(-5.0, 32.0, -22.0)
+            .unwrap();
+        assert_eq!(parameters.dynamic_loudness_tuning(), (-5.0, 32.0, -22.0));
+
+        // Out-of-range finite values clamp rather than fail.
+        parameters
+            .set_dynamic_loudness_tuning(-99.0, 99.0, 99.0)
+            .unwrap();
+        assert_eq!(
+            parameters.dynamic_loudness_tuning(),
+            (
+                DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
+                DYNAMIC_LOUDNESS_TRANSITION_DB_MAX,
+                DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX,
+            )
+        );
+    }
+
+    #[test]
+    fn dynamic_loudness_tuning_config_is_published_at_build() {
+        let config = PlaybackConfig::transparent().with_dynamic_loudness(
+            PlaybackDynamicLoudnessConfig::enabled(-18.0, 0.75).with_tuning(-4.0, 30.0, -20.0),
+        );
+        let (_pipeline, controller) = PlaybackPipeline::builder(spec())
+            .configure(config)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            controller.parameters().dynamic_loudness_tuning(),
+            (-4.0, 30.0, -20.0)
+        );
+    }
+
+    #[test]
+    fn out_of_range_dynamic_loudness_tuning_config_is_rejected() {
+        for config in [
+            PlaybackDynamicLoudnessConfig::enabled(-18.0, 0.75).with_tuning(-99.0, 25.0, -15.0),
+            PlaybackDynamicLoudnessConfig::enabled(-18.0, 0.75).with_tuning(-3.0, 99.0, -15.0),
+            PlaybackDynamicLoudnessConfig::enabled(-18.0, 0.75).with_tuning(-3.0, 25.0, 99.0),
+            PlaybackDynamicLoudnessConfig::enabled(-18.0, 0.75).with_tuning(f64::NAN, 25.0, -15.0),
+        ] {
+            assert!(matches!(
+                PlaybackPipeline::builder(spec())
+                    .configure(PlaybackConfig::transparent().with_dynamic_loudness(config))
+                    .build(),
+                Err(ProcessError::InvalidParameter { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn high_level_pipeline_relinquishes_its_private_convolver_lease_on_drop() {
         let (pipeline, controller) = PlaybackPipeline::builder(spec()).build().unwrap();
 
@@ -2483,6 +2663,18 @@ mod playback_facade_tests {
             ));
             assert!(matches!(
                 parameters.set_dynamic_loudness(true, bad, 0.5),
+                Err(ProcessError::InvalidParameter { .. })
+            ));
+            assert!(matches!(
+                parameters.set_dynamic_loudness_tuning(bad, 25.0, -15.0),
+                Err(ProcessError::InvalidParameter { .. })
+            ));
+            assert!(matches!(
+                parameters.set_dynamic_loudness_tuning(-3.0, bad, -15.0),
+                Err(ProcessError::InvalidParameter { .. })
+            ));
+            assert!(matches!(
+                parameters.set_dynamic_loudness_tuning(-3.0, 25.0, bad),
                 Err(ProcessError::InvalidParameter { .. })
             ));
         }

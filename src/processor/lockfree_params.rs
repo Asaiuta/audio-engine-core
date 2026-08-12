@@ -28,7 +28,17 @@ use super::crossfeed::{
     DEFAULT_CUTOFF_HZ as CROSSFEED_DEFAULT_CUTOFF_HZ, DEFAULT_MIX as CROSSFEED_DEFAULT_MIX,
     MAX_CUTOFF_HZ as CROSSFEED_MAX_CUTOFF_HZ, MIN_CUTOFF_HZ as CROSSFEED_MIN_CUTOFF_HZ,
 };
-use super::dynamic_loudness::LOUDNESS_BANDS_N;
+use super::dynamic_loudness::{
+    LOUDNESS_BANDS_N, PRE_GAIN_DB_DEFAULT as DYNAMIC_LOUDNESS_PRE_GAIN_DB_DEFAULT,
+    PRE_GAIN_DB_MAX as DYNAMIC_LOUDNESS_PRE_GAIN_DB_LIMIT_MAX,
+    PRE_GAIN_DB_MIN as DYNAMIC_LOUDNESS_PRE_GAIN_DB_LIMIT_MIN,
+    REFERENCE_VOLUME_DB_DEFAULT as DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_DEFAULT,
+    REFERENCE_VOLUME_DB_MAX as DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_LIMIT_MAX,
+    REFERENCE_VOLUME_DB_MIN as DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_LIMIT_MIN,
+    TRANSITION_DB_DEFAULT as DYNAMIC_LOUDNESS_TRANSITION_DB_DEFAULT,
+    TRANSITION_DB_MAX as DYNAMIC_LOUDNESS_TRANSITION_DB_LIMIT_MAX,
+    TRANSITION_DB_MIN as DYNAMIC_LOUDNESS_TRANSITION_DB_LIMIT_MIN,
+};
 
 // ============================================================================
 // Published control-value ranges
@@ -98,6 +108,26 @@ pub const DYNAMIC_LOUDNESS_STRENGTH_MAX: f64 = 1.0;
 pub const DYNAMIC_LOUDNESS_VOLUME_MIN: f64 = 0.0;
 /// Largest publishable dynamic-loudness listening volume (linear).
 pub const DYNAMIC_LOUDNESS_VOLUME_MAX: f64 = 1.0;
+/// Deepest publishable dynamic-loudness pre-gain, in dB. The compensation
+/// curve boosts low frequencies, so this headroom is reserved ahead of it.
+pub const DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN: f64 = DYNAMIC_LOUDNESS_PRE_GAIN_DB_LIMIT_MIN;
+/// Shallowest publishable dynamic-loudness pre-gain, in dB: no headroom.
+pub const DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX: f64 = DYNAMIC_LOUDNESS_PRE_GAIN_DB_LIMIT_MAX;
+/// Narrowest publishable span, in dB, over which compensation ramps from none
+/// to full.
+pub const DYNAMIC_LOUDNESS_TRANSITION_DB_MIN: f64 = DYNAMIC_LOUDNESS_TRANSITION_DB_LIMIT_MIN;
+/// Widest such publishable span, in dB.
+pub const DYNAMIC_LOUDNESS_TRANSITION_DB_MAX: f64 = DYNAMIC_LOUDNESS_TRANSITION_DB_LIMIT_MAX;
+/// Quietest publishable compensation onset, in dB.
+///
+/// This is the listening level *below which* compensation starts, not the
+/// current listening volume; see [`DynamicLoudnessTuningSnapshot`].
+pub const DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN: f64 =
+    DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_LIMIT_MIN;
+/// Loudest publishable compensation onset, in dB, at which no compensation is
+/// applied.
+pub const DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX: f64 =
+    DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_LIMIT_MAX;
 /// Smallest publishable noise-shaper target bit depth.
 pub const NOISE_SHAPER_BITS_MIN: u32 = 8;
 /// Largest publishable noise-shaper target bit depth.
@@ -1321,9 +1351,51 @@ impl Default for DynamicLoudnessParamsSnapshot {
     }
 }
 
+/// Curve-shaping settings for the dynamic-loudness stage.
+///
+/// These describe *how* the compensation curve is drawn, and change far less
+/// often than the listening volume in [`DynamicLoudnessParamsSnapshot`]. They
+/// are published on a separate generation counter so a tuning edit never forces
+/// the callback to re-read the hot volume/strength snapshot, and vice versa.
+///
+/// # Note on `compensation_ref_db`
+///
+/// This is **not** the same quantity as
+/// [`DynamicLoudnessParamsSnapshot::ref_volume_db`]. That field is the current
+/// listening volume expressed in dB, from which the linear `volume` is derived.
+/// `compensation_ref_db` is the listening level *below which* compensation
+/// begins: at or above it the stage adds no gain, and the curve reaches full
+/// strength `transition_db` further down.
+///
+/// `#[non_exhaustive]`: construct via [`Default`] and the setters on
+/// [`AtomicDynamicLoudnessParams`], so later tuning values stay additive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct DynamicLoudnessTuningSnapshot {
+    /// Headroom reserved ahead of the low-band boost, in dB.
+    pub pre_gain_db: f64,
+    /// Span, in dB, from compensation onset to full compensation.
+    pub transition_db: f64,
+    /// Listening level, in dB, below which compensation begins.
+    pub compensation_ref_db: f64,
+}
+
+impl Default for DynamicLoudnessTuningSnapshot {
+    /// The dynamic-loudness core's own starting curve, so a snapshot that has
+    /// never been written describes exactly the stage it configures.
+    fn default() -> Self {
+        Self {
+            pre_gain_db: DYNAMIC_LOUDNESS_PRE_GAIN_DB_DEFAULT,
+            transition_db: DYNAMIC_LOUDNESS_TRANSITION_DB_DEFAULT,
+            compensation_ref_db: DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_DEFAULT,
+        }
+    }
+}
+
 /// Atomic dynamic loudness parameters
 pub struct AtomicDynamicLoudnessParams {
     shared: SharedParams<DynamicLoudnessParamsSnapshot>,
+    tuning: SharedParams<DynamicLoudnessTuningSnapshot>,
 }
 
 impl AtomicDynamicLoudnessParams {
@@ -1331,6 +1403,7 @@ impl AtomicDynamicLoudnessParams {
     pub fn new() -> Self {
         Self {
             shared: SharedParams::new(),
+            tuning: SharedParams::new(),
         }
     }
 
@@ -1423,6 +1496,140 @@ impl AtomicDynamicLoudnessParams {
     /// Read the current dynamic-loudness snapshot coherently.
     pub fn read(&self) -> DynamicLoudnessParamsSnapshot {
         self.shared.read()
+    }
+
+    // --- curve tuning ------------------------------------------------------
+    //
+    // Published on their own generation counter. A tuning edit therefore never
+    // invalidates the volume/strength snapshot the callback reads every block,
+    // and a volume automation ramp never re-delivers unchanged tuning values.
+
+    /// Publish all three curve-shaping values as one coherent snapshot.
+    ///
+    /// Each value is clamped to its published range; a non-finite value rejects
+    /// the whole write, so the stage never sees a partially applied curve.
+    #[inline]
+    pub fn write_tuning(&self, pre_gain_db: f64, transition_db: f64, compensation_ref_db: f64) {
+        let (Some(pre_gain_db), Some(transition_db), Some(compensation_ref_db)) = (
+            sanitized(
+                pre_gain_db,
+                DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
+                DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX,
+            ),
+            sanitized(
+                transition_db,
+                DYNAMIC_LOUDNESS_TRANSITION_DB_MIN,
+                DYNAMIC_LOUDNESS_TRANSITION_DB_MAX,
+            ),
+            sanitized(
+                compensation_ref_db,
+                DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,
+                DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX,
+            ),
+        ) else {
+            return;
+        };
+        self.tuning.publish(DynamicLoudnessTuningSnapshot {
+            pre_gain_db,
+            transition_db,
+            compensation_ref_db,
+        });
+    }
+
+    /// Set the headroom reserved ahead of the low-band boost, in dB, clamped to
+    /// [`DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN`]..=[`DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX`].
+    #[inline]
+    pub fn set_pre_gain_db(&self, db: f64) {
+        let Some(db) = sanitized(
+            db,
+            DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
+            DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX,
+        ) else {
+            return;
+        };
+        self.tuning.update(|snapshot| {
+            snapshot.pre_gain_db = db;
+        });
+    }
+
+    /// Set the span from compensation onset to full compensation, in dB,
+    /// clamped to
+    /// [`DYNAMIC_LOUDNESS_TRANSITION_DB_MIN`]..=[`DYNAMIC_LOUDNESS_TRANSITION_DB_MAX`].
+    #[inline]
+    pub fn set_transition_db(&self, db: f64) {
+        let Some(db) = sanitized(
+            db,
+            DYNAMIC_LOUDNESS_TRANSITION_DB_MIN,
+            DYNAMIC_LOUDNESS_TRANSITION_DB_MAX,
+        ) else {
+            return;
+        };
+        self.tuning.update(|snapshot| {
+            snapshot.transition_db = db;
+        });
+    }
+
+    /// Set the listening level below which compensation begins, in dB, clamped
+    /// to
+    /// [`DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN`]..=[`DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX`].
+    ///
+    /// This is the curve's onset threshold, not the current listening volume;
+    /// for the latter use [`Self::set_volume`] or [`Self::set_ref_volume_db`].
+    #[inline]
+    pub fn set_compensation_ref_db(&self, db: f64) {
+        let Some(db) = sanitized(
+            db,
+            DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,
+            DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX,
+        ) else {
+            return;
+        };
+        self.tuning.update(|snapshot| {
+            snapshot.compensation_ref_db = db;
+        });
+    }
+
+    #[inline]
+    /// Read the current curve-tuning snapshot coherently.
+    pub fn read_tuning(&self) -> DynamicLoudnessTuningSnapshot {
+        self.tuning.read()
+    }
+
+    /// Register one realtime consumer of the curve-tuning snapshot.
+    ///
+    /// Registration allocates and takes a control-side lock, so call this
+    /// before entering an audio callback. This is a second, independent
+    /// subscription from [`Self::subscribe_realtime`]; a processor that applies
+    /// tuning needs both.
+    pub fn subscribe_realtime_tuning(
+        &self,
+    ) -> (
+        RealtimeSnapshotReader<DynamicLoudnessTuningSnapshot>,
+        DynamicLoudnessTuningSnapshot,
+        u64,
+    ) {
+        self.tuning.subscribe_realtime()
+    }
+
+    /// Copy a newly published tuning snapshot without allocation or ownership
+    /// destruction on the calling thread.
+    #[inline]
+    pub fn load_realtime_tuning_if_changed_since(
+        &self,
+        reader: &RealtimeSnapshotReader<DynamicLoudnessTuningSnapshot>,
+        cached_generation: u64,
+    ) -> Option<(DynamicLoudnessTuningSnapshot, u64)> {
+        self.tuning
+            .load_realtime_if_changed_since(reader, cached_generation)
+    }
+
+    /// Control-side coherent tuning snapshot + generation read.
+    ///
+    /// May briefly spin while a publish is in flight; do not call from the
+    /// audio callback.
+    #[inline]
+    pub fn load_tuning_with_generation(&self) -> (Arc<DynamicLoudnessTuningSnapshot>, u64) {
+        self.tuning.load_with_generation()
     }
 
     impl_snapshot_accessors!(DynamicLoudnessParamsSnapshot);
