@@ -334,6 +334,43 @@ frame) returns `ProcessError::InvalidBlock`/`InvalidGeometry` from the fallible
 constructor. No public constructor retains an `expect`/panic compatibility
 path, including code used during callback setup.
 
+## When An Operation Must *Not* Be Fallible
+
+`Result` is for conditions a caller can plausibly recover from at runtime. A
+caller *programming error* — an index outside a geometry fixed at construction
+time, for example — is not one. Promoting it to `Result` costs every correct
+caller an unwrap and, on per-sample APIs, repeats a check that the buffer path
+already performs once per call.
+
+Apply this test before adding `-> Result<...>` to a public operation:
+
+1. **Can it actually fail at runtime?** If the body never constructs `Err`, the
+   signature is noise. (Exception: an object-safe trait method where *another*
+   implementor genuinely fails — e.g. `StreamingProcessor::reset`, whose
+   `StreamingResampler` impl maps a native `backend.clear()` failure to
+   `ProcessError::Backend`, and whose `DspChain` impl aggregates child
+   failures. Always-`Ok` impls of such a trait are conforming, not redundant.)
+2. **Is the error arm a caller invariant rather than a runtime condition?** If
+   so, document it and use `debug_assert!`.
+3. **Is it consistent with the rest of the same operation's contract?** An
+   operation that silently absorbs bad *data* has no business rejecting a bad
+   *index* through a different mechanism.
+4. **Is there a bulk sibling that validates once per call?** Then the
+   per-sample entry point should assume the invariant, not re-check it.
+
+Worked example — `NoiseShaper::process_sample` (`src/processor/dsp.rs`):
+its sole `Err` arm was an out-of-range channel index, while a non-finite
+*sample* was absorbed silently (output zero, that channel's history cleared),
+and every sibling (`reset`, `set_bits`, `set_curve`, `set_enabled`) was already
+infallible. It now returns `f64` with the channel bound as a `debug_assert!`ed
+caller invariant. Release builds stay memory-safe because
+`bypass_or_recover_invalid` short-circuits an out-of-range channel to a
+pass-through *before* any indexing — removing a `Result` must never convert a
+checked error into an out-of-bounds access, so verify the release path first.
+
+A `debug_assert!` is acceptable on the hot path; a release-build `panic!`,
+`unwrap()`, or `expect()` is not. See the section below.
+
 ## No Panics On The Hot Path
 
 The DSP/callback path must not panic: no `unwrap()`, `expect()`, or `panic!` in

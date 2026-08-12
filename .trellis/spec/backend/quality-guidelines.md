@@ -1190,7 +1190,17 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   both stable docs and pinned-nightly rustdoc JSON generation.
 - Current rustdoc JSON removes or incompatibly changes a baseline item -> the
   matching `cargo semver-checks --release-type patch` command exits non-zero
-  and names the lint/item.
+  and names the lint/item. **Coverage is not total: a green gate is evidence of
+  "no *detected* break", never proof of compatibility.** As of
+  cargo-semver-checks 0.50.0 the only return-type lints are value -> `()`
+  (`function_now_returns_unit`, `inherent_method_now_returns_unit`,
+  `trait_method_now_returns_unit`) and `()` -> value
+  (`exported_function_return_value_added`, `trait_method_return_value_added`).
+  A general return-type change such as `Result<T, E>` -> `T` is **not** linted
+  and passes all 223 checks while still breaking every caller that writes `?`,
+  `.expect()`, or `match`. Confirm with `cargo semver-checks --list` before
+  concluding a signature change is compatible, and classify such changes from
+  the source diff rather than the gate result.
 - The pinned nightly, cargo-semver-checks version, matrix path, or JSON format
   drifts -> fail the gate; update producer, committed baselines, CI, and runbook
   together only after review.

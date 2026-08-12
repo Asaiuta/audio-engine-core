@@ -325,24 +325,31 @@ impl NoiseShaper {
         r1 - r2
     }
 
-    /// Process a single sample with noise shaping and dither
+    /// Process a single sample with noise shaping and dither.
     ///
     /// # Arguments
-    /// * `sample` - Input sample in [-1, 1] range
-    /// * `ch` - Channel index for error history
+    /// * `sample` - Input sample in [-1, 1] range. Non-finite input is absorbed:
+    ///   the output is zero and only channel `ch`'s error history is cleared.
+    /// * `ch` - Channel index for error history. Must be less than the channel
+    ///   count this shaper was constructed with.
     ///
     /// # Returns
     /// * Quantized sample in `[-1, 1 - LSB]` for the selected signed bit depth
+    ///
+    /// # Panics
+    ///
+    /// `ch` being within the configured channel count is a caller invariant,
+    /// checked by `debug_assert!` only. Passing an out-of-range channel is a
+    /// programming error, not a recoverable runtime condition. The
+    /// buffer-oriented [`Self::process`] validates geometry once per call
+    /// instead of once per sample; prefer it for bulk work.
     #[inline(always)]
-    pub fn process_sample(&mut self, sample: f64, ch: usize) -> Result<f64, ProcessError> {
-        if ch >= self.rng_state.len() {
-            return Err(ProcessError::InvalidGeometry {
-                processor: "NoiseShaper",
-                operation: "process sample",
-                message: "channel index is outside the configured channel count",
-            });
-        }
-        Ok(self.process_sample_validated(sample, ch))
+    pub fn process_sample(&mut self, sample: f64, ch: usize) -> f64 {
+        debug_assert!(
+            ch < self.rng_state.len(),
+            "channel index is outside the configured channel count"
+        );
+        self.process_sample_validated(sample, ch)
     }
 
     fn process_sample_validated(&mut self, sample: f64, ch: usize) -> f64 {
@@ -995,14 +1002,6 @@ mod tests {
                     actual_channels: 1,
                 })
             );
-            assert!(matches!(
-                noise_shaper.process_sample(0.25, 2),
-                Err(ProcessError::InvalidGeometry {
-                    processor: "NoiseShaper",
-                    operation: "process sample",
-                    ..
-                })
-            ));
             assert_eq!(
                 noise_shaper.set_sample_rate(0),
                 Err(ProcessError::InvalidSampleRate {

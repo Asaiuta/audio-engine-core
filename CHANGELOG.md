@@ -38,6 +38,45 @@ version bumps, as permitted by SemVer.
   [README.zh-CN.md](README.zh-CN.md), with language-switch links from the
   English README.
 
+## [1.0.2] - Unreleased
+
+### Changed
+- **BREAKING (see SemVer note below): `NoiseShaper::process_sample` now returns
+  `f64` instead of `Result<f64, ProcessError>`.** The method's only error arm
+  was an out-of-range channel index — a caller programming error rather than a
+  recoverable runtime condition. It was also inconsistent with the rest of the
+  method's own contract: a non-finite *sample* is absorbed silently (output
+  zero, that channel's error history cleared) rather than reported, and every
+  sibling method (`reset`, `set_bits`, `set_curve`, `set_enabled`) is already
+  infallible. The channel bound is now a documented caller invariant checked by
+  `debug_assert!`; in release builds an out-of-range channel is bypassed to a
+  pass-through exactly as before, so no panic or out-of-bounds access is
+  introduced. The buffer-oriented `NoiseShaper::process` is unchanged and still
+  validates block geometry once per call — it remains the recommended API.
+
+  Migration: drop the `?` / `.expect()` / `match` at the call site.
+
+  ```rust
+  // before
+  let out = shaper.process_sample(x, ch)?;
+  // after
+  let out = shaper.process_sample(x, ch);
+  ```
+
+  **SemVer note.** This is a source-breaking change shipped under a patch
+  version, which departs from the stability statement at the top of this file.
+  It was a deliberate, reviewed decision:
+  - `cargo-semver-checks` does **not** flag it. Its return-type lints only cover
+    value → `()` (`function_now_returns_unit`,
+    `inherent_method_now_returns_unit`) and `()` → value
+    (`exported_function_return_value_added`); there is no lint for a general
+    return-type change, so `Result<f64, _>` → `f64` passes all 223 checks. The
+    green gate reflects a tooling blind spot, not compatibility.
+  - Measured blast radius is effectively nil: 1.0.1 was never published, the
+    only published version (1.0.0) has 35 total downloads, and the sole known
+    consumer does not call this method. In-tree, the only callers were three
+    benchmark lines that immediately discarded the `Result` via `.expect()`.
+
 ## [1.0.1] - Unreleased
 
 Defect-fix release for the findings of the 2026-08-11 full-code review. No
