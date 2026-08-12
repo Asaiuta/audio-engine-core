@@ -1979,25 +1979,14 @@ fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
     let mut low_level_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
         .expect("fixed noise-shaper benchmark geometry must be valid");
     let low_level_changed = (0..PROBE_SAMPLES)
-        .filter(|_| {
-            low_level_shaper
-                .process_sample(low_level, 0)
-                .expect("channel zero is configured")
-                .to_bits()
-                != low_level.to_bits()
-        })
+        .filter(|_| low_level_shaper.process_sample(low_level, 0).to_bits() != low_level.to_bits())
         .count();
 
     let mut silence_shaper = NoiseShaper::new(1, SAMPLE_RATE, NOISE_SHAPER_BITS)
         .expect("fixed noise-shaper benchmark geometry must be valid");
     silence_shaper.set_curve(NoiseShaperCurve::TpdfOnly);
     let silence_non_zero = (0..PROBE_SAMPLES)
-        .filter(|_| {
-            silence_shaper
-                .process_sample(0.0, 0)
-                .expect("channel zero is configured")
-                != 0.0
-        })
+        .filter(|_| silence_shaper.process_sample(0.0, 0) != 0.0)
         .count();
 
     let curves = [
@@ -2027,9 +2016,7 @@ fn measure_noise_shaper_boundaries() -> NoiseShaperBoundaryResult {
                 4 => -4.0,
                 _ => unit * 2.4 - 1.2,
             };
-            let output = shaper
-                .process_sample(input, 0)
-                .expect("channel zero is configured");
+            let output = shaper.process_sample(input, 0);
             if output.is_finite() {
                 stress_max_abs_output = stress_max_abs_output.max(output.abs());
             } else {

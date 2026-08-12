@@ -3700,7 +3700,7 @@ pub fn audio_engine_core::NoiseShaper::bits(&self) -> u32
 pub fn audio_engine_core::NoiseShaper::curve(&self) -> audio_engine_core::processor::NoiseShaperCurve
 pub fn audio_engine_core::NoiseShaper::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::NoiseShaper::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::NoiseShaper::process_sample(&mut self, f64, usize) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::NoiseShaper::process_sample(&mut self, f64, usize) -> f64
 pub fn audio_engine_core::NoiseShaper::reset(&mut self)
 pub fn audio_engine_core::NoiseShaper::sample_rate(&self) -> u32
 pub fn audio_engine_core::NoiseShaper::set_bits(&mut self, u32)
@@ -5682,7 +5682,7 @@ pub fn audio_engine_core::NoiseShaper::bits(&self) -> u32
 pub fn audio_engine_core::NoiseShaper::curve(&self) -> audio_engine_core::processor::NoiseShaperCurve
 pub fn audio_engine_core::NoiseShaper::new(usize, u32, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::NoiseShaper::process(&mut self, &mut [f64], usize) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::NoiseShaper::process_sample(&mut self, f64, usize) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::NoiseShaper::process_sample(&mut self, f64, usize) -> f64
 pub fn audio_engine_core::NoiseShaper::reset(&mut self)
 pub fn audio_engine_core::NoiseShaper::sample_rate(&self) -> u32
 pub fn audio_engine_core::NoiseShaper::set_bits(&mut self, u32)
