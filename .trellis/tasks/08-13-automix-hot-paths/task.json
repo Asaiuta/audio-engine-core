@@ -3,7 +3,7 @@
   "name": "automix-hot-paths",
   "title": "Speed up the AutoMix true-peak and spectral-flux hot paths",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
