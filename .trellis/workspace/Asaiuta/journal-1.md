@@ -1053,3 +1053,36 @@ Narrowed ebur128 to I|LRA|HISTOGRAM (bit-exact, drops unread TRUE_PEAK work) and
 ### Next Steps
 
 - None - task complete
+
+
+## Session 29: Reclaim measured performance from existing dependencies
+
+**Date**: 2026-08-13
+**Task**: Reclaim measured performance from existing dependencies
+**Branch**: `main`
+
+### Summary
+
+See prd.md outcome section.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `80d6b07` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
