@@ -106,11 +106,43 @@ site.
     against the complex formulation rather than trusting inspection.
   - Prefer `process_with_scratch` over `process`. `rustfft`'s plain `process`
     allocates scratch on every call, which is a per-block allocation in any loop.
+  - **The survey is finished; the remaining `rustfft` sites were measured and
+    rejected.** Do not re-open them without new evidence:
+    - `spectral_backend.rs` kernel spectrum is real and *is* migratable (a probe
+      confirmed conjugate-symmetry recovery to 1e-16 and a 1.15-2.61x transform
+      speedup). It stays complex anyway because it runs once per resampler
+      construction and is 0.2-0.4% of that setup: 2.0-16.4 us inside a
+      1149-3910 us total. 86-94% of nonlinear-phase setup is the minimum-phase
+      cepstral factorization, which cannot use a real transform at all. A 2.6x
+      win on 0.3% of the cost is not worth indexing two spectral layouts.
+    - `polyphase_backend.rs:275` feeds `minimum_phase_from_log_magnitude`, which
+      needs the full mirrored spectrum, so it is the same excluded case.
+    - `polyphase_backend.rs:341` is a test helper, and is more useful as an
+      independent complex-FFT check than as a faster one.
 - **A single-use dependency is a candidate, not a given.** Check the real call
   count (`rayon` had exactly one, in an offline path whose public entry point had
   no in-repo caller) and whether the replacement preserves the *semantics* the
   call site relies on, not just the types — see the `load_if_changed` note in
   `realtime-safety.md`.
+  - **Dependencies already surveyed and kept.** Re-open only with new evidence:
+    - `reqwest` (+51 crates, the largest single feature cost) is already
+      `default-features = false` with only `blocking` and `rustls-tls`. The
+      tokio/hyper/tower bulk is pulled in by `hyper-util`, not by us, so it is
+      not reachable from this layer. More importantly the call site is not a
+      plain GET: it installs a custom DNS resolver that rejects private
+      addresses and re-validates every redirect target, i.e. an SSRF boundary.
+      Hand-rolling HTTP would mean re-implementing that boundary plus TLS.
+    - `symphonia`'s `all` feature is deliberate for a general-purpose playback
+      engine.
+    - `sha2` has zero transitive dependencies, and its digest is baked into the
+      persisted `namespace:sha256:<hex>` cache-id format, so swapping it is a
+      data migration rather than a dependency cleanup.
+    - `url` is genuine URL parsing and must not be hand-rolled.
+    - `rubato`'s remaining linear-phase route has the strongest measured
+      stopband in the whole comparison (approx -201/-210 dB THD+N, -232.81 dB
+      reverse alias) at 8.182 ns/input-sample. The specialized in-house backends
+      already take the routes where they win; there is no measured gap left for
+      a fifth one.
 
 ## Auto Traits Are Part Of The Public API
 
