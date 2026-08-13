@@ -1020,3 +1020,36 @@ Found three dynamic-loudness tuning values (pre_gain_db, transition_db, compensa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: Reclaim measured performance from existing dependencies
+
+**Date**: 2026-08-13
+**Task**: Reclaim measured performance from existing dependencies
+**Branch**: `main`
+
+### Summary
+
+Narrowed ebur128 to I|LRA|HISTOGRAM (bit-exact, drops unread TRUE_PEAK work) and moved gating reads out of process (-92% at 512-frame blocks); migrated OverlapSaveConvolver to realfft (28/28 pinned cases faster, FIR EQ apply -29..-57%); removed rayon, arc-swap, atomic_float (151->142 default deps, 89->80 pure-Rust). Found that Cell breaks LoudnessMeter: Sync, so readers recompute instead of caching. Public auto-trait surface widened (8 types gained UnwindSafe); baselines regenerated with 0 non-unwind changes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `pending` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

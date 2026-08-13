@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-08-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1022 | Active |
+| `journal-1.md` | ~1055 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-08-13 | Reclaim measured performance from existing dependencies | pending | `main` |
 | 27 | 2026-08-13 | Restore dynamic-loudness curve tuning through the parameter layer | `b74206e` | `main` |
 | 26 | 2026-08-11 | Publish audio-engine-core 1.0.0 to crates.io | - | `chore/gate2-legacy-public-surface` |
 | 25 | 2026-08-11 | Release gate 9: cut 1.0.0, verify release, tag and push | `57d59be` | `chore/gate2-legacy-public-surface` |

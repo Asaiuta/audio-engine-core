@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "probe": "audio_fir_eq_perf",
+  "generated_unix_ms": 1786598754047,
+  "mode": "quick",
+  "environment": {
+    "revision": "8f0218ee0a75d47f824b6b4121b716e9915825d4",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "process_frames": 512,
+    "tap_counts": [
+      511,
+      1023,
+      2047
+    ],
+    "phases": [
+      "linear",
+      "minimum"
+    ],
+    "regeneration_iterations_per_trial": 1000,
+    "apply_iterations_per_trial": 2000,
+    "trials": 7,
+    "regeneration_warmup_curves": 2,
+    "apply_warmup_buffers": 64,
+    "coverage": "fir_ir_generation+convolver_apply",
+    "excludes": [
+      "cpal_device_write",
+      "decoder",
+      "parameter_transport"
+    ]
+  },
+  "cases": [
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=511",
+      "phase": "linear",
+      "taps": 511,
+      "ir_length": 511,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          67192.2,
+          39701.6,
+          41011.3,
+          43158.4,
+          47018.7,
+          41222.4,
+          49757.3
+        ],
+        "min": 39701.6,
+        "median": 43158.4,
+        "p95": 67192.2,
+        "max": 67192.2
+      },
+      "regenerations_per_ms_median": 23.17046044338993,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=1023",
+      "phase": "linear",
+      "taps": 1023,
+      "ir_length": 1023,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          96021.5,
+          94222.0,
+          88878.2,
+          94283.4,
+          89549.3,
+          84584.7,
+          100028.3
+        ],
+        "min": 84584.7,
+        "median": 94222.0,
+        "p95": 100028.3,
+        "max": 100028.3
+      },
+      "regenerations_per_ms_median": 10.613232578378723,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=2047",
+      "phase": "linear",
+      "taps": 2047,
+      "ir_length": 2047,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          186388.5,
+          195234.6,
+          200500.6,
+          178970.3,
+          174436.9,
+          198688.5,
+          183165.4
+        ],
+        "min": 174436.9,
+        "median": 186388.5,
+        "p95": 200500.6,
+        "max": 200500.6
+      },
+      "regenerations_per_ms_median": 5.365137870630431,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=511",
+      "phase": "minimum",
+      "taps": 511,
+      "ir_length": 511,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          162840.7,
+          164021.8,
+          140342.4,
+          146377.9,
+          201008.5,
+          276654.2,
+          257861.7
+        ],
+        "min": 140342.4,
+        "median": 164021.8,
+        "p95": 276654.2,
+        "max": 276654.2
+      },
+      "regenerations_per_ms_median": 6.096750553889788,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=1023",
+      "phase": "minimum",
+      "taps": 1023,
+      "ir_length": 1023,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          497019.5,
+          476880.3,
+          447805.0,
+          462418.9,
+          394116.5,
+          392109.4,
+          360573.2
+        ],
+        "min": 360573.2,
+        "median": 447805.0,
+        "p95": 497019.5,
+        "max": 497019.5
+      },
+      "regenerations_per_ms_median": 2.2331148602628375,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=2047",
+      "phase": "minimum",
+      "taps": 2047,
+      "ir_length": 2047,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          792716.3,
+          732075.8,
+          806834.6,
+          788871.5,
+          763373.4,
+          912089.1,
+          840442.5
+        ],
+        "min": 732075.8,
+        "median": 792716.3,
+        "p95": 912089.1,
+        "max": 912089.1
+      },
+      "regenerations_per_ms_median": 1.261485351064435,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=511;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 511,
+      "ir_length": 511,
+      "strategy": "overlap_save",
+      "fft_size": 1024,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          15.494970703125,
+          14.54306640625,
+          13.873291015625,
+          15.76875,
+          14.799267578125,
+          14.83369140625,
+          11.197705078125
+        ],
+        "min": 11.197705078125,
+        "median": 14.799267578125,
+        "p95": 15.76875,
+        "max": 15.76875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          15866.85,
+          14892.1,
+          14206.25,
+          16147.2,
+          15154.45,
+          15189.7,
+          11466.45
+        ],
+        "min": 11466.45,
+        "median": 15154.45,
+        "p95": 16147.2,
+        "max": 16147.2
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=1023;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 1023,
+      "ir_length": 1023,
+      "strategy": "overlap_save",
+      "fft_size": 2048,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          23.073681640625,
+          21.439453125,
+          20.412841796875,
+          20.301123046875,
+          19.267138671875,
+          22.036669921875,
+          30.1544921875
+        ],
+        "min": 19.267138671875,
+        "median": 21.439453125,
+        "p95": 30.1544921875,
+        "max": 30.1544921875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          23627.45,
+          21954.0,
+          20902.75,
+          20788.35,
+          19729.55,
+          22565.55,
+          30878.2
+        ],
+        "min": 19729.55,
+        "median": 21954.0,
+        "p95": 30878.2,
+        "max": 30878.2
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=2047;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 2047,
+      "ir_length": 2047,
+      "strategy": "overlap_save",
+      "fft_size": 4096,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          49.17763671875,
+          67.528955078125,
+          52.602294921875,
+          53.609716796875,
+          54.6142578125,
+          58.539892578125,
+          45.50732421875
+        ],
+        "min": 45.50732421875,
+        "median": 53.609716796875,
+        "p95": 67.528955078125,
+        "max": 67.528955078125
+      },
+      "ns_per_buffer": {
+        "samples": [
+          50357.9,
+          69149.65,
+          53864.75,
+          54896.35,
+          55925.0,
+          59944.85,
+          46599.5
+        ],
+        "min": 46599.5,
+        "median": 54896.35,
+        "p95": 69149.65,
+        "max": 69149.65
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}

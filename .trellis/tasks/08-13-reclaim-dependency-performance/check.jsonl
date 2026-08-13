@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify no unmeasured claims land in docs/quality.md; confirm required bench sweeps were rerun."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Verify assert_no_alloc steady-state tests still cover meter, convolver, and DSP chain."}
+{"file": ".trellis/spec/backend/analysis-fir-correctness.md", "reason": "Verify convolution oracle and FIR EQ correctness gates."}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Verify reset/finish/tail and chunking-invariance gates."}
+{"file": ".trellis/tasks/08-13-reclaim-dependency-performance/prd.md", "reason": "Completion criteria 1-9, including the byte-identical public_api baseline requirement."}

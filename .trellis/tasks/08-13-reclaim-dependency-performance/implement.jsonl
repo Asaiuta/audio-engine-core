@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Hot-path rules: no alloc/lock/IO/log/panic. Lazy getters, thread::scope, and the arc-swap replacement must all respect the callback boundary."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Evidence policy: doc numbers may only be restated from a fresh measured run. Bench sweeps required when convolver routing constants or FFT engines change."}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "Meter lazy-getter caching and convolver engine swap both touch DSP state lifecycle (reset/dirty/history)."}
+{"file": ".trellis/spec/backend/analysis-fir-correctness.md", "reason": "OverlapSave realfft migration must keep the direct-convolution oracle and FIR EQ correctness."}
+{"file": ".trellis/spec/backend/streaming-lifecycle.md", "reason": "Convolver reset/finish/tail exactness and chunking invariance must survive the realfft swap."}
+{"file": ".trellis/tasks/08-13-reclaim-dependency-performance/prd.md", "reason": "Measured baselines, the HISTOGRAM bit-exactness constraint, and the load_if_changed pointer-identity hazard."}
