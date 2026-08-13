@@ -135,8 +135,8 @@ output-chain enforcement is covered under [Full-chain validation](#full-chain-va
 | 20 kHz resampler gain | −0.0062 dB |
 | Worst fitted alias attenuation, 96 kHz to 48 kHz | −290.2 dB (quick; the full workload measures −297.4 dB, both near the analyzer's −296 dB numeric floor) |
 
-The rows above measure the default native SoXR (SoX VHQ) backend. The pure-Rust
-rubato backend (`default-features = false, features = ["rubato"]`) passes the
+The rows above measure the native SoXR (SoX VHQ) backend (`features = ["soxr"]`).
+The pure-Rust rubato backend, which the default feature set selects, passes the
 same 27 quick-run quality gates on this machine; that bench explicitly requests
 UltraHigh, while route-specific tests separately enforce the High half-band's
 20 kHz gain, THD+N, interpolation images, lifecycle, and zero-allocation
@@ -144,7 +144,7 @@ contracts. Representative same-machine UltraHigh deltas (rubato column from
 the 2026-07-25 one-sub-chunk FFT run; the previous UltraHigh sinc route
 measured −216.2 dB THD+N and −208.1 dB alias attenuation):
 
-| Metric | SoXR (default) | rubato |
+| Metric | SoXR (opt-in) | rubato (default) |
 | --- | ---: | ---: |
 | Resampler THD+N, 44.1 kHz to 48 kHz | −187.0 dB | −204.9 dB |
 | Passband max deviation, 20 Hz to 18 kHz | 0.0013 dB | 0.0000 dB |
@@ -318,7 +318,7 @@ but not a controlled AB comparison. Each project's strict claim uses the raw
 upstream control from its own run (see
 [Resampler performance & Pareto updates](#resampler-performance--pareto-updates)).
 
-| Case | SoXR (default) | rubato selected route |
+| Case | SoXR (opt-in) | rubato selected route (default) |
 | --- | ---: | ---: |
 | 44.1 kHz to 48 kHz, ns/input sample (μs/input buffer) | 8.57 (8.77 μs) | 8.18 (8.38 μs) |
 | 48 kHz to 44.1 kHz, ns/input sample (μs/input buffer) | 7.42 (7.60 μs) | 7.03 (7.19 μs) |
@@ -531,9 +531,10 @@ and it matches `SpectrumAnalyzer` and `FFTConvolver`, which already hold plans a
 were already `!UnwindSafe`. The regenerated baselines contain exactly those two
 lines per feature set and no other change.
 
-Note for anyone re-measuring: this code path is only reachable with
-`--no-default-features --features rubato`. The default feature set enables `soxr`,
-which routes around it entirely.
+Note for anyone re-measuring: this code path needs the rubato backend, i.e. the
+default feature set or `--no-default-features --features rubato`. Adding `soxr`
+(including via `--all-features`) routes around it entirely, because SoXR wins the
+backend priority.
 
 ### Lifecycle & memory
 

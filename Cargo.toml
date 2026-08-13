@@ -51,7 +51,10 @@ sha2 = { version = "0.10", optional = true }
 url = "2.5"
 
 [features]
-default = ["http", "loudness-db", "soxr"]
+# Pure-Rust by default: no native library, no LGPL-2.1 linking obligation, and
+# no vcpkg/pkg-config probe at build time. Enable `soxr` explicitly to select
+# the native SoX VHQ backend instead.
+default = ["http", "loudness-db", "rubato"]
 # HTTP/HTTPS streaming decode (Range requests + full download fallback).
 # Disable for local-file-only builds to drop the reqwest/rustls dependency tree.
 http = ["dep:reqwest"]
@@ -59,15 +62,17 @@ http = ["dep:reqwest"]
 # Disable if you only need realtime DSP/decoding and not on-disk loudness storage.
 loudness-db = ["dep:rusqlite", "dep:sha2"]
 # Native SoXR (libsoxr) resampler backend: SoX VHQ quality, LGPL-2.1 native
-# library required at build/link time. At least one resampler backend must be
-# enabled; when both are enabled, soxr wins.
+# library required at build/link time. Opt-in; enable it with
+# `features = ["soxr"]`. At least one resampler backend must be enabled; when
+# both are enabled, soxr wins, so adding `soxr` on top of the default set is
+# enough to select the native backend (and to restore
+# `StreamingResampler: Sync`).
 soxr = ["dep:soxr"]
-# Pure Rust quality-aware resampler backend. Exact-2x Linear/High upsampling
-# uses a dedicated half-band FIR; other common ratios use FFT at every quality
-# tier (UltraHigh uses a 2x longer single-sub-chunk FFT filter); pathological
-# ratios use sinc; Minimum/Maximum use a bounded causal
-# polyphase FIR. No native dependency; use with `default-features = false,
-# features = ["rubato", ...]` for a fully pure-Rust build.
+# Pure Rust quality-aware resampler backend, enabled by default. Exact-2x
+# Linear/High upsampling uses a dedicated half-band FIR; other common ratios use
+# FFT at every quality tier (UltraHigh uses a 2x longer single-sub-chunk FFT
+# filter); pathological ratios use sinc; Minimum/Maximum use a bounded causal
+# polyphase FIR. No native dependency.
 rubato = ["dep:rubato"]
 
 [dev-dependencies]

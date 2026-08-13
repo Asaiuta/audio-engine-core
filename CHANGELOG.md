@@ -10,7 +10,53 @@ version bumps, as permitted by SemVer.
 
 ## [Unreleased]
 
+> **Pending release decision.** This section contains two auto-trait narrowings
+> that `cargo-semver-checks` classifies as requiring a major version (see
+> *Changed / BREAKING* below). The version number in `Cargo.toml` is still
+> `1.1.0` and has **not** been decided yet, so all three
+> `cargo semver-checks --release-type patch` gates are currently expected to
+> fail with `auto_trait_impl_removed`. That failure is the gate working, not a
+> broken gate. Resolve it by choosing the release version (and refreshing the
+> committed baselines as an explicit API-policy decision), not by relaxing the
+> check.
+
+### Changed / BREAKING
+- **The default resampler backend is now the pure-Rust `rubato` backend.**
+  `default = ["http", "loudness-db", "rubato"]` replaces
+  `default = ["http", "loudness-db", "soxr"]`. A default build therefore links no
+  native library, runs no vcpkg/pkg-config probe, and carries **no LGPL-2.1
+  relinking obligation** — a plain `cargo add audio-engine-core` now builds on a
+  machine with no libsoxr and no native toolchain setup.
+
+  `soxr` remains fully supported as an opt-in feature. Because the pre-existing
+  backend priority is unchanged (SoXR wins when both features are enabled),
+  adding `features = ["soxr"]` on top of the default set restores the previous
+  backend exactly, including its auto-trait impls.
+
+  **Breaking:** on the rubato backend `StreamingResampler` is no longer `Sync`,
+  `UnwindSafe`, or `RefUnwindSafe`. The cause is upstream: rubato's `Async<f64>`
+  holds a `Box<dyn InnerResampler<f64>>` whose trait object does not declare
+  those auto traits, so they cannot be recovered from this crate. `Send` is
+  unaffected, and the narrowing does not propagate: `OutputRenderChain`,
+  `PlaybackPipeline`, `DspChain`, and `ConvolverProcessor` were already `!Sync`
+  under the previous default. Since `process`, `finish`, `reset`, and
+  `set_sample_rate` all take `&mut self`, both usable sharing patterns still
+  work — `Arc<Mutex<StreamingResampler>>` (needs only `Send`) and moving the
+  resampler to the audio thread. Only `Arc<StreamingResampler>`, which could
+  call the read-only accessors and nothing else, is rejected. Enable `soxr` if
+  the `Sync` impl itself is required.
+
 ### Added
+- **Default-feature public API and SemVer coverage.** `tests/public_api.rs` gained
+  a third matrix (`DEFAULT_FEATURES`, snapshot `tests/public-api-default.txt`,
+  SemVer baseline `tests/semver-baseline/default/`), and CI now runs `cargo test`,
+  `cargo check`, and `cargo clippy` against the default feature set plus a
+  default-feature build/test on a runner with no libsoxr. Neither existing matrix
+  covered what a plain `cargo add` produces: `--all-features` enables `soxr`,
+  which wins the backend priority and hides the rubato backend's auto traits,
+  while the rubato matrix is `--no-default-features` and therefore omits `http`
+  and `loudness-db`. The surface most downstream builds actually see had no
+  snapshot and no SemVer gate.
 - **README rework**: restructured both READMEs around the three design goals
   (realtime safety, audio quality, measurability) with dedicated sections for
   architecture, realtime/lifecycle/parameter contracts, resampling, loudness,

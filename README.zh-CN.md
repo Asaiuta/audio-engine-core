@@ -343,11 +343,11 @@ fn process_callback_block(
 
 ### SoX VHQ / SoXR
 
-默认原生后端通过 libsoxr(SoX VHQ 质量)提供高质量 SoX 重采样。构建/链接时需要 libsoxr 原生库(LGPL-2.1;见 [许可证](#许可证))。
+可选的原生后端通过 libsoxr(SoX VHQ 质量)提供高质量 SoX 重采样,以 `features = ["soxr"]` 启用。构建/链接时需要 libsoxr 原生库(LGPL-2.1;见 [许可证](#许可证))。
 
 ### 纯 Rust
 
-可选的 `rubato` 后端提供质量感知的纯 Rust 路由,包括:
+默认的 `rubato` 后端提供质量感知的纯 Rust 路由,包括:
 
 * 精确 2× 转换的半带 FIR 路径(`PhaseResponse::Linear` + High 使用专用 127 抽头对称半带 FIR)
 * 常见比率的 FFT 路径(High 采用两个子块,UltraHigh 采用一个更长子块)
@@ -361,6 +361,8 @@ fn process_callback_block(
 收尾使用 `finish_checked()` 排空原生重采样器状态,`reset()` 清除流式历史。
 
 至少必须启用一个重采样后端 —— 两者都不启用是编译错误;两者都启用时 `soxr` 优先。
+
+`StreamingResampler` 在两种后端下都是 `Send`,但在默认的 rubato 后端下**不是** `Sync`(也不是 `UnwindSafe` / `RefUnwindSafe`),因为 rubato 的 `Async<f64>` 持有未声明这些 auto trait 的 `Box<dyn InnerResampler<f64>>`。实践中影响很小:所有推进状态的方法都取 `&mut self`,因此 `Arc<Mutex<StreamingResampler>>`(只需 `Send`)与「移动到音频线程」两种用法都照常可用;仅 `Arc<StreamingResampler>` 会被拒绝。若确需 `Sync` 实现本身,请启用 `soxr`。
 
 详细对比与方法学见 `docs/resampler-comparison.md`。
 
@@ -491,10 +493,10 @@ audio-engine-core = {
 | ------------- | :-----: | ------------------------------------------- |
 | `http`        |    ✓    | HTTP/HTTPS 流式解码                 |
 | `loudness-db` |    ✓    | 基于 SQLite 的响度元数据持久化 |
-| `soxr`        |    ✓    | 原生 SoXR / SoX VHQ 重采样            |
-| `rubato`      |         | 纯 Rust 质量感知重采样          |
+| `rubato`      |    ✓    | 纯 Rust 质量感知重采样          |
+| `soxr`        |         | 原生 SoXR / SoX VHQ 重采样            |
 
-四个特性互相独立;前三个默认启用。
+四个特性互相独立;前三个默认启用。默认构建是纯 Rust:不需要原生库、不需要 vcpkg/pkg-config 探测,也不承担 LGPL-2.1 链接义务。
 
 ### `http`
 
@@ -512,15 +514,15 @@ audio-engine-core = {
 
 ### `soxr`
 
-启用原生 SoXR 后端。
+启用原生 SoXR 后端。需显式启用:`features = ["soxr"]`。
 
 构建/链接时需要 libsoxr 原生库。libsoxr 为 LGPL-2.1;见 [许可证](#许可证)。Windows(vcpkg 或 MSYS2)与 Unix 安装说明见 `docs/installation.md`。
 
 ### `rubato`
 
-启用纯 Rust 重采样后端。
+启用纯 Rust 重采样后端。默认启用。
 
-当 `soxr` 与 `rubato` 同时启用时,SoXR 被选为默认后端。
+当 `soxr` 与 `rubato` 同时启用时,SoXR 优先 —— 因此在默认特性集之上加上 `soxr` 即可切回原生后端。
 
 ---
 
@@ -694,4 +696,4 @@ cargo doc --open
 
 ### 原生依赖许可
 
-启用默认 `soxr` 特性时,本 crate 链接 SoXR 原生库(libsoxr),其以 LGPL-2.1 分发。本 crate 的 Rust 源码为 MIT OR Apache-2.0,但静态链接 libsoxr 的二进制带有 LGPL-2.1 重链接义务。使用 `default-features = false` 与纯 Rust `rubato` 后端构建时不链接 libsoxr,不承担 LGPL 义务。详见 [NOTICE](NOTICE)。
+启用可选的 `soxr` 特性时,本 crate 链接 SoXR 原生库(libsoxr),其以 LGPL-2.1 分发。本 crate 的 Rust 源码为 MIT OR Apache-2.0,但静态链接 libsoxr 的二进制带有 LGPL-2.1 重链接义务。默认特性集使用纯 Rust `rubato` 后端,不链接 libsoxr,不承担 LGPL 义务。详见 [NOTICE](NOTICE)。
