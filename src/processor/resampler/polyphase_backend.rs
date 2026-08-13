@@ -8,7 +8,7 @@
 
 use std::f64::consts::PI;
 
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::num_complex::Complex;
 
 use super::BackendInitError;
 #[cfg(test)]
@@ -16,7 +16,9 @@ use super::BackendProcessError;
 #[cfg(test)]
 use crate::config::PhaseResponse;
 use crate::config::ResampleQuality;
-use crate::processor::fir_design::{minimum_phase_from_log_magnitude, modified_bessel_i0};
+use crate::processor::fir_design::{
+    minimum_phase_from_log_magnitude, modified_bessel_i0, FirFftPlans,
+};
 
 pub(super) const MAX_REDUCED_RATE: usize = 1_024;
 pub(super) const MAX_POLYPHASE_COEFFICIENTS: usize = 524_288;
@@ -85,7 +87,10 @@ impl PolyphaseResampler {
         }
 
         let prototype = design_linear_prototype(up, down, taps_per_phase, quality);
-        let minimum = minimum_phase_prototype(&prototype)?;
+        // One cache shared by `minimum_phase_prototype` and the factorization it
+        // calls, so the common transform size is planned once instead of twice.
+        let mut plans = FirFftPlans::new();
+        let minimum = minimum_phase_prototype(&prototype, &mut plans)?;
         let mut kernel = match phase {
             PhaseResponse::Minimum => minimum,
             PhaseResponse::Maximum => minimum.into_iter().rev().collect(),
@@ -256,7 +261,10 @@ pub(super) fn design_linear_prototype(
     kernel
 }
 
-pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, BackendInitError> {
+pub(super) fn minimum_phase_prototype(
+    prototype: &[f64],
+    plans: &mut FirFftPlans,
+) -> Result<Vec<f64>, BackendInitError> {
     let mut fft_size = 1usize;
     let required = prototype
         .len()
@@ -277,15 +285,16 @@ pub(super) fn minimum_phase_prototype(prototype: &[f64]) -> Result<Vec<f64>, Bac
         .iter_mut()
         .zip(prototype)
         .for_each(|(value, &sample)| value.re = sample);
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(fft_size);
+    // Same cache the inner factorization uses, so this size is planned once for
+    // both rather than once per planner.
+    let fft = plans.forward(fft_size);
     fft.process(&mut spectrum);
 
     let mut log_magnitude = vec![0.0; fft_size];
     for (index, value) in spectrum.iter().enumerate() {
         log_magnitude[index] = value.norm().max(1.0e-14).ln();
     }
-    let mut minimum = minimum_phase_from_log_magnitude(&log_magnitude, prototype.len());
+    let mut minimum = minimum_phase_from_log_magnitude(&log_magnitude, prototype.len(), plans);
     if minimum.iter().all(|sample| sample.abs() < 1.0e-15) {
         return Err(BackendInitError::EmptyMinimumPhaseFactor);
     }
@@ -336,6 +345,10 @@ pub(super) fn kernel_finish_extension_frames(kernel_len: usize, down: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The magnitude-spectrum helper below stays on rustfft's complex planner: it
+    // is an independent cross-check of the designed kernels, so it deliberately
+    // does not reuse the production plan cache.
+    use rustfft::FftPlanner;
 
     fn magnitude_spectrum(kernel: &[f64], fft_size: usize) -> Vec<f64> {
         let mut spectrum = vec![Complex::new(0.0, 0.0); fft_size];
@@ -365,7 +378,7 @@ mod tests {
     #[test]
     fn nonlinear_kernels_have_distinct_phase_energy_order() {
         let prototype = design_linear_prototype(1, 1, 128, ResampleQuality::High);
-        let minimum = minimum_phase_prototype(&prototype).unwrap();
+        let minimum = minimum_phase_prototype(&prototype, &mut FirFftPlans::new()).unwrap();
         let maximum: Vec<f64> = minimum.iter().copied().rev().collect();
         let linear_centroid = energy_centroid(&prototype);
         assert!(
@@ -437,7 +450,7 @@ mod tests {
         const FFT_SIZE: usize = 1 << 17;
 
         let prototype = design_linear_prototype(UP, DOWN, 256, ResampleQuality::High);
-        let minimum = minimum_phase_prototype(&prototype).unwrap();
+        let minimum = minimum_phase_prototype(&prototype, &mut FirFftPlans::new()).unwrap();
         let maximum: Vec<f64> = minimum.iter().copied().rev().collect();
         let linear_magnitude = magnitude_spectrum(&prototype, FFT_SIZE);
         let minimum_magnitude = magnitude_spectrum(&minimum, FFT_SIZE);
