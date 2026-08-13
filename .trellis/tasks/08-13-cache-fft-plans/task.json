@@ -3,7 +3,7 @@
   "name": "cache-fft-plans",
   "title": "Cache FFT plans instead of rebuilding planners per call",
   "description": "",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -22,5 +22,6 @@
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {},
+  "completed_at": "2026-08-13T18:03:30"
 }

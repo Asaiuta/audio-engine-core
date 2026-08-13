@@ -1172,3 +1172,91 @@ file holding uncommitted work; remove the probe surgically instead.
 
 - `polyphase_backend.rs` (2 rustfft sites) was left unsurveyed and is the
   obvious follow-up if this class of win is worth continuing.
+
+
+## Session 31: Reuse FFT plans instead of rebuilding planners per call
+
+**Date**: 2026-08-13
+**Task**: Reuse FFT plans instead of rebuilding planners per call
+**Branch**: `main`
+
+### Summary
+
+Answered "can the minimum-phase cepstral factorization go faster?" by measuring
+instead of assuming, and the answer relocated the bottleneck entirely: it was
+never the FFTs. `FftPlanner::new()` starts with an empty cache, so three call
+sites recomputed a factorization + algorithm selection + twiddle tables on every
+call and discarded them. 171 us cold vs 0.072 us warm at 8192 points.
+
+### Main Changes
+
+- New `FirFftPlans` cache in `fir_design.rs`, owned by its user.
+- `FirEq` holds one as a field; resampler backends create one per construction
+  and share it across `minimum_phase_prototype` and the inner factorization,
+  collapsing two cold planners into one.
+- Two new tests pinning bit-identical output and per-size cache correctness.
+- `docs/quality.md` + quality spec updated.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8e9b7fc` | perf: reuse FFT plans instead of rebuilding planners per call |
+
+### Testing
+
+- [OK] `--all-features` 515 lib + all integration suites pass
+- [OK] `--no-default-features --features rubato` 534 pass; `soxr`-only 482 pass
+- [OK] clippy (both feature sets, all targets) + fmt clean
+- [OK] `assert_no_alloc` steady-state pass
+- [OK] public API diff reviewed line by line: exactly 2 lines per baseline
+- [OK] `interleaved_tap_counts...` verified to FAIL when the cache ignores its key
+
+| Case | Change | Role |
+|---|---:|---|
+| `set_band` 255 taps linear/minimum | -42% / -56% | changed |
+| `set_band` 511 taps linear/minimum | -47% / -40% | changed |
+| `set_band` 1023 taps linear/minimum | -25% / -51% | changed |
+| linear-phase resampler setup | -2% | control |
+
+### Notes / Judgement Calls
+
+1. **I had to retract earlier numbers.** All the setup figures I reported in the
+   previous exchange (1149-4648 us, "86-94% is minimum-phase") were measured
+   under `--all-features`, which enables the default `soxr` feature and never
+   enters the rubato path. My instrumentation printed nothing, which is how I
+   caught it. Correct rubato figures are ~3x smaller. Lesson recorded in the
+   spec: state the feature set next to any resampler number.
+
+2. **I also retracted my own prior conclusion** that this chain "cannot use a
+   real transform." Measurement showed the folded cepstrum is still real (1e-16)
+   and the post-`exp()` spectrum is conjugate-symmetric, so two of three
+   transforms *can* be real (1.30-1.99x). I did not implement it, because the
+   same profiling showed FFTs are only 28-38% of the chain while planner
+   construction + `Complex::exp()` are 59-74%. Planner reuse was the better buy.
+
+3. **Refused to publish the resampler-setup win.** Per-rep deltas were -24%,
+   -20%, +9%. The mechanism is real but the host can't resolve it, so it is
+   documented as not-claimed rather than averaged into a headline number.
+
+4. **`UnwindSafe` narrowing was a real API break, not a nuisance.** I checked the
+   diff direction against the spec's warning before reacting, confirmed the
+   committed baseline really was `UnwindSafe`, then found `AssertUnwindSafe`
+   would have silently hidden it. Asked rather than decided unilaterally; user
+   chose to accept the narrowing, which also matches `SpectrumAnalyzer` /
+   `FFTConvolver` already being `!UnwindSafe` for the same reason.
+
+5. **Mid-task I ran `git checkout --` on a file with uncommitted work** (again,
+   cleaning up a probe) and destroyed the automix migration. Recovered from a
+   backup. Second time this session; the rule is now firm: never
+   `git checkout --` a file holding uncommitted work.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- `Complex::exp()` is 23-40% of the minimum-phase chain and untouched.
+- Migrating T1/T3 of the factorization to `realfft` (1.30-1.99x on the transform
+  portion) is verified feasible and now the largest remaining FFT-side item.
