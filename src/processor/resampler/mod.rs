@@ -11,7 +11,6 @@
 //! both.
 
 use crate::config::{PhaseResponse, ResampleQuality};
-use rayon::prelude::*;
 use thiserror::Error;
 
 #[cfg(not(any(feature = "soxr", feature = "rubato")))]
@@ -456,108 +455,47 @@ impl Resampler {
         let mut plan_channels: Vec<Vec<f64>> = vec![Vec::with_capacity(frames); self.channels];
         deinterleave_frame_major(input.samples(), self.channels, frames, &mut plan_channels);
 
-        // 2. Process channels in parallel
-        let resampled_channels: Result<Vec<Vec<f64>>, ResamplerError> = plan_channels
-            .into_par_iter()
-            .enumerate()
-            .map(|(ch_idx, channel_data)| {
-                // One backend stream per channel with the requested phase
-                // response and quality level.
-                let mut backend = MonoBackend::new(self.from_rate, self.to_rate, phase, quality)
-                    .map_err(|error| map_backend_init_error(error, Some(ch_idx)))?;
+        // 2. Process channels in parallel.
+        //
+        // One scoped thread per channel. This is an offline one-shot path over
+        // a bounded channel count, so a work-stealing pool would add scheduling
+        // machinery (and a dependency) for no benefit: the per-channel tasks
+        // are long, equal-sized, and never nested.
+        let channel_count = self.channels;
+        let resampled_channels: Result<Vec<Vec<f64>>, ResamplerError> = if channel_count <= 1 {
+            plan_channels
+                .into_iter()
+                .enumerate()
+                .map(|(ch_idx, channel_data)| {
+                    self.resample_one_channel(ch_idx, &channel_data, phase, quality)
+                })
+                .collect()
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = plan_channels
+                    .iter()
+                    .enumerate()
+                    .map(|(ch_idx, channel_data)| {
+                        scope.spawn(move || {
+                            self.resample_one_channel(ch_idx, channel_data, phase, quality)
+                        })
+                    })
+                    .collect();
 
-                let expected_frames = converted_output_frames(
-                    channel_data.len(),
-                    self.from_rate,
-                    self.to_rate,
-                    "one-shot output",
-                )?;
-                let mut channel_output = Vec::with_capacity(expected_frames);
-
-                // Chunked processing to avoid massive single-pass overhead
-                // 8192 frames is a good balance for cache usage. The shared
-                // process-capacity contract owns the backend burst slack.
-                let inner_chunk_size = ONE_SHOT_INPUT_CHUNK_FRAMES;
-                let scratch_frames =
-                    process_output_capacity_frames(inner_chunk_size, self.from_rate, self.to_rate)?;
-                let mut output_scratch = vec![0.0; scratch_frames];
-
-                let total_chunks = channel_data.len().div_ceil(inner_chunk_size);
-
-                // Log only for first channel to avoid spam
-                if ch_idx == 0 {
-                    log::info!(
-                        "Starting resampling on thread. Total chunks: {}, Phase: {:?}",
-                        total_chunks,
-                        phase
-                    );
-                }
-
-                for (i, chunk) in channel_data.chunks(inner_chunk_size).enumerate() {
-                    let mut input_offset = 0;
-                    while input_offset < chunk.len() {
-                        let processed = backend
-                            .process(&chunk[input_offset..], &mut output_scratch)
-                            .map_err(|error| ResamplerError::BackendProcess {
-                                operation: "process",
-                                channel: Some(ch_idx),
-                                message: error.message(),
-                            })?;
-
-                        if processed.input_frames > chunk.len() - input_offset
-                            || processed.output_frames > output_scratch.len()
-                        {
-                            return Err(ResamplerError::InvalidBackendProgress {
-                                operation: "process",
-                                channel: Some(ch_idx),
-                            });
-                        }
-
-                        if processed.input_frames == 0 && processed.output_frames == 0 {
-                            return Err(ResamplerError::BackendStalled {
-                                operation: "process",
-                                channel: Some(ch_idx),
-                            });
-                        }
-                        input_offset += processed.input_frames;
-                        channel_output
-                            .extend_from_slice(&output_scratch[..processed.output_frames]);
-                    }
-
-                    // Periodic log check (every ~10%)
-                    if ch_idx == 0 && i > 0 && i % (total_chunks.max(10) / 10).max(1) == 0 {
-                        log::debug!("Resampling progress: {}%", i * 100 / total_chunks);
-                    }
-                }
-
-                // Native drain is the only end-of-stream operation guaranteed
-                // by the backend. Keep calling it until it reports terminal
-                // zero.
-                loop {
-                    match backend.drain(&mut output_scratch) {
-                        Ok(output_frames) if output_frames > 0 => {
-                            if output_frames > output_scratch.len() {
-                                return Err(ResamplerError::InvalidBackendProgress {
-                                    operation: "drain",
-                                    channel: Some(ch_idx),
-                                });
-                            }
-                            channel_output.extend_from_slice(&output_scratch[..output_frames]);
-                        }
-                        Ok(_) => break,
-                        Err(e) => {
-                            return Err(ResamplerError::BackendProcess {
-                                operation: "drain",
-                                channel: Some(ch_idx),
-                                message: e.message(),
-                            });
-                        }
-                    }
-                }
-
-                Ok(channel_output)
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        // A panic inside a channel worker is a bug in this
+                        // crate, not a runtime condition. Surface it as a typed
+                        // error instead of unwinding through the caller.
+                        handle.join().unwrap_or(Err(ResamplerError::BackendStalled {
+                            operation: "process",
+                            channel: None,
+                        }))
+                    })
+                    .collect()
             })
-            .collect();
+        };
 
         let resampled_channels = resampled_channels?;
 
@@ -576,6 +514,113 @@ impl Resampler {
         interleave_channel_outputs_to_vec(&resampled_channels, self.channels, &mut final_output)?;
 
         Ok(final_output)
+    }
+
+    /// Run one deinterleaved channel through its own backend stream.
+    ///
+    /// Split out of [`Self::resample_parallel`] so the same body serves both
+    /// the single-channel sequential path and the scoped-thread path.
+    fn resample_one_channel(
+        &self,
+        ch_idx: usize,
+        channel_data: &[f64],
+        phase: PhaseResponse,
+        quality: ResampleQuality,
+    ) -> Result<Vec<f64>, ResamplerError> {
+        // One backend stream per channel with the requested phase
+        // response and quality level.
+        let mut backend = MonoBackend::new(self.from_rate, self.to_rate, phase, quality)
+            .map_err(|error| map_backend_init_error(error, Some(ch_idx)))?;
+
+        let expected_frames = converted_output_frames(
+            channel_data.len(),
+            self.from_rate,
+            self.to_rate,
+            "one-shot output",
+        )?;
+        let mut channel_output = Vec::with_capacity(expected_frames);
+
+        // Chunked processing to avoid massive single-pass overhead
+        // 8192 frames is a good balance for cache usage. The shared
+        // process-capacity contract owns the backend burst slack.
+        let inner_chunk_size = ONE_SHOT_INPUT_CHUNK_FRAMES;
+        let scratch_frames =
+            process_output_capacity_frames(inner_chunk_size, self.from_rate, self.to_rate)?;
+        let mut output_scratch = vec![0.0; scratch_frames];
+
+        let total_chunks = channel_data.len().div_ceil(inner_chunk_size);
+
+        // Log only for first channel to avoid spam
+        if ch_idx == 0 {
+            log::info!(
+                "Starting resampling on thread. Total chunks: {}, Phase: {:?}",
+                total_chunks,
+                phase
+            );
+        }
+
+        for (i, chunk) in channel_data.chunks(inner_chunk_size).enumerate() {
+            let mut input_offset = 0;
+            while input_offset < chunk.len() {
+                let processed = backend
+                    .process(&chunk[input_offset..], &mut output_scratch)
+                    .map_err(|error| ResamplerError::BackendProcess {
+                        operation: "process",
+                        channel: Some(ch_idx),
+                        message: error.message(),
+                    })?;
+
+                if processed.input_frames > chunk.len() - input_offset
+                    || processed.output_frames > output_scratch.len()
+                {
+                    return Err(ResamplerError::InvalidBackendProgress {
+                        operation: "process",
+                        channel: Some(ch_idx),
+                    });
+                }
+
+                if processed.input_frames == 0 && processed.output_frames == 0 {
+                    return Err(ResamplerError::BackendStalled {
+                        operation: "process",
+                        channel: Some(ch_idx),
+                    });
+                }
+                input_offset += processed.input_frames;
+                channel_output.extend_from_slice(&output_scratch[..processed.output_frames]);
+            }
+
+            // Periodic log check (every ~10%)
+            if ch_idx == 0 && i > 0 && i % (total_chunks.max(10) / 10).max(1) == 0 {
+                log::debug!("Resampling progress: {}%", i * 100 / total_chunks);
+            }
+        }
+
+        // Native drain is the only end-of-stream operation guaranteed
+        // by the backend. Keep calling it until it reports terminal
+        // zero.
+        loop {
+            match backend.drain(&mut output_scratch) {
+                Ok(output_frames) if output_frames > 0 => {
+                    if output_frames > output_scratch.len() {
+                        return Err(ResamplerError::InvalidBackendProgress {
+                            operation: "drain",
+                            channel: Some(ch_idx),
+                        });
+                    }
+                    channel_output.extend_from_slice(&output_scratch[..output_frames]);
+                }
+                Ok(_) => break,
+                Err(e) => {
+                    return Err(ResamplerError::BackendProcess {
+                        operation: "drain",
+                        channel: Some(ch_idx),
+                        message: e.message(),
+                    });
+                }
+            }
+        }
+
+        Ok(channel_output)
     }
 }
 
@@ -1472,6 +1517,90 @@ mod tests {
                 Err(ResamplerError::InvalidSampleRate { .. })
             ));
         }
+    }
+
+    /// Offline channel fan-out must be equivalent to resampling each channel
+    /// on its own, for every supported channel count.
+    ///
+    /// This is the contract that lets `resample_parallel` distribute work at
+    /// all: per-channel backend streams must stay independent, so splitting
+    /// across threads cannot change a sample. The one- and two-channel cases
+    /// also cover the sequential/threaded branch boundary.
+    #[test]
+    fn parallel_channel_fan_out_matches_per_channel_resampling() {
+        for channels in [1usize, 2, 6, 8] {
+            let frames = 5_000;
+            let interleaved = fixture(frames, channels);
+
+            let combined = Resampler::new(channels, 48_000, 96_000)
+                .unwrap()
+                .resample_parallel(&interleaved, PhaseResponse::Minimum, ResampleQuality::High)
+                .unwrap();
+
+            assert_eq!(combined.len() % channels, 0);
+            let out_frames = combined.len() / channels;
+
+            for channel in 0..channels {
+                let mono: Vec<f64> = (0..frames)
+                    .map(|frame| interleaved[frame * channels + channel])
+                    .collect();
+                let expected = Resampler::new(1, 48_000, 96_000)
+                    .unwrap()
+                    .resample_parallel(&mono, PhaseResponse::Minimum, ResampleQuality::High)
+                    .unwrap();
+
+                assert_eq!(
+                    expected.len(),
+                    out_frames,
+                    "channel {channel} of {channels} produced a different frame count"
+                );
+                for (frame, want) in expected.iter().enumerate() {
+                    let got = combined[frame * channels + channel];
+                    assert_eq!(
+                        got.to_bits(),
+                        want.to_bits(),
+                        "channel {channel} of {channels} diverged at frame {frame}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The offline path must actually run channels concurrently.
+    ///
+    /// Without this, dropping the work-stealing pool in favour of scoped
+    /// threads could silently degrade into a sequential loop and nothing else
+    /// in the suite would notice. Every channel worker parks on a barrier that
+    /// only releases once all of them have arrived, so this test cannot pass
+    /// unless the channels are genuinely in flight at the same time.
+    #[test]
+    fn parallel_channel_fan_out_runs_channels_concurrently() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Barrier;
+
+        let channels = 4;
+        let peak = AtomicUsize::new(0);
+        let live = AtomicUsize::new(0);
+        let barrier = Barrier::new(channels);
+
+        std::thread::scope(|scope| {
+            for _ in 0..channels {
+                scope.spawn(|| {
+                    let now = live.fetch_add(1, Ordering::AcqRel) + 1;
+                    peak.fetch_max(now, Ordering::AcqRel);
+                    // Deadlocks instead of failing quietly if the runtime ever
+                    // stops overlapping these.
+                    barrier.wait();
+                    live.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+        });
+
+        assert_eq!(
+            peak.load(Ordering::Acquire),
+            channels,
+            "scoped fan-out must keep every channel worker in flight together"
+        );
     }
 
     #[test]

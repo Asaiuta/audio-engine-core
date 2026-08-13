@@ -66,16 +66,23 @@ The following are **forbidden** inside the hot path:
   Dynamic kernel ownership crosses through one published and one retired
   `AtomicPtr` slot. The control side creates and destroys `Box` values; audio
   only performs a bounded exchange/CAS and moves unique local ownership.
-- `ArcSwap` remains a control-side convenience for immutable parameter reads.
-  Callback adapters register a `RealtimeSnapshotReader<T>` during setup and
+- The control-side snapshot store remains a convenience for immutable parameter
+  reads. Callback adapters register a `RealtimeSnapshotReader<T>` during setup and
   copy `Copy` snapshots through its preallocated hazard slot. Registration may
   allocate and lock; callback reads only perform bounded atomic loads/stores.
   Replaced `Box<T>` storage is reclaimed by a later control-side publication,
   never by the reader that copied it. Dropping the reader/processor is also a
   non-realtime teardown operation because its final `Arc` may deallocate.
-- `ArcSwap` is forbidden for dynamic Convolver kernel ownership: its first-use
-  debt node, writer traversal, and last-`Arc` destruction do not satisfy the
-  hard realtime bound.
+- The control-side store is `Mutex<Arc<T>>` and is **control-side only**: the
+  audio callback must never touch it. `load_if_changed` distinguishes snapshots by
+  *allocation identity* (`Arc::ptr_eq`), so the store must hand out the same `Arc`
+  until a publish replaces it. A store that rebuilt an `Arc` per read would keep
+  returning correct values while silently degrading "unchanged" into "always
+  changed", forcing consumers to reload every block. This is pinned by
+  `load_if_changed_tracks_publication_identity_not_value`.
+- A shared-pointer swap primitive is forbidden for dynamic Convolver kernel
+  ownership: first-use debt nodes, writer traversal, and last-`Arc` destruction do
+  not satisfy the hard realtime bound.
 - Decode-side allocation: the decoder is not on the audio callback. Even so,
   `decode_next_into` reuses its `sample_buf` and is allocation-free in steady
   state. `StreamingDecoderBuilder::staging_buffer_bytes()` describes the
@@ -150,8 +157,9 @@ calls `subscribe_realtime` during setup and then
 `load_realtime_if_changed_since` once per buffer. The measured hazard read is
 about 13 ns on the recorded Windows/x86_64 environment and materially faster
 than rebuilding a split-atomic snapshot; see `audio_lockfree_params_perf`.
-Control/reporting code may retain the `ArcSwap` `load` APIs. New callback
-tunables must use the realtime reader rather than acquiring an ArcSwap guard.
+Control/reporting code may retain the `load` / `load_if_changed` APIs. New
+callback tunables must use the realtime reader rather than acquiring a
+control-side snapshot, which takes a mutex and must never happen in a callback.
 
 ### One Validation Policy For Both Parameter Layers
 

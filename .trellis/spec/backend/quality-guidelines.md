@@ -66,6 +66,65 @@ Concretely:
 - Public names must not conflate distinct guarantees (e.g. "sample peak" vs
   "true peak").
 
+## Dependency Call-Site Hygiene
+
+Most measurable waste found in this crate has come from *how* a dependency is
+invoked, not from a missing algorithm. Before proposing a rewrite, check the call
+site.
+
+- **Never pass an "everything" mode flag to a backend.** `ebur128::Mode::all()`
+  enabled that crate's true-peak and sample-peak detectors, which this crate
+  never read because it reports its own 4x polyphase FIR true peak. Intersample
+  peak was computed twice per sample and one result discarded. Request exactly
+  the measurements that are read, and comment which flags are deliberately
+  absent so a later reader does not "restore" them.
+- **Narrowing a backend mode is a correctness change until proven otherwise.**
+  `I | LRA | HISTOGRAM` is bit-identical to `Mode::all()`; dropping `HISTOGRAM`
+  shifts integrated loudness by 0.002-0.012 LU. Prove equivalence with a test
+  that asserts bit equality on every reported measurement, and choose a fixture
+  that actually exercises each one — a constant-level signal reports
+  `loudness_range() == 0.0` under every mode and proves nothing.
+- **Do not call a backend getter per block when its cost is window-shaped.**
+  `ebur128`'s momentary/short-term readers rescan their whole 400 ms / 3 s window
+  per call, so evaluating them inside `process` cost far more than ingesting the
+  block. Derive on read instead. At 512-frame blocks this was 92% of the meter's
+  per-sample cost.
+- **Real-valued signals use a real transform.** Audio is real, so a complex FFT
+  carries an identically-zero imaginary half. `realfft` is already a dependency;
+  prefer it over `rustfft` complex transforms for time-domain audio. Halves
+  spectral storage (`fft_size` -> `fft_size / 2 + 1`) and measured 10-54% faster
+  across every convolver case.
+- **A single-use dependency is a candidate, not a given.** Check the real call
+  count (`rayon` had exactly one, in an offline path whose public entry point had
+  no in-repo caller) and whether the replacement preserves the *semantics* the
+  call site relies on, not just the types — see the `load_if_changed` note in
+  `realtime-safety.md`.
+
+## Auto Traits Are Part Of The Public API
+
+`tests/public_api.rs` renders auto-trait impls, so `Send` / `Sync` / `Unpin` /
+`UnwindSafe` / `RefUnwindSafe` / `Freeze` are load-bearing. They are structural:
+they follow from field types, and a manual `impl` on a private type does **not**
+propagate to public types that hold it.
+
+- **Adding interior mutability to a public type is a breaking change.** Putting a
+  `Cell` in `LoudnessMeter` to memoize behind `&self` silently removed `Sync` and
+  `Freeze`. If a `&self` method needs to mutate, first ask whether it can just
+  recompute; reach for interior mutability only with the auto-trait cost
+  accounted for.
+- **Match the representation of a dependency you are replacing.** Swapping
+  `atomic_float`'s `UnsafeCell<f64>` for `AtomicU64` + `to_bits`/`from_bits`
+  *added* `RefUnwindSafe` to 8 public types. Widening is non-breaking, so the
+  baseline was regenerated — but the diff must be reviewed line by line and
+  confirmed to contain only widenings.
+- **Read the diff direction before reacting.** In `public-api` output `-` is the
+  rendered current surface and `+` is the committed baseline, which is the
+  opposite of most review tooling. Confirm empirically (insert a marker line into
+  the baseline and see which side it lands on) rather than assuming.
+- **Verify a baseline failure reproduces on a pristine tree** before attributing
+  it to your change. On Windows these baselines currently fail regardless of
+  local edits: the committed files are CRLF and `public-api` renders LF.
+
 ## Saturation Quality Modes
 
 `SaturationQuality::Direct` is the legacy source-rate waveshaper. Higher-quality

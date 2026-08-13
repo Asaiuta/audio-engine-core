@@ -598,8 +598,8 @@ impl core::marker::Send for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackController
 impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackController
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackController
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackController
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackController
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackController
 #[non_exhaustive] pub struct audio_engine_core::pipeline::PlaybackCrossfeedConfig
 pub audio_engine_core::pipeline::PlaybackCrossfeedConfig::cutoff_hz: f64
 pub audio_engine_core::pipeline::PlaybackCrossfeedConfig::enabled: bool
@@ -739,8 +739,8 @@ impl core::marker::Send for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackParameters
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackParameters
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackParameters
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackParameters
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackParameters
 pub struct audio_engine_core::pipeline::PlaybackPipeline
 impl audio_engine_core::pipeline::PlaybackPipeline
 pub fn audio_engine_core::pipeline::PlaybackPipeline::builder(audio_engine_core::pipeline::CallbackSpec) -> audio_engine_core::pipeline::PlaybackBuilder
@@ -1002,8 +1002,8 @@ impl core::marker::Send for audio_engine_core::processor::adapters::DynamicLoudn
 impl core::marker::Sync for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::marker::Unpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 pub struct audio_engine_core::processor::adapters::EqProcessor
 impl audio_engine_core::processor::adapters::EqProcessor
 pub fn audio_engine_core::processor::adapters::EqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>) -> Self
@@ -1377,7 +1377,7 @@ impl core::marker::Send for audio_engine_core::processor::lockfree_params::Atomi
 impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 pub struct audio_engine_core::processor::lockfree_params::AtomicEqParams
 impl audio_engine_core::processor::lockfree_params::AtomicEqParams
@@ -2956,7 +2956,7 @@ impl core::marker::Send for audio_engine_core::processor::lockfree_params::Atomi
 impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 pub struct audio_engine_core::processor::AtomicEqParams
 impl audio_engine_core::processor::lockfree_params::AtomicEqParams
@@ -3006,7 +3006,7 @@ impl core::marker::Send for audio_engine_core::AtomicLoudnessState
 impl core::marker::Sync for audio_engine_core::AtomicLoudnessState
 impl core::marker::Unpin for audio_engine_core::AtomicLoudnessState
 impl core::marker::UnsafeUnpin for audio_engine_core::AtomicLoudnessState
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AtomicLoudnessState
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AtomicLoudnessState
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AtomicLoudnessState
 pub struct audio_engine_core::processor::AtomicNoiseShaperParams
 impl audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams
@@ -3511,8 +3511,8 @@ impl core::marker::Send for audio_engine_core::processor::adapters::DynamicLoudn
 impl core::marker::Sync for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::marker::Unpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 #[non_exhaustive] pub struct audio_engine_core::processor::DynamicLoudnessTuningSnapshot
 pub audio_engine_core::processor::DynamicLoudnessTuningSnapshot::compensation_ref_db: f64
 pub audio_engine_core::processor::DynamicLoudnessTuningSnapshot::pre_gain_db: f64
@@ -3743,8 +3743,8 @@ impl core::marker::Send for audio_engine_core::LoudnessNormalizer
 impl core::marker::Sync for audio_engine_core::LoudnessNormalizer
 impl core::marker::Unpin for audio_engine_core::LoudnessNormalizer
 impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessNormalizer
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
 pub struct audio_engine_core::processor::LoudnessSourceIdentity
 impl audio_engine_core::LoudnessSourceIdentity
 pub fn audio_engine_core::LoudnessSourceIdentity::cache_id(&self) -> &str
@@ -3872,8 +3872,8 @@ impl core::marker::Send for audio_engine_core::OutputChainBuilder
 impl core::marker::Sync for audio_engine_core::OutputChainBuilder
 impl core::marker::Unpin for audio_engine_core::OutputChainBuilder
 impl core::marker::UnsafeUnpin for audio_engine_core::OutputChainBuilder
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainBuilder
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainBuilder
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainBuilder
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainBuilder
 pub struct audio_engine_core::processor::OutputChainParams
 pub audio_engine_core::processor::OutputChainParams::channels: usize
 pub audio_engine_core::processor::OutputChainParams::convolver_control: audio_engine_core::ConvolverControl
@@ -3893,8 +3893,8 @@ impl core::marker::Send for audio_engine_core::OutputChainParams
 impl core::marker::Sync for audio_engine_core::OutputChainParams
 impl core::marker::Unpin for audio_engine_core::OutputChainParams
 impl core::marker::UnsafeUnpin for audio_engine_core::OutputChainParams
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainParams
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainParams
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainParams
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainParams
 pub struct audio_engine_core::processor::OutputRenderChain
 impl audio_engine_core::OutputRenderChain
 pub fn audio_engine_core::OutputRenderChain::limiter_gain_reduction_db(&self) -> f64
@@ -5221,7 +5221,7 @@ impl core::marker::Send for audio_engine_core::AtomicLoudnessState
 impl core::marker::Sync for audio_engine_core::AtomicLoudnessState
 impl core::marker::Unpin for audio_engine_core::AtomicLoudnessState
 impl core::marker::UnsafeUnpin for audio_engine_core::AtomicLoudnessState
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AtomicLoudnessState
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AtomicLoudnessState
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AtomicLoudnessState
 pub struct audio_engine_core::AudioBlockMut<'a>
 impl<'a> audio_engine_core::processor::traits::AudioBlockMut<'a>
@@ -5731,8 +5731,8 @@ impl core::marker::Send for audio_engine_core::LoudnessNormalizer
 impl core::marker::Sync for audio_engine_core::LoudnessNormalizer
 impl core::marker::Unpin for audio_engine_core::LoudnessNormalizer
 impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessNormalizer
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
 pub struct audio_engine_core::LoudnessSourceIdentity
 impl audio_engine_core::LoudnessSourceIdentity
 pub fn audio_engine_core::LoudnessSourceIdentity::cache_id(&self) -> &str
@@ -5817,8 +5817,8 @@ impl core::marker::Send for audio_engine_core::OutputChainBuilder
 impl core::marker::Sync for audio_engine_core::OutputChainBuilder
 impl core::marker::Unpin for audio_engine_core::OutputChainBuilder
 impl core::marker::UnsafeUnpin for audio_engine_core::OutputChainBuilder
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainBuilder
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainBuilder
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainBuilder
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainBuilder
 pub struct audio_engine_core::OutputChainParams
 pub audio_engine_core::OutputChainParams::channels: usize
 pub audio_engine_core::OutputChainParams::convolver_control: audio_engine_core::ConvolverControl
@@ -5838,8 +5838,8 @@ impl core::marker::Send for audio_engine_core::OutputChainParams
 impl core::marker::Sync for audio_engine_core::OutputChainParams
 impl core::marker::Unpin for audio_engine_core::OutputChainParams
 impl core::marker::UnsafeUnpin for audio_engine_core::OutputChainParams
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainParams
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainParams
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::OutputChainParams
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::OutputChainParams
 pub struct audio_engine_core::OutputRenderChain
 impl audio_engine_core::OutputRenderChain
 pub fn audio_engine_core::OutputRenderChain::limiter_gain_reduction_db(&self) -> f64
@@ -5956,8 +5956,8 @@ impl core::marker::Send for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackController
 impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackController
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackController
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackController
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackController
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackController
 #[non_exhaustive] pub struct audio_engine_core::PlaybackCrossfeedConfig
 pub audio_engine_core::PlaybackCrossfeedConfig::cutoff_hz: f64
 pub audio_engine_core::PlaybackCrossfeedConfig::enabled: bool
@@ -6097,8 +6097,8 @@ impl core::marker::Send for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackParameters
 impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackParameters
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackParameters
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackParameters
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackParameters
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackParameters
 pub struct audio_engine_core::PlaybackPipeline
 impl audio_engine_core::pipeline::PlaybackPipeline
 pub fn audio_engine_core::pipeline::PlaybackPipeline::builder(audio_engine_core::pipeline::CallbackSpec) -> audio_engine_core::pipeline::PlaybackBuilder
