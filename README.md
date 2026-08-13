@@ -496,10 +496,12 @@ The main Cargo features are:
 | ------------- | :-----: | ------------------------------------------- |
 | `http`        |    ✓    | HTTP/HTTPS streaming decode                 |
 | `loudness-db` |    ✓    | SQLite-backed loudness metadata persistence |
-| `soxr`        |    ✓    | Native SoXR / SoX VHQ resampling            |
-| `rubato`      |         | Pure-Rust quality-aware resampling          |
+| `rubato`      |    ✓    | Pure-Rust quality-aware resampling          |
+| `soxr`        |         | Native SoXR / SoX VHQ resampling            |
 
-All four features are independent; the first three are enabled by default.
+All four features are independent; the first three are enabled by default. A
+default build is pure Rust: it needs no native library, no vcpkg/pkg-config
+probe, and carries no LGPL-2.1 linking obligation.
 
 ### `http`
 
@@ -517,15 +519,25 @@ The EBU R128 measurement, normalization, and true-peak APIs remain available whe
 
 ### `soxr`
 
-Enables the native SoXR backend.
+Enables the native SoXR backend. Opt-in; add it with `features = ["soxr"]`.
 
 This requires the libsoxr native library at build/link time. libsoxr is LGPL-2.1; see [License](#license). Windows (vcpkg or MSYS2) and Unix setup instructions are in `docs/installation.md`.
 
 ### `rubato`
 
-Enables the pure-Rust resampling backend.
+Enables the pure-Rust resampling backend. Enabled by default.
 
-When both `soxr` and `rubato` are enabled, SoXR is selected as the default backend.
+When both `soxr` and `rubato` are enabled, SoXR is selected, so adding `soxr` on
+top of the default feature set is enough to get the native backend back.
+
+`StreamingResampler` is `Send` under either backend, but it is **not `Sync`** on
+the rubato backend, because rubato's `Async<f64>` holds a
+`Box<dyn InnerResampler<f64>>` that does not declare `Sync`. This is rarely a
+limitation: every method that does work takes `&mut self`, so the usable sharing
+pattern is `Arc<Mutex<StreamingResampler>>` (which only needs `Send`) or moving
+it to the audio thread. Only `Arc<StreamingResampler>` — which could call the
+read-only accessors and nothing else — is rejected. Enable `soxr` if you need the
+`Sync` impl itself.
 
 ---
 
@@ -701,4 +713,4 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ### Native dependency licensing
 
-With the default `soxr` feature, this crate links the SoXR native library (libsoxr), which is distributed under the LGPL-2.1. The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically link libsoxr carry LGPL-2.1 relinking obligations. Building with `default-features = false` and the pure-Rust `rubato` backend does not link libsoxr and carries no LGPL obligation. See [NOTICE](NOTICE) for details.
+With the opt-in `soxr` feature, this crate links the SoXR native library (libsoxr), which is distributed under the LGPL-2.1. The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically link libsoxr carry LGPL-2.1 relinking obligations. The default feature set uses the pure-Rust `rubato` backend, does not link libsoxr, and carries no LGPL obligation. See [NOTICE](NOTICE) for details.

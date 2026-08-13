@@ -2,21 +2,30 @@
 //!
 //! Two backends implement the same streaming contract (arbitrary input
 //! granularity, duration-aligned drain, `clear` restoring initial state): the
-//! native SoXR / SoX VHQ backend (`soxr` feature, default) and the pure-Rust
-//! rubato backend (`rubato` feature), which routes common sample-rate ratios
-//! through FFT resampling at every quality tier (UltraHigh selects a 2x longer
-//! single-sub-chunk FFT filter) and uses windowed sinc only for pathological
-//! ratios. When both features are enabled, SoXR
+//! pure-Rust rubato backend (`rubato` feature, default), which routes common
+//! sample-rate ratios through FFT resampling at every quality tier (UltraHigh
+//! selects a 2x longer single-sub-chunk FFT filter) and uses windowed sinc only
+//! for pathological ratios, and the native SoXR / SoX VHQ backend (`soxr`
+//! feature, opt-in). When both features are enabled, SoXR
 //! wins. The public `Resampler` / `StreamingResampler` API is identical for
 //! both.
+//!
+//! One auto trait differs. [`StreamingResampler`] is `Send` under either
+//! backend, but on the rubato backend it is **not** `Sync`, `UnwindSafe`, or
+//! `RefUnwindSafe`, because rubato's `Async<f64>` holds a
+//! `Box<dyn InnerResampler<f64>>` whose trait object does not declare those auto
+//! traits. Every method that advances state takes `&mut self`, so
+//! `Arc<Mutex<StreamingResampler>>` (needs only `Send`) and moving the resampler
+//! to the audio thread both still work; only `Arc<StreamingResampler>` is
+//! rejected. Enable `soxr` if the `Sync` impl itself is required.
 
 use crate::config::{PhaseResponse, ResampleQuality};
 use thiserror::Error;
 
 #[cfg(not(any(feature = "soxr", feature = "rubato")))]
 compile_error!(
-    "audio-engine-core requires a resampler backend: enable the default `soxr` feature \
-     (native SoX VHQ, links LGPL-2.1 libsoxr) or the pure-Rust `rubato` feature."
+    "audio-engine-core requires a resampler backend: enable the default `rubato` feature \
+     (pure Rust) or the opt-in `soxr` feature (native SoX VHQ, links LGPL-2.1 libsoxr)."
 );
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
@@ -37,9 +46,9 @@ use rubato_backend::{MonoBackend, BACKEND_NAME};
 #[cfg(feature = "soxr")]
 use soxr_backend::{MonoBackend, BACKEND_NAME};
 
-/// Compile-time selected resampler backend name: `"soxr"` (native SoX VHQ,
-/// default) or `"rubato"` (pure Rust). Follows the same precedence as the
-/// backend selection above — SoXR wins when both features are enabled — so
+/// Compile-time selected resampler backend name: `"rubato"` (pure Rust,
+/// default) or `"soxr"` (native SoX VHQ, opt-in). Follows the same precedence as
+/// the backend selection above — SoXR wins when both features are enabled — so
 /// benchmark reports and diagnostics can label the measured backend without
 /// re-deriving feature-precedence logic.
 pub const RESAMPLER_BACKEND_NAME: &str = BACKEND_NAME;
@@ -629,6 +638,17 @@ impl Resampler {
 /// fallback for other layouts. Rubato uses one native interleaved stream for
 /// the complete block. This is used by AudioPipeline for memory-efficient
 /// streaming resampling.
+///
+/// # Thread safety
+///
+/// Always `Send`. On the default rubato backend it is **not** `Sync` (nor
+/// `UnwindSafe` / `RefUnwindSafe`), because rubato's `Async<f64>` holds a
+/// `Box<dyn InnerResampler<f64>>` that does not declare those auto traits; the
+/// `soxr` backend does provide them. Since [`process`](Self::process),
+/// [`finish`](Self::finish), [`reset`](Self::reset), and
+/// [`set_sample_rate`](Self::set_sample_rate) all take `&mut self`, sharing via
+/// `Arc<Mutex<StreamingResampler>>` (which needs only `Send`) or moving the
+/// resampler onto the audio thread work on both backends.
 ///
 /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {

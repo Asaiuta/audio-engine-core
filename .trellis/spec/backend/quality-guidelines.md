@@ -186,6 +186,44 @@ propagate to public types that hold it.
 - **Verify a baseline failure reproduces on a pristine tree** before attributing
   it to your change. On Windows these baselines currently fail regardless of
   local edits: the committed files are CRLF and `public-api` renders LF.
+- **An auto trait can be lost to a dependency's `dyn Trait`, and you cannot fix
+  it locally.** Switching the default backend to rubato cost
+  `StreamingResampler` its `Sync` / `UnwindSafe` / `RefUnwindSafe` impls, because
+  rubato's `Async<f64>` holds a `Box<dyn InnerResampler<f64>>` and the trait
+  object declares none of them. No change on this side recovers them. Before
+  accepting such a narrowing, measure how far it spreads: here it stopped at the
+  one type, because every public holder (`OutputRenderChain`,
+  `PlaybackPipeline`, `DspChain`, `ConvolverProcessor`) was already `!Sync`.
+  Compute that with a set difference between the two rendered baselines rather
+  than by reading the diff.
+- **Ask `cargo-semver-checks` instead of classifying auto-trait changes by hand.**
+  A manual review of the rendered diff caught only the lost `Sync`; the tool's
+  `auto_trait_impl_removed` lint named `Sync`, `UnwindSafe`, *and*
+  `RefUnwindSafe`. Run it against the relevant committed baseline before writing
+  the changelog entry, and isolate what a given change caused by re-running with
+  a second baseline that already contains the earlier changes.
+
+## Feature-Matrix Coverage Must Include The Default Set
+
+`--all-features` plus `--no-default-features --features <backend>` does **not**
+cover the default feature set, and the gap is easy to miss because both
+commands look exhaustive.
+
+- Backend priority hides a backend. `soxr` wins when both resampler features are
+  enabled, so `--all-features` never renders the rubato backend's auto traits.
+  The bug this hid: switching the default to rubato changed the surface of an
+  ordinary `cargo add` while both existing public-API snapshots stayed
+  byte-identical.
+- `--no-default-features --features rubato` omits `http` and `loudness-db`, so it
+  renders neither `NetworkError` nor `LoudnessDatabaseError` / `DatabaseStats`.
+- Therefore any crate with a `default` list that is not simply "all features"
+  needs its own snapshot, its own SemVer baseline, and its own
+  `cargo test` / `check` / `clippy` invocations. `cargo test` with no flags is a
+  distinct matrix, not a subset of the other two.
+- When adding a default matrix, confirm empirically what the previously published
+  default surface was before choosing its SemVer baseline. Here the old default
+  surface was proven byte-identical to `--all-features`, which is what made the
+  all-features JSON a legitimate stand-in for the published default contract.
 
 ## Saturation Quality Modes
 
@@ -536,9 +574,9 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
     sign flips, were kept.
   - Feature flags decide which backend you are even measuring. Several setup
     figures in this project were initially collected under `--all-features`,
-    which enables the default `soxr` backend and never enters the pure-Rust
-    resampler path; they had to be discarded and retaken with
-    `--no-default-features --features rubato`. State the feature set next to any
+    which enables `soxr` — and `soxr` wins the backend priority, so that run never
+    enters the pure-Rust resampler path at all; they had to be discarded and
+    retaken with the rubato backend. State the feature set next to any
     resampler number.
 - A requested baseline must match schema, probe, mode, conditions, complete
   case set, rustc, target, OS/architecture, CPU, profile, and features. Unknown
@@ -1288,9 +1326,11 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 - `http` controls the optional `reqwest` dependency and network error surface.
 - `loudness-db` controls the optional `rusqlite` dependency and SQLite cache
   types.
-- The resampler backend is feature-selected: `soxr` (default) links native
-  libsoxr (LGPL-2.1), while `rubato` compiles quality-aware pure-Rust FFT/sinc
-  routing under `src/processor/resampler/rubato_backend.rs`. Enabling neither
+- The resampler backend is feature-selected: `rubato` (default) compiles
+  quality-aware pure-Rust FFT/sinc routing under
+  `src/processor/resampler/rubato_backend.rs`, while the opt-in `soxr` links
+  native libsoxr (LGPL-2.1) and wins the priority when both are enabled. Enabling
+  neither
   backend is a compile error; when both are enabled, `soxr` wins. A
   `default-features = false, features = ["rubato"]` build has no native
   dependency. Both backends must satisfy the same mono streaming contract
@@ -1303,10 +1343,13 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
   variant, field, constant, function, and method needs meaningful API
   documentation; `#[doc(hidden)]` and bulk `#[allow(missing_docs)]` are not
   substitutes for documenting the frozen surface.
-- `tests/public_api.rs`, both `tests/public-api-*.txt` snapshots, and both
-  `tests/semver-baseline/*/audio_engine_core.json` files use
+- `tests/public_api.rs`, all three `tests/public-api-*.txt` snapshots, and all
+  three `tests/semver-baseline/*/audio_engine_core.json` files use
   `nightly-2026-07-09`. CI installs that exact nightly, runs the public-API test
-  to produce current JSON, then uses pinned `cargo-semver-checks 0.50.0`.
+  to produce current JSON, then uses pinned `cargo-semver-checks 0.50.0`. The
+  three matrices are `--all-features`, `--no-default-features --features rubato`,
+  and the default feature set; the last one is not implied by the other two (see
+  *Feature-Matrix Coverage Must Include The Default Set*).
 - Committed JSON is passed through `--baseline-rustdoc`; `--baseline-root`
   means an old crate source directory and must not be pointed at the JSON
   baseline directory. Feature flags cannot be combined with explicit baseline
@@ -1347,17 +1390,18 @@ Use this when changing `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
 
 ### 5. Good/Base/Bad Cases
 
-- Good: "`default-features = false, features = [\"rubato\"]` removes the HTTP,
-  SQLite, and native libsoxr dependencies; a resampler backend is still required
-  because resampling is core."
-- Base: "`http` and `loudness-db` are default-on and can be disabled
-  independently; the resampler backend is chosen, not omitted."
+- Good: "`default-features = false, features = [\"rubato\"]` removes the HTTP and
+  SQLite dependencies; a resampler backend is still required because resampling
+  is core, and the default set already uses the pure-Rust one."
+- Base: "`http`, `loudness-db`, and `rubato` are default-on and `http` /
+  `loudness-db` can be disabled independently; the resampler backend is chosen,
+  not omitted."
 - Good: run the public-API test once, feed each generated current JSON to the
   matching committed `--baseline-rustdoc`, and prove a temporary public-item
   removal fails before restoring the item and observing a pass.
 - Bad: "`default-features = false` creates a dependency-free DSP-only build",
-  "building without resampling avoids libsoxr", or "SoXR remains required" now
-  that `rubato` is a supported pure-Rust backend.
+  "a default build links libsoxr", or "SoXR remains required" now that `rubato`
+  is the default pure-Rust backend and `soxr` is opt-in.
 - Bad: refresh the committed JSON merely to make a breaking check green, use a
   floating nightly/tool version, or pass `tests/semver-baseline/` to
   `--baseline-root` as though it contained crate source.

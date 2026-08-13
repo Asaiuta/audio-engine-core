@@ -29,8 +29,8 @@ steady cells are median / p95 ns/input-sample; lifecycle pairs are
 
 | Configuration / family | Steady 44.1→48 | THD+N (study probe) | Reverse alias 48→44.1 | API latency | Main trade-off |
 | --- | ---: | ---: | ---: | ---: | --- |
-| audio-engine-core SoXR v2 (`soxr` default) | 8.569 | −134.31 dB | −137.67 dB | 0 frames | Native dependency (LGPL-2.1); excellent general-purpose balance |
-| audio-engine-core Rubato v17 (`rubato`) | 8.182 | −200.76 dB | −232.81 dB | 0 frames | Pure Rust, no native dependency; strongest measured stopband |
+| audio-engine-core SoXR v2 (`soxr`, opt-in) | 8.569 | −134.31 dB | −137.67 dB | 0 frames | Native dependency (LGPL-2.1); excellent general-purpose balance |
+| audio-engine-core Rubato v17 (`rubato`, default) | 8.182 | −200.76 dB | −232.81 dB | 0 frames | Pure Rust, no native dependency; strongest measured stopband |
 | raw libsoxr (HQ/Bits20) | 8.632 | −134.31 dB | −137.67 dB | n/a | Upstream control for SoXR |
 | raw Rubato 1024/2 | 9.082 | −200.76 dB | −232.81 dB | 0 frames | Upstream control for Rubato (supplement run) |
 | FFmpeg libswresample (selected recipe) | **5.798** | −106.56 dB | **−19.93 dB** | n/a | Fastest steady throughput; quality depends strongly on recipe |
@@ -377,7 +377,7 @@ selection: its quality is recipe-dependent, not engine-fixed.
 The two production backends answer different design constraints; neither is
 "the default because it is fastest".
 
-**SoXR (default).** Chosen as the general-purpose native route:
+**SoXR (opt-in).** Retained as the general-purpose native route:
 
 - mature native implementation (SoX heritage), strong quality/performance
   balance across arbitrary ratios,
@@ -387,7 +387,8 @@ The two production backends answer different design constraints; neither is
   libsoxr (−0.73% / +0.75%), i.e. the adapter adds no measurable overhead
   beyond a clean wrapper.
 
-**Rubato (optional, pure Rust).** Exists for a different reason:
+**Rubato (default, pure Rust).** Now the default backend, for a different set of
+reasons:
 
 - pure Rust, no native dependency, no LGPL obligation,
 - strongest measured stopband (THD+N ≈ −201/−210 dB; reverse alias
@@ -401,8 +402,10 @@ The two production backends answer different design constraints; neither is
 maturity with a native toolchain available; choose Rubato for
 no-native-dependency builds, offline rendering (where its UltraHigh stopband
 and 0.73% realtime factor matter), or ratios/geometries that hit the
-specialized routes. When both features are enabled, `soxr` wins — matching
-the default-features configuration shipped to users.
+specialized routes. Rubato ships as the default so that a plain
+`cargo add audio-engine-core` needs no native toolchain and carries no LGPL
+obligation; `features = ["soxr"]` opts back into the native route, and when both
+are enabled `soxr` still wins the backend priority.
 
 ---
 

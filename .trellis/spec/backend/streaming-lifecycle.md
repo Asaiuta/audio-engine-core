@@ -694,8 +694,9 @@ MonoBackend::process(&mut self, input: &[f64], output: &mut [f64])
 
 ### 6. Tests Required
 
-* Build and test both backend selections: default/all-features SoXR and
-  `--no-default-features --features rubato`.
+* Build and test both backend selections: the default (pure-Rust rubato) plus
+  `--no-default-features --features rubato`, and the opt-in SoXR path via
+  `--all-features` or `--features soxr`.
 * For SoXR, compare the native stereo stream with independent mono references
   bit-for-bit, assert one backend and zero adapter working bytes for stereo,
   retain non-stereo fallback progress checks, and cover arbitrary chunks,

@@ -22,10 +22,13 @@ For LGPL-2.1 compliance options (dynamic linking, providing object files, or
 otherwise enabling relinking), see the libsoxr project:
   https://sourceforge.net/projects/soxr/
 
-SoXR-backed resampling is selected by the `soxr` Cargo feature, which is
-enabled by default. Building with `default-features = false` and the `rubato`
-feature selects the pure-Rust resampler backend instead and does not link
-libsoxr. See README.md for current feature and native dependency details.
+SoXR-backed resampling is selected by the `soxr` Cargo feature, which is NOT
+enabled by default. The default feature set selects the pure-Rust `rubato`
+resampler backend and does not link libsoxr, so a default build carries no
+LGPL-2.1 obligation. The obligations described above apply only when you opt in
+with `features = ["soxr"]` (or enable it transitively, e.g. via
+`--all-features`). See README.md for current feature and native dependency
+details.
 
 -------------------------------------------------------------------------------
 Crossfeed topology reference: libbs2b

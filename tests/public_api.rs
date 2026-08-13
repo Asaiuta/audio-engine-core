@@ -61,6 +61,23 @@ const RUBATO_ONLY: Matrix = Matrix {
     target_dir: "target/public-api/rubato",
 };
 
+/// The surface downstream crates get from a plain dependency line.
+///
+/// This is not redundant with the other two. `ALL_FEATURES` enables `soxr`,
+/// which wins the backend priority and therefore never renders the rubato
+/// backend's auto traits, and `RUBATO_ONLY` omits `http` and `loudness-db` and
+/// therefore never renders `NetworkError` or `LoudnessDatabaseError`. Neither
+/// one covers the combination an ordinary `cargo add` produces, which is the
+/// surface most downstream builds actually see.
+const DEFAULT_FEATURES: Matrix = Matrix {
+    label: "default features",
+    snapshot: "tests/public-api-default.txt",
+    all_features: false,
+    no_default_features: false,
+    features: &[],
+    target_dir: "target/public-api/default",
+};
+
 fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -170,4 +187,9 @@ fn all_features_surface_matches_the_committed_baseline() {
 #[test]
 fn rubato_only_surface_matches_the_committed_baseline() {
     assert_matrix_matches_baseline(&RUBATO_ONLY);
+}
+
+#[test]
+fn default_feature_surface_matches_the_committed_baseline() {
+    assert_matrix_matches_baseline(&DEFAULT_FEATURES);
 }
