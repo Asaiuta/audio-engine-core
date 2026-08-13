@@ -1345,3 +1345,83 @@ vcpkg/pkg-config probe, and carries no LGPL-2.1 obligation, so a plain
 - Consider an upstream rubato PR adding `+ Sync` to `Box<dyn InnerResampler>`.
 - Still open from last session: `Complex::exp()` (23-40% of the minimum-phase
   chain) and migrating T1/T3 of the factorization to `realfft`.
+
+
+## Session 33: Measure subsystem cost shares and the AutoMix breakdown
+
+**Date**: 2026-08-13
+**Task**: Measure subsystem cost shares and the AutoMix breakdown
+**Branch**: `main`
+
+### Summary
+
+Answered "which features cost the most" by measuring rather than quoting
+docs/quality.md, then fixed the doc where it had gone stale. Two findings mattered:
+the callback chain is dominated by Saturation/PeakLimiter/EQ (86% between them),
+and offline AutoMix is dominated by `LoudnessMeter` (60.7%) -- of which more than
+half is this crate's own true-peak FIR, not `ebur128`.
+
+### Main Changes
+
+- Components table rebuilt with an explicit `As of` column per row; superseded
+  figures kept as history instead of stated as current.
+- New: AutoMix cost breakdown (subtractive layering), per-stage callback share,
+  and a single-host cross-subsystem table.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `54514e1` | docs(quality): fix the stale component table and record what AutoMix spends |
+
+### Testing
+
+- [OK] `cargo test --test public_api` 3/3 (doc-only change, surface unaffected)
+- [OK] fmt clean; markdown tables column-checked; internal anchors verified
+- Probes were temporary examples, deleted after measuring; tree left clean
+
+### Notes / Judgement Calls
+
+1. **Measured instead of quoting.** The doc's loudness row said 42.37 ns/sample;
+   I measured ~17.65. Both are right -- the doc row predates the metering change
+   and a paragraph below said so. That split is exactly the defect: a reader
+   scanning the table gets a number that is no longer true. Hence the `As of`
+   column rather than silently overwriting the old values.
+
+2. **Validated the AutoMix layering rather than trusting it.** `SegmentAnalyzer`
+   is private, so the per-frame layers replicate its arithmetic. The check that
+   the replication is faithful: inner loop 13.68 ms vs 14.35 ms end-to-end, with
+   the 0.68 ms gap matching open+probe+finalize, and Full landing at 2.01x Head
+   exactly as a second window plus a seek predicts.
+
+3. **Split the dominant stage instead of stopping at it.** "LoudnessMeter is
+   60.7%" would have been a weak answer. A side probe of the public
+   `TruePeakDetector` showed 4.57 of those 8.30 ms is our own 4x-oversampled FIR
+   -- actionable, and it points at our code rather than a dependency.
+
+4. **Reported that the stage deltas sum to 103.6%, not 100%.** Bypassing a stage
+   also removes its buffer traversal, so the deltas overlap. Said so in the doc
+   and labelled them shares rather than an additive decomposition.
+
+5. **Kept a drift control in every measurement** (all-on remeasured last: -1.0%),
+   per the spec lesson from the earlier FFT-plan work.
+
+6. **Refused to make the cross-subsystem table look authoritative.** It is one
+   unpinned host, so it is marked report-only with an explicit warning not to mix
+   its resampler rows with the core-pinned strict-control table above it.
+
+7. **Two API guesses failed to compile** (`TruePeakDetector::new` takes no args,
+   `StreamingResampler::process` needs `ProcessBuffers` + the trait in scope). I
+   read the rendered public-API baseline for exact signatures instead of guessing
+   again -- faster than iterating on compiler errors.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- The 4x true-peak FIR is 33% of AutoMix and untouched; the spectral-flux FFT is
+  another 27%.
+- Still open: `Complex::exp()` in the minimum-phase chain, and T1/T3 -> `realfft`.
+- Release version for the rubato-default break is still undecided.
