@@ -1260,3 +1260,88 @@ call and discarded them. 171 us cold vs 0.072 us warm at 8192 points.
 - `Complex::exp()` is 23-40% of the minimum-phase chain and untouched.
 - Migrating T1/T3 of the factorization to `realfft` (1.30-1.99x on the transform
   portion) is verified feasible and now the largest remaining FFT-side item.
+
+
+## Session 32: Make the pure-Rust rubato backend the default
+
+**Date**: 2026-08-13
+**Task**: Make the pure-Rust rubato backend the default
+**Branch**: `main`
+
+### Summary
+
+Switched `default` from `soxr` to `rubato`, keeping `soxr` as opt-in. The payoff
+is licensing and setup: a default build links no native library, runs no
+vcpkg/pkg-config probe, and carries no LGPL-2.1 obligation, so a plain
+`cargo add` now works on a machine with no libsoxr.
+
+### Main Changes
+
+- `default = ["http", "loudness-db", "rubato"]`; `soxr` opt-in, priority
+  unchanged so `features = ["soxr"]` restores the old backend exactly.
+- Third public-API matrix + snapshot + SemVer baseline for the default set.
+- CI: default-set test/check/clippy, plus a no-libsoxr default build.
+- Docs synced everywhere (both READMEs, NOTICE, 3 docs/, module docs,
+  `compile_error!` text); 2 lessons into the quality spec.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `291bcd7` | feat!: make the pure-Rust rubato backend the default |
+
+### Testing
+
+- [OK] default 567 lib + all integration suites; all-features 515; rubato-only
+  534; soxr-only 482
+- [OK] clippy + fmt clean on all three feature sets; `cargo doc` no warnings
+- [OK] public_api 3/3 matrices; the two pre-existing baselines byte-unchanged
+- [OK] missing-backend `compile_error!` still fires on `--no-default-features`
+- [OK] `RESAMPLER_BACKEND_NAME` probe: default -> rubato, `+soxr` -> soxr
+- [OK] `Arc<Mutex<StreamingResampler>>` is Send+Sync on **both** backends
+
+### Notes / Judgement Calls
+
+1. **I overstated the damage, then corrected it.** I first called the `Sync` loss
+   high-impact. A set difference between the two rendered baselines showed
+   `StreamingResampler` is the *only* newly-`!Sync` public type — every public
+   holder (`OutputRenderChain`, `PlaybackPipeline`, `DspChain`,
+   `ConvolverProcessor`) was already `!Sync` under the old default. The narrowing
+   does not propagate at all.
+
+2. **I also understated it in the other direction.** My manual diff review caught
+   only `Sync`. `cargo-semver-checks` named `Sync`, `UnwindSafe`, *and*
+   `RefUnwindSafe`. Lesson: let the tool classify auto-trait changes. I isolated
+   this change's contribution by re-running against a second baseline that
+   already contained the earlier `FirEq` work.
+
+3. **Root cause is upstream and unfixable here.** A compiler probe (not a guess)
+   traced it to rubato's `Box<dyn InnerResampler<f64>>` inside `Async<f64>`.
+
+4. **I proved the claim I put in the docs.** Rather than assert
+   `Arc<Mutex<_>>` still works, I compiled it under both backends.
+
+5. **Found a real coverage hole while doing this.** I assumed `RUBATO_ONLY`
+   covered the new default; it does not — it is `--no-default-features`, so no
+   `http`/`loudness-db`. And `ALL_FEATURES` enables `soxr`, which wins priority
+   and hides the rubato auto traits. **That is why both existing snapshots stayed
+   byte-identical across a breaking change.** Added a default matrix.
+
+6. **Deliberately left the version alone.** User's call. All three
+   `--release-type patch` gates now fail with `auto_trait_impl_removed`; that is
+   the gate working. CHANGELOG says so explicitly so nobody "fixes" it by
+   refreshing baselines.
+
+7. **NOTICE needed care** — it is a licensing document, and the LGPL sentence
+   inverted meaning with this change.
+
+### Status
+
+[OK] **Completed** (version number pending release decision)
+
+### Next Steps
+
+- Decide the release version; `cargo-semver-checks` says major.
+- Consider an upstream rubato PR adding `+ Sync` to `Box<dyn InnerResampler>`.
+- Still open from last session: `Complex::exp()` (23-40% of the minimum-phase
+  chain) and migrating T1/T3 of the factorization to `realfft`.

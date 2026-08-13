@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-08-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1207 | Active |
+| `journal-1.md` | ~1295 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-08-13 | Make the pure-Rust rubato backend the default | `291bcd7` | `main` |
 | 31 | 2026-08-13 | Reuse FFT plans instead of rebuilding planners per call | `8e9b7fc` | `main` |
 | 30 | 2026-08-13 | Migrate remaining real-valued FFT call sites to realfft | `3703c9c` | `main` |
 | 29 | 2026-08-13 | Reclaim measured performance from existing dependencies | `80d6b07` | `main` |
