@@ -106,6 +106,24 @@ site.
     against the complex formulation rather than trusting inspection.
   - Prefer `process_with_scratch` over `process`. `rustfft`'s plain `process`
     allocates scratch on every call, which is a per-block allocation in any loop.
+  - **Never build a planner per call.** `FftPlanner::new()` starts with an empty
+    cache, so each plan repeats a factorization, an algorithm selection, and a
+    twiddle precomputation — 171 us at 8192 points versus 0.072 us from a warm
+    planner. Hold one planner (or the plans it produced) for the lifetime of the
+    owner. One planner also shares recipes and twiddles across directions, so
+    two planners for the forward and inverse of one size is strictly worse than
+    one. Before assuming a site is fine because it is "setup", check how often
+    the enclosing function actually runs: `FirEq::regenerate_ir` looked like
+    setup but fires on every EQ setter, i.e. once per slider movement.
+  - Scope such a cache to an owner, not to a global or `thread_local`, whenever a
+    public constructor lets the caller choose the transform size
+    (`FirEq::new(f64, usize)` does), or the cache becomes a caller-driven
+    unbounded memory growth path.
+  - Holding a plan costs `UnwindSafe`/`RefUnwindSafe`, because `dyn Fft` and
+    `dyn ComplexToReal` do not declare `RefUnwindSafe`. That is an auto-trait
+    narrowing of every public type that holds one, so it must be a reviewed
+    decision with a regenerated baseline, not a surprise. `AssertUnwindSafe`
+    would hide it; prefer recording the real shape of the type.
   - **The survey is finished; the remaining `rustfft` sites were measured and
     rejected.** Do not re-open them without new evidence:
     - `spectral_backend.rs` kernel spectrum is real and *is* migratable (a probe
@@ -511,6 +529,17 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
   runs where the changed linear-phase case improved 7-17%. Report the control
   alongside the claim, and state "neutral" rather than a number when the effect
   does not clear the noise floor of the case being measured.
+  - Report per-rep deltas, not just the aggregate. A case whose reps read
+    −24%, −20%, +9% is noise-dominated and must not be published as a mean, even
+    when a mechanism argues the improvement is real; resampler setup was dropped
+    on exactly that basis while the EQ cases, which improved in every rep with no
+    sign flips, were kept.
+  - Feature flags decide which backend you are even measuring. Several setup
+    figures in this project were initially collected under `--all-features`,
+    which enables the default `soxr` backend and never enters the pure-Rust
+    resampler path; they had to be discarded and retaken with
+    `--no-default-features --features rubato`. State the feature set next to any
+    resampler number.
 - A requested baseline must match schema, probe, mode, conditions, complete
   case set, rustc, target, OS/architecture, CPU, profile, and features. Unknown
   required environment fields are not comparable. Revision and dirty state may

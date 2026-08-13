@@ -1,0 +1,11 @@
+SETUP  48->96k High        617.5 us
+SETUP  48->96k Ultra      1040.5 us
+SETUP  48->192k High      1040.0 us
+SETUP  48->192k Ultra     2187.3 us
+EQ     taps=255  Linear     13.2 us
+EQ     taps=255  Minimum     56.6 us
+EQ     taps=511  Linear     26.5 us
+EQ     taps=511  Minimum     72.2 us
+EQ     taps=1023 Linear     48.0 us
+EQ     taps=1023 Minimum    194.6 us
+CTRL   48->192k Ultra Linear    350.1 us

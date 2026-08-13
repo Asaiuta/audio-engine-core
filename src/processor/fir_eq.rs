@@ -3,9 +3,9 @@
 //! This module creates linear-phase FIR filters from band gain specifications.
 //! The generated IR is used with FFTConvolver for efficient convolution.
 
-use realfft::{num_complex::Complex, RealFftPlanner};
+use realfft::num_complex::Complex;
 
-use super::fir_design::minimum_phase_from_log_magnitude;
+use super::fir_design::{minimum_phase_from_log_magnitude, FirFftPlans};
 use super::lockfree_params::{sanitized, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
 use std::f64::consts::PI;
 
@@ -56,6 +56,12 @@ pub struct FirEq {
     phase_mode: FirPhaseMode,
     /// Cached IR (regenerated when bands change)
     cached_ir: Vec<f64>,
+    /// Reused FFT plans.
+    ///
+    /// `regenerate_ir` runs on every `set_band` / `set_bands` / `set_sample_rate`
+    /// / `set_num_taps` / `set_phase_mode`, i.e. once per EQ slider movement, not
+    /// just at construction. Rebuilding a planner each time dominated that cost.
+    plans: FirFftPlans,
 }
 
 impl FirEq {
@@ -83,6 +89,7 @@ impl FirEq {
             bands: STANDARD_BANDS,
             phase_mode: FirPhaseMode::Linear,
             cached_ir: Vec::new(),
+            plans: FirFftPlans::new(),
         };
 
         // Generate initial IR
@@ -226,8 +233,7 @@ impl FirEq {
         //    formulation had to write out by hand, so the negative-frequency
         //    half must *not* be populated here. `realfft` also requires the DC
         //    and Nyquist bins to be purely real, which they are by construction.
-        let mut planner = RealFftPlanner::<f64>::new();
-        let ifft = planner.plan_fft_inverse(fft_size);
+        let ifft = self.plans.real_inverse(fft_size);
         let mut spectrum = ifft.make_input_vec();
         for (bin, &magnitude) in spectrum.iter_mut().zip(linear_mag.iter()) {
             *bin = Complex::new(magnitude, 0.0);
@@ -286,7 +292,7 @@ impl FirEq {
         }
 
         // 2-7. Apply the shared real-cepstrum spectral factorization.
-        let mut ir_mono = minimum_phase_from_log_magnitude(&log_mag, num_taps);
+        let mut ir_mono = minimum_phase_from_log_magnitude(&log_mag, num_taps, &mut self.plans);
 
         // 8. Apply a raised-cosine tail window. The causal half remains at
         // unity, then the tail monotonically fades to zero at the final tap.
@@ -436,6 +442,82 @@ mod tests {
                          (diff {:.3e} > tol {:.3e})",
                         (got - want).abs(),
                         tolerance
+                    );
+                }
+            }
+        }
+    }
+
+    /// Reusing a cached FFT plan must be a pure performance change, so a
+    /// repeatedly-regenerated `FirEq` has to agree *bit for bit* with a freshly
+    /// constructed one. A plan is a read-only object, so any difference here
+    /// would mean the refactor changed transform geometry rather than that
+    /// caching is lossy — hence exact equality, not a tolerance.
+    #[test]
+    fn repeated_regeneration_is_bit_identical_to_a_fresh_instance() {
+        for taps in [1usize, 63, 255, 511] {
+            for mode in [FirPhaseMode::Linear, FirPhaseMode::Minimum] {
+                let gain_sequence = [
+                    [0.0; 10],
+                    [6.0, -6.0, 3.0, -3.0, 9.0, -9.0, 1.5, -1.5, 4.5, -4.5],
+                    [-12.0, 12.0, 0.0, 0.0, -6.0, 6.0, 0.0, 0.0, 3.0, -3.0],
+                ];
+
+                // Drive one instance through every state, exercising the cache.
+                let mut reused = FirEq::new(48_000.0, taps);
+                reused.set_phase_mode(mode);
+                for gains in &gain_sequence {
+                    reused.set_bands(gains);
+                }
+                // Also cross a sample-rate change and a tap-count change, both of
+                // which alter the transform size and so add cache entries.
+                reused.set_sample_rate(44_100.0);
+                reused.set_sample_rate(48_000.0);
+                let final_gains = gain_sequence[gain_sequence.len() - 1];
+
+                // A pristine instance placed directly in that final state.
+                let mut fresh = FirEq::new(48_000.0, taps);
+                fresh.set_phase_mode(mode);
+                fresh.set_bands(&final_gains);
+
+                assert_eq!(
+                    reused.get_ir(1),
+                    fresh.get_ir(1),
+                    "taps={taps} mode={mode:?}: cached plans changed the IR"
+                );
+                assert_eq!(reused.ir_length(), fresh.ir_length());
+            }
+        }
+    }
+
+    /// A cache keyed by transform size must return the right plan when several
+    /// sizes are interleaved, not merely the most recent one.
+    #[test]
+    fn interleaved_tap_counts_do_not_cross_contaminate_cached_plans() {
+        let gains = [6.0, -6.0, 3.0, -3.0, 9.0, -9.0, 1.5, -1.5, 4.5, -4.5];
+        for mode in [FirPhaseMode::Linear, FirPhaseMode::Minimum] {
+            let reference: Vec<Vec<f64>> = [63usize, 255, 511]
+                .iter()
+                .map(|&taps| {
+                    let mut eq = FirEq::new(48_000.0, taps);
+                    eq.set_phase_mode(mode);
+                    eq.set_bands(&gains);
+                    eq.get_ir(1)
+                })
+                .collect();
+
+            // One instance cycling between sizes, twice, so every lookup after
+            // the first is a cache hit against a populated cache.
+            let mut eq = FirEq::new(48_000.0, 63);
+            eq.set_phase_mode(mode);
+            eq.set_bands(&gains);
+            for _ in 0..2 {
+                for (index, &taps) in [63usize, 255, 511].iter().enumerate() {
+                    eq.set_num_taps(taps);
+                    assert_eq!(
+                        eq.get_ir(1),
+                        reference[index],
+                        "mode={mode:?} taps={taps}: wrong cached plan was reused"
                     );
                 }
             }

@@ -33,6 +33,8 @@ use super::polyphase_backend::{
     normalize_kernel, phase_peak_latency_frames, polyphase_coefficients, taps_per_phase,
     MAX_POLYPHASE_COEFFICIENTS, MAX_REDUCED_RATE,
 };
+use crate::processor::fir_design::FirFftPlans;
+
 use super::{BackendInitError, BackendProcessError};
 
 pub(super) struct ContiguousPolyphaseResampler {
@@ -231,7 +233,10 @@ impl ContiguousPolyphaseResampler {
         }
 
         let prototype = design_linear_prototype(up, down, taps_per_phase, quality);
-        let minimum = minimum_phase_prototype(&prototype)?;
+        // One cache shared by `minimum_phase_prototype` and the factorization it
+        // calls, so the common transform size is planned once instead of twice.
+        let mut plans = FirFftPlans::new();
+        let minimum = minimum_phase_prototype(&prototype, &mut plans)?;
         let mut kernel = match phase {
             PhaseResponse::Minimum => minimum,
             PhaseResponse::Maximum => minimum.into_iter().rev().collect(),

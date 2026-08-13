@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Interleaved A/B with an unchanged control is mandatory; process_with_scratch/planner-reuse rules."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Nothing may add allocation to a callback; setup vs process path boundaries."}
+{"file": ".trellis/spec/backend/analysis-fir-correctness.md", "reason": "FIR EQ IR generation correctness gates."}
+{"file": ".trellis/tasks/08-13-cache-fft-plans/prd.md", "reason": "Measured 53% ceiling, why a global cache is rejected (public num_taps), bit-identical requirement."}

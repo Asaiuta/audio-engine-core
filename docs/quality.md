@@ -479,6 +479,62 @@ oracle expressed as a complex FFT. Those comparisons use explicit relative
 tolerances rather than bit-equality, since the two transforms fold the same sums
 in a different order; observed agreement is ~1e-16 relative for the `f64` paths.
 
+#### Reusing FFT plans instead of rebuilding planners (2026-08-13)
+
+`FftPlanner::new()` returns an *empty* cache, so planning a transform repeats a
+prime factorization, an algorithm selection, and a twiddle-factor precomputation
+every time. Three call sites built a fresh planner on every call. At 8192 points,
+`plan_fft_inverse` measured **171.3 us** from a cold planner against **0.072 us**
+from a warm one. A planner also shares work across directions: cold
+`inverse(8192)` is 392 us and a following `forward(8192)` only 271 us, so the
+previous split between `minimum_phase_prototype` and
+`minimum_phase_from_log_magnitude` planned the same size twice from two cold
+caches.
+
+The affected path is not only setup. `FirEq::regenerate_ir` runs on every
+`set_band`, `set_bands`, `set_sample_rate`, `set_num_taps`, and `set_phase_mode`
+— i.e. once per EQ slider movement. Interleaved before/after, three reps, median
+of 9 trials each:
+
+| Case | Change | Role |
+| --- | ---: | --- |
+| `FirEq::set_band`, 255 taps, linear / minimum | −42% / −56% | changed |
+| `FirEq::set_band`, 511 taps, linear / minimum | −47% / −40% | changed |
+| `FirEq::set_band`, 1,023 taps, linear / minimum | −25% / −51% | changed |
+| Linear-phase resampler setup (no minimum-phase work) | −2% | control |
+
+Every EQ case improved in every rep, with per-rep deltas spanning −16% to −68%
+and no sign flips, while the control stayed inside −2..−5%.
+
+Resampler setup is **not** claimed as an improvement. Collapsing two cold
+planners into one is real in principle, but per-rep deltas for `48->192k High`
+were −24%, −20%, +9%, and setup spread reached over 50% in an earlier attempt;
+this host cannot resolve that effect at the sample size used.
+
+The plan cache is owned by its user rather than kept in a global or
+thread-local. `FirEq::new(f64, usize)` is public API with a caller-chosen,
+unbounded `num_taps`, so a process-wide cache keyed by transform size would be a
+caller-driven unbounded memory growth path.
+
+Caching a plan is a pure performance change: `rustfft` and `realfft` contain no
+`Cell`/`UnsafeCell`, and `process(&self, ..)` keeps all mutable state in
+caller-supplied buffers, so a plan is read-only and a cache-hit plan was measured
+to produce **bit-identical** output. `repeated_regeneration_is_bit_identical_to_a_fresh_instance`
+and `interleaved_tap_counts_do_not_cross_contaminate_cached_plans` pin that with
+exact equality rather than a tolerance; the latter was verified to fail when the
+cache ignores its size key.
+
+Holding a plan does cost an auto trait: `FirEq` becomes `!UnwindSafe` /
+`!RefUnwindSafe`, because `dyn Fft` and `dyn ComplexToReal` do not declare
+`RefUnwindSafe`. This is a deliberate, reviewed narrowing of the public surface,
+and it matches `SpectrumAnalyzer` and `FFTConvolver`, which already hold plans and
+were already `!UnwindSafe`. The regenerated baselines contain exactly those two
+lines per feature set and no other change.
+
+Note for anyone re-measuring: this code path is only reachable with
+`--no-default-features --features rubato`. The default feature set enables `soxr`,
+which routes around it entirely.
+
 ### Lifecycle & memory
 
 `audio_lifecycle_memory_perf` separates setup, reset, finish/drain, dynamic
