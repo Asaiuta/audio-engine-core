@@ -1086,3 +1086,89 @@ See prd.md outcome section.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: Migrate remaining real-valued FFT call sites to realfft
+
+**Date**: 2026-08-13
+**Task**: Migrate remaining real-valued FFT call sites to realfft
+**Branch**: `main`
+
+### Summary
+
+Finished the realfft migration begun for the convolvers. Three call sites fed
+real audio through complex `rustfft` transforms and read only half the result.
+`realfft` was already a dependency, so the dependency count is unchanged.
+
+Surveyed every remaining `rustfft` site rather than only the ones flagged
+earlier, which is how `fir_design` got correctly excluded.
+
+### Main Changes
+
+- `spectrum.rs` - `SpectrumAnalyzer` to realfft. It already read only bins
+  `1..n/2`, so the complex upper half was pure waste. Storage halved.
+- `fir_eq.rs` - `generate_linear_phase_ir` to a real inverse transform. It had
+  been writing the mirrored Hermitian half by hand only to satisfy a complex
+  IFFT; a real inverse implies that symmetry, so that half is gone.
+- `automix_analysis.rs` - `SpectralFluxAccumulator` to realfft plus
+  `process_with_scratch`, which also removed a per-hop scratch allocation.
+- `fir_design.rs` - comment only. Excluded on purpose: the real-cepstrum
+  factorization exponentiates a *complex* spectrum between the transforms, so
+  the intermediate genuinely has a non-zero imaginary part. Only the endpoints
+  are real.
+- `docs/quality.md`, `.trellis/spec/backend/quality-guidelines.md` - measured
+  results and the two reusable lessons.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3703c9c` | perf: use realfft for the remaining real-valued FFT call sites |
+
+### Testing
+
+- [OK] `cargo test --all-features` - 513 + 20 pass
+- [OK] `cargo test --no-default-features --features rubato` - 532 pass
+- [OK] clippy `--all-features --all-targets` clean, `cargo fmt --check` clean
+- [OK] `assert_no_alloc` steady-state tests pass
+- [OK] Public API content byte-identical to the committed baseline
+- [OK] Both new oracles verified to FAIL under deliberate mutation (off-by-one
+  bin index; doubled spectrum), so they are not vacuous
+
+Measured, interleaved, each with an unchanged in-run control:
+
+| Case | Change | Role |
+|---|---:|---|
+| Spectrum 1,024 / 4,096-point | -12.4% / -23.9% | changed |
+| Downmixer 5.1 / 7.1 | +2.2% / +0.7% | control |
+| FIR EQ linear phase 511/1,023/2,047 taps | -7.1% / -14.2% / -16.7% | changed |
+| FIR EQ minimum phase (same runs) | +2.3% / +5.6% / +4.9% | control |
+
+### Notes / Judgement Calls
+
+Two things I got wrong first and corrected:
+
+1. **A sequential A/B reported a 4.7% AutoMix regression.** Rather than accept
+   or hand-wave it, I isolated the accumulator (1.02-1.08x *faster*) and then
+   ran interleaved end-to-end (-4.1%, +1.0%, +1.0%). It was host drift; decode
+   dominates that case. AutoMix is reported as **neutral**, not improved.
+2. **The unchanged minimum-phase FIR path drifted +5%** during runs where the
+   changed linear-phase path improved 7-17%. That control is what makes the
+   linear-phase claim credible, so it is published alongside it.
+
+Both lessons went into the quality spec: sequential A/B is not sufficient below
+~10%, and every claim needs an unchanged in-run control.
+
+Also: I briefly ran `git checkout --` on `automix_analysis.rs` to clean up a
+temporary probe and destroyed the real work in that file. Recovered it intact
+from a backup copy and re-verified. Lesson: never use `git checkout --` on a
+file holding uncommitted work; remove the probe surgically instead.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- `polyphase_backend.rs` (2 rustfft sites) was left unsurveyed and is the
+  obvious follow-up if this class of win is worth continuing.
