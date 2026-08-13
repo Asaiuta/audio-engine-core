@@ -8,7 +8,8 @@ use crate::decoder::{
     DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
 };
 use crate::processor::{LoudnessMeter, ProcessError};
-use rustfft::{num_complex::Complex32, FftPlanner};
+use realfft::num_complex::Complex;
+use realfft::{RealFftPlanner, RealToComplex};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 use thiserror::Error;
@@ -299,11 +300,19 @@ impl FirstOrderFilter {
 }
 
 struct SpectralFluxAccumulator {
-    frame: Vec<Complex32>,
+    /// Windowed time-domain frame. `realfft` mutates its input, so this doubles
+    /// as transform scratch.
+    frame: Vec<f32>,
+    /// Half-spectrum: `FFT_SIZE / 2 + 1` bins. Only the first `FFT_SIZE / 2`
+    /// are read, matching the original bin selection.
+    spectrum: Vec<Complex<f32>>,
+    /// Workspace for `process_with_scratch`. The plain `process` allocates on
+    /// every call, which this hop loop runs once per 512 samples of the track.
+    fft_scratch: Vec<Complex<f32>>,
     previous_magnitudes: Vec<f32>,
     scratch: Vec<f32>,
     pos: usize,
-    fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
+    fft: std::sync::Arc<dyn RealToComplex<f32>>,
 }
 
 struct SegmentAnalyzer {
@@ -370,10 +379,12 @@ impl SegmentAnalyzer {
 
 impl SpectralFluxAccumulator {
     fn new() -> Self {
-        let mut planner = FftPlanner::<f32>::new();
+        let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
         Self {
-            frame: vec![Complex32::new(0.0, 0.0); FFT_SIZE],
+            frame: vec![0.0; FFT_SIZE],
+            spectrum: vec![Complex::new(0.0, 0.0); fft.complex_len()],
+            fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_scratch_len()],
             previous_magnitudes: vec![0.0; FFT_SIZE / 2],
             scratch: vec![0.0; FFT_SIZE],
             pos: 0,
@@ -391,13 +402,22 @@ impl SpectralFluxAccumulator {
         for i in 0..FFT_SIZE {
             let window =
                 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos();
-            self.frame[i] = Complex32::new(self.scratch[i] * window, 0.0);
+            self.frame[i] = self.scratch[i] * window;
         }
-        self.fft.process(&mut self.frame);
+        // Lengths are fixed at construction to exactly what the plan requires,
+        // so these checks cannot fail; a violated invariant would be a bug
+        // here. Reuse the previous spectrum rather than panicking mid-analysis.
+        debug_assert_eq!(self.frame.len(), FFT_SIZE);
+        debug_assert_eq!(self.spectrum.len(), self.fft.complex_len());
+        let _ = self.fft.process_with_scratch(
+            &mut self.frame,
+            &mut self.spectrum,
+            &mut self.fft_scratch,
+        );
 
         let mut flux = 0.0;
         for i in 0..FFT_SIZE / 2 {
-            let mag = self.frame[i].norm();
+            let mag = self.spectrum[i].norm();
             flux += (mag - self.previous_magnitudes[i]).max(0.0);
             self.previous_magnitudes[i] = mag;
         }
@@ -1037,6 +1057,94 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Reference spectral-flux implementation using a full complex FFT — the
+    /// formulation this module used before moving to `realfft`.
+    ///
+    /// Deliberately built on `rustfft` so it remains an independent oracle.
+    fn legacy_spectral_flux(samples: &[f32]) -> Vec<f32> {
+        use rustfft::{num_complex::Complex32, FftPlanner};
+
+        let mut planner = FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(FFT_SIZE);
+        let mut frame = vec![Complex32::new(0.0, 0.0); FFT_SIZE];
+        let mut previous = vec![0.0f32; FFT_SIZE / 2];
+        let mut scratch = vec![0.0f32; FFT_SIZE];
+        let mut pos = 0usize;
+        let mut out = Vec::new();
+
+        for &sample in samples {
+            scratch[pos] = sample;
+            pos += 1;
+            if pos < FFT_SIZE {
+                continue;
+            }
+            for i in 0..FFT_SIZE {
+                let window = 0.5
+                    - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos();
+                frame[i] = Complex32::new(scratch[i] * window, 0.0);
+            }
+            fft.process(&mut frame);
+
+            let mut flux = 0.0;
+            for i in 0..FFT_SIZE / 2 {
+                let mag = frame[i].norm();
+                flux += (mag - previous[i]).max(0.0);
+                previous[i] = mag;
+            }
+            scratch.copy_within(SPECTRAL_HOP_SIZE..FFT_SIZE, 0);
+            pos = SPECTRAL_HOP_SIZE;
+            out.push(flux / (FFT_SIZE / 2) as f32);
+        }
+        out
+    }
+
+    /// The real forward transform must reproduce the complex formulation's flux
+    /// sequence. This matters beyond raw magnitudes: flux is differential and
+    /// carries `previous_magnitudes` across hops, so a per-bin indexing mistake
+    /// would accumulate rather than cancel.
+    ///
+    /// `f32` with 512 accumulated bin differences per hop makes bit-exactness
+    /// unrealistic; the tolerance is relative to the largest reference flux.
+    #[test]
+    fn spectral_flux_matches_complex_reference_formulation() {
+        // Level and timbre both change over time so flux is genuinely non-zero:
+        // a steady tone settles to ~0 flux after the first hop and would let an
+        // indexing bug pass unnoticed.
+        let samples: Vec<f32> = (0..FFT_SIZE * 12)
+            .map(|i| {
+                let t = i as f32 / 48_000.0;
+                let envelope = 0.2 + 0.8 * ((i / (FFT_SIZE * 3)) % 3) as f32 / 2.0;
+                let sweep = 220.0 + 400.0 * (i as f32 / (FFT_SIZE * 12) as f32);
+                envelope
+                    * ((2.0 * std::f32::consts::PI * sweep * t).sin() * 0.6
+                        + (2.0 * std::f32::consts::PI * 3.0 * sweep * t).sin() * 0.3)
+            })
+            .collect();
+
+        let expected = legacy_spectral_flux(&samples);
+        let mut accumulator = SpectralFluxAccumulator::new();
+        let actual: Vec<f32> = samples
+            .iter()
+            .filter_map(|&sample| accumulator.process(sample))
+            .collect();
+
+        assert_eq!(actual.len(), expected.len());
+        assert!(expected.len() >= 8, "fixture must produce several hops");
+
+        let peak = expected.iter().fold(0.0f32, |acc, f| acc.max(f.abs()));
+        assert!(peak > 0.0, "reference flux must not be all zeros");
+        let tolerance = peak * 1e-4;
+
+        for (hop, (got, want)) in actual.iter().zip(&expected).enumerate() {
+            assert!(
+                (got - want).abs() <= tolerance,
+                "hop {hop}: {got} vs {want} (diff {:.3e} > tol {:.3e})",
+                (got - want).abs(),
+                tolerance
+            );
+        }
+    }
 
     static TEMP_AUDIO_COUNTER: AtomicU32 = AtomicU32::new(0);
 

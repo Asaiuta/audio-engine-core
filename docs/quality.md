@@ -403,7 +403,9 @@ compiled. Representative 2026-07-26 medians were 5.05 ns/sample for the
 1,024-point spectrum case, 4.72 ns/frame for 5.1 downmix, 42.37 ns/input-sample
 for 4,096-frame loudness analysis, 9.96 ns/sample for contiguous true peak,
 54.42/108.18 ms for AutoMix Head/Full, and 8.08 μs/row for the 128-row SQLite
-batch upsert. The JSON retains every case and raw trial.
+batch upsert. The JSON retains every case and raw trial. The spectrum figures
+predate the 2026-08-13 `realfft` migration below, which moved that case to
+~4.5 ns/sample.
 
 The loudness figure above predates the 2026-08-13 metering change and is left as
 recorded. `LoudnessMeter` previously asked `ebur128` for `Mode::all()` — which
@@ -426,6 +428,56 @@ bit-identical to `Mode::all()` across integrated, short-term, momentary, and
 range, while dropping `HISTOGRAM` shifts integrated loudness by a few
 millibels. `narrowed_mode_matches_mode_all_bit_for_bit` pins that equivalence
 against a level-stepped fixture chosen so loudness range is non-zero.
+
+#### Real-valued FFT call sites (2026-08-13)
+
+The spectrum analyzer, the AutoMix spectral-flux accumulator, and the FIR EQ's
+linear-phase IR design all fed real-valued data through complex `rustfft`
+transforms and then read only half the result. They now use `realfft`, which was
+already a dependency for the convolvers and the spectral resampler, so no
+dependency changed.
+
+Measured as interleaved paired A/B `--quick` runs on one host. Each table keeps
+an **unchanged** case as an in-run control, because host drift over these runs
+was comparable to some of the effects being claimed:
+
+| Case | Change | Role |
+| --- | ---: | --- |
+| Spectrum `analyze`, 1,024-point / 64 bins | −12.4% per input sample | changed |
+| Spectrum `analyze`, 4,096-point / 96 bins | −23.9% per input sample | changed |
+| Downmixer 5.1→stereo, 512 frames | +2.2% | control |
+| Downmixer 7.1→stereo, 512 frames | +0.7% | control |
+| FIR EQ regeneration, linear phase, 511 taps | −7.1% | changed |
+| FIR EQ regeneration, linear phase, 1,023 taps | −14.2% | changed |
+| FIR EQ regeneration, linear phase, 2,047 taps | −16.7% | changed |
+| FIR EQ regeneration, minimum phase, 511/1,023/2,047 taps | +2.3% / +5.6% / +4.9% | control |
+
+The minimum-phase control moved *against* the linear-phase result across the
+same runs, which is the reason for reporting it: the linear-phase gain is larger
+than, and opposite in sign to, the drift affecting untouched code beside it.
+
+AutoMix is deliberately **not** claimed as an improvement. An isolated harness
+puts the accumulator itself at 1.02–1.08x faster, but interleaved end-to-end
+AutoMix runs came out at −4.1%, +1.0%, and +1.0% — decode dominates that case,
+so the transform change does not surface. A single non-interleaved pair had
+suggested a 4.7% regression, which the interleaved runs identified as host
+drift.
+
+The change also removes a per-hop allocation: the accumulator previously called
+`rustfft`'s `process`, which allocates scratch on every call, once per 512-sample
+hop for the whole analyzed window. This is offline analysis, not the callback
+path, so it was never a realtime-safety violation.
+
+`fir_design.rs` keeps its complex transforms. Its real-cepstrum factorization
+exponentiates a complex spectrum between the transforms, so the intermediate is
+genuinely complex-valued and carries the Hilbert phase in its imaginary part;
+only the endpoints are real. Equivalence to the previous formulation is pinned
+by `spectrum_analyzer_matches_legacy_reference`,
+`linear_phase_ir_matches_complex_reference_formulation`, and
+`spectral_flux_matches_complex_reference_formulation`, each of which keeps its
+oracle expressed as a complex FFT. Those comparisons use explicit relative
+tolerances rather than bit-equality, since the two transforms fold the same sums
+in a different order; observed agreement is ~1e-16 relative for the `f64` paths.
 
 ### Lifecycle & memory
 
