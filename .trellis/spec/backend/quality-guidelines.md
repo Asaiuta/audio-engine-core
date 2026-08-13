@@ -723,6 +723,41 @@ only active callback-tail median/p99/p99.9 against a verified compatible pinned
 baseline; shared CI and bypass tails remain report-only timing evidence.
 ```
 
+## Profile Before Optimizing Arithmetic
+
+When a hot loop looks arithmetic-bound, measure where the time actually is
+before reformulating the arithmetic. On this codebase the intuitive candidates
+lost and a bookkeeping mistake won.
+
+- **Recomputed constants beat clever math.** `SpectralFluxAccumulator` rebuilt
+  its 1,024-point Hann window with `cos()` on every hop; the window is a constant
+  of `FFT_SIZE`. Caching it cut the accumulator 72.5% per hop and AutoMix 20-27%
+  end to end, bit-identically. Before reaching for SIMD, grep the hot loop for
+  transcendental calls on loop-invariant data. `SpectrumAnalyzer` already stored
+  its window in a field, so the fix was adopting an existing in-repo shape.
+- **The compiler may already be at the limit for order-preserving float code.**
+  Three attempts to speed up the 3x12-tap true-peak polyphase evaluation all lost:
+  symmetric coefficient folding measured +0.0%, hand-written AVX2+FMA measured
+  +32.5%, and a `mul_add` accumulator chain measured +1082% by serialising the
+  dependency chain. Reading the emitted assembly explained it — rustc already
+  packs the multiplies (`mulpd` plus `unpckhpd`/`shufpd`) and deliberately keeps
+  the additions scalar to preserve summation order. Check the assembly
+  (`cargo rustc --release -- --emit asm`) before assuming a scalar-looking loop
+  is unvectorized.
+- **Derive whether an early-exit bound can ever fire before implementing it.**
+  A true-peak guard using the reconstruction L1 bound looked attractive: skip the
+  dots when `max|window| * L1` cannot beat the running maximum. Skip rate measured
+  **0.0%** on tonal audio while costing 67-298%. The reason is structural: the
+  bank's L1 norm is 1.864 > 1, and a 12-sample window at 48 kHz spans a quarter
+  cycle of a 1 kHz tone, so it nearly always contains a near-peak sample. One line
+  of arithmetic on the bound would have predicted this.
+- **A bit-exactness claim needs a `to_bits()` assertion and a sabotage check.**
+  Caching a window is only a performance change if every coefficient is the same
+  `f32`. Assert on `to_bits()`, not a tolerance — a tolerance would hide a real
+  change in the reported value — and confirm the test fails under a plausible
+  mutation (here, `FFT_SIZE` instead of `FFT_SIZE - 1`) before trusting it. Keep
+  any pre-existing inline-expression oracle unchanged as the independent check.
+
 ## Scenario: Decoder, Public Component, And Lifecycle Performance Coverage
 
 ### 1. Scope / Trigger

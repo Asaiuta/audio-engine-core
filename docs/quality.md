@@ -472,7 +472,7 @@ compare within a row, not across the table.
 | LoudnessMeter, 4,096-frame blocks | ~14 ns/input-sample | 2026-08-13 | was 42.37 ns/input-sample before the metering change below (−67%) |
 | LoudnessMeter, 512-frame blocks | — | 2026-08-13 | −92% from the same change; see the paired A/B table below |
 | TruePeakDetector, contiguous | 9.96 ns/sample | 2026-07-26 | unchanged since; independently reproduced at 9.53 ns/sample on the 2026-08-13 host |
-| AutoMix Head / Full | 54.42 / 108.18 ms | 2026-07-26 | 12 s fixture, 5 s window; see [AutoMix cost breakdown](#automix-cost-breakdown) for what dominates |
+| AutoMix Head / Full | 54.42 / 108.18 ms | 2026-07-26 | 12 s fixture, 5 s window; superseded by the window caching below (−27.3% / −20.5% on the 2026-08-13 host) — see [AutoMix cost breakdown](#automix-cost-breakdown) |
 | LoudnessDatabase, 128-row batch upsert | 8.08 μs/row | 2026-07-26 | `loudness-db` only |
 
 The two changes referenced above are recorded next: the metering mode narrowing
@@ -638,10 +638,61 @@ FIR**, leaving roughly 3.7 ms for `ebur128` ingest. That is *after* the metering
 mode narrowing above; the true-peak detector is this crate's own code, not
 `ebur128`'s.
 
+The spectral-flux row was subsequently reduced; see
+[Caching the spectral-flux window](#caching-the-spectral-flux-window-2026-08-13).
+
 Scope: one host, one warm local PCM fixture, one channel layout. The realtime
 factor was 348x for Head on that host. Compressed codecs shift the decode row
 upward and were not measured here. These figures are report-only and are not a
 regression gate.
+
+#### Caching the spectral-flux window (2026-08-13)
+
+The breakdown above put the spectral-flux FFT at 27.4% of the AutoMix inner
+loop. Most of that was not the transform: `SpectralFluxAccumulator::process`
+rebuilt its 1,024-point Hann window with 1,024 `cos()` calls on **every hop**,
+although the window is a constant of `FFT_SIZE`. `SpectrumAnalyzer` already
+stored its window in a field; AutoMix had simply never adopted that shape.
+
+Isolated cost per 1,024-point hop, nine-trial median:
+
+| Variant | Per hop | Per input sample |
+| --- | ---: | ---: |
+| `cos()` per hop | 7,840 ns | 15.31 ns |
+| Cached window | 2,158 ns | 4.21 ns (−72.5%) |
+
+End-to-end, measured as an interleaved A/B with decode + `LoudnessMeter` over
+the same fixture as an in-run control, since that path is untouched:
+
+| Case | Before | After | Change | Role |
+| --- | ---: | ---: | ---: | --- |
+| `analyze_automix`, Head | 16.32 ms | 11.87 ms | −27.3% | changed |
+| `analyze_automix`, Full | 29.53 ms | 23.47 ms | −20.5% | changed |
+| decode + `LoudnessMeter` | 9.28 ms | 9.57 ms | +3.1% | control |
+
+The change is bit-exact, not merely close: each cached coefficient is the same
+`f32` the inline expression produced, and `energy_profile` sum, BPM, and
+integrated loudness were identical before and after.
+`cached_hann_window_is_bit_identical_to_evaluating_it_per_hop` asserts that on
+`to_bits()` rather than a tolerance, and was verified to fail when the cached
+generator is given a plausible off-by-one (`FFT_SIZE` instead of
+`FFT_SIZE - 1`). The pre-existing `legacy_spectral_flux` oracle still evaluates
+the window inline and is left unchanged as the independent check.
+
+Three true-peak optimizations were investigated in the same task and **rejected
+on measurement**, recorded so they are not retried:
+
+| Candidate | Measured | Why it fails |
+| --- | ---: | --- |
+| Symmetric coefficient folding (phase2 palindromic) | +0.0% | No gain, and changed the result on 2,753/4,096 windows |
+| AVX2 + FMA across the three phases | +32.5% | Compiler already packs the multiplies (`mulpd` + `unpckhpd`) and keeps additions scalar to preserve summation order |
+| `mul_add` accumulator chain | +1082% | Serialises the dependency chain |
+| L1-bound early exit | +67% to +298% | Skip rate 0.0% on tonal audio: the bank's L1 norm is 1.864 > 1, so the bound can never beat a running maximum |
+
+The L1 result is structural rather than tunable. A 12-sample window at 48 kHz
+spans about a quarter cycle of a 1 kHz tone, so it almost always contains a
+near-peak sample; with an L1 norm above 1, `max|window| * L1` therefore stays
+above the running maximum. The 4x-oversampled true-peak FIR is left as it is.
 
 ### Lifecycle & memory
 
