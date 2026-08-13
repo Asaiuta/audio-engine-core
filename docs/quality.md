@@ -310,6 +310,36 @@ only the in-crate processing.
 | DSP chain, no convolver (volume, EQ, `SaturationQuality::Oversampled4x`, Bauer crossfeed, convolver slot empty, dynamic loudness, peak limiter, noise shaper) | 50.3 ns | 51.5 μs | seven-trial quick median (2026-07-23); p95 callback utilization 0.51% |
 | DSP chain with convolver and `SaturationQuality::Oversampled4x` | 60.4 ns | 61.9 μs | seven-trial quick median (2026-07-23); p95 callback utilization 0.60% |
 
+#### Per-stage share of the callback chain
+
+Which stages the 50 ns/sample above is actually spent on. Measured on one host
+by holding a single chain object and bypassing exactly one stage at a time
+through its public atomic parameter block, so every row shares the same stage
+order, buffer, and allocation state; stage cost is (all stages on) minus (that
+stage bypassed), median of 9 interleaved trials at 512 frames.
+
+| Stage | Cost | Share of chain |
+| --- | ---: | ---: |
+| Saturation (Tube, `Oversampled4x`) | 19.24 ns/sample | 39.4% |
+| PeakLimiter | 13.73 ns/sample | 28.1% |
+| Equalizer (10 bands) | 9.11 ns/sample | 18.6% |
+| NoiseShaper | 4.02 ns/sample | 8.2% |
+| DynamicLoudness | 2.55 ns/sample | 5.2% |
+| Crossfeed | 1.78 ns/sample | 3.6% |
+| Volume | 0.20 ns/sample | 0.4% |
+| Convolver, 256 taps/channel (measured separately) | 7.58 ns/sample | +15.5% |
+
+The all-on chain measured 48.85 ns/sample on that host, consistent with the
+50.3 ns row above, and an all-on control remeasured last drifted −1.0%. The
+stage costs sum to 103.6% of the total rather than 100%: bypassing a stage also
+removes its share of per-stage buffer traversal, so the deltas overlap slightly.
+Read these as shares, not as an exact additive decomposition.
+
+Saturation leads because `Oversampled4x` runs the waveshaper at 4x rate behind a
+33-tap decimation FIR, so each output sample carries four nonlinear evaluations.
+The absolute numbers stay far from the deadline: the full chain uses 0.47% of the
+10,666 μs budget at 512 frames.
+
 ### Resampling
 
 Streaming cost (512-frame stereo buffers); the two project backends come from
@@ -323,6 +353,35 @@ upstream control from its own run (see
 | 44.1 kHz to 48 kHz, ns/input sample (μs/input buffer) | 8.57 (8.77 μs) | 8.18 (8.38 μs) |
 | 48 kHz to 44.1 kHz, ns/input sample (μs/input buffer) | 7.42 (7.60 μs) | 7.03 (7.19 μs) |
 | 48 kHz to 96 kHz, ns/input sample (μs/input buffer) | not rerun in the strict control | 5.15 (5.27 μs; p95 6.32) |
+
+#### Subsystem cost on one scale
+
+The tables in this section were each measured on their own host, so they cannot
+be compared with one another. This one exists to answer "what costs the most":
+every row was measured in a single run on one host, in ns per input sample, with
+512-frame stereo blocks and the default (rubato) backend.
+
+| Subsystem | Per sample | Per 512-frame buffer |
+| --- | ---: | ---: |
+| Full callback DSP chain (all stages active, no convolver) | 48.85 ns | 50.0 μs |
+| `LoudnessMeter::process` | 17.65 ns | 18.1 μs |
+| `TruePeakDetector::process`, contiguous | 9.53 ns | 9.8 μs |
+| Resampler 44.1→48 kHz, High/Linear | 7.10 ns | 7.3 μs |
+| Resampler 48→44.1 kHz, High/Linear | 6.49 ns | 6.6 μs |
+| Resampler 48→96 kHz, High/Linear | 5.57 ns | 5.7 μs |
+| `SpectrumAnalyzer::analyze`, 1,024-point | 2.32 ns | 2.4 μs |
+
+Against the 10,666 μs callback budget at 512 frames, the heaviest row here is
+0.47%. Nothing in the realtime path is close to the deadline; the expensive
+operations in this crate are the offline ones (see
+[AutoMix cost breakdown](#automix-cost-breakdown), four orders of magnitude
+above any row here) and setup-time IR design (see
+[Reusing FFT plans instead of rebuilding planners](#reusing-fft-plans-instead-of-rebuilding-planners-2026-08-13),
+where a single `set_band` call once cost more than ten full callbacks).
+
+This table is report-only: single host, no pinning, not a regression gate. The
+resampler rows here are lower than the strict-control table above because that
+table comes from a different, core-pinned host; do not mix them.
 
 `audio_resampler_matrix_perf` measures `StreamingResampler::process_checked`
 across an intentional rate/quality/phase/channel set, plus construction
@@ -399,17 +458,30 @@ LoudnessMeter (512/4,096 frames), contiguous and strided TruePeakDetector,
 AutoMix Head/Full, RingBuffer write/read/advance, and five in-memory
 LoudnessDatabase operations. The Rubato-only feature set reports 11 cases and
 records LoudnessDatabase as explicitly excluded because `loudness-db` is not
-compiled. Representative 2026-07-26 medians were 5.05 ns/sample for the
-1,024-point spectrum case, 4.72 ns/frame for 5.1 downmix, 42.37 ns/input-sample
-for 4,096-frame loudness analysis, 9.96 ns/sample for contiguous true peak,
-54.42/108.18 ms for AutoMix Head/Full, and 8.08 μs/row for the 128-row SQLite
-batch upsert. The JSON retains every case and raw trial. The spectrum figures
-predate the 2026-08-13 `realfft` migration below, which moved that case to
-~4.5 ns/sample.
+compiled. The JSON retains every case and raw trial.
 
-The loudness figure above predates the 2026-08-13 metering change and is left as
-recorded. `LoudnessMeter` previously asked `ebur128` for `Mode::all()` — which
-enables that crate's own true-peak and sample-peak detectors, neither of which
+Representative medians. The `As of` column matters: two later changes moved
+some of these, so a single date would misrepresent the table. Rows marked
+2026-08-13 were re-measured on a different host than the 2026-07-26 rows, so
+compare within a row, not across the table.
+
+| Case | Median | As of | Note |
+| --- | ---: | --- | --- |
+| SpectrumAnalyzer, 1,024-point | ~4.5 ns/sample | 2026-08-13 | was 5.05 ns/sample before the `realfft` migration below |
+| Downmixer, 5.1 to stereo | 4.72 ns/frame | 2026-07-26 | unchanged since |
+| LoudnessMeter, 4,096-frame blocks | ~14 ns/input-sample | 2026-08-13 | was 42.37 ns/input-sample before the metering change below (−67%) |
+| LoudnessMeter, 512-frame blocks | — | 2026-08-13 | −92% from the same change; see the paired A/B table below |
+| TruePeakDetector, contiguous | 9.96 ns/sample | 2026-07-26 | unchanged since; independently reproduced at 9.53 ns/sample on the 2026-08-13 host |
+| AutoMix Head / Full | 54.42 / 108.18 ms | 2026-07-26 | 12 s fixture, 5 s window; see [AutoMix cost breakdown](#automix-cost-breakdown) for what dominates |
+| LoudnessDatabase, 128-row batch upsert | 8.08 μs/row | 2026-07-26 | `loudness-db` only |
+
+The two changes referenced above are recorded next: the metering mode narrowing
+and the `realfft` migration.
+
+#### Metering mode narrowing (2026-08-13)
+
+`LoudnessMeter` previously asked `ebur128` for `Mode::all()` — which enables that
+crate's own true-peak and sample-peak detectors, neither of which
 this crate ever read, since it reports its own 4x polyphase FIR true peak — and
 re-derived all four gating measurements inside every `process` call. Because
 `ebur128`'s momentary and short-term readers rescan their whole 400 ms / 3 s
@@ -535,6 +607,41 @@ Note for anyone re-measuring: this code path needs the rubato backend, i.e. the
 default feature set or `--no-default-features --features rubato`. Adding `soxr`
 (including via `--all-features`) routes around it entirely, because SoXR wins the
 backend priority.
+
+#### AutoMix cost breakdown
+
+AutoMix is the most expensive single operation in this crate — four orders of
+magnitude above any realtime row — so its composition is worth recording. It is
+offline, bounded, and never runs on the audio thread.
+
+Measured by subtractive layering over the same decoded stream, so every layer
+does identical decode work: decode only, then decode plus each analysis stage in
+turn. One 5 s window (the `max_analyze_time_sec` the component bench uses) of a
+12 s 48 kHz stereo PCM16 fixture, median of 7 trials per layer.
+
+| Cumulative layer | Total | Stage cost | Share |
+| --- | ---: | ---: | ---: |
+| Decode only | 0.80 ms | 0.80 ms | 5.9% |
+| \+ `LoudnessMeter::process` | 9.10 ms | **8.30 ms** | **60.7%** |
+| \+ envelope / filter accumulators | 9.93 ms | 0.82 ms | 6.0% |
+| \+ spectral-flux FFT (1,024-point, 512 hop) | 13.68 ms | **3.75 ms** | **27.4%** |
+
+The inner loop totals 13.68 ms against 14.35 ms for end-to-end
+`analyze_automix` in Head mode, so source open, container probe, and finalize
+account for the remaining 0.68 ms. Full mode measured 28.87 ms, 2.01x Head,
+consistent with it analyzing a second window of the same size plus one seek.
+
+Two stages dominate, and one of them splits further. A side probe running the
+public `TruePeakDetector` alone over the same stream costs 5.37 ms including
+decode, i.e. **4.57 ms of the meter's 8.30 ms is the 4x-oversampled true-peak
+FIR**, leaving roughly 3.7 ms for `ebur128` ingest. That is *after* the metering
+mode narrowing above; the true-peak detector is this crate's own code, not
+`ebur128`'s.
+
+Scope: one host, one warm local PCM fixture, one channel layout. The realtime
+factor was 348x for Head on that host. Compressed codecs shift the decode row
+upward and were not measured here. These figures are report-only and are not a
+regression gate.
 
 ### Lifecycle & memory
 
