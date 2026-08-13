@@ -6,8 +6,8 @@
 //!
 //! # Design Pattern
 //!
-//! Control-side reads retain convenient immutable `ArcSwap` snapshots.
-//! Realtime consumers subscribe during setup to a dedicated hazard slot and
+//! Control-side reads retain convenient immutable snapshots. Realtime
+//! consumers subscribe during setup to a dedicated hazard slot and
 //! copy a complete `Copy` snapshot at block boundaries. Replaced storage is
 //! reclaimed only by the control-side publisher, so the audio thread never
 //! allocates, deallocates, or becomes the last owner of a published snapshot.
@@ -19,8 +19,7 @@ use std::sync::{
     Arc, Mutex, MutexGuard,
 };
 
-use arc_swap::{ArcSwap, Guard};
-use atomic_float::AtomicF64;
+use super::atomic_f64::AtomicF64;
 
 use crate::processor::loudness::LimiterMode;
 
@@ -276,7 +275,14 @@ impl<T> Drop for RealtimeSnapshot<T> {
 }
 
 struct SharedParams<T: Copy> {
-    current: ArcSwap<T>,
+    /// Control-side published snapshot.
+    ///
+    /// Every reader clones the *same* `Arc` rather than rebuilding one, which
+    /// is what makes [`Self::load_if_changed`]'s pointer comparison meaningful:
+    /// "unchanged" must mean "same allocation". The lock is only ever held for
+    /// a clone or a pointer store, and never by the audio thread — realtime
+    /// consumers go through `realtime` instead.
+    current: Mutex<Arc<T>>,
     realtime: RealtimeSnapshot<T>,
     writer: Mutex<()>,
     generation: AtomicU64,
@@ -288,19 +294,38 @@ impl<T: Copy + Default> SharedParams<T> {
     }
 }
 
+// Every published snapshot `T` in this module is a plain `Copy` value object
+// (floats, bools, small enums) with no interior mutability of its own. The
+// interior mutability that `Mutex` and `AtomicPtr` introduce here is confined
+// to publishing whole snapshots and is safe to observe after a caught unwind:
+// a panic mid-publish leaves either the old or the new complete snapshot, never
+// a torn one, because the generation counter gates every reader.
+//
+// These impls are written out rather than inferred because `Mutex<Arc<T>>`
+// forwards `T`'s unwind-safety while the previous `ArcSwap<T>` storage did not.
+// Without them the public auto-trait surface of every parameter handle would
+// silently lose `UnwindSafe` / `RefUnwindSafe`, which the committed public-API
+// baseline treats as a breaking change.
+impl<T: Copy> std::panic::RefUnwindSafe for SharedParams<T> {}
+impl<T: Copy> std::panic::UnwindSafe for SharedParams<T> {}
 impl<T: Copy> SharedParams<T> {
     fn from_snapshot(snapshot: T) -> Self {
         Self {
-            current: ArcSwap::new(Arc::new(snapshot)),
+            current: Mutex::new(Arc::new(snapshot)),
             realtime: RealtimeSnapshot::new(snapshot),
             writer: Mutex::new(()),
             generation: AtomicU64::new(0),
         }
     }
 
+    /// Clone the currently published snapshot handle.
+    #[inline]
+    fn current_snapshot(&self) -> Arc<T> {
+        Arc::clone(&lock_unpoisoned(&self.current))
+    }
     #[inline]
     fn load(&self) -> Arc<T> {
-        self.current.load_full()
+        self.current_snapshot()
     }
 
     /// Control-side coherent snapshot + generation read.
@@ -318,7 +343,7 @@ impl<T: Copy> SharedParams<T> {
                 std::hint::spin_loop();
                 continue;
             }
-            let current = self.current.load_full();
+            let current = self.current_snapshot();
             let after = self.generation.load(Ordering::Acquire);
             if before == after {
                 return (current, after / 2);
@@ -328,11 +353,11 @@ impl<T: Copy> SharedParams<T> {
 
     #[inline]
     fn load_if_changed(&self, cached: &Arc<T>) -> Option<Arc<T>> {
-        let current = self.current.load();
-        if std::ptr::eq(&**current, Arc::as_ref(cached)) {
+        let current = self.current_snapshot();
+        if Arc::ptr_eq(&current, cached) {
             None
         } else {
-            Some(Guard::into_inner(current))
+            Some(current)
         }
     }
 
@@ -354,7 +379,7 @@ impl<T: Copy> SharedParams<T> {
 
     fn publish_locked(&self, snapshot: T) {
         self.generation.fetch_add(1, Ordering::AcqRel);
-        self.current.store(Arc::new(snapshot));
+        *lock_unpoisoned(&self.current) = Arc::new(snapshot);
         self.realtime.publish(snapshot);
         self.generation.fetch_add(1, Ordering::Release);
     }
@@ -383,13 +408,13 @@ impl<T: Copy> SharedParams<T> {
 impl<T: Copy> SharedParams<T> {
     #[inline]
     fn read(&self) -> T {
-        *self.current.load_full()
+        **lock_unpoisoned(&self.current)
     }
 
     #[inline]
     fn update(&self, mut f: impl FnMut(&mut T)) {
         let _writer = lock_unpoisoned(&self.writer);
-        let mut snapshot = **self.current.load();
+        let mut snapshot = **lock_unpoisoned(&self.current);
         f(&mut snapshot);
         self.publish_locked(snapshot);
     }
@@ -401,7 +426,7 @@ impl<T: Copy> SharedParams<T> {
     /// copy would overwrite any concurrent update.
     fn update_if(&self, mut f: impl FnMut(&mut T) -> bool) {
         let _writer = lock_unpoisoned(&self.writer);
-        let mut snapshot = **self.current.load();
+        let mut snapshot = **lock_unpoisoned(&self.current);
         if !f(&mut snapshot) {
             return;
         }
@@ -1898,6 +1923,42 @@ mod tests {
         assert!((snapshot.volume - 0.99).abs() < 1e-10);
         assert!((snapshot.strength - 0.01).abs() < 1e-10);
         assert!(snapshot.enabled);
+    }
+
+    /// `load_if_changed` distinguishes snapshots by allocation identity, so
+    /// the backing store must hand out the *same* `Arc` until a publish
+    /// replaces it. A store that rebuilt an `Arc` per read would still return
+    /// correct values while silently degrading this into "always changed",
+    /// forcing consumers to reload every block.
+    #[test]
+    fn load_if_changed_tracks_publication_identity_not_value() {
+        let params = AtomicEqParams::new();
+        let cached = params.load();
+
+        // Repeated reads without a publish must all be the same allocation.
+        assert!(params.load_if_changed(&cached).is_none());
+        assert!(params.load_if_changed(&cached).is_none());
+        assert!(Arc::ptr_eq(&params.load(), &cached));
+
+        // Exactly one publish yields exactly one observed change.
+        params.set_band_gain(2, 3.0);
+        let changed = params
+            .load_if_changed(&cached)
+            .expect("a published snapshot must be observed as changed");
+        assert!(!Arc::ptr_eq(&changed, &cached));
+        assert!((changed.gains[2] - 3.0).abs() < 1e-10);
+
+        // Re-reading against the new handle is quiet again.
+        assert!(params.load_if_changed(&changed).is_none());
+
+        // Publishing an identical value still counts as a publish: the
+        // contract is about publication identity, not value equality.
+        params.set_band_gain(2, 3.0);
+        let republished = params
+            .load_if_changed(&changed)
+            .expect("republishing the same value is still a new snapshot");
+        assert!((republished.gains[2] - 3.0).abs() < 1e-10);
+        assert!(params.load_if_changed(&republished).is_none());
     }
 
     #[test]

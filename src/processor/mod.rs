@@ -27,6 +27,7 @@
 //! - [`adapters`] - processor adapters implementing [`StreamingProcessor`]
 //! - [`DspChain`] - composable DSP processing chain
 
+mod atomic_f64;
 mod automix_analysis;
 mod convolver;
 mod crossfeed;

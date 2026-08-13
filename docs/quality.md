@@ -344,6 +344,22 @@ pathological rate pairs.
 | `FFTConvolver` alone, 256-tap IR, stereo | 9.39 ns | seven-trial pinned quick median (2026-07-23) |
 | FIR EQ apply, 511-tap IR via `FFTConvolver`, stereo | 10.9 ns (11.2 μs/512) | seven-trial quick median (2026-07-23); versioned `audio_fir_eq_perf --quick` report |
 
+On 2026-08-13 `OverlapSaveConvolver` moved from a complex `rustfft` transform to
+a real-input `realfft` transform, matching what `PartitionedConvolver` already
+did. The absolute figures above predate that change and were taken on a quieter
+machine, so they are left as recorded; the improvement was measured as a paired
+A/B on one host instead, with interleaved `--quick` runs per side:
+
+| Case | Change |
+| --- | ---: |
+| `FFTConvolver` throughput, `--quick --pinned`, every IR from 256 to 65,536 taps, 2 and 6 channels | −10% to −54% per sample (28 of 28 cases faster) |
+| FIR EQ apply, 511-tap, stereo | −29% per sample |
+| FIR EQ apply, 1,023-tap, stereo | −37% per sample |
+| FIR EQ regeneration, 511 to 2,047 taps, linear and minimum phase | −6% to −35% per rebuild |
+
+Convolver spectral storage also halves, from `fft_size` complex bins to
+`fft_size / 2 + 1`.
+
 ### Decoder
 
 `audio_decoder_perf` creates one byte-stable 12-second stereo PCM16 RIFF/WAVE
@@ -388,6 +404,28 @@ compiled. Representative 2026-07-26 medians were 5.05 ns/sample for the
 for 4,096-frame loudness analysis, 9.96 ns/sample for contiguous true peak,
 54.42/108.18 ms for AutoMix Head/Full, and 8.08 μs/row for the 128-row SQLite
 batch upsert. The JSON retains every case and raw trial.
+
+The loudness figure above predates the 2026-08-13 metering change and is left as
+recorded. `LoudnessMeter` previously asked `ebur128` for `Mode::all()` — which
+enables that crate's own true-peak and sample-peak detectors, neither of which
+this crate ever read, since it reports its own 4x polyphase FIR true peak — and
+re-derived all four gating measurements inside every `process` call. Because
+`ebur128`'s momentary and short-term readers rescan their whole 400 ms / 3 s
+window per call, that cost was independent of the block just ingested and
+dominated small blocks. The mode is now `I | LRA | HISTOGRAM` and the gating
+readers query the backend on demand. Measured as a paired A/B on one host, with
+interleaved `--quick` runs per side:
+
+| Case | Change |
+| --- | ---: |
+| Loudness meter `process`, stereo, 512-frame blocks | −92% per input sample |
+| Loudness meter `process`, stereo, 4,096-frame blocks | −67% per input sample |
+
+`HISTOGRAM` is load-bearing and must stay enabled: `I | LRA | HISTOGRAM` is
+bit-identical to `Mode::all()` across integrated, short-term, momentary, and
+range, while dropping `HISTOGRAM` shifts integrated loudness by a few
+millibels. `narrowed_mode_matches_mode_all_bit_for_bit` pins that equivalence
+against a level-stepped fixture chosen so loudness range is non-zero.
 
 ### Lifecycle & memory
 
@@ -695,6 +733,11 @@ Reading the full set of cached parameters once per callback costs about
 **7 ns** with the generation-based snapshot path, versus ~50 ns for a naive
 split-atomic field-by-field read and ~83 ns for an unconditional `ArcSwap`
 guard load — an ~86% to ~92% improvement.
+
+The `ArcSwap` figure is a historical comparison against the crate that used to
+back the control-side snapshot store. As of 2026-08-13 `arc-swap` is no longer a
+dependency: the control side holds `Mutex<Arc<T>>`, which is never touched by the
+audio callback, and the realtime path is unchanged.
 
 `audio_lockfree_params_perf` is a machine-local exploratory probe, not a
 report-backed evidence gate. It emits no JSON artifact and carries no

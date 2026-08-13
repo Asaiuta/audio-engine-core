@@ -5,7 +5,7 @@
 //! spread across fixed-size FFT blocks instead of one very large FFT.
 
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::num_complex::Complex;
 use std::sync::Arc;
 
 use super::traits::{AudioBlockRef, ProcessError};
@@ -297,21 +297,28 @@ impl FFTConvolver {
 
 /// Classic overlap-save convolver used directly for short IRs and as the
 /// zero-latency head path for the partitioned engine.
+///
+/// The convolved signal is real-valued, so the engine uses `realfft` rather
+/// than a full complex transform whose imaginary half would be identically
+/// zero. This matches [`PartitionedConvolver`] and halves both the spectral
+/// storage (`fft_size / 2 + 1` bins) and the per-block transform cost.
 #[derive(Clone)]
 struct OverlapSaveConvolver {
     fft_size: usize,
-    impulse_response_fft: Vec<Vec<Complex<f64>>>, // one frequency-domain response per channel
+    impulse_response_fft: Vec<Vec<Complex<f64>>>, // one half-spectrum per channel
     overlap_buffers: Vec<Vec<f64>>,               // overlap buffer per channel
     channels: usize,
     ir_len: usize,
-    // Cached FFT plans to avoid recreating on each process call
-    fft_forward: Arc<dyn rustfft::Fft<f64>>,
-    fft_inverse: Arc<dyn rustfft::Fft<f64>>,
-    // Pre-allocated scratch buffers for zero-allocation processing
-    scratch_complex: Vec<Complex<f64>>,
-    // Workspace for `Fft::process_with_scratch`; the plain `Fft::process`
-    // convenience method allocates its scratch on every call, which is not
-    // realtime-safe.
+    // Cached real-FFT plans to avoid recreating on each process call
+    fft_forward: Arc<dyn RealToComplex<f64>>,
+    fft_inverse: Arc<dyn ComplexToReal<f64>>,
+    // Pre-allocated time-domain block reused as both real FFT input and
+    // inverse output. `realfft` mutates its input, so this is scratch too.
+    scratch_real: Vec<f64>,
+    // Pre-allocated half-spectrum for the current block.
+    scratch_spectrum: Vec<Complex<f64>>,
+    // Workspace for `process_with_scratch`; the plain `process` convenience
+    // method allocates its scratch on every call, which is not realtime-safe.
     fft_scratch: Vec<Complex<f64>>,
 }
 
@@ -326,34 +333,40 @@ impl OverlapSaveConvolver {
             fft_size <<= 1;
         }
 
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(fft_size);
-
-        // Create cached plans for forward and inverse FFT
+        let mut planner = RealFftPlanner::<f64>::new();
         let fft_forward = planner.plan_fft_forward(fft_size);
         let fft_inverse = planner.plan_fft_inverse(fft_size);
+        let spectrum_size = fft_forward.complex_len();
 
         let mut ir_ffts = Vec::with_capacity(channels);
         let mut overlap_bufs = Vec::with_capacity(channels);
+        // Setup-only staging; the processing path never allocates.
+        let mut ir_time = vec![0.0; fft_size];
+        let mut ir_scratch = fft_forward.make_scratch_vec();
 
         for ch in 0..channels {
-            let mut buffer = vec![Complex::new(0.0, 0.0); fft_size];
+            let mut spectrum = vec![Complex::new(0.0, 0.0); spectrum_size];
             // Load the IR for this channel and zero-pad the rest.
+            ir_time.fill(0.0);
             for i in 0..ir_len_per_ch {
-                buffer[i] = Complex::new(ir_data[i * channels + ch], 0.0);
+                ir_time[i] = ir_data[i * channels + ch];
             }
-            fft.process(&mut buffer);
-            ir_ffts.push(buffer);
+            // Setup-time transform over a correctly sized buffer triple; the
+            // length invariants cannot fail here.
+            debug_assert_eq!(ir_time.len(), fft_size);
+            let _ = fft_forward.process_with_scratch(&mut ir_time, &mut spectrum, &mut ir_scratch);
+            ir_ffts.push(spectrum);
             overlap_bufs.push(vec![0.0; ir_len_per_ch - 1]);
         }
 
-        // Pre-allocate scratch buffer for FFT workspace
-        let scratch_complex = vec![Complex::new(0.0, 0.0); fft_size];
+        // Pre-allocate the processing buffers so `process_*` never allocates.
+        let scratch_real = vec![0.0; fft_size];
+        let scratch_spectrum = vec![Complex::new(0.0, 0.0); spectrum_size];
         let fft_scratch = vec![
             Complex::new(0.0, 0.0);
             fft_forward
-                .get_inplace_scratch_len()
-                .max(fft_inverse.get_inplace_scratch_len())
+                .get_scratch_len()
+                .max(fft_inverse.get_scratch_len())
         ];
 
         Self {
@@ -364,7 +377,8 @@ impl OverlapSaveConvolver {
             ir_len: ir_len_per_ch,
             fft_forward,
             fft_inverse,
-            scratch_complex,
+            scratch_real,
+            scratch_spectrum,
             fft_scratch,
         }
     }
@@ -386,7 +400,7 @@ impl OverlapSaveConvolver {
     #[inline]
     #[allow(clippy::too_many_arguments)]
     fn prepare_channel_chunk(
-        scratch: &mut [Complex<f64>],
+        scratch: &mut [f64],
         overlap: &[f64],
         input: &[f64],
         channels: usize,
@@ -395,15 +409,12 @@ impl OverlapSaveConvolver {
         chunk_len: usize,
         ir_len: usize,
     ) {
-        for i in 0..ir_len - 1 {
-            scratch[i] = Complex::new(overlap[i], 0.0);
-        }
+        scratch[..ir_len - 1].copy_from_slice(&overlap[..ir_len - 1]);
 
         for i in 0..chunk_len {
-            scratch[i + ir_len - 1] =
-                Complex::new(input[(processed_frames + i) * channels + channel], 0.0);
+            scratch[i + ir_len - 1] = input[(processed_frames + i) * channels + channel];
         }
-        scratch[ir_len - 1 + chunk_len..].fill(Complex::new(0.0, 0.0));
+        scratch[ir_len - 1 + chunk_len..].fill(0.0);
     }
 
     #[inline]
@@ -434,7 +445,7 @@ impl OverlapSaveConvolver {
     #[inline]
     #[allow(clippy::too_many_arguments)]
     fn write_channel_output(
-        scratch: &[Complex<f64>],
+        scratch: &[f64],
         output: &mut [f64],
         channels: usize,
         channel: usize,
@@ -444,21 +455,44 @@ impl OverlapSaveConvolver {
         inv_n: f64,
     ) {
         for i in 0..chunk_len {
-            output[(processed_frames + i) * channels + channel] =
-                scratch[i + ir_len - 1].re * inv_n;
+            output[(processed_frames + i) * channels + channel] = scratch[i + ir_len - 1] * inv_n;
         }
     }
 
+    /// Forward real FFT, spectral multiply, inverse real FFT, all in place over
+    /// the preallocated `scratch_real` / `scratch_spectrum` pair.
+    ///
+    /// The buffer lengths are fixed at construction to exactly what the plans
+    /// require, so `realfft`'s length checks cannot fail; a violated invariant
+    /// would be a bug in this module rather than a runtime condition, and the
+    /// callback has no way to recover from it. Debug builds assert the
+    /// invariant; release builds leave the block untransformed rather than
+    /// panicking on the audio thread.
     #[inline]
     fn process_channel_chunk_fft(&mut self, channel: usize) {
-        self.fft_forward
-            .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
+        debug_assert_eq!(self.scratch_real.len(), self.fft_size);
+        debug_assert_eq!(self.scratch_spectrum.len(), self.fft_forward.complex_len());
+
+        if self
+            .fft_forward
+            .process_with_scratch(
+                &mut self.scratch_real,
+                &mut self.scratch_spectrum,
+                &mut self.fft_scratch,
+            )
+            .is_err()
+        {
+            return;
+        }
 
         let ir_fft = &self.impulse_response_fft[channel];
-        multiply_spectrum_in_place(&mut self.scratch_complex, ir_fft);
+        multiply_spectrum_in_place(&mut self.scratch_spectrum, ir_fft);
 
-        self.fft_inverse
-            .process_with_scratch(&mut self.scratch_complex, &mut self.fft_scratch);
+        let _ = self.fft_inverse.process_with_scratch(
+            &mut self.scratch_spectrum,
+            &mut self.scratch_real,
+            &mut self.fft_scratch,
+        );
     }
 
     #[inline]
@@ -483,7 +517,7 @@ impl OverlapSaveConvolver {
                 let chunk_len = std::cmp::min(step_size, total_frames - processed_frames);
 
                 Self::prepare_channel_chunk(
-                    &mut self.scratch_complex,
+                    &mut self.scratch_real,
                     &self.overlap_buffers[ch],
                     input,
                     channels,
@@ -494,7 +528,7 @@ impl OverlapSaveConvolver {
                 );
                 self.process_channel_chunk_fft(ch);
                 Self::write_channel_output(
-                    &self.scratch_complex,
+                    &self.scratch_real,
                     output,
                     channels,
                     ch,
@@ -521,9 +555,9 @@ impl OverlapSaveConvolver {
 
     #[inline]
     fn process_inplace(&mut self, buf: &mut [f64]) {
-        // Use scratch_complex as temporary output buffer
-        // First, we need a separate buffer for output since we can't read and write the same location
-        // We'll use a two-phase approach: save input to scratch, process, write back
+        // Each channel is convolved and written back in one pass. The overlap
+        // history must be captured from the original input before any sample
+        // is overwritten by the convolved output.
 
         let channels = self.channels;
         let total_frames = buf.len() / channels;
@@ -532,10 +566,6 @@ impl OverlapSaveConvolver {
         let step_size = fft_size - ir_len + 1;
         let inv_n = 1.0 / fft_size as f64;
 
-        // We need a temporary buffer for output
-        // Re-purpose: use a separate approach - process channel by channel
-        // For each channel, we process and immediately write back
-
         for ch in 0..channels {
             let mut processed_frames = 0;
 
@@ -543,7 +573,7 @@ impl OverlapSaveConvolver {
                 let chunk_len = std::cmp::min(step_size, total_frames - processed_frames);
 
                 Self::prepare_channel_chunk(
-                    &mut self.scratch_complex,
+                    &mut self.scratch_real,
                     &self.overlap_buffers[ch],
                     buf,
                     channels,
@@ -554,9 +584,9 @@ impl OverlapSaveConvolver {
                 );
                 self.process_channel_chunk_fft(ch);
 
-                // 6. Save original input for overlap BEFORE writing output
-                // (This is critical for inplace processing - we need the original input,
-                // not the processed output, for the next chunk's overlap)
+                // Save the original input for the overlap BEFORE writing
+                // output: the next chunk needs the input history, not the
+                // convolved result.
                 Self::update_channel_overlap(
                     &mut self.overlap_buffers[ch],
                     buf,
@@ -567,9 +597,8 @@ impl OverlapSaveConvolver {
                     ir_len,
                 );
 
-                // 7. Write processed output to buffer
                 Self::write_channel_output(
-                    &self.scratch_complex,
+                    &self.scratch_real,
                     buf,
                     channels,
                     ch,
@@ -605,7 +634,7 @@ impl OverlapSaveConvolver {
             while processed_frames < total {
                 let chunk_len = std::cmp::min(step_size, total - processed_frames);
                 Self::prepare_channel_chunk(
-                    &mut self.scratch_complex,
+                    &mut self.scratch_real,
                     &self.overlap_buffers[ch],
                     buf,
                     channels,
@@ -631,7 +660,7 @@ impl OverlapSaveConvolver {
                     let wet = transition_weight(frame, total_frames, start_wet, target_wet);
                     let index = (processed_frames + i) * channels + ch;
                     let dry = buf[index];
-                    let filtered = self.scratch_complex[i + ir_len - 1].re * inv_n;
+                    let filtered = self.scratch_real[i + ir_len - 1] * inv_n;
                     buf[index] = dry.mul_add(1.0 - wet, filtered * wet);
                 }
                 processed_frames += chunk_len;

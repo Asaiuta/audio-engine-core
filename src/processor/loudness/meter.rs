@@ -30,11 +30,6 @@ pub struct LoudnessMeter {
     ebur128: ebur128::EbuR128,
     sample_rate: u32,
     channels: usize,
-    // Cached results
-    integrated_loudness: f64,
-    short_term_loudness: f64,
-    momentary_loudness: f64,
-    loudness_range: f64,
     true_peak: f64,
     samples_processed: u64,
     // 4x FIR true peak detector (per channel).
@@ -101,10 +96,6 @@ impl LoudnessMeter {
             ebur128,
             sample_rate,
             channels,
-            integrated_loudness: -70.0,
-            short_term_loudness: -70.0,
-            momentary_loudness: -70.0,
-            loudness_range: 0.0,
             true_peak: -70.0,
             samples_processed: 0,
             true_peak_detectors,
@@ -114,10 +105,6 @@ impl LoudnessMeter {
     /// Reset meter state (call when starting a new track)
     pub fn reset(&mut self) {
         self.ebur128.reset();
-        self.integrated_loudness = -70.0;
-        self.short_term_loudness = -70.0;
-        self.momentary_loudness = -70.0;
-        self.loudness_range = 0.0;
         self.true_peak = -70.0;
         self.samples_processed = 0;
         // Reset true peak detectors
@@ -145,23 +132,6 @@ impl LoudnessMeter {
 
         self.samples_processed += frames as u64;
 
-        // Update measurements
-        if let Ok(loudness) = self.ebur128.loudness_global() {
-            self.integrated_loudness = loudness;
-        }
-
-        if let Ok(loudness) = self.ebur128.loudness_shortterm() {
-            self.short_term_loudness = loudness;
-        }
-
-        if let Ok(loudness) = self.ebur128.loudness_momentary() {
-            self.momentary_loudness = loudness;
-        }
-
-        if let Ok(lra) = self.ebur128.loudness_range() {
-            self.loudness_range = lra;
-        }
-
         // True peak using 4x polyphase FIR oversampling.
         let fir = true_peak_fir();
         for frame in samples.chunks_exact(self.channels) {
@@ -184,22 +154,56 @@ impl LoudnessMeter {
         Ok(())
     }
 
+    /// Materialize one gating measurement straight from the backend.
+    ///
+    /// `ebur128`'s momentary and short-term readers rescan their whole
+    /// 400 ms / 3 s window on every call (`energy_in_interval` ->
+    /// `Filter::calc_gating_block`) at a cost unrelated to the block just
+    /// ingested. Evaluating all four inside `process` therefore dominated
+    /// ingest — at 512-frame blocks it was the large majority of the work — so
+    /// the readers now query the backend directly instead.
+    ///
+    /// This deliberately holds no cache: caching behind `&self` would require
+    /// interior mutability, which would strip `LoudnessMeter` of `Sync` (and
+    /// `Freeze`) and break the published auto-trait surface. Callers that read
+    /// the same value repeatedly between blocks can hold onto the returned
+    /// `f64`.
+    ///
+    /// Before any audio is consumed the backend has no gating block, so the
+    /// documented pre-measurement reading is reported instead. Once audio has
+    /// been ingested the mode configured in [`new_ebur128`] guarantees all four
+    /// readers are available; a backend that still declines falls back to the
+    /// same pre-measurement value, matching the previous behavior where a
+    /// failed read simply left the cached field untouched.
+    #[inline]
+    fn gating_measurement(
+        &self,
+        read: impl FnOnce(&ebur128::EbuR128) -> Result<f64, ebur128::Error>,
+        pre_measurement: f64,
+    ) -> f64 {
+        if self.samples_processed == 0 {
+            return pre_measurement;
+        }
+        read(&self.ebur128).unwrap_or(pre_measurement)
+    }
+
     /// Latest integrated loudness in LUFS (unreliable before 400 ms).
     pub fn integrated_loudness(&self) -> f64 {
-        self.integrated_loudness
+        self.gating_measurement(|backend| backend.loudness_global(), -70.0)
     }
     /// Latest short-term loudness in LUFS.
     pub fn short_term_loudness(&self) -> f64 {
-        self.short_term_loudness
+        self.gating_measurement(|backend| backend.loudness_shortterm(), -70.0)
     }
     /// Latest momentary loudness in LUFS.
     pub fn momentary_loudness(&self) -> f64 {
-        self.momentary_loudness
+        self.gating_measurement(|backend| backend.loudness_momentary(), -70.0)
     }
     /// Latest loudness range in LU.
     pub fn loudness_range(&self) -> f64 {
-        self.loudness_range
+        self.gating_measurement(|backend| backend.loudness_range(), 0.0)
     }
+
     /// Latest true-peak in dBTP.
     pub fn true_peak(&self) -> f64 {
         self.true_peak
@@ -225,12 +229,20 @@ fn new_ebur128(channels: usize, sample_rate: u32) -> Result<ebur128::EbuR128, Pr
         operation: "initialize EBU R128",
         message: "channel count exceeds the EBU R128 backend domain",
     })?;
-    ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::all()).map_err(|_| {
-        ProcessError::Backend {
-            processor: "LoudnessMeter",
-            operation: "initialize EBU R128",
-            message: "EBU R128 rejected the channel or sample-rate geometry",
-        }
+    // `Mode::all()` would additionally enable SAMPLE_PEAK and TRUE_PEAK. This
+    // meter reports its own 4x polyphase FIR true peak (`TruePeakDetector`) and
+    // never reads `ebur128`'s peak values, so those modes were pure duplicated
+    // work on every ingested sample.
+    //
+    // HISTOGRAM must stay enabled: it selects the histogram gating backend, and
+    // dropping it changes the reported integrated loudness. `I | LRA |
+    // HISTOGRAM` is bit-identical to `Mode::all()` for all four gating
+    // measurements while roughly halving ingest cost.
+    let mode = ebur128::Mode::I | ebur128::Mode::LRA | ebur128::Mode::HISTOGRAM;
+    ebur128::EbuR128::new(channels, sample_rate, mode).map_err(|_| ProcessError::Backend {
+        processor: "LoudnessMeter",
+        operation: "initialize EBU R128",
+        message: "EBU R128 rejected the channel or sample-rate geometry",
     })
 }
 
@@ -546,6 +558,122 @@ mod tests {
 
         meter.process(&deterministic_interleaved(1, 2)).unwrap();
         assert!(meter.has_reliable_measurement());
+    }
+
+    /// The narrowed `I | LRA | HISTOGRAM` mode must not change any reported
+    /// gating measurement relative to the `Mode::all()` the meter used before.
+    ///
+    /// The signal deliberately steps its level so loudness range is non-zero:
+    /// a constant-level signal reports LRA = 0 under every mode and would make
+    /// this test pass without proving anything. `HISTOGRAM` in particular is
+    /// load-bearing — dropping it shifts integrated loudness by a few
+    /// millibels, so this guards against "simplifying" the mode further.
+    #[test]
+    fn narrowed_mode_matches_mode_all_bit_for_bit() {
+        let sample_rate = 48_000;
+        let channels = 2;
+        let frames = 1_024;
+
+        let mut narrowed = LoudnessMeter::new(channels, sample_rate).unwrap();
+        let mut reference = LoudnessMeter::with_backend(
+            &ChannelLayout::from_count(channels),
+            sample_rate,
+            ebur128::EbuR128::new(channels as u32, sample_rate, ebur128::Mode::all()).unwrap(),
+        )
+        .unwrap();
+
+        let mut state = 12_345_u64;
+        for block in 0..1_200 {
+            // Step the level every ~2 s so the gating histogram spans several
+            // bins and loudness range becomes non-zero.
+            let amplitude = 0.05 + 0.9 * (((block / 90) % 5) as f64 / 4.0);
+            let samples: Vec<f64> = (0..frames * channels)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    ((state >> 11) as f64 / (1_u64 << 53) as f64 - 0.5) * 2.0 * amplitude
+                })
+                .collect();
+            narrowed.process(&samples).unwrap();
+            reference.process(&samples).unwrap();
+        }
+
+        assert!(
+            reference.loudness_range() > 0.0,
+            "fixture must exercise a non-zero loudness range, got {}",
+            reference.loudness_range()
+        );
+        assert_eq!(
+            narrowed.integrated_loudness(),
+            reference.integrated_loudness()
+        );
+        assert_eq!(
+            narrowed.short_term_loudness(),
+            reference.short_term_loudness()
+        );
+        assert_eq!(
+            narrowed.momentary_loudness(),
+            reference.momentary_loudness()
+        );
+        assert_eq!(narrowed.loudness_range(), reference.loudness_range());
+    }
+
+    /// Deferring the gating reads must not change what a reader observes, at
+    /// any point in the lifecycle: before the first block, between blocks,
+    /// after repeated reads, and after `reset`.
+    #[test]
+    fn lazy_readers_match_eager_evaluation_across_the_lifecycle() {
+        let sample_rate = 48_000;
+        let channels = 2;
+
+        let mut meter = LoudnessMeter::new(channels, sample_rate).unwrap();
+        let mut eager = LoudnessMeter::new(channels, sample_rate).unwrap();
+
+        let read = |meter: &LoudnessMeter| {
+            (
+                meter.integrated_loudness(),
+                meter.short_term_loudness(),
+                meter.momentary_loudness(),
+                meter.loudness_range(),
+            )
+        };
+
+        // Before any audio: the documented pre-measurement reading.
+        assert_eq!(read(&meter), (-70.0, -70.0, -70.0, 0.0));
+
+        for block in 0..80 {
+            let samples = deterministic_interleaved(512, channels);
+            meter.process(&samples).unwrap();
+
+            // The eager comparison reads after every block, forcing a refresh
+            // each time; `meter` is only read on some blocks. Skipped refreshes
+            // must not change the value that finally surfaces.
+            eager.process(&samples).unwrap();
+            let eager_view = read(&eager);
+
+            if block % 7 == 0 {
+                assert_eq!(read(&meter), eager_view);
+                // A repeated read without an intervening block is served from
+                // the cache and must be identical.
+                assert_eq!(read(&meter), eager_view);
+            }
+        }
+
+        assert_eq!(read(&meter), read(&eager));
+
+        meter.reset();
+        eager.reset();
+        assert_eq!(read(&meter), (-70.0, -70.0, -70.0, 0.0));
+        assert_eq!(meter.samples_processed(), 0);
+
+        // A single post-reset block is shorter than one gating window, so the
+        // backend legitimately reports -inf for integrated loudness. What
+        // matters is that the lazy reader agrees with the eager one exactly.
+        let samples = deterministic_interleaved(512, channels);
+        meter.process(&samples).unwrap();
+        eager.process(&samples).unwrap();
+        assert_eq!(read(&meter), read(&eager));
     }
 
     #[test]

@@ -11,7 +11,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use atomic_float::AtomicF64;
+use crate::processor::atomic_f64::AtomicF64;
 
 use crate::config::NormalizationMode;
 use crate::processor::dsp::db_to_linear;
