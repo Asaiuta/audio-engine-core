@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Dependency call-site hygiene section: real signals use a real transform. Evidence policy for doc numbers."}
+{"file": ".trellis/spec/backend/analysis-fir-correctness.md", "reason": "FIR EQ IR generation correctness and the analysis oracle requirements."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "spectrum analyze must stay allocation-free; automix per-hop allocation removal."}
+{"file": ".trellis/spec/backend/dsp-state-correctness.md", "reason": "SpectralFluxAccumulator carries hop-to-hop state (previous_magnitudes) across the change."}
+{"file": ".trellis/tasks/08-13-realfft-remaining-call-sites/prd.md", "reason": "Per-site measured speedups, the 1e-17 (non-bit-exact) tolerance policy, and why fir_design is excluded."}

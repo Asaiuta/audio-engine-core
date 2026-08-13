@@ -3,7 +3,7 @@
 //! This module creates linear-phase FIR filters from band gain specifications.
 //! The generated IR is used with FFTConvolver for efficient convolution.
 
-use rustfft::{num_complex::Complex, FftPlanner};
+use realfft::{num_complex::Complex, RealFftPlanner};
 
 use super::fir_design::minimum_phase_from_log_magnitude;
 use super::lockfree_params::{sanitized, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
@@ -221,26 +221,33 @@ impl FirEq {
             .map(|&db| 10.0_f64.powf(db / 20.0))
             .collect();
 
-        // 3. Build symmetric frequency response (Hermitian symmetry for real output)
-        let mut spectrum = vec![Complex::new(0.0, 0.0); fft_size];
-        for k in 0..linear_mag.len() {
-            spectrum[k] = Complex::new(linear_mag[k], 0.0);
-            if k > 0 && k < fft_size / 2 {
-                spectrum[fft_size - k] = Complex::new(linear_mag[k], 0.0);
-            }
+        // 3. Inverse-transform the half-spectrum directly. A real inverse
+        //    transform implies the Hermitian symmetry that the previous complex
+        //    formulation had to write out by hand, so the negative-frequency
+        //    half must *not* be populated here. `realfft` also requires the DC
+        //    and Nyquist bins to be purely real, which they are by construction.
+        let mut planner = RealFftPlanner::<f64>::new();
+        let ifft = planner.plan_fft_inverse(fft_size);
+        let mut spectrum = ifft.make_input_vec();
+        for (bin, &magnitude) in spectrum.iter_mut().zip(linear_mag.iter()) {
+            *bin = Complex::new(magnitude, 0.0);
         }
 
         // 4. IFFT to get the ideal IR
-        let mut planner = FftPlanner::new();
-        let ifft = planner.plan_fft_inverse(fft_size);
-        ifft.process(&mut spectrum);
+        let mut time_domain = ifft.make_output_vec();
+        let mut scratch = ifft.make_scratch_vec();
+        // Setup-time transform over correctly sized buffers; the length
+        // invariants cannot fail here.
+        debug_assert_eq!(spectrum.len(), fft_size / 2 + 1);
+        debug_assert_eq!(time_domain.len(), fft_size);
+        let _ = ifft.process_with_scratch(&mut spectrum, &mut time_domain, &mut scratch);
 
         // 5. Extract center num_taps samples (circular shift to make causal)
         let half = num_taps / 2;
         let mut ir_mono: Vec<f64> = (0..num_taps)
             .map(|i| {
                 let idx = (i + fft_size - half) % fft_size;
-                spectrum[idx].re / fft_size as f64
+                time_domain[idx] / fft_size as f64
             })
             .collect();
 
@@ -345,6 +352,95 @@ fn minimum_phase_tail_weight(index: usize, num_taps: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reference implementation of the linear-phase IR using a full complex
+    /// inverse FFT with the Hermitian half written out by hand — the formulation
+    /// this module used before moving to `realfft`.
+    ///
+    /// Deliberately built on `rustfft` so it stays an independent oracle: if it
+    /// used `realfft` too it would only confirm itself.
+    fn legacy_linear_phase_ir(fir: &FirEq, num_taps: usize) -> Vec<f64> {
+        use rustfft::{num_complex::Complex as C, FftPlanner};
+
+        let mut fft_size = 1;
+        while fft_size < num_taps * 2 {
+            fft_size <<= 1;
+        }
+        let num_bins = fft_size / 2 + 1;
+
+        let linear_mag: Vec<f64> = (0..num_bins)
+            .map(|bin| {
+                let freq = bin as f64 * fir.sample_rate / fft_size as f64;
+                10.0_f64.powf(fir.interpolate_gain(freq) / 20.0)
+            })
+            .collect();
+
+        let mut spectrum = vec![C::new(0.0, 0.0); fft_size];
+        for k in 0..linear_mag.len() {
+            spectrum[k] = C::new(linear_mag[k], 0.0);
+            if k > 0 && k < fft_size / 2 {
+                spectrum[fft_size - k] = C::new(linear_mag[k], 0.0);
+            }
+        }
+
+        let mut planner = FftPlanner::new();
+        planner.plan_fft_inverse(fft_size).process(&mut spectrum);
+
+        let half = num_taps / 2;
+        let mut ir: Vec<f64> = (0..num_taps)
+            .map(|i| {
+                let idx = (i + fft_size - half) % fft_size;
+                spectrum[idx].re / fft_size as f64
+            })
+            .collect();
+        for (i, sample) in ir.iter_mut().enumerate() {
+            let w = 0.5 * (1.0 - (2.0 * PI * i as f64 / (num_taps - 1) as f64).cos());
+            *sample *= w;
+        }
+        ir
+    }
+
+    /// The real inverse transform must reproduce the hand-mirrored complex
+    /// formulation. A real IFFT implies Hermitian symmetry, so this also guards
+    /// against the negative-frequency half being populated by mistake, which
+    /// would double every tap.
+    ///
+    /// Agreement is at float-rounding level rather than bit-exact, because the
+    /// two transforms fold the same sums in a different order. The tolerance is
+    /// relative to the peak tap and sits ~5 orders of magnitude above the
+    /// observed error (~1e-16 relative), following the rounding-tolerance
+    /// precedent used for the convolver tail assertions.
+    #[test]
+    fn linear_phase_ir_matches_complex_reference_formulation() {
+        for num_taps in [63usize, 255, 511, 1023] {
+            for gains in [
+                [0.0; 10],
+                [6.0, -6.0, 3.0, -3.0, 9.0, -9.0, 1.5, -1.5, 4.5, -4.5],
+                [-12.0, 12.0, 0.0, 0.0, -6.0, 6.0, 0.0, 0.0, 3.0, -3.0],
+            ] {
+                let mut fir = FirEq::new(48_000.0, num_taps);
+                fir.set_bands(&gains);
+
+                let actual = fir.get_ir(1);
+                let expected = legacy_linear_phase_ir(&fir, num_taps);
+                assert_eq!(actual.len(), expected.len());
+
+                let peak = expected.iter().fold(0.0f64, |acc, t| acc.max(t.abs()));
+                assert!(peak > 0.0, "reference IR must not be all zeros");
+                let tolerance = peak * 1e-11;
+
+                for (tap, (got, want)) in actual.iter().zip(&expected).enumerate() {
+                    assert!(
+                        (got - want).abs() <= tolerance,
+                        "taps={num_taps} gains={gains:?} tap {tap}: {got} vs {want} \
+                         (diff {:.3e} > tol {:.3e})",
+                        (got - want).abs(),
+                        tolerance
+                    );
+                }
+            }
+        }
+    }
 
     /// A non-finite gain or rate designs an all-`NaN` impulse response, which
     /// then silences or poisons every convolution using it.

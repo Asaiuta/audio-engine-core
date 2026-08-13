@@ -1,0 +1,602 @@
+{
+  "schema_version": 1,
+  "probe": "audio_public_component_perf",
+  "generated_unix_ms": 1786604585325,
+  "mode": "quick",
+  "environment": {
+    "revision": "fba2c42643705d35bf8d29627f7e7fbb62235df4",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "trials": 7,
+    "iteration_scale": 1,
+    "automix_trials": 3,
+    "case_keys": [
+      "component=automix;operation=analyze;mode=full;window_seconds=5;fixture=pcm16_48k_stereo",
+      "component=automix;operation=analyze;mode=head;window_seconds=5;fixture=pcm16_48k_stereo",
+      "component=downmixer;operation=process_into;source_channels=6;target_channels=2;coefficients=itu_r_bs775;frames=512",
+      "component=downmixer;operation=process_into;source_channels=8;target_channels=2;coefficients=atsc_a85;frames=512",
+      "component=loudness_database;operation=batch_upsert;storage=in_memory;rows=128",
+      "component=loudness_database;operation=indexed_get;storage=in_memory;rows=512",
+      "component=loudness_database;operation=open;storage=in_memory",
+      "component=loudness_database;operation=single_upsert;storage=in_memory;working_set_rows=512",
+      "component=loudness_database;operation=stats;storage=in_memory;rows=512",
+      "component=loudness_meter;operation=process;channels=2;frames=4096;true_peak=4x_fir",
+      "component=loudness_meter;operation=process;channels=2;frames=512;true_peak=4x_fir",
+      "component=ring_buffer;operation=write_read_advance;channels=2;frames=512;capacity_frames=8192",
+      "component=spectrum;operation=analyze;fft=1024;bins=64",
+      "component=spectrum;operation=analyze;fft=4096;bins=96",
+      "component=true_peak;operation=process_contiguous;samples=4096;oversample=4x",
+      "component=true_peak;operation=process_strided;channels=2;frames=4096;oversample=4x"
+    ],
+    "automix_fixture_path": "target/audio-benchmark-fixtures/deterministic_pcm16_stereo_48k_12s.wav",
+    "automix_fixture_hash": "fab9a2c095db8642",
+    "automix_fixture": {
+      "container": "RIFF/WAVE",
+      "codec": "PCM signed integer little-endian",
+      "sample_format": "s16",
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "frames": 576000,
+      "duration_seconds": 12,
+      "byte_length": 2304044,
+      "content_fnv1a64": "fab9a2c095db8642",
+      "generation": "integer_triangle_120bpm_v1"
+    },
+    "automix_window_seconds": 5.0,
+    "loudness_database_scope": "measured: SQLite in-memory open, single upsert, indexed get, batch upsert, and stats; no filesystem persistence",
+    "timer_scope": "construction, input generation, warmup, validation, report construction, and JSON I/O excluded unless the named operation is setup/open",
+    "network_scope": "all cases are deterministic and local; AutoMix uses the generated PCM WAV and performs no HTTP request"
+  },
+  "cases": [
+    {
+      "case_key": "component=automix;operation=analyze;mode=full;window_seconds=5;fixture=pcm16_48k_stereo",
+      "component": "AutoMix",
+      "operation": "analyze_automix",
+      "primary_unit": "ns/analysis",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 1,
+      "expected_timing_samples": 3,
+      "distribution": {
+        "samples": [
+          28859500.0,
+          28764500.0,
+          28399700.0
+        ],
+        "min": 28399700.0,
+        "median": 28764500.0,
+        "p95": 28859500.0,
+        "max": 28859500.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 3,
+        "expected_operations": 3,
+        "observed_work_items": 3,
+        "expected_work_items": 3,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 387.9756214119252
+      }
+    },
+    {
+      "case_key": "component=automix;operation=analyze;mode=head;window_seconds=5;fixture=pcm16_48k_stereo",
+      "component": "AutoMix",
+      "operation": "analyze_automix",
+      "primary_unit": "ns/analysis",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 1,
+      "expected_timing_samples": 3,
+      "distribution": {
+        "samples": [
+          15188800.0,
+          15445600.0,
+          14724600.0
+        ],
+        "min": 14724600.0,
+        "median": 15188800.0,
+        "p95": 15445600.0,
+        "max": 15445600.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 3,
+        "expected_operations": 3,
+        "observed_work_items": 3,
+        "expected_work_items": 3,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 366.05400641360654
+      }
+    },
+    {
+      "case_key": "component=downmixer;operation=process_into;source_channels=6;target_channels=2;coefficients=itu_r_bs775;frames=512",
+      "component": "Downmixer",
+      "operation": "process_into",
+      "primary_unit": "ns/frame",
+      "work_items_per_iteration": 512,
+      "iterations_per_trial": 256,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          4.52880859375,
+          4.253387451171875,
+          4.270172119140625,
+          4.477691650390625,
+          4.2510986328125,
+          4.339599609375,
+          4.338836669921875
+        ],
+        "min": 4.2510986328125,
+        "median": 4.338836669921875,
+        "p95": 4.52880859375,
+        "max": 4.52880859375
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 1792,
+        "expected_operations": 1792,
+        "observed_work_items": 917504,
+        "expected_work_items": 917504,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": -274.1023453664766
+      }
+    },
+    {
+      "case_key": "component=downmixer;operation=process_into;source_channels=8;target_channels=2;coefficients=atsc_a85;frames=512",
+      "component": "Downmixer",
+      "operation": "process_into",
+      "primary_unit": "ns/frame",
+      "work_items_per_iteration": 512,
+      "iterations_per_trial": 192,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          4.276529947916667,
+          4.3487548828125,
+          5.411783854166667,
+          4.337565104166667,
+          4.30908203125,
+          4.323323567708333,
+          4.439290364583333
+        ],
+        "min": 4.276529947916667,
+        "median": 4.337565104166667,
+        "p95": 5.411783854166667,
+        "max": 5.411783854166667
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 1344,
+        "expected_operations": 1344,
+        "observed_work_items": 688128,
+        "expected_work_items": 688128,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 0.7554904664822573
+      }
+    },
+    {
+      "case_key": "component=loudness_database;operation=batch_upsert;storage=in_memory;rows=128",
+      "component": "LoudnessDatabase",
+      "operation": "batch_upsert",
+      "primary_unit": "ns/row",
+      "work_items_per_iteration": 128,
+      "iterations_per_trial": 1,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          15456.25,
+          14343.75,
+          13678.90625,
+          13325.0,
+          13274.21875,
+          12952.34375,
+          12687.5
+        ],
+        "min": 12687.5,
+        "median": 13325.0,
+        "p95": 15456.25,
+        "max": 15456.25
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "observed_work_items": 896,
+        "expected_work_items": 896,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 896.0
+      }
+    },
+    {
+      "case_key": "component=loudness_database;operation=indexed_get;storage=in_memory;rows=512",
+      "component": "LoudnessDatabase",
+      "operation": "get",
+      "primary_unit": "ns/get",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 128,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          6152.34375,
+          6655.46875,
+          6585.9375,
+          6825.0,
+          7428.90625,
+          6682.03125,
+          9293.75
+        ],
+        "min": 6152.34375,
+        "median": 6682.03125,
+        "p95": 9293.75,
+        "max": 9293.75
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 896,
+        "expected_operations": 896,
+        "observed_work_items": 896,
+        "expected_work_items": 896,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": -19313.0
+      }
+    },
+    {
+      "case_key": "component=loudness_database;operation=open;storage=in_memory",
+      "component": "LoudnessDatabase",
+      "operation": "in_memory",
+      "primary_unit": "ns/open",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 1,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          767600.0,
+          158500.0,
+          130900.0,
+          113900.0,
+          108400.0,
+          108600.0,
+          369800.0
+        ],
+        "min": 108400.0,
+        "median": 130900.0,
+        "p95": 767600.0,
+        "max": 767600.0
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7,
+        "expected_operations": 7,
+        "observed_work_items": 7,
+        "expected_work_items": 7,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 7.0
+      }
+    },
+    {
+      "case_key": "component=loudness_database;operation=single_upsert;storage=in_memory;working_set_rows=512",
+      "component": "LoudnessDatabase",
+      "operation": "upsert",
+      "primary_unit": "ns/row",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 128,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          18632.8125,
+          16217.96875,
+          16037.5,
+          15088.28125,
+          16485.15625,
+          15195.3125,
+          15614.0625
+        ],
+        "min": 15088.28125,
+        "median": 16037.5,
+        "p95": 18632.8125,
+        "max": 18632.8125
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 896,
+        "expected_operations": 896,
+        "observed_work_items": 896,
+        "expected_work_items": 896,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 896.0
+      }
+    },
+    {
+      "case_key": "component=loudness_database;operation=stats;storage=in_memory;rows=512",
+      "component": "LoudnessDatabase",
+      "operation": "stats",
+      "primary_unit": "ns/stats",
+      "work_items_per_iteration": 1,
+      "iterations_per_trial": 128,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          47887.5,
+          42288.28125,
+          55378.125,
+          47985.9375,
+          45158.59375,
+          53778.125,
+          49952.34375
+        ],
+        "min": 42288.28125,
+        "median": 47985.9375,
+        "p95": 55378.125,
+        "max": 55378.125
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 896,
+        "expected_operations": 896,
+        "observed_work_items": 896,
+        "expected_work_items": 896,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 458752.0
+      }
+    },
+    {
+      "case_key": "component=loudness_meter;operation=process;channels=2;frames=4096;true_peak=4x_fir",
+      "component": "LoudnessMeter",
+      "operation": "process",
+      "primary_unit": "ns/input-sample",
+      "work_items_per_iteration": 8192,
+      "iterations_per_trial": 16,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          16.03240966796875,
+          15.685272216796875,
+          15.2984619140625,
+          15.415191650390625,
+          15.3167724609375,
+          15.4754638671875,
+          18.59130859375
+        ],
+        "min": 15.2984619140625,
+        "median": 15.4754638671875,
+        "p95": 18.59130859375,
+        "max": 18.59130859375
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 112,
+        "expected_operations": 112,
+        "observed_work_items": 917504,
+        "expected_work_items": 917504,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": -132.60471567413308
+      }
+    },
+    {
+      "case_key": "component=loudness_meter;operation=process;channels=2;frames=512;true_peak=4x_fir",
+      "component": "LoudnessMeter",
+      "operation": "process",
+      "primary_unit": "ns/input-sample",
+      "work_items_per_iteration": 1024,
+      "iterations_per_trial": 96,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          15.592447916666666,
+          16.566975911458332,
+          16.756184895833332,
+          16.8426513671875,
+          15.174357096354166,
+          15.338134765625,
+          15.171305338541666
+        ],
+        "min": 15.171305338541666,
+        "median": 15.592447916666666,
+        "p95": 16.8426513671875,
+        "max": 16.8426513671875
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 672,
+        "expected_operations": 672,
+        "observed_work_items": 688128,
+        "expected_work_items": 688128,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": -138.34168852379437
+      }
+    },
+    {
+      "case_key": "component=ring_buffer;operation=write_read_advance;channels=2;frames=512;capacity_frames=8192",
+      "component": "RingBuffer",
+      "operation": "write_read_advance",
+      "primary_unit": "ns/frame-roundtrip",
+      "work_items_per_iteration": 512,
+      "iterations_per_trial": 1024,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          0.396728515625,
+          0.3719329833984375,
+          0.37288665771484375,
+          0.347137451171875,
+          0.3704071044921875,
+          0.382232666015625,
+          0.40264129638671875
+        ],
+        "min": 0.347137451171875,
+        "median": 0.37288665771484375,
+        "p95": 0.40264129638671875,
+        "max": 0.40264129638671875
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 7168,
+        "expected_operations": 7168,
+        "observed_work_items": 3670016,
+        "expected_work_items": 3670016,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": -833.7912023839926
+      }
+    },
+    {
+      "case_key": "component=spectrum;operation=analyze;fft=1024;bins=64",
+      "component": "SpectrumAnalyzer",
+      "operation": "analyze",
+      "primary_unit": "ns/input-sample",
+      "work_items_per_iteration": 1024,
+      "iterations_per_trial": 128,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          5.2734375,
+          5.77392578125,
+          5.078887939453125,
+          4.98046875,
+          4.979705810546875,
+          5.072784423828125,
+          5.02777099609375
+        ],
+        "min": 4.979705810546875,
+        "median": 5.072784423828125,
+        "p95": 5.77392578125,
+        "max": 5.77392578125
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 896,
+        "expected_operations": 896,
+        "observed_work_items": 917504,
+        "expected_work_items": 917504,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 249.5477532595396
+      }
+    },
+    {
+      "case_key": "component=spectrum;operation=analyze;fft=4096;bins=96",
+      "component": "SpectrumAnalyzer",
+      "operation": "analyze",
+      "primary_unit": "ns/input-sample",
+      "work_items_per_iteration": 4096,
+      "iterations_per_trial": 32,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          6.159210205078125,
+          5.879974365234375,
+          5.904388427734375,
+          5.79833984375,
+          5.745697021484375,
+          5.713653564453125,
+          5.614471435546875
+        ],
+        "min": 5.614471435546875,
+        "median": 5.79833984375,
+        "p95": 6.159210205078125,
+        "max": 6.159210205078125
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 224,
+        "expected_operations": 224,
+        "observed_work_items": 917504,
+        "expected_work_items": 917504,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 50.57317628245801
+      }
+    },
+    {
+      "case_key": "component=true_peak;operation=process_contiguous;samples=4096;oversample=4x",
+      "component": "TruePeakDetector",
+      "operation": "process",
+      "primary_unit": "ns/input-sample",
+      "work_items_per_iteration": 4096,
+      "iterations_per_trial": 128,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          9.714126586914062,
+          9.810066223144531,
+          9.940719604492188,
+          9.94415283203125,
+          10.826492309570312,
+          9.763145446777344,
+          9.198570251464844
+        ],
+        "min": 9.198570251464844,
+        "median": 9.810066223144531,
+        "p95": 10.826492309570312,
+        "max": 10.826492309570312
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 896,
+        "expected_operations": 896,
+        "observed_work_items": 3670016,
+        "expected_work_items": 3670016,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 3.5030336327850584
+      }
+    },
+    {
+      "case_key": "component=true_peak;operation=process_strided;channels=2;frames=4096;oversample=4x",
+      "component": "TruePeakDetector",
+      "operation": "process_strided",
+      "primary_unit": "ns/channel-sample",
+      "work_items_per_iteration": 4096,
+      "iterations_per_trial": 96,
+      "expected_timing_samples": 7,
+      "distribution": {
+        "samples": [
+          10.585784912109375,
+          9.09576416015625,
+          9.235127766927084,
+          8.93096923828125,
+          10.499064127604166,
+          9.600321451822916,
+          9.106190999348959
+        ],
+        "min": 8.93096923828125,
+        "median": 9.235127766927084,
+        "p95": 10.585784912109375,
+        "max": 10.585784912109375
+      },
+      "work_validation": {
+        "valid": true,
+        "observed_operations": 672,
+        "expected_operations": 672,
+        "observed_work_items": 2752512,
+        "expected_work_items": 2752512,
+        "all_output_finite": true,
+        "output_nontrivial": true,
+        "checksum": 3.5030336327850584
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}

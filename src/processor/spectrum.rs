@@ -1,18 +1,27 @@
 //! FFT-based spectrum analyzer for visualization
 
-use rustfft::{num_complex::Complex, FftPlanner};
+use realfft::{num_complex::Complex, RealFftPlanner, RealToComplex};
 use std::sync::Arc;
 
 use super::traits::{validate_sample_rate_hz, ProcessError};
 
 /// FFT-based spectrum analyzer for visualization
+///
+/// The analyzed signal is real, so this uses `realfft` rather than a complex
+/// transform whose imaginary half would be identically zero. The analyzer only
+/// ever reads positive-frequency bins, which is exactly what a real transform
+/// produces.
 pub struct SpectrumAnalyzer {
     fft_size: usize,
-    fft: Arc<dyn rustfft::Fft<f64>>,
+    fft: Arc<dyn RealToComplex<f64>>,
     window: Vec<f64>,
     num_bins: usize,
-    fft_buffer: Vec<Complex<f64>>,
-    // Workspace for `Fft::process_with_scratch` (plain `process` allocates per call).
+    /// Windowed time-domain block. `realfft` mutates its input, so this doubles
+    /// as scratch.
+    fft_input: Vec<f64>,
+    /// Half-spectrum output: `fft_size / 2 + 1` bins, DC first, Nyquist last.
+    fft_spectrum: Vec<Complex<f64>>,
+    // Workspace for `process_with_scratch` (the plain `process` allocates per call).
     fft_scratch: Vec<Complex<f64>>,
     magnitudes: Vec<f64>,
     result: Vec<f32>,
@@ -39,7 +48,7 @@ impl SpectrumAnalyzer {
                 message: "output bin count must be greater than zero",
             });
         }
-        let mut planner = FftPlanner::new();
+        let mut planner = RealFftPlanner::<f64>::new();
         let fft = planner.plan_fft_forward(fft_size);
         let window: Vec<f64> = (0..fft_size)
             .map(|i| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / fft_size as f64).cos()))
@@ -49,8 +58,9 @@ impl SpectrumAnalyzer {
             fft_size,
             window,
             num_bins,
-            fft_buffer: vec![Complex::new(0.0, 0.0); fft_size],
-            fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_inplace_scratch_len()],
+            fft_input: vec![0.0; fft_size],
+            fft_spectrum: vec![Complex::new(0.0, 0.0); fft.complex_len()],
+            fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_scratch_len()],
             fft,
             magnitudes: vec![0.0; fft_size.saturating_div(2).saturating_sub(1)],
             result: vec![0.0; num_bins],
@@ -71,21 +81,34 @@ impl SpectrumAnalyzer {
         }
 
         for ((slot, &sample), &window) in self
-            .fft_buffer
+            .fft_input
             .iter_mut()
             .zip(samples.iter().take(self.fft_size))
             .zip(&self.window)
         {
-            *slot = Complex::new(sample * window, 0.0);
+            *slot = sample * window;
         }
 
-        self.fft
-            .process_with_scratch(&mut self.fft_buffer, &mut self.fft_scratch);
+        // Buffer lengths are fixed at construction to exactly what the plan
+        // requires, so these length checks cannot fail; a violated invariant
+        // would be a bug in this module. Leave the previous spectrum in place
+        // rather than panicking.
+        debug_assert_eq!(self.fft_input.len(), self.fft_size);
+        debug_assert_eq!(self.fft_spectrum.len(), self.fft.complex_len());
+        let _ = self.fft.process_with_scratch(
+            &mut self.fft_input,
+            &mut self.fft_spectrum,
+            &mut self.fft_scratch,
+        );
 
+        // Skip DC and stop below Nyquist, preserving the original bin
+        // selection. The half-spectrum is `fft_size / 2 + 1` long, so
+        // `1..fft_size / 2` addresses exactly the frequencies the complex
+        // transform did.
         for (dst, c) in self
             .magnitudes
             .iter_mut()
-            .zip(self.fft_buffer[1..self.fft_size / 2].iter())
+            .zip(self.fft_spectrum[1..self.fft_size / 2].iter())
         {
             *dst = c.norm() / self.fft_size as f64;
         }
@@ -141,6 +164,10 @@ impl SpectrumAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The reference implementation below is deliberately kept on rustfft's
+    // complex transform: it is the oracle that pins the realfft migration, so
+    // rewriting it with realfft would make it self-confirming.
+    use rustfft::num_complex::Complex as OracleComplex;
     use rustfft::FftPlanner;
 
     #[test]
@@ -170,7 +197,8 @@ mod tests {
         let mut analyzer = SpectrumAnalyzer::new(16, 4).unwrap();
         let samples: Vec<f64> = (0..16).map(|index| (index as f64 * 0.1).sin()).collect();
         analyzer.analyze(&samples, 48_000).unwrap();
-        let fft_buffer = analyzer.fft_buffer.clone();
+        let fft_input = analyzer.fft_input.clone();
+        let fft_spectrum = analyzer.fft_spectrum.clone();
         let fft_scratch = analyzer.fft_scratch.clone();
         let magnitudes = analyzer.magnitudes.clone();
         let result = analyzer.result.clone();
@@ -187,7 +215,8 @@ mod tests {
             ));
         });
 
-        assert_eq!(analyzer.fft_buffer, fft_buffer);
+        assert_eq!(analyzer.fft_input, fft_input);
+        assert_eq!(analyzer.fft_spectrum, fft_spectrum);
         assert_eq!(analyzer.fft_scratch, fft_scratch);
         assert_eq!(analyzer.magnitudes, magnitudes);
         assert_eq!(analyzer.result, result);
@@ -264,10 +293,10 @@ mod tests {
         let window: Vec<f64> = (0..fft_size)
             .map(|i| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / fft_size as f64).cos()))
             .collect();
-        let mut buffer: Vec<Complex<f64>> = samples[..fft_size]
+        let mut buffer: Vec<OracleComplex<f64>> = samples[..fft_size]
             .iter()
             .zip(&window)
-            .map(|(&s, &w)| Complex::new(s * w, 0.0))
+            .map(|(&s, &w)| OracleComplex::new(s * w, 0.0))
             .collect();
 
         fft.process(&mut buffer);

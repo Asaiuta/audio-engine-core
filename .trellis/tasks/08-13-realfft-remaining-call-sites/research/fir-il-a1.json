@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "probe": "audio_fir_eq_perf",
+  "generated_unix_ms": 1786607099482,
+  "mode": "quick",
+  "environment": {
+    "revision": "fba2c42643705d35bf8d29627f7e7fbb62235df4",
+    "dirty": true,
+    "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+    "target": "x86_64-pc-windows-msvc",
+    "os": "windows",
+    "arch": "x86_64",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "profile": "release",
+    "features": [
+      "http",
+      "loudness-db",
+      "resampler-soxr"
+    ]
+  },
+  "conditions": {
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "process_frames": 512,
+    "tap_counts": [
+      511,
+      1023,
+      2047
+    ],
+    "phases": [
+      "linear",
+      "minimum"
+    ],
+    "regeneration_iterations_per_trial": 1000,
+    "apply_iterations_per_trial": 2000,
+    "trials": 7,
+    "regeneration_warmup_curves": 2,
+    "apply_warmup_buffers": 64,
+    "coverage": "fir_ir_generation+convolver_apply",
+    "excludes": [
+      "cpal_device_write",
+      "decoder",
+      "parameter_transport"
+    ]
+  },
+  "cases": [
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=511",
+      "phase": "linear",
+      "taps": 511,
+      "ir_length": 511,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          30305.3,
+          32126.6,
+          31018.2,
+          27757.5,
+          27740.7,
+          28922.1,
+          28983.9
+        ],
+        "min": 27740.7,
+        "median": 28983.9,
+        "p95": 32126.6,
+        "max": 32126.6
+      },
+      "regenerations_per_ms_median": 34.501913131083114,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=1023",
+      "phase": "linear",
+      "taps": 1023,
+      "ir_length": 1023,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          73586.7,
+          56155.0,
+          52902.0,
+          52618.6,
+          52855.4,
+          51959.5,
+          53597.4
+        ],
+        "min": 51959.5,
+        "median": 52902.0,
+        "p95": 73586.7,
+        "max": 73586.7
+      },
+      "regenerations_per_ms_median": 18.902877017882123,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=linear;taps=2047",
+      "phase": "linear",
+      "taps": 2047,
+      "ir_length": 2047,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          125446.9,
+          109345.0,
+          111004.1,
+          112023.9,
+          117242.5,
+          112365.6,
+          116407.5
+        ],
+        "min": 109345.0,
+        "median": 112365.6,
+        "p95": 125446.9,
+        "max": 125446.9
+      },
+      "regenerations_per_ms_median": 8.899520849797446,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=511",
+      "phase": "minimum",
+      "taps": 511,
+      "ir_length": 511,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          95752.9,
+          97041.8,
+          98363.2,
+          95424.1,
+          97033.0,
+          95344.2,
+          96019.8
+        ],
+        "min": 95344.2,
+        "median": 96019.8,
+        "p95": 98363.2,
+        "max": 98363.2
+      },
+      "regenerations_per_ms_median": 10.414518672190527,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=1023",
+      "phase": "minimum",
+      "taps": 1023,
+      "ir_length": 1023,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          215928.3,
+          209841.3,
+          209832.3,
+          213567.8,
+          214688.7,
+          227749.3,
+          207411.4
+        ],
+        "min": 207411.4,
+        "median": 213567.8,
+        "p95": 227749.3,
+        "max": 227749.3
+      },
+      "regenerations_per_ms_median": 4.682353800526109,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "regeneration",
+      "case_key": "kind=regeneration;phase=minimum;taps=2047",
+      "phase": "minimum",
+      "taps": 2047,
+      "ir_length": 2047,
+      "primary_unit": "ns/regeneration",
+      "ns_per_regeneration": {
+        "samples": [
+          397002.0,
+          401402.0,
+          394950.8,
+          403711.8,
+          392289.1,
+          391132.9,
+          411710.0
+        ],
+        "min": 391132.9,
+        "median": 397002.0,
+        "p95": 411710.0,
+        "max": 411710.0
+      },
+      "regenerations_per_ms_median": 2.5188789980906896,
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=511;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 511,
+      "ir_length": 511,
+      "strategy": "overlap_save",
+      "fft_size": 1024,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          6.83779296875,
+          7.081396484375,
+          6.652001953125,
+          6.7693359375,
+          6.79677734375,
+          6.695068359375,
+          6.5263671875
+        ],
+        "min": 6.5263671875,
+        "median": 6.7693359375,
+        "p95": 7.081396484375,
+        "max": 7.081396484375
+      },
+      "ns_per_buffer": {
+        "samples": [
+          7001.9,
+          7251.35,
+          6811.65,
+          6931.8,
+          6959.9,
+          6855.75,
+          6683.0
+        ],
+        "min": 6683.0,
+        "median": 6931.8,
+        "p95": 7251.35,
+        "max": 7251.35
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 511,
+        "actual_ir_length": 511,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=1023;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 1023,
+      "ir_length": 1023,
+      "strategy": "overlap_save",
+      "fft_size": 2048,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          11.872607421875,
+          12.440869140625,
+          12.437109375,
+          12.2966796875,
+          13.2337890625,
+          12.67646484375,
+          12.728369140625
+        ],
+        "min": 11.872607421875,
+        "median": 12.440869140625,
+        "p95": 13.2337890625,
+        "max": 13.2337890625
+      },
+      "ns_per_buffer": {
+        "samples": [
+          12157.55,
+          12739.45,
+          12735.6,
+          12591.8,
+          13551.4,
+          12980.7,
+          13033.85
+        ],
+        "min": 12157.55,
+        "median": 12739.45,
+        "p95": 13551.4,
+        "max": 13551.4
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 1023,
+        "actual_ir_length": 1023,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    },
+    {
+      "kind": "apply",
+      "case_key": "kind=apply;phase=linear;taps=2047;frames=512;channels=2;strategy=overlap_save",
+      "phase": "linear",
+      "taps": 2047,
+      "ir_length": 2047,
+      "strategy": "overlap_save",
+      "fft_size": 4096,
+      "partition_size": null,
+      "frames": 512,
+      "samples": 1024,
+      "processed_samples_per_trial": 2048000,
+      "primary_unit": "ns/sample",
+      "ns_per_sample": {
+        "samples": [
+          25.391552734375,
+          26.32421875,
+          26.900341796875,
+          25.034619140625,
+          25.489208984375,
+          26.571826171875,
+          30.023388671875
+        ],
+        "min": 25.034619140625,
+        "median": 26.32421875,
+        "p95": 30.023388671875,
+        "max": 30.023388671875
+      },
+      "ns_per_buffer": {
+        "samples": [
+          26000.95,
+          26956.0,
+          27545.95,
+          25635.45,
+          26100.95,
+          27209.55,
+          30743.95
+        ],
+        "min": 25635.45,
+        "median": 26956.0,
+        "p95": 30743.95,
+        "max": 30743.95
+      },
+      "work_validation": {
+        "valid": true,
+        "expected_ir_length": 2047,
+        "actual_ir_length": 2047,
+        "all_ir_samples_finite": true,
+        "all_output_samples_finite": true,
+        "output_changed": true,
+        "expected_strategy": "overlap_save",
+        "actual_strategy": "overlap_save"
+      }
+    }
+  ],
+  "baseline": null,
+  "comparisons": []
+}

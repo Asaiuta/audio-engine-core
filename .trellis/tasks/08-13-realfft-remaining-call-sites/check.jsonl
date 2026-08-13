@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify no unmeasured claims in docs/quality.md and that required bench sweeps ran."}
+{"file": ".trellis/spec/backend/analysis-fir-correctness.md", "reason": "Verify FIR EQ and analysis correctness gates."}
+{"file": ".trellis/spec/backend/realtime-safety.md", "reason": "Verify assert_no_alloc coverage survives the spectrum field changes."}
+{"file": ".trellis/tasks/08-13-realfft-remaining-call-sites/prd.md", "reason": "Completion criteria 1-9, especially that the spectrum oracle stays a complex FFT."}

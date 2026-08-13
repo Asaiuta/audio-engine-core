@@ -27,6 +27,14 @@ pub(crate) fn modified_bessel_i0(value: f64) -> f64 {
 /// The input contains natural-log magnitude for every FFT bin, with negative
 /// frequency bins already mirrored. This helper is setup-only: it allocates
 /// and plans FFTs, so callers must not invoke it from a processing callback.
+///
+/// This stays on `rustfft`'s complex transforms on purpose, unlike the other FFT
+/// sites in this crate. The real-cepstrum factorization exponentiates a
+/// *complex* spectrum (`value.exp()`) between the transforms: the intermediate
+/// carries the Hilbert-transform phase in its imaginary part, so it is genuinely
+/// complex-valued and a real transform cannot represent it. Only the two
+/// endpoints are real, and splitting the plan to exploit that would obscure the
+/// factorization for no measurable gain at setup-time call rates.
 pub(crate) fn minimum_phase_from_log_magnitude(
     log_magnitude: &[f64],
     output_len: usize,

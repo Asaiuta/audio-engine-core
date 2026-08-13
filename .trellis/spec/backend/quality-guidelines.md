@@ -93,7 +93,19 @@ site.
   carries an identically-zero imaginary half. `realfft` is already a dependency;
   prefer it over `rustfft` complex transforms for time-domain audio. Halves
   spectral storage (`fft_size` -> `fft_size / 2 + 1`) and measured 10-54% faster
-  across every convolver case.
+  across every convolver case, 12-24% for the spectrum analyzer, and 7-17% for
+  linear-phase FIR EQ design.
+  - The exception is a pipeline whose *intermediate* is genuinely complex, even
+    when both endpoints are real. `fir_design::minimum_phase_from_log_magnitude`
+    exponentiates a complex spectrum between transforms and stays on `rustfft`;
+    the exclusion is recorded in a comment at the call site so it is not
+    re-litigated.
+  - When replacing a hand-mirrored Hermitian spectrum, do *not* populate the
+    negative-frequency half: a real inverse transform implies that symmetry, and
+    writing it doubles every output tap. Pin this with an equivalence test
+    against the complex formulation rather than trusting inspection.
+  - Prefer `process_with_scratch` over `process`. `rustfft`'s plain `process`
+    allocates scratch on every call, which is a per-block allocation in any loop.
 - **A single-use dependency is a candidate, not a given.** Check the real call
   count (`rayon` had exactly one, in an offline path whose public entry point had
   no in-repo caller) and whether the replacement preserves the *semantics* the
@@ -459,6 +471,14 @@ are `AUDIO_BENCH_REVISION`, `AUDIO_BENCH_DIRTY`, `AUDIO_BENCH_RUSTC`,
 - Quality keeps `gate` / `report` / `skipped` distinct. Full-output points copy
   `RenderedOutput` rendered frames, algorithmic latency, semantic tail, and
   truncation fields directly. Missing external corpus counts remain visible.
+- **Sequential A/B is not enough for effects under ~10%.** Run baseline and
+  candidate *interleaved* (B/A/B/A), and include an unchanged case from the same
+  run as a control. On the recorded host, a single sequential pair reported a
+  4.7% AutoMix regression that interleaved runs showed to be drift (−4.1%,
+  +1.0%, +1.0%), and an unchanged minimum-phase FIR control drifted +5% during
+  runs where the changed linear-phase case improved 7-17%. Report the control
+  alongside the claim, and state "neutral" rather than a number when the effect
+  does not clear the noise floor of the case being measured.
 - A requested baseline must match schema, probe, mode, conditions, complete
   case set, rustc, target, OS/architecture, CPU, profile, and features. Unknown
   required environment fields are not comparable. Revision and dirty state may
