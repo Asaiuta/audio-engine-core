@@ -346,11 +346,11 @@ The project supports:
 
 ### SoX VHQ / SoXR
 
-The default native backend provides high-quality SoX resampling through libsoxr (SoX VHQ quality). It requires the libsoxr native library at build/link time (LGPL-2.1; see [License](#license)).
+The opt-in native backend provides high-quality SoX resampling through libsoxr (SoX VHQ quality), enabled with `features = ["soxr"]`. It requires the libsoxr native library at build/link time (LGPL-2.1; see [License](#license)).
 
 ### Pure Rust
 
-The optional `rubato` backend provides quality-aware pure-Rust routing, including:
+The default `rubato` backend provides quality-aware pure-Rust routing, including:
 
 * half-band FIR paths for exact 2× conversion (`PhaseResponse::Linear` + High uses a dedicated 127-tap symmetric half-band FIR)
 * FFT-based paths for common ratios (two sub-chunks through High, one longer sub-chunk for UltraHigh)
