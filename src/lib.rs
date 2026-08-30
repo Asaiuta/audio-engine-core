@@ -107,11 +107,16 @@ static TEST_ALLOC_GUARD: assert_no_alloc::AllocDisabler = assert_no_alloc::Alloc
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+pub mod analysis;
+/// Borrowed interleaved audio-block geometry shared by analysis and processors.
+pub mod audio_block;
 pub mod channel_layout;
 pub mod config;
 pub mod decoder;
 /// Decode-buffer memory budget environment resolution (off-realtime setup).
 pub mod diagnostics;
+/// Stateless low-level DSP mathematics shared by analysis and processors.
+pub mod dsp;
 pub mod pipeline;
 pub mod processor;
 /// CPU floating-point mode helpers for realtime audio threads (FTZ/DAZ).
@@ -128,6 +133,9 @@ pub use pipeline::{
     PlaybackLifecycleStatus, PlaybackNoiseShapingConfig, PlaybackParameters, PlaybackPipeline,
     PlaybackSaturationConfig, PlaybackTiming, RingBuffer, MAX_STOP_FADE_MS,
 };
+// COMPAT: analysis-layer — root-level analysis names remain source-compatible
+// aliases for the canonical `analysis::*` namespace. See
+// `.trellis/spec/backend/analysis-compatibility.md` before removing any row.
 pub use processor::{
     analyze_automix, callback_stage_names, callback_stage_order_csv,
     canonical_output_stage_descriptors, canonical_post_render_analysis_descriptors, finish_checked,

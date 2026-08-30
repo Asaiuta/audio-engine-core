@@ -1,4 +1,4 @@
-//! DSP utilities - dB conversion and Noise shaping
+//! Stateful realtime noise shaping implementation.
 //!
 //! NoiseShaper implementation based on SoX dither.c coefficients
 //! with NTF-verified stability and realtime-safe xorshift64 RNG.
@@ -6,32 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::lockfree_params::{NOISE_SHAPER_BITS_MAX, NOISE_SHAPER_BITS_MIN};
-use super::traits::{
-    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    ProcessError,
-};
+use super::traits::{validate_processor_channels, validate_sample_rate_hz, ProcessError};
+use crate::audio_block::{validated_channel_count, AudioBlockMut};
 
 const INV_U64_MAX: f64 = 1.0 / u64::MAX as f64;
-
-// ============================================================================
-// Common DSP Utility Functions (P1-4: centralized, previously duplicated)
-// ============================================================================
-
-/// Convert dB to linear gain. Shared across all processor modules.
-#[inline(always)]
-pub fn db_to_linear(db: f64) -> f64 {
-    10.0_f64.powf(db / 20.0)
-}
-
-/// Convert linear gain to dB. Shared across all processor modules.
-#[inline(always)]
-pub fn linear_to_db(linear: f64) -> f64 {
-    if linear > 0.0 {
-        20.0 * linear.log10()
-    } else {
-        f64::NEG_INFINITY
-    }
-}
 
 /// Noise shaping curve presets
 /// All coefficients from SoX src/dither.c, NTF zeros verified |z| < 1

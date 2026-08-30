@@ -31,10 +31,10 @@
 //! ```
 
 use super::traits::{
-    finish_checked, process_checked, validate_sample_rate_hz, AudioBlockMut, FixedInPlaceProcessor,
-    FrameDuration, ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor,
-    TailSpec,
+    finish_checked, process_checked, validate_sample_rate_hz, FixedInPlaceProcessor, FrameDuration,
+    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
+use crate::audio_block::AudioBlockMut;
 
 /// Policy used by [`DspChain::finish`] for processors with asymptotic tails.
 ///

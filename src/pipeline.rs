@@ -4,12 +4,14 @@
 //! the callback-owned [`PlaybackPipeline`]. Its [`CallbackSpec`] describes
 //! already-converted device-domain `f64` audio; it does not negotiate devices,
 //! decode files, or resample source audio.
+use crate::audio_block::AudioBlockMut;
+use crate::dsp::{db_to_linear, linear_to_db};
 use crate::processor::lockfree_params::validate_eq_band_index;
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
-    AtomicVolumeParams, AudioBlockMut, ChainFinishPolicy, ConvolverControl, ConvolverStatus,
-    DspChain, DynamicLoudnessTuningSnapshot, FFTConvolver, FrameDuration, NoiseShaperCurve,
+    AtomicVolumeParams, ChainFinishPolicy, ConvolverControl, ConvolverStatus, DspChain,
+    DynamicLoudnessTuningSnapshot, FFTConvolver, FrameDuration, NoiseShaperCurve,
     OutputChainBuilder, OutputChainParams, ProcessError, ProcessProgress, ProcessState,
     SaturationParamsSnapshot, SaturationQuality, SaturationType, TailSpec, LOUDNESS_BANDS_N,
 };
@@ -1098,16 +1100,6 @@ impl PlaybackParameters {
         let snapshot = self.noise_shaper.read();
         (snapshot.enabled, snapshot.bits, snapshot.curve)
     }
-}
-
-/// Convert a dBFS value to a linear amplitude multiplier.
-fn db_to_linear(db: f64) -> f64 {
-    10f64.powf(db / 20.0)
-}
-
-/// Convert a linear amplitude multiplier back to dBFS.
-fn linear_to_db(linear: f64) -> f64 {
-    20.0 * linear.log10()
 }
 
 /// Non-cloneable lifecycle authority paired with one built pipeline.

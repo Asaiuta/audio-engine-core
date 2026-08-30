@@ -19,11 +19,11 @@
 //! [`TRUE_PEAK_DELAY`] frames cover the FIR span so every output sample's full
 //! intersample-peak contribution is known before it leaves the buffer).
 
-use super::meter::{true_peak_fir, TruePeakDetector, TRUE_PEAK_DELAY};
-use crate::processor::dsp::{db_to_linear, linear_to_db};
+use crate::analysis::{true_peak_fir, TruePeakDetector, TRUE_PEAK_DELAY};
+use crate::audio_block::{validated_channel_count, AudioBlockMut};
+use crate::dsp::{db_to_linear, linear_to_db};
 use crate::processor::traits::{
-    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    ProcessError,
+    validate_processor_channels, validate_sample_rate_hz, ProcessError,
 };
 
 /// Peak detection strategy for [`PeakLimiter`].
@@ -875,7 +875,7 @@ mod tests {
 
     // --- True-peak mode -----------------------------------------------------
 
-    use crate::processor::loudness::TruePeakDetector;
+    use crate::analysis::TruePeakDetector;
 
     /// Sine at Fs/4 sampled 45° off-peak: every sample sits at ±amplitude·√½
     /// (well below a -1 dBTP ceiling) while the reconstructed intersample peak

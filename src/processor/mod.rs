@@ -12,7 +12,6 @@
 //! - [`StreamingResampler`] and [`Resampler`] - backend-selectable resampling (SoXR or pure Rust)
 //! - [`Equalizer`] - 10-band parametric IIR equalizer
 //! - [`VolumeProcessor`] and [`NoiseShaper`] - Volume control and noise shaping
-//! - [`SpectrumAnalyzer`] - FFT spectrum analyzer
 //! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
 //! - [`LoudnessNormalizer`], [`LoudnessMeter`], and [`TruePeakDetector`] - EBU R128 loudness normalization
 //! - [`DynamicLoudness`] - ISO 226 dynamic loudness compensation (Fletcher-Munson)
@@ -20,15 +19,21 @@
 //! - [`Crossfeed`] - Bauer binaural crossfeed for headphones
 //! - [`FirEq`] - FIR EQ with linear/minimum phase options
 //!
+//! The [`SpectrumAnalyzer`] re-export below is retained for compatibility;
+//! its canonical path is [`crate::analysis::SpectrumAnalyzer`].
+//!
 //! ## Unified Abstraction (Lock-Free Design)
 //! - [`StreamingProcessor`] and streaming block/progress types - full consumed/produced,
 //!   finish, latency/tail, and reset lifecycle
 //! - [`lockfree_params`] - lock-free parameter structures for thread-safe parameter passing
 //! - [`adapters`] - processor adapters implementing [`StreamingProcessor`]
 //! - [`DspChain`] - composable DSP processing chain
+//!
+//! Offline/read-only analysis types are also available from [`crate::analysis`].
+//! The re-exports in this module remain the compatibility surface for existing
+//! consumers; new code should prefer the semantic analysis namespace.
 
 mod atomic_f64;
-mod automix_analysis;
 mod convolver;
 mod crossfeed;
 mod dsp;
@@ -42,7 +47,6 @@ mod loudness_db;
 mod output_chain;
 mod resampler;
 mod saturation;
-mod spectrum;
 
 // New unified abstraction modules
 pub mod adapters;
@@ -51,8 +55,11 @@ pub mod dsp_chain;
 pub mod lockfree_params;
 pub mod traits;
 
-// Public processor API re-exports.
-pub use automix_analysis::{
+// Public processor API re-exports. Analysis entries are compatibility aliases
+// tracked in `.trellis/spec/backend/analysis-compatibility.md`.
+// COMPAT: analysis-layer — AutoMix implementation now lives under `analysis`,
+// while these historical processor paths remain source-compatible.
+pub use crate::analysis::{
     analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
     AutomixAnalysisOptions, AutomixError,
 };
@@ -61,14 +68,24 @@ pub use convolver::{
     PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
-pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve};
+// COMPAT: dsp-layer — scalar gain helpers moved to the crate-level stateless
+// DSP namespace; processor-level names remain source-compatible.
+pub use crate::dsp::{db_to_linear, linear_to_db};
+pub use dsp::{NoiseShaper, NoiseShaperCurve};
 pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
 pub use eq::Equalizer;
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
-    AtomicLoudnessState, LimiterMode, LoudnessInfo, LoudnessMeter, LoudnessNormalizer, PeakLimiter,
-    TruePeakDetector,
+    // COMPAT: analysis-layer — measurement types remain here while the
+    // normalizer/limiter shared core is split safely.
+    AtomicLoudnessState,
+    LimiterMode,
+    LoudnessNormalizer,
+    PeakLimiter,
 };
+// COMPAT: analysis-layer — measurement types remain available at their
+// historical processor paths while their implementation is analysis-owned.
+pub use crate::analysis::{LoudnessInfo, LoudnessMeter, TruePeakDetector};
 #[cfg(feature = "loudness-db")]
 pub use loudness_db::{
     DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
@@ -84,7 +101,11 @@ pub use output_chain::{
 };
 pub use resampler::{Resampler, ResamplerError, StreamingResampler, RESAMPLER_BACKEND_NAME};
 pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};
-pub use spectrum::SpectrumAnalyzer;
+// COMPAT: analysis-layer — `SpectrumAnalyzer` is an offline/read-only analyzer.
+// Its implementation now lives under `analysis`; this re-export keeps the
+// historical processor path source-compatible during the physical module
+// split. See `.trellis/spec/backend/analysis-compatibility.md`.
+pub use crate::analysis::SpectrumAnalyzer;
 
 // Re-export unified abstraction types
 pub use adapters::{

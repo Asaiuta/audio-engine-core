@@ -5,28 +5,24 @@
 //!
 //! # Components
 //!
-//! - `LoudnessMeter`: EBU R128 compliant loudness measurement ([`meter`])
+//! - `LoudnessMeter`: EBU R128 compliant loudness measurement (owned by
+//!   [`crate::analysis`])
 //! - `PeakLimiter`: True Peak limiter with 4x oversampling detection ([`limiter`])
 //! - `AtomicLoudnessState`: Lock-free state for audio thread ([`atomic_state`])
 //! - `LoudnessNormalizer`: High-level normalization processor ([`normalizer`])
 
 mod atomic_state;
-mod info;
 mod limiter;
-mod meter;
 mod normalizer;
 
 pub use atomic_state::AtomicLoudnessState;
-pub use info::LoudnessInfo;
 pub use limiter::{LimiterMode, PeakLimiter};
-pub(crate) use meter::true_peak_reconstruction_l1_bound;
-pub use meter::{LoudnessMeter, TruePeakDetector};
 pub use normalizer::LoudnessNormalizer;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::processor::dsp::{db_to_linear, linear_to_db};
+    use crate::dsp::{db_to_linear, linear_to_db};
 
     #[test]
     fn test_db_conversion() {
@@ -62,6 +58,8 @@ mod tests {
 
     #[test]
     fn test_true_peak_detector() {
+        use crate::analysis::TruePeakDetector;
+
         let mut detector = TruePeakDetector::new();
 
         // Create a signal with intersample peaks

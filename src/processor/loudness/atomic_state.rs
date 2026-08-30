@@ -14,10 +14,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use crate::processor::atomic_f64::AtomicF64;
 
 use crate::config::NormalizationMode;
-use crate::processor::dsp::db_to_linear;
+use crate::dsp::db_to_linear;
 use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
 
-use super::info::LoudnessInfo;
+use crate::analysis::LoudnessInfo;
 
 /// Atomic loudness state for lock-free audio thread access.
 /// Uses AtomicF64 with Relaxed ordering (gains don't need strict synchronization).

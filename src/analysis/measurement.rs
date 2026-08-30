@@ -1,10 +1,9 @@
 //! EBU R128 loudness meter and 4x FIR true peak detector.
 
+use crate::audio_block::{validated_channel_count, AudioBlockRef};
 use crate::channel_layout::{ChannelLayout, ChannelPosition};
-use crate::processor::dsp::linear_to_db;
-use crate::processor::traits::{
-    validate_sample_rate_hz, validated_channel_count, AudioBlockRef, ProcessError,
-};
+use crate::dsp::linear_to_db;
+use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
 use std::sync::OnceLock;
 
 const TRUE_PEAK_PHASES: usize = 4;
@@ -507,7 +506,7 @@ mod tests {
         assert_eq!(
             meter.process(&samples),
             Err(ProcessError::InvalidBlock(
-                crate::processor::traits::AudioBlockError::IncompleteFrame {
+                crate::audio_block::AudioBlockError::IncompleteFrame {
                     samples: 3,
                     channels: 2,
                 }
@@ -532,7 +531,7 @@ mod tests {
         assert!(matches!(
             LoudnessMeter::new(0, 48_000),
             Err(ProcessError::InvalidBlock(
-                crate::processor::traits::AudioBlockError::ZeroChannels
+                crate::audio_block::AudioBlockError::ZeroChannels
             ))
         ));
         assert!(matches!(

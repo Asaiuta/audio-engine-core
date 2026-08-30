@@ -25,9 +25,8 @@
 use super::lockfree_params::{
     sanitized, DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN,
 };
-use super::traits::{
-    validate_processor_channels, validated_channel_count, AudioBlockMut, ProcessError,
-};
+use super::traits::{validate_processor_channels, ProcessError};
+use crate::audio_block::{validated_channel_count, AudioBlockMut};
 
 // ============================================================================
 // Biquad Filter Types

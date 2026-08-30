@@ -4,10 +4,11 @@
 //! windows off the realtime callback path and returns a stable DTO for later
 //! transition planning.
 
+use crate::analysis::LoudnessMeter;
 use crate::decoder::{
     DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
 };
-use crate::processor::{LoudnessMeter, ProcessError};
+use crate::processor::traits::ProcessError;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use serde::{Deserialize, Serialize};
@@ -1643,7 +1644,7 @@ mod tests {
         assert!(matches!(
             error,
             AutomixError::Loudness(ProcessError::InvalidBlock(
-                crate::processor::traits::AudioBlockError::IncompleteFrame {
+                crate::audio_block::AudioBlockError::IncompleteFrame {
                     samples: 3,
                     channels: 2,
                 }

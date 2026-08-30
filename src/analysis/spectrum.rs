@@ -3,7 +3,7 @@
 use realfft::{num_complex::Complex, RealFftPlanner, RealToComplex};
 use std::sync::Arc;
 
-use super::traits::{validate_sample_rate_hz, ProcessError};
+use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
 
 /// FFT-based spectrum analyzer for visualization
 ///

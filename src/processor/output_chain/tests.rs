@@ -248,8 +248,8 @@ fn render_chain_matches_callback_chain_pre_quantize_when_no_resampler() {
 
 #[test]
 fn final_output_guard_covers_every_bit_depth_and_noise_shaper_curve() {
-    use crate::processor::dsp::{db_to_linear, linear_to_db};
-    use crate::processor::loudness::{true_peak_reconstruction_l1_bound, TruePeakDetector};
+    use crate::analysis::{true_peak_reconstruction_l1_bound, TruePeakDetector};
+    use crate::dsp::{db_to_linear, linear_to_db};
 
     const TARGET_DBTP: f64 = -1.0;
     const METER_TOLERANCE_DB: f64 = 0.01;

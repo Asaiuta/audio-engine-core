@@ -2,17 +2,16 @@
 
 use std::sync::Arc;
 
+use crate::analysis::{LoudnessInfo, LoudnessMeter};
+use crate::audio_block::{validated_channel_count, AudioBlockMut, AudioBlockRef};
 use crate::config::{LoudnessConfig, NormalizationMode};
 use crate::processor::lockfree_params::{LIMITER_THRESHOLD_DB_MAX, LIMITER_THRESHOLD_DB_MIN};
 use crate::processor::traits::{
-    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    AudioBlockRef, ProcessError,
+    validate_processor_channels, validate_sample_rate_hz, ProcessError,
 };
 
 use super::atomic_state::AtomicLoudnessState;
-use super::info::LoudnessInfo;
 use super::limiter::PeakLimiter;
-use super::meter::LoudnessMeter;
 
 /// Loudness normalizer with EBU R128 compliance.
 /// Supports track-based pre-analysis and real-time streaming modes.

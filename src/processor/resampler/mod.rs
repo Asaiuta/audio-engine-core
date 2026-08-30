@@ -19,6 +19,7 @@
 //! to the audio thread both still work; only `Arc<StreamingResampler>` is
 //! rejected. Enable `soxr` if the `Sync` impl itself is required.
 
+use crate::audio_block::{AudioBlockError, AudioBlockMut, AudioBlockRef};
 use crate::config::{PhaseResponse, ResampleQuality};
 use thiserror::Error;
 
@@ -118,9 +119,8 @@ impl From<&'static str> for BackendProcessError {
 }
 
 use super::traits::{
-    AudioBlockError, AudioBlockMut, AudioBlockRef, FrameDuration, FrameRounding, ProcessBufferMode,
-    ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
-    StreamingProcessor, TailSpec,
+    FrameDuration, FrameRounding, ProcessBufferMode, ProcessBufferParts, ProcessBuffers,
+    ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 /// Error type for resampler construction and offline operations.

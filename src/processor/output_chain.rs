@@ -20,10 +20,10 @@ use super::lockfree_params::{
 };
 use super::resampler::StreamingResampler;
 use super::traits::{
-    finish_checked, process_checked, AudioBlockMut, AudioBlockRef, FrameDuration, FrameRounding,
-    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
-    TimingError,
+    finish_checked, process_checked, FrameDuration, FrameRounding, ProcessBuffers, ProcessError,
+    ProcessProgress, ProcessState, StreamingProcessor, TailSpec, TimingError,
 };
+use crate::audio_block::{AudioBlockMut, AudioBlockRef};
 
 const DEFAULT_OFFLINE_BLOCK_FRAMES: usize = 4_096;
 

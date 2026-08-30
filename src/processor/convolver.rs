@@ -8,7 +8,8 @@ use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use rustfft::num_complex::Complex;
 use std::sync::Arc;
 
-use super::traits::{AudioBlockRef, ProcessError};
+use super::traits::ProcessError;
+use crate::audio_block::AudioBlockRef;
 
 /// Per-channel IR length above which [`FFTConvolver::new`] selects the
 /// partitioned path.

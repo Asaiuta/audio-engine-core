@@ -11,9 +11,10 @@ use control::{ConsumerLease, PublishedConvolver};
 use handoff::AudioOwned;
 
 use super::{process_fixed_1_to_1, validate_sample_rate, FixedLifecycle};
+use crate::audio_block::AudioBlockMut;
 use crate::processor::traits::{
-    validate_processor_channels, AudioBlockMut, FixedInPlaceProcessor, ProcessBufferParts,
-    ProcessBuffers, ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    validate_processor_channels, FixedInPlaceProcessor, ProcessBufferParts, ProcessBuffers,
+    ProcessError, ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
 };
 
 const CONVOLVER_ACTIVATION_MS: u32 = 5;

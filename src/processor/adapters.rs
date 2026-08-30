@@ -26,10 +26,12 @@ use super::loudness::{LimiterMode, PeakLimiter};
 use super::saturation::Saturation;
 use super::saturation::SATURATION_LATENCY_FRAMES;
 use super::traits::{
-    validate_processor_channels, validate_sample_rate_hz, validated_channel_count, AudioBlockMut,
-    FixedInPlaceProcessor, FrameDuration, ProcessBufferParts, ProcessBuffers, ProcessError,
-    ProcessProgress, ProcessState, StreamingProcessor, TailSpec,
+    validate_processor_channels, validate_sample_rate_hz, FixedInPlaceProcessor, FrameDuration,
+    ProcessBufferParts, ProcessBuffers, ProcessError, ProcessProgress, ProcessState,
+    StreamingProcessor, TailSpec,
 };
+use crate::audio_block::{validated_channel_count, AudioBlockMut};
+use crate::dsp::{db_to_linear, linear_to_db};
 
 #[derive(Default)]
 struct FixedLifecycle {
@@ -711,7 +713,7 @@ impl SaturationProcessor {
     ) -> Result<ProcessProgress, ProcessError> {
         self.lifecycle.ensure_processing("Saturation")?;
         validate_processor_channels("Saturation", Some(self.channels), channels)?;
-        let block = super::traits::AudioBlockMut::new(samples, channels)?;
+        let block = AudioBlockMut::new(samples, channels)?;
         let frames = block.frames();
         let samples = block.into_samples();
 
@@ -1234,7 +1236,7 @@ impl PeakLimiterProcessor {
     }
 
     fn apply_output_ceiling_guard(&mut self) {
-        let target = super::dsp::db_to_linear(self.cached.threshold_db);
+        let target = db_to_linear(self.cached.threshold_db);
         let quantization = if self.output_guard_snapshot.enabled {
             self.output_guard_snapshot
                 .curve
@@ -1243,10 +1245,10 @@ impl PeakLimiterProcessor {
             0.0
         };
         let f32_rounding = f32::EPSILON as f64 * 0.5;
-        let reconstruction = super::loudness::true_peak_reconstruction_l1_bound();
+        let reconstruction = crate::analysis::true_peak_reconstruction_l1_bound();
         let additive_bound = (quantization + f32_rounding) * reconstruction;
         let guarded = (target - additive_bound).max(f64::MIN_POSITIVE);
-        let guarded_db = super::dsp::linear_to_db(guarded);
+        let guarded_db = linear_to_db(guarded);
         self.output_ceiling_guard_db = self.cached.threshold_db - guarded_db;
         self.limiter.set_threshold(guarded_db);
     }

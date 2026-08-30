@@ -1174,12 +1174,12 @@ pub struct SaturationSettings {
     pub highpass_cutoff: f64,
 }
 
-use super::dsp::db_to_linear;
 use super::lockfree_params::{
     sanitized, SATURATION_DRIVE_MAX, SATURATION_DRIVE_MIN, SATURATION_GAIN_DB_MAX,
     SATURATION_GAIN_DB_MIN, SATURATION_HIGHPASS_CUTOFF_HZ_MAX, SATURATION_HIGHPASS_CUTOFF_HZ_MIN,
     SATURATION_MIX_MAX, SATURATION_MIX_MIN, SATURATION_THRESHOLD_MAX, SATURATION_THRESHOLD_MIN,
 };
+use crate::dsp::db_to_linear;
 
 // ============================================================================
 // Tests
