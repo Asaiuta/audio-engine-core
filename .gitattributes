@@ -1,0 +1,17 @@
+# The public-API baselines are byte-compared, so their line endings are
+# load-bearing.
+#
+# `public-api` renders the surface with LF endings, and `snapshot-testing`
+# compares the file bytes verbatim -- no normalization anywhere in the chain
+# (`std::fs::read_to_string` -> `similar_asserts::assert_eq!`). Without this
+# rule, a Windows checkout under `core.autocrlf=true` writes CRLF into the
+# working tree and `tests/public_api.rs` fails on every line, for a reason that
+# has nothing to do with the public API it guards. Linux CI never sees it.
+#
+# `text eol=lf` rather than `-text` on purpose: it pins both directions, so an
+# editor that saves CRLF still produces an LF blob on `git add` instead of
+# turning CI red.
+#
+# This is scoped, not repo-wide. Any future snapshot or golden file that is
+# byte-compared needs its own line here.
+tests/public-api-*.txt text eol=lf
