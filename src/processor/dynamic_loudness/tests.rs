@@ -1,10 +1,12 @@
 use super::*;
+use crate::dsp::linear_to_db;
 use crate::processor::traits::AudioBlockError;
 
 #[derive(Debug, PartialEq, Eq)]
 struct DynamicLoudnessState {
     filter_state: Vec<(u64, u64)>,
     smoother_state: Vec<(u64, u64, u64, usize)>,
+    pre_gain_smoother_state: (u64, u64, u64, usize),
     last_applied_gains: [u64; LOUDNESS_BANDS_N],
     active_bands: [bool; LOUDNESS_BANDS_N],
     loudness_factor: u64,
@@ -31,6 +33,12 @@ fn dynamic_loudness_state(processor: &DynamicLoudness) -> DynamicLoudnessState {
                 )
             })
             .collect(),
+        pre_gain_smoother_state: (
+            processor.pre_gain_smoother.current.to_bits(),
+            processor.pre_gain_smoother.target.to_bits(),
+            processor.pre_gain_smoother.coeff.to_bits(),
+            processor.pre_gain_smoother.samples_remaining,
+        ),
         last_applied_gains: processor.last_applied_gains.map(f64::to_bits),
         active_bands: processor.active_bands,
         loudness_factor: processor.current_loudness_factor.to_bits(),
@@ -638,4 +646,256 @@ fn test_biquad_sustained_subnormal_input_flushes_to_zero() {
 
     assert_eq!(filter.state.z1, 0.0);
     assert_eq!(filter.state.z2, 0.0);
+}
+
+// ============================================================================
+// D3: pre-gain trajectory continuity (2026-08-11 review)
+// ============================================================================
+
+/// Largest single-sample gain step, in dB, that any transition may take.
+/// From the task requirement: "no path takes a >0.5 dB per-sample step".
+const MAX_STEP_DB: f64 = 0.5;
+
+/// Frames to run a transition out to full convergence.
+///
+/// One second at 48 kHz, i.e. ~20 time constants of the 50 ms smoother. The
+/// exponential only *reaches* its target via the smoother's 0.0001 snap, which
+/// takes ~8 tau from a 0.29 gap; 3 tau leaves it visibly short of unity.
+const SETTLE_FRAMES: usize = 48_000;
+
+/// Drive a stage that is in its identity path -- volume at the compensation
+/// reference, so every band gain targets zero and no filter is active -- and
+/// return the gain actually applied to each frame.
+///
+/// With the bands inactive the output is exactly `input * applied_pre_gain`, so
+/// this reads the pre-gain trajectory directly without inverting any filter.
+fn applied_pre_gain_trajectory(dl: &mut DynamicLoudness, frames: usize) -> Vec<f64> {
+    const LEVEL: f64 = 0.5;
+    let mut buffer = vec![LEVEL; frames * 2];
+    dl.process_validated(&mut buffer);
+    buffer.iter().step_by(2).map(|out| out / LEVEL).collect()
+}
+
+fn worst_step_db(trajectory: &[f64]) -> f64 {
+    trajectory
+        .windows(2)
+        .map(|pair| (linear_to_db(pair[1]) - linear_to_db(pair[0])).abs())
+        .fold(0.0_f64, f64::max)
+}
+
+/// A stage at the compensation reference is in steady state from its first
+/// frame: the headroom is already inserted, so it must not fade in.
+#[test]
+fn pre_gain_is_settled_on_the_first_buffer() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+
+    let trajectory = applied_pre_gain_trajectory(&mut dl, BLOCK_SIZE * 4);
+
+    assert!(
+        trajectory
+            .iter()
+            .all(|gain| (gain - dl.pre_gain_linear).abs() < 1.0e-12),
+        "a freshly built stage faded the headroom in instead of starting settled"
+    );
+}
+
+/// D3: strength to zero used to drop the -3 dB pre-gain in a single sample.
+/// It now ramps out, and the stage only takes its bypass once the ramp is done.
+#[test]
+fn strength_to_zero_ramps_the_pre_gain_out_instead_of_dropping_it() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+
+    let settled = applied_pre_gain_trajectory(&mut dl, BLOCK_SIZE);
+    let start = *settled.last().unwrap();
+    assert!((start - dl.pre_gain_linear).abs() < 1.0e-12);
+
+    dl.set_strength(0.0);
+    // 50 ms at 48 kHz is 2400 frames; give the ramp room to converge.
+    let mut trajectory = vec![start];
+    trajectory.extend(applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES));
+
+    let worst = worst_step_db(&trajectory);
+    assert!(
+        worst <= MAX_STEP_DB,
+        "strength->0 stepped {worst:.4} dB in one sample (limit {MAX_STEP_DB} dB); \
+         before this fix the headroom vanished in a single sample"
+    );
+    // The step that used to be here was the whole pre-gain at once.
+    let old_step_db = linear_to_db(1.0) - linear_to_db(dl.pre_gain_linear);
+    assert!(
+        worst < old_step_db * 0.1,
+        "expected the ramp to be far gentler than the {old_step_db:.4} dB drop it replaced, \
+         got {worst:.4} dB"
+    );
+
+    let end = *trajectory.last().unwrap();
+    assert!(
+        (end - 1.0).abs() < 1.0e-9,
+        "pre-gain converged to {end}, not unity: a bypassed stage must not attenuate"
+    );
+}
+
+/// The mirror image: strength back up from zero fades the headroom in.
+#[test]
+fn strength_from_zero_ramps_the_pre_gain_back_in() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+    dl.set_strength(0.0);
+    let drained = applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES);
+    assert!((drained.last().unwrap() - 1.0).abs() < 1.0e-9);
+
+    dl.set_strength(1.0);
+    let mut trajectory = vec![1.0];
+    trajectory.extend(applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES));
+
+    let worst = worst_step_db(&trajectory);
+    assert!(
+        worst <= MAX_STEP_DB,
+        "0->strength stepped {worst:.4} dB in one sample (limit {MAX_STEP_DB} dB)"
+    );
+    let end = *trajectory.last().unwrap();
+    assert!(
+        (end - dl.pre_gain_linear).abs() < 1.0e-9,
+        "pre-gain converged to {end}, expected the configured {}",
+        dl.pre_gain_linear
+    );
+}
+
+/// Once the drain has finished the stage really is bypassed -- bit-exact
+/// identity, not merely close -- so a zero-strength stage costs nothing and
+/// colours nothing.
+#[test]
+fn zero_strength_bypass_is_bit_exact_once_the_ramp_has_settled() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+    dl.set_strength(0.0);
+    let _ = applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES);
+
+    assert!(
+        dl.can_bypass_for_zero_strength(),
+        "bands never settled, so the bypass gate is still closed"
+    );
+    assert_eq!(
+        dl.pre_gain_smoother.samples_remaining, 0,
+        "pre-gain ramp never finished, so the stage cannot claim to be bypassed"
+    );
+
+    let input: Vec<f64> = (0..256).map(|i| ((i as f64) * 0.031).sin() * 0.4).collect();
+    let mut buffer = input.clone();
+    dl.process_validated(&mut buffer);
+    assert_eq!(
+        buffer, input,
+        "a settled zero-strength stage must be bit-exact identity"
+    );
+}
+
+/// Enabling fades the headroom in; disabling drops it at once and is
+/// immediately transparent. The asymmetry is deliberate -- see `set_enabled`.
+#[test]
+fn enable_ramps_the_pre_gain_in_and_disable_is_immediately_transparent() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+    let _ = applied_pre_gain_trajectory(&mut dl, BLOCK_SIZE);
+
+    dl.set_enabled(false);
+    let input: Vec<f64> = (0..256).map(|i| ((i as f64) * 0.017).sin() * 0.4).collect();
+    let mut buffer = input.clone();
+    dl.process_validated(&mut buffer);
+    assert_eq!(
+        buffer, input,
+        "a disabled stage must be transparent on its very next buffer, with no ramp-out tail"
+    );
+
+    dl.set_enabled(true);
+    let mut trajectory = vec![1.0];
+    trajectory.extend(applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES));
+    let worst = worst_step_db(&trajectory);
+    assert!(
+        worst <= MAX_STEP_DB,
+        "enable stepped {worst:.4} dB in one sample (limit {MAX_STEP_DB} dB)"
+    );
+    assert!(
+        (trajectory.last().unwrap() - dl.pre_gain_linear).abs() < 1.0e-9,
+        "enable did not converge on the configured headroom"
+    );
+}
+
+/// A live headroom edit is a level change like any other and rides the ramp.
+#[test]
+fn live_pre_gain_change_ramps_to_the_new_headroom() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+    let settled = applied_pre_gain_trajectory(&mut dl, BLOCK_SIZE);
+
+    dl.set_pre_gain_db(PRE_GAIN_DB_MIN);
+    let mut trajectory = vec![*settled.last().unwrap()];
+    trajectory.extend(applied_pre_gain_trajectory(&mut dl, SETTLE_FRAMES));
+
+    let worst = worst_step_db(&trajectory);
+    assert!(
+        worst <= MAX_STEP_DB,
+        "a -3 dB -> {PRE_GAIN_DB_MIN} dB edit stepped {worst:.4} dB in one sample \
+         (limit {MAX_STEP_DB} dB)"
+    );
+    assert!(
+        (trajectory.last().unwrap() - pre_gain_db_to_linear(PRE_GAIN_DB_MIN)).abs() < 1.0e-9,
+        "live pre-gain edit did not converge on the new value"
+    );
+}
+
+/// The ramp must not reintroduce the end-of-buffer zipper: one long buffer and
+/// the same audio in irregular chunks have to land on identical state, which is
+/// what `dsp-state-correctness.md` requires of any new smoothing.
+#[test]
+fn pre_gain_ramp_is_chunk_size_independent() {
+    let make = || {
+        let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+        dl.set_volume_db(-15.0);
+        let mut warmup = vec![0.25; BLOCK_SIZE * 2];
+        dl.process_validated(&mut warmup);
+        dl.set_strength(0.0);
+        dl
+    };
+    let frames = BLOCK_SIZE * 6;
+    let input: Vec<f64> = (0..frames * 2)
+        .map(|i| ((i as f64) * 0.011).sin() * 0.3)
+        .collect();
+
+    let mut whole = make();
+    let mut whole_buffer = input.clone();
+    whole.process_validated(&mut whole_buffer);
+
+    let mut chunked = make();
+    let mut chunked_buffer = input.clone();
+    for start in (0..frames).step_by(BLOCK_SIZE) {
+        let end = (start + BLOCK_SIZE).min(frames);
+        chunked.process_validated(&mut chunked_buffer[start * 2..end * 2]);
+    }
+
+    assert_eq!(
+        whole_buffer, chunked_buffer,
+        "the pre-gain ramp is sensitive to buffer segmentation"
+    );
+    assert_eq!(
+        dynamic_loudness_state(&whole),
+        dynamic_loudness_state(&chunked)
+    );
+}
+
+/// The ramp lives on the processing path, so it must not allocate.
+#[test]
+fn pre_gain_ramp_is_allocation_free() {
+    let mut dl = DynamicLoudness::new_validated(2, 48_000.0);
+    dl.set_volume_db(-15.0);
+    let mut buffer = vec![0.25; BLOCK_SIZE * 2];
+    dl.process_validated(&mut buffer);
+    dl.set_strength(0.0);
+
+    assert_no_alloc::assert_no_alloc(|| {
+        for _ in 0..64 {
+            dl.process_validated(&mut buffer);
+        }
+    });
 }

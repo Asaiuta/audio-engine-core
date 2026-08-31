@@ -25,6 +25,14 @@ pub struct LoudnessNormalizer {
     track_loudness: Option<f64>,
     track_gain: Option<f64>,
 
+    /// Whether the previous `process_validated` call saw the stage enabled.
+    ///
+    /// The enabled flag lives in the shared [`AtomicLoudnessState`], which
+    /// callers can hold and flip directly, so the false-to-true edge is detected
+    /// here on the processing path rather than in `set_enabled`. That is the only
+    /// place every route into the stage passes through.
+    was_enabled: bool,
+
     channels: usize,
     sample_rate: u32,
 }
@@ -59,6 +67,7 @@ impl LoudnessNormalizer {
                 10.0,  // 10ms look-ahead
                 100.0, // 100ms release
             ),
+            was_enabled: config.enabled,
             config,
             atomic_state,
             track_loudness: None,
@@ -74,6 +83,33 @@ impl LoudnessNormalizer {
     }
 
     /// Enable or bypass normalization on the next block.
+    ///
+    /// # Latency
+    ///
+    /// An enabled normalizer runs an internal look-ahead limiter and therefore
+    /// delays the signal by its look-ahead (10 ms plus the true-peak
+    /// reconstruction span; [`PeakLimiter::delay_frames`] is the exact figure).
+    /// A bypassed one passes samples straight through with no delay at all.
+    ///
+    /// Toggling this mid-stream therefore changes the latency of the stage, which
+    /// is a timing discontinuity as well as a level one: enabling swallows one
+    /// delay's worth of audio while the line refills, and disabling drops
+    /// whatever was still inside it. Set it once for a playback session rather
+    /// than automating it, or accept the seam.
+    ///
+    /// # Bypass is a hard switch
+    ///
+    /// Disabling takes effect on the very next block. The alternative -- draining
+    /// the limiter for one delay before going quiet -- was considered and
+    /// rejected: it would keep a stage that the caller has switched off inside
+    /// the graph, still consuming CPU and still emitting audio, which is a
+    /// scheduling decision rather than a smoothing one, and it would make a
+    /// bypassed normalizer non-transparent for 10 ms after every toggle. The
+    /// cost of the hard switch is the discarded delay-line contents described
+    /// above.
+    ///
+    /// Re-enabling resets the limiter, so no pre-bypass audio can survive the gap
+    /// and replay.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.config.enabled = enabled;
         self.atomic_state.set_enabled(enabled);
@@ -278,7 +314,18 @@ impl LoudnessNormalizer {
 
     fn process_validated(&mut self, samples: &mut [f64]) -> Result<(), ProcessError> {
         if !self.atomic_state.enabled() {
+            self.was_enabled = false;
             return Ok(());
+        }
+
+        // Re-arming after a bypass. The limiter kept running its delay line right
+        // up to the moment the stage went idle, so it still holds the last ~10 ms
+        // of pre-bypass audio; without this the first block back would play that
+        // out, ahead of the audio actually being handed in. Zeroing in place, so
+        // this stays allocation-free on the audio thread.
+        if !self.was_enabled {
+            self.limiter.reset();
+            self.was_enabled = true;
         }
 
         let frames = samples.len() / self.channels;
@@ -300,10 +347,32 @@ impl LoudnessNormalizer {
             }
         }
 
-        // Apply gain using atomic state
-        let linear_gain = self.atomic_state.process_gain(frames);
-        for sample in samples.iter_mut() {
-            *sample *= linear_gain;
+        // Apply gain using atomic state, interpolated across the block.
+        //
+        // The smoother advances once per block, so applying its endpoint to every
+        // sample turns a smooth trajectory into a staircase with one tread per
+        // block: a 20 dB track change at 512-frame blocks lands as ~1.04 dB
+        // jumps, which is audible zipper. Spreading the same movement linearly
+        // over the block keeps the endpoint -- and therefore the long-term
+        // trajectory -- identical while cutting the per-sample step by roughly
+        // the block length.
+        let (start_gain, end_gain) = self.atomic_state.process_gain_ramp(frames);
+        if start_gain == end_gain {
+            for sample in samples.iter_mut() {
+                *sample *= end_gain;
+            }
+        } else {
+            // Divided by `frames`, not `frames - 1`: the last sample lands one
+            // step short of `end_gain`, which is exactly where the next block
+            // starts, so the rate stays uniform across the boundary.
+            let step = (end_gain - start_gain) / frames as f64;
+            for frame in 0..frames {
+                let gain = start_gain + step * frame as f64;
+                let base = frame * self.channels;
+                for sample in &mut samples[base..base + self.channels] {
+                    *sample *= gain;
+                }
+            }
         }
 
         // Apply peak limiting
@@ -377,6 +446,7 @@ fn checked_gain(value: f64, parameter: &'static str) -> Result<f64, ProcessError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dsp::linear_to_db;
     use crate::processor::traits::AudioBlockError;
 
     fn loudness_info_bits(info: &LoudnessInfo) -> [u64; 8] {
@@ -635,5 +705,304 @@ mod tests {
             loudness_info_bits(&normalizer.get_loudness_info()),
             loudness_info_bits(&reference.get_loudness_info())
         );
+    }
+
+    // ========================================================================
+    // D4: block-interior gain interpolation (2026-08-11 review)
+    // ========================================================================
+
+    /// Blocks the callback actually hands us, and the size the review measured
+    /// the 1.04 dB staircase tread at.
+    const D4_BLOCK: usize = 512;
+
+    /// Largest single-sample gain step, in dB, the normalizer may take.
+    const D4_MAX_STEP_DB: f64 = 0.5;
+
+    /// Recover the per-sample applied gain from a DC probe.
+    ///
+    /// The internal limiter runs after the gain, so the probe level is chosen to
+    /// keep its output far below the threshold: it then passes the signal through
+    /// at unity and contributes only its delay, which the caller skips.
+    fn normalizer_gain_trajectory(
+        normalizer: &mut LoudnessNormalizer,
+        level: f64,
+        blocks: usize,
+    ) -> Vec<f64> {
+        let mut trajectory = Vec::with_capacity(blocks * D4_BLOCK);
+        for _ in 0..blocks {
+            let mut buffer = vec![level; D4_BLOCK * 2];
+            normalizer.process_validated(&mut buffer).unwrap();
+            trajectory.extend(buffer.iter().step_by(2).map(|out| out / level));
+        }
+        trajectory
+    }
+
+    /// D4: the smoother advances once per block, so applying its endpoint to the
+    /// whole block turned a smooth 20 dB track change into ~1.04 dB steps at each
+    /// block boundary. Interpolating across the block removes the staircase
+    /// without moving the endpoint.
+    #[test]
+    fn track_change_gain_ramp_has_no_block_boundary_zipper() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            target_lufs: -12.0,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+
+        // A 20 dB track change, the scenario the requirement names.
+        normalizer.atomic_state.set_target_gain(20.0);
+
+        // 10 ms lookahead + true-peak span; the limiter emits zeros until its
+        // delay line has filled, which is not gain and must not be measured.
+        let skip = 493;
+        let level = 0.01;
+        let trajectory = normalizer_gain_trajectory(&mut normalizer, level, 8);
+        let measured = &trajectory[skip..];
+
+        let worst = measured
+            .windows(2)
+            .map(|pair| (linear_to_db(pair[1]) - linear_to_db(pair[0])).abs())
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            worst <= D4_MAX_STEP_DB,
+            "gain stepped {worst:.4} dB between adjacent samples (limit {D4_MAX_STEP_DB} dB); \
+             a block-constant gain puts one ~1.04 dB tread at every {D4_BLOCK}-frame boundary"
+        );
+
+        // The trajectory must actually be moving -- a flat readout would satisfy
+        // the step bound trivially.
+        let travelled = linear_to_db(*measured.last().unwrap()) - linear_to_db(measured[0]);
+        assert!(
+            travelled > 1.0,
+            "gain only travelled {travelled:.4} dB, so the step bound proves nothing"
+        );
+    }
+
+    /// Interpolation must not change *where* the smoother gets to, only how it
+    /// gets there: the endpoint after N blocks has to match the block-constant
+    /// implementation bit for bit, because that is the trajectory the 200 ms
+    /// smoothing time is specified against.
+    #[test]
+    fn block_interior_interpolation_leaves_the_smoother_endpoint_untouched() {
+        let make = || {
+            let config = LoudnessConfig {
+                enabled: true,
+                mode: NormalizationMode::Track,
+                ..LoudnessConfig::default()
+            };
+            let normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+            normalizer.atomic_state.set_target_gain(20.0);
+            normalizer
+        };
+
+        // The public `process_gain` is the block-constant reference; it and the
+        // ramp variant share one advance, so both must land identically.
+        let reference = make();
+        for _ in 0..8 {
+            let _ = reference.atomic_state.process_gain(D4_BLOCK);
+        }
+
+        let mut ramped = make();
+        let _ = normalizer_gain_trajectory(&mut ramped, 0.01, 8);
+
+        assert_eq!(
+            ramped.atomic_state.current_gain_db().to_bits(),
+            reference.atomic_state.current_gain_db().to_bits(),
+            "interpolating inside the block moved the endpoint the smoother reaches"
+        );
+    }
+
+    /// A settled gain has `start == end`, which takes the flat path. That path
+    /// must stay bit-exact with the block-constant multiply, so steady-state
+    /// playback is unchanged by this feature.
+    #[test]
+    fn settled_gain_applies_the_flat_path_bit_exactly() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        // The default preamp is -1 dB, so a fresh state has somewhere to travel.
+        // Zero both to get a genuinely settled smoother.
+        normalizer.atomic_state.set_preamp_gain(0.0);
+        normalizer.atomic_state.set_target_gain(0.0);
+
+        let (start, end) = normalizer.atomic_state.process_gain_ramp(D4_BLOCK);
+        assert_eq!(
+            start.to_bits(),
+            end.to_bits(),
+            "a settled smoother must report a flat block"
+        );
+        assert_eq!(end, 1.0, "0 dB target with 0 dB preamp must be unity gain");
+
+        let input: Vec<f64> = (0..D4_BLOCK * 2)
+            .map(|i| ((i as f64) * 0.01).sin() * 0.1)
+            .collect();
+        let mut buffer = input.clone();
+        normalizer.process_validated(&mut buffer).unwrap();
+
+        // Unity gain, and the probe sits far below the limiter threshold, so the
+        // only thing between input and output is the limiter's delay: whatever
+        // has emerged must be the input verbatim.
+        let skip = 493;
+        assert_eq!(
+            &buffer[skip * 2..],
+            &input[..input.len() - skip * 2],
+            "the flat path is not bit-exact at unity gain"
+        );
+    }
+
+    /// The interpolation runs on the audio thread, so it must not allocate.
+    #[test]
+    fn gain_interpolation_is_allocation_free() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        normalizer.atomic_state.set_target_gain(20.0);
+        let mut buffer = vec![0.01; D4_BLOCK * 2];
+        normalizer.process_validated(&mut buffer).unwrap();
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..16 {
+                normalizer.process_validated(&mut buffer).unwrap();
+            }
+        });
+    }
+
+    /// D5: the limiter's delay line kept running right up to the bypass, so
+    /// re-enabling used to play out ~10 ms of pre-bypass audio ahead of the block
+    /// actually being handed in.
+    #[test]
+    fn re_enabling_does_not_replay_pre_bypass_audio() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        normalizer.atomic_state.set_preamp_gain(0.0);
+        normalizer.atomic_state.set_target_gain(0.0);
+
+        // A loud, unmistakable marker fills the limiter's delay line.
+        let marker = 0.5;
+        let mut loud = vec![marker; 512 * 2];
+        normalizer.process_validated(&mut loud).unwrap();
+
+        // Bypass, then hand it silence while disabled (which it passes through).
+        normalizer.set_enabled(false);
+        let mut bypassed = vec![0.0; 512 * 2];
+        normalizer.process_validated(&mut bypassed).unwrap();
+        assert!(
+            bypassed.iter().all(|sample| *sample == 0.0),
+            "a bypassed normalizer must be transparent"
+        );
+
+        // Re-arm and hand it silence. Anything non-zero coming out is audio from
+        // before the gap.
+        normalizer.set_enabled(true);
+        let mut after = vec![0.0; 512 * 2];
+        normalizer.process_validated(&mut after).unwrap();
+
+        let leaked = after.iter().fold(0.0_f64, |acc, s| acc.max(s.abs()));
+        assert_eq!(
+            leaked, 0.0,
+            "re-enabling replayed pre-bypass audio at {leaked} (marker was {marker}); \
+             the limiter's delay line survived the gap"
+        );
+    }
+
+    /// The stale-audio guard has to hold no matter which route flipped the flag.
+    /// The enabled bit lives in the shared state, so a caller holding the `Arc`
+    /// can bypass `set_enabled` entirely -- which is why the edge is detected on
+    /// the processing path.
+    #[test]
+    fn re_arm_guard_covers_the_shared_atomic_state_route() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        normalizer.atomic_state.set_preamp_gain(0.0);
+        normalizer.atomic_state.set_target_gain(0.0);
+        let shared = normalizer.atomic_state();
+
+        let mut loud = vec![0.5; 512 * 2];
+        normalizer.process_validated(&mut loud).unwrap();
+
+        // Flip the flag through the shared handle, never touching `set_enabled`.
+        shared.set_enabled(false);
+        let mut bypassed = vec![0.0; 512 * 2];
+        normalizer.process_validated(&mut bypassed).unwrap();
+        shared.set_enabled(true);
+
+        let mut after = vec![0.0; 512 * 2];
+        normalizer.process_validated(&mut after).unwrap();
+
+        assert!(
+            after.iter().all(|sample| *sample == 0.0),
+            "the shared-state bypass route let pre-bypass audio survive"
+        );
+    }
+
+    /// Re-arming must not throw away the gain trajectory: the track has not
+    /// changed, so the smoothed gain carries across the gap. Only the limiter's
+    /// buffered audio is discarded.
+    #[test]
+    fn re_arming_preserves_the_smoothed_gain() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        normalizer.atomic_state.set_target_gain(20.0);
+
+        let mut buffer = vec![0.01; 512 * 2];
+        for _ in 0..4 {
+            normalizer.process_validated(&mut buffer).unwrap();
+        }
+        let before = normalizer.atomic_state.current_gain_db();
+        assert!(before > 1.0, "gain never started moving");
+
+        normalizer.set_enabled(false);
+        normalizer.process_validated(&mut buffer).unwrap();
+        normalizer.set_enabled(true);
+
+        assert_eq!(
+            normalizer.atomic_state.current_gain_db().to_bits(),
+            before.to_bits(),
+            "bypassing discarded the smoothed gain; re-arming would jump the level"
+        );
+    }
+
+    /// The re-arm path runs on the audio thread.
+    #[test]
+    fn re_arm_reset_is_allocation_free() {
+        let config = LoudnessConfig {
+            enabled: true,
+            mode: NormalizationMode::Track,
+            ..LoudnessConfig::default()
+        };
+        let mut normalizer = LoudnessNormalizer::new(2, 48_000, config).unwrap();
+        let mut buffer = vec![0.05; 512 * 2];
+        normalizer.process_validated(&mut buffer).unwrap();
+        let shared = normalizer.atomic_state();
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..8 {
+                shared.set_enabled(false);
+                normalizer.process_validated(&mut buffer).unwrap();
+                shared.set_enabled(true);
+                normalizer.process_validated(&mut buffer).unwrap();
+            }
+        });
     }
 }

@@ -173,8 +173,27 @@ impl AtomicLoudnessState {
     /// self-corrects on the next call.
     #[inline]
     pub fn process_gain(&self, frames: usize) -> f64 {
+        self.advance_gain(frames).1
+    }
+
+    /// Advance the smoother by `frames` and report the gain at *both* ends of the
+    /// block, so a caller can interpolate across it instead of applying one flat
+    /// value to every sample.
+    ///
+    /// The returned end value and the stored state are identical to what
+    /// [`Self::process_gain`] produces, so the long-term trajectory is unchanged;
+    /// only the distribution of the change *within* the block differs.
+    #[inline]
+    pub(crate) fn process_gain_ramp(&self, frames: usize) -> (f64, f64) {
+        self.advance_gain(frames)
+    }
+
+    /// Shared body of [`Self::process_gain`] and [`Self::process_gain_ramp`].
+    /// Returns `(linear gain entering the block, linear gain leaving it)`.
+    #[inline]
+    fn advance_gain(&self, frames: usize) -> (f64, f64) {
         if !self.enabled() {
-            return 1.0;
+            return (1.0, 1.0);
         }
 
         let mode = self.mode.load(Ordering::Relaxed);
@@ -204,7 +223,7 @@ impl AtomicLoudnessState {
         self.current_gain_db.store(new_gain, Ordering::Relaxed);
 
         // Convert dB to linear
-        db_to_linear(new_gain)
+        (db_to_linear(current), db_to_linear(new_gain))
     }
 
     /// Get current loudness info (for API responses)

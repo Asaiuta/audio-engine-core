@@ -323,6 +323,19 @@ impl ParameterSmoother {
         self.coeff = Self::smoothing_coeff(smoothing_time_ms, sample_rate);
     }
 
+    /// Create a smoother already at `value`, with nothing pending.
+    ///
+    /// Used where the steady state is known up front and ramping in from `0.0`
+    /// would itself be the artifact.
+    fn settled_at(value: f64, smoothing_time_ms: f64, sample_rate: f64) -> Self {
+        Self {
+            current: value,
+            target: value,
+            coeff: Self::smoothing_coeff(smoothing_time_ms, sample_rate),
+            samples_remaining: 0,
+        }
+    }
+
     /// Set target value
     fn set_target(&mut self, target: f64) {
         if (self.target - target).abs() > 0.0001 {
@@ -386,6 +399,13 @@ pub const LOUDNESS_BANDS_N: usize = LOUDNESS_BANDS.len();
 
 /// Block size for coefficient updates (CPU optimization)
 const BLOCK_SIZE: usize = 64;
+
+/// Pre-gain smoothing time constant, in milliseconds.
+///
+/// Deliberately the same 50 ms the per-band smoothers use: the headroom and the
+/// compensation it makes room for are two halves of one gesture, so they have to
+/// arrive and leave together.
+const PRE_GAIN_SMOOTHING_MS: f64 = 50.0;
 const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
 const BAND_ACTIVE_EPSILON_DB: f64 = 0.0001;
 
@@ -443,8 +463,19 @@ pub struct DynamicLoudness {
     ref_volume_db: f64,
     /// Transition range in dB (from ref to max compensation)
     transition_db: f64,
-    /// Cached linear pre-gain.
+    /// Cached linear pre-gain: the *configured* headroom, i.e. the value the
+    /// stage settles at while it is active. What actually multiplies the audio
+    /// is `pre_gain_smoother.current`.
     pre_gain_linear: f64,
+    /// Smoother for the applied pre-gain, on the same 50 ms time constant as the
+    /// band gains.
+    ///
+    /// Pre-gain is an attenuation the stage inserts, so switching it on or off
+    /// is an audible level change and must not happen in one sample. Every path
+    /// that starts or stops compensation — `set_enabled`, strength to or from
+    /// zero, the zero-strength bypass, and a live `set_pre_gain_db` — moves this
+    /// target instead of the multiplier, so all of them ramp.
+    pre_gain_smoother: ParameterSmoother,
     /// Sample rate
     sample_rate: f64,
     /// Number of channels
@@ -487,6 +518,14 @@ impl DynamicLoudness {
             transition_db: TRANSITION_DB_DEFAULT, // Compensation starts below -15 dB, max at -40 dB
             // Headroom for bass boost (-3 dB).
             pre_gain_linear: pre_gain_db_to_linear(PRE_GAIN_DB_DEFAULT),
+            // Starts *settled* at the active value rather than ramping in from
+            // unity: a freshly built stage is enabled at full strength, so the
+            // first buffer is already in steady state and must not fade in.
+            pre_gain_smoother: ParameterSmoother::settled_at(
+                pre_gain_db_to_linear(PRE_GAIN_DB_DEFAULT),
+                PRE_GAIN_SMOOTHING_MS,
+                sample_rate,
+            ),
             sample_rate,
             channels,
             current_loudness_factor: 0.0,
@@ -539,6 +578,19 @@ impl DynamicLoudness {
         for (i, smoother) in self.smoothers.iter_mut().enumerate() {
             let target_gain = self.max_gains[i] * self.current_loudness_factor * self.strength;
             smoother.set_target(target_gain);
+        }
+    }
+
+    /// Pre-gain the stage should be heading toward right now.
+    ///
+    /// Unity whenever the stage is contributing nothing — disabled, or strength
+    /// dialed to zero — because the inserted headroom has to come back out with
+    /// the compensation that justified it. The configured attenuation otherwise.
+    fn pre_gain_target(&self) -> f64 {
+        if self.enabled && self.strength >= 0.0001 {
+            self.pre_gain_linear
+        } else {
+            1.0
         }
     }
 
@@ -599,6 +651,15 @@ impl DynamicLoudness {
     /// Set compensation strength, clamped to the published
     /// [`DYNAMIC_LOUDNESS_STRENGTH_MIN`]..=[`DYNAMIC_LOUDNESS_STRENGTH_MAX`]
     /// range. A non-finite value is ignored.
+    ///
+    /// # Level
+    ///
+    /// Strength scales the band boosts *and* the pre-gain headroom the stage
+    /// reserves for them (-3 dB by default, see
+    /// [`set_pre_gain_db`](Self::set_pre_gain_db)). A non-zero strength is
+    /// therefore quieter than zero by that headroom, which is insertion loss, not
+    /// a bug: the boosted bands are what spend it. Both halves ramp over 50 ms,
+    /// so moving strength to or from zero is click-free.
     pub fn set_strength(&mut self, strength: f64) {
         let Some(strength) = sanitized(
             strength,
@@ -645,6 +706,10 @@ impl DynamicLoudness {
     /// This updates a cached scalar only — no filter coefficient is redesigned
     /// and no delay history is touched, so a change is safe between blocks and
     /// does not disturb the band smoothers. A non-finite value is ignored.
+    ///
+    /// The new value is reached over a 50 ms ramp rather than immediately, so
+    /// changing it mid-stream is click-free. The value set here is the target the
+    /// ramp converges on; the applied attenuation trails it for that long.
     pub fn set_pre_gain_db(&mut self, pre_gain_db: f64) {
         if let Some(pre_gain_db) = sanitized(pre_gain_db, PRE_GAIN_DB_MIN, PRE_GAIN_DB_MAX) {
             self.pre_gain_linear = pre_gain_db_to_linear(pre_gain_db);
@@ -652,6 +717,24 @@ impl DynamicLoudness {
     }
 
     /// Enable or disable processing
+    ///
+    /// # Level
+    ///
+    /// Enabling inserts the pre-gain headroom (-3 dB by default, see
+    /// [`set_pre_gain_db`](Self::set_pre_gain_db)) and disabling removes it, so
+    /// the two states differ in level by that much.
+    ///
+    /// The two directions are deliberately not symmetric. Enabling fades the
+    /// headroom in over 50 ms, because the stage is running from then on and can
+    /// ramp. Disabling removes it immediately, so a disabled stage is exactly
+    /// transparent on its very next buffer; ramping out would mean keeping a
+    /// disabled stage in the graph for 50 ms to drain, which is a scheduling
+    /// decision rather than a smoothing one. To fade the stage out instead, ramp
+    /// [`set_strength`](Self::set_strength) to `0.0` and leave it enabled — that
+    /// path is smoothed, and the stage bypasses itself once it has settled.
+    ///
+    /// Disabling also clears the band filter histories, so a stage disabled
+    /// mid-signal does not resume with stale state if it is re-enabled.
     pub fn set_enabled(&mut self, enabled: bool) {
         if self.enabled && !enabled {
             // Disabling: reset all filters
@@ -665,6 +748,16 @@ impl DynamicLoudness {
             }
             self.active_bands = [false; LOUDNESS_BANDS_N];
             self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
+            // Snap the pre-gain out rather than ramping it. A ramp needs frames
+            // to run in, and a disabled stage gets none: callers stop handing it
+            // audio, and the pipeline adapter does not even call
+            // `process_validated`. Ramping out would need drain semantics --
+            // keeping a disabled stage live for 50 ms -- which is a scheduling
+            // change, not a smoothing one. Disable therefore stays the hard
+            // switch it has always been, and `output == input` holds on the very
+            // first buffer.
+            self.pre_gain_smoother =
+                ParameterSmoother::settled_at(1.0, PRE_GAIN_SMOOTHING_MS, self.sample_rate);
         }
         self.enabled = enabled;
     }
@@ -685,6 +778,8 @@ impl DynamicLoudness {
             for smoother in &mut self.smoothers {
                 smoother.set_sample_rate(50.0, sample_rate);
             }
+            self.pre_gain_smoother
+                .set_sample_rate(PRE_GAIN_SMOOTHING_MS, sample_rate);
 
             // Old-rate biquad histories were reset above. Rebuild each band at
             // its preserved current smoother gain before the next frame.
@@ -714,7 +809,13 @@ impl DynamicLoudness {
     }
 
     pub(crate) fn process_validated(&mut self, buffer: &mut [f64]) {
-        if !self.enabled || self.can_bypass_for_zero_strength() {
+        self.pre_gain_smoother.set_target(self.pre_gain_target());
+
+        // Bypass only once the pre-gain has finished coming back out. Returning
+        // the moment the stage goes idle would drop the remaining attenuation in
+        // a single sample, which is the level step this ramp exists to remove.
+        let idle = !self.enabled || self.can_bypass_for_zero_strength();
+        if idle && self.pre_gain_smoother.samples_remaining == 0 {
             return;
         }
 
@@ -733,8 +834,9 @@ impl DynamicLoudness {
                 let gain = self.smoothers[i].next_block(chunk_frames);
                 self.apply_band_gain_if_changed(i, gain);
             }
+            let pre_gain = self.pre_gain_smoother.next_block(chunk_frames);
 
-            self.process_samples_range(buffer, chunk_start, chunk_end);
+            self.process_samples_range(buffer, chunk_start, chunk_end, pre_gain);
         }
     }
 
@@ -752,12 +854,19 @@ impl DynamicLoudness {
     /// Internal: apply pre-gain and active-band filtering to `[start_frame, end_frame)`.
     ///
     /// When no band is active the band loop is skipped, so this reduces to
-    /// applying pre-gain only.
-    fn process_samples_range(&mut self, buffer: &mut [f64], start_frame: usize, end_frame: usize) {
+    /// applying pre-gain only. `pre_gain` is the smoothed value for this chunk,
+    /// held constant across it exactly as the band coefficients are.
+    fn process_samples_range(
+        &mut self,
+        buffer: &mut [f64],
+        start_frame: usize,
+        end_frame: usize,
+        pre_gain: f64,
+    ) {
         for frame in start_frame..end_frame {
             for ch in 0..self.channels {
                 let idx = frame * self.channels + ch;
-                let mut sample = buffer[idx] * self.pre_gain_linear;
+                let mut sample = buffer[idx] * pre_gain;
 
                 let ch_filters = &mut self.filters[ch];
                 for (band, filter) in ch_filters.iter_mut().enumerate() {
@@ -784,6 +893,14 @@ impl DynamicLoudness {
         self.current_loudness_factor = 0.0;
         self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
         self.active_bands = [false; LOUDNESS_BANDS_N];
+        // Settle, don't zero: a reset stage is at its steady state, and the next
+        // buffer must not fade the headroom in from unity. Band smoothers reset
+        // to 0.0 because that *is* their steady state at loudness factor 0.
+        self.pre_gain_smoother = ParameterSmoother::settled_at(
+            self.pre_gain_target(),
+            PRE_GAIN_SMOOTHING_MS,
+            self.sample_rate,
+        );
     }
 
     /// Get current loudness factor (for display)

@@ -131,7 +131,12 @@ impl MonotonicMaxQueue {
 ///
 /// - Look-ahead buffer for peak detection (10 ms default)
 /// - -1.0 dBTP threshold (EBU R128 recommendation)
-/// - Instant attack, exponential release
+/// - Attack ramps linearly across the look-ahead, exponential release. A frame's
+///   control peak is known `delay_frames - 1` frames before that frame is
+///   output, so the descent is spread over the window instead of stepping in one
+///   sample. The ramp deliberately converges a little *before* that deadline --
+///   long enough to cover the true-peak reconstruction span -- which is what
+///   preserves the closed ceiling guarantee.
 /// - Fixed ring buffer avoids heap allocation in the audio callback
 /// - True-peak mode adds per-channel 4x oversampled intersample detection
 pub struct PeakLimiter {
@@ -161,12 +166,52 @@ pub struct PeakLimiter {
     write_pos: usize,
     /// Current gain reduction (linear, < 1.0 when limiting)
     gain_reduction: f64,
+    /// Frames the attack ramp is allowed to take. See [`attack_frames_for`].
+    attack_frames: usize,
+    /// Per-frame linear descent currently armed, or `0.0` when not attacking.
+    /// Monotonically non-decreasing for the duration of a descent: a re-arm may
+    /// only steepen it, never slow a pending one down, or a later louder frame
+    /// could push the gain past an earlier frame's deadline.
+    attack_step: f64,
     /// Release coefficient per sample (< 1.0, for multiplication)
     release_coeff: f64,
     /// Number of channels
     channels: usize,
     /// Sample rate (needed for in-place release_ms updates)
     sample_rate: f64,
+}
+
+/// Frames the attack ramp finishes *early*, before the frame that armed it is
+/// output.
+///
+/// The ceiling is a true-peak ceiling, so what must stay under the threshold is
+/// not the output sample but the FIR reconstruction around it, which mixes the
+/// 12 input frames ending at that sample. A gain that is still moving across
+/// that span mixes frames reduced by *different* amounts, and the earlier ones
+/// (higher gain, because attack descends) push the reconstruction above the
+/// value the outgoing sample alone implies. Instant attack never had this
+/// problem: it dropped straight to the window floor and held it flat for the
+/// whole span.
+///
+/// Settling `TRUE_PEAK_DELAY` frames early restores that flatness. It covers the
+/// 12-tap intersample span with a frame to spare, so by the time the frame that
+/// armed the ramp is output, the gain has been constant at its target across
+/// that frame's entire reconstruction neighbourhood.
+const RAMP_SETTLE_FRAMES: usize = TRUE_PEAK_DELAY;
+
+/// Frames the attack ramp may spend, given an active output delay.
+///
+/// A frame's control peak enters the sliding window `delay_frames - 1` frames
+/// before that frame reaches the output, so that is the raw budget. The ramp
+/// gives back [`RAMP_SETTLE_FRAMES`] of it so the descent has flattened before
+/// the peak frame emerges. With too little lookahead to fund both the ramp
+/// degenerates to a single frame, which is the historical instant attack, so a
+/// short lookahead loses the smoothing rather than the ceiling.
+fn attack_frames_for(delay_frames: usize) -> usize {
+    delay_frames
+        .saturating_sub(1)
+        .saturating_sub(RAMP_SETTLE_FRAMES)
+        .max(1)
 }
 
 /// Reject limiter construction values that would disable or destabilize the
@@ -321,6 +366,8 @@ impl PeakLimiter {
             global_frame: 0,
             write_pos: 0,
             gain_reduction: 1.0,
+            attack_frames: attack_frames_for(delay_frames),
+            attack_step: 0.0,
             release_coeff,
             channels,
             sample_rate: sample_rate as f64,
@@ -349,6 +396,7 @@ impl PeakLimiter {
         }
         self.mode = mode;
         self.delay_frames = delay_frames_for(mode, self.lookahead_frames);
+        self.attack_frames = attack_frames_for(self.delay_frames);
         self.reset();
     }
 
@@ -383,20 +431,27 @@ impl PeakLimiter {
             // semantics exactly.
             let peak = self.peak_queue.current_peak();
 
-            // Step 2: Calculate required gain reduction (instant attack)
+            // Step 2: Calculate required gain reduction for the whole window.
             let target_gain = if peak > self.threshold {
                 self.threshold / peak
             } else {
                 1.0
             };
 
-            // Step 3: Apply release smoothing (gain_reduction can only decrease
-            // instantly on attack or recover smoothly on release).
+            // Step 3: Move toward the target. Attack descends linearly across
+            // the lookahead instead of stepping in one sample; release keeps its
+            // existing exponential recovery.
             if target_gain < self.gain_reduction {
-                // Attack: instant
-                self.gain_reduction = target_gain;
+                // Attack: arm (or steepen) a ramp that closes the remaining gap
+                // within `attack_frames`. Re-arming may only steepen, because a
+                // gentler schedule adopted mid-descent could overshoot the
+                // deadline of a frame already inside the window.
+                let step = (self.gain_reduction - target_gain) / self.attack_frames as f64;
+                self.attack_step = self.attack_step.max(step);
+                self.gain_reduction = (self.gain_reduction - self.attack_step).max(target_gain);
             } else {
                 // Release: smooth recovery
+                self.attack_step = 0.0;
                 self.gain_reduction =
                     self.gain_reduction + (1.0 - self.gain_reduction) * (1.0 - self.release_coeff);
                 // Ensure we don't exceed target
@@ -503,6 +558,7 @@ impl PeakLimiter {
         self.global_frame = 0;
         self.write_pos = 0;
         self.gain_reduction = 1.0;
+        self.attack_step = 0.0;
     }
 }
 
@@ -627,6 +683,7 @@ mod tests {
         global_frame: u64,
         write_pos: usize,
         gain_reduction: u64,
+        attack_step: u64,
     }
 
     fn peak_limiter_state(limiter: &PeakLimiter) -> PeakLimiterState {
@@ -654,15 +711,25 @@ mod tests {
             global_frame: limiter.global_frame,
             write_pos: limiter.write_pos,
             gain_reduction: limiter.gain_reduction.to_bits(),
+            attack_step: limiter.attack_step.to_bits(),
         }
     }
 
+    /// Brute-force O(N·L) reference for the monotonic max queue.
+    ///
+    /// This exists to prove the queue's sliding maximum, not the gain shape, so
+    /// it mirrors the attack ramp and the outgoing-frame ceiling clamp exactly.
+    /// If it kept the historical instant attack the differential tests would
+    /// compare two different limiters and fail for a reason unrelated to the
+    /// queue.
     struct LegacyPeakLimiter {
         threshold: f64,
         lookahead_frames: usize,
         delay_buffer: Box<[f64]>,
         write_pos: usize,
         gain_reduction: f64,
+        attack_frames: usize,
+        attack_step: f64,
         release_coeff: f64,
         channels: usize,
     }
@@ -687,6 +754,8 @@ mod tests {
                 delay_buffer: vec![0.0; lookahead_frames * channels].into_boxed_slice(),
                 write_pos: 0,
                 gain_reduction: 1.0,
+                attack_frames: attack_frames_for(lookahead_frames),
+                attack_step: 0.0,
                 release_coeff,
                 channels,
             }
@@ -707,8 +776,11 @@ mod tests {
                 };
 
                 if target_gain < self.gain_reduction {
-                    self.gain_reduction = target_gain;
+                    let step = (self.gain_reduction - target_gain) / self.attack_frames as f64;
+                    self.attack_step = self.attack_step.max(step);
+                    self.gain_reduction = (self.gain_reduction - self.attack_step).max(target_gain);
                 } else {
+                    self.attack_step = 0.0;
                     self.gain_reduction = self.gain_reduction
                         + (1.0 - self.gain_reduction) * (1.0 - self.release_coeff);
                     self.gain_reduction = self.gain_reduction.min(target_gain);
@@ -797,6 +869,139 @@ mod tests {
         assert_samples_eq(&chunked, &one_shot);
     }
 
+    /// D2 (2026-08-11 review): the attack branch used to assign
+    /// `gain_reduction = target_gain` in a single sample. A transient 6 dB over
+    /// the ceiling snapped the gain 1.0 -> 0.5 on one sample and applied that
+    /// step to sustained program material already sitting in the delay line,
+    /// an audible thud ~10 ms before the transient.
+    ///
+    /// The ramp now spends the lookahead. Bound: the steepest legal descent
+    /// closes the largest possible gap (1.0 down to `threshold/peak`) across
+    /// `attack_frames`, so no single frame may move the gain by more than
+    /// `(1.0 - threshold/peak) / attack_frames`. The pre-fix code violated this
+    /// by a factor of `attack_frames`.
+    #[test]
+    fn attack_ramps_across_the_lookahead_instead_of_stepping() {
+        let sample_rate = 48_000;
+        let lookahead_ms = 10.0;
+        let threshold_db = -1.0;
+        let mut limiter = PeakLimiter::with_mode_validated(
+            2,
+            sample_rate,
+            threshold_db,
+            lookahead_ms,
+            100.0,
+            LimiterMode::SamplePeak,
+        );
+
+        // Quiet sustained bed, then a transient 6 dB over the ceiling. The bed
+        // is what the old hard step was audibly ducking.
+        //
+        // The transient goes on channel 0 only. Gain is computed from the peak
+        // across channels but applied to both, so channel 1 stays a constant bed
+        // and `out / bed` recovers the applied gain at every frame with no
+        // contaminated samples and no delay-offset arithmetic to get wrong.
+        let bed = db_to_linear(-20.0);
+        let transient = db_to_linear(threshold_db + 6.0);
+        let frames = 4_000;
+        let mut samples = vec![bed; frames * 2];
+        samples[2_000 * 2] = transient;
+
+        let lookahead_frames = ((lookahead_ms / 1000.0) * sample_rate as f64).ceil() as usize;
+        let attack_frames = attack_frames_for(lookahead_frames);
+        let threshold = db_to_linear(threshold_db);
+        let max_step = (1.0 - threshold / transient) / attack_frames as f64;
+
+        limiter.process_validated(&mut samples);
+
+        let mut previous = 1.0_f64;
+        let mut worst_step = 0.0_f64;
+        let mut ramp_frames = 0usize;
+        // Skip the priming window: output is the zero-filled delay line there.
+        for frame in lookahead_frames..frames {
+            let gain = samples[frame * 2 + 1] / bed;
+            let step = previous - gain;
+            if step > 1e-12 {
+                worst_step = worst_step.max(step);
+                ramp_frames += 1;
+            }
+            previous = gain;
+        }
+
+        assert!(
+            worst_step <= max_step * (1.0 + 1e-9),
+            "single-frame gain step {worst_step} exceeds the derived bound {max_step} \
+             (attack_frames={attack_frames})"
+        );
+        assert!(
+            ramp_frames > 1,
+            "attack collapsed to {ramp_frames} frame(s); the ramp is not engaging"
+        );
+    }
+
+    /// The ramp is a smoothing device and must not become a correctness hole:
+    /// the ceiling holds even while the gain is still descending. This is the
+    /// guarantee the 2026-08-11 review derived and closed, and
+    /// [`RAMP_SETTLE_FRAMES`] is what preserves it.
+    ///
+    /// Measured as a **true** peak, not `sample.abs()`. In true-peak mode the
+    /// ceiling the limiter promises is on the reconstruction, and a gain still
+    /// moving across the FIR span breaches that while every individual sample
+    /// still looks compliant -- an earlier draft of this test measured sample
+    /// peaks, passed, and let a ~0.01 dB true-peak overshoot through to
+    /// `output_chain`'s guard test.
+    #[test]
+    fn attack_ramp_never_lets_a_sample_exceed_the_ceiling() {
+        let threshold_db = -1.0;
+        let threshold = db_to_linear(threshold_db);
+
+        for mode in [LimiterMode::SamplePeak, LimiterMode::TruePeak] {
+            let mut limiter =
+                PeakLimiter::with_mode_validated(2, 48_000, threshold_db, 10.0, 100.0, mode);
+            // Staircase of escalating over-ceiling transients: each one re-arms
+            // the ramp mid-descent, which is the case a naive ramp gets wrong.
+            let mut samples = vec![db_to_linear(-20.0); 6_000 * 2];
+            for (step, over_db) in [3.0, 6.0, 9.0, 12.0, 18.0].iter().enumerate() {
+                let amplitude = db_to_linear(threshold_db + over_db);
+                let base = (500 + step * 900) * 2;
+                for ch in 0..2 {
+                    samples[base + ch] = amplitude;
+                    samples[base + 2 + ch] = amplitude;
+                }
+            }
+
+            limiter.process_validated(&mut samples);
+
+            let worst_sample = samples.iter().fold(0.0_f64, |acc, s| acc.max(s.abs()));
+            assert!(
+                worst_sample <= threshold + 1e-12,
+                "{mode:?}: output sample peak {worst_sample} exceeded ceiling {threshold}"
+            );
+
+            // Re-measure the rendered output the way a compliance meter would.
+            // Only true-peak mode promises anything about the reconstruction --
+            // sample-peak mode deliberately does not, which is the whole point
+            // of `sample_peak_mode_misses_what_true_peak_catches`.
+            if mode == LimiterMode::SamplePeak {
+                continue;
+            }
+            let mut worst_true = 0.0_f64;
+            for ch in 0..2 {
+                let mut detector = TruePeakDetector::new();
+                detector.process_strided(&samples, ch, 2);
+                detector.process(&[0.0; 16]);
+                worst_true = worst_true.max(detector.max_true_peak());
+            }
+            assert!(
+                worst_true <= threshold + 1e-9,
+                "{mode:?}: output TRUE peak {worst_true} ({:.6} dBTP) exceeded ceiling \
+                 {threshold} ({threshold_db:.6} dBTP); the ramp is still moving across the \
+                 reconstruction span",
+                linear_to_db(worst_true)
+            );
+        }
+    }
+
     #[test]
     fn monotonic_queue_handles_sustained_pre_clipping() {
         let mut limiter =
@@ -826,6 +1031,7 @@ mod tests {
         assert_eq!(limiter.global_frame, 0);
         assert_eq!(limiter.write_pos, 0);
         assert_eq!(limiter.gain_reduction, 1.0);
+        assert_eq!(limiter.attack_step, 0.0);
     }
 
     #[test]
