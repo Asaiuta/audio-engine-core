@@ -9,11 +9,14 @@ use audio_engine_core::processor::{
     process_checked, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
     AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, AudioBlockMut,
-    AudioBlockRef, ConvolverControl, Crossfeed, CrossfeedProcessor, DynamicLoudness, Equalizer,
-    LimiterMode, LoudnessMeter, NoiseShaper, NoiseShaperCurve, OfflineRenderPolicy,
-    OutputChainBuilder, OutputChainParams, PeakLimiter, ProcessBuffers, ProcessState,
-    RenderTimeline, RenderedOutput, Saturation, SaturationQuality, SaturationType,
-    StreamingProcessor, StreamingResampler, EQ_BANDS,
+    AudioBlockRef, ConvolverControl, Crossfeed, CrossfeedParamsSnapshot, CrossfeedProcessor,
+    DynamicLoudness, EqParamsSnapshot, EqProcessor, Equalizer, LimiterMode, LoudnessMeter,
+    NoiseShaper, NoiseShaperCurve, NoiseShaperParamsSnapshot, NoiseShaperProcessor,
+    OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, PeakLimiter,
+    PeakLimiterParamsSnapshot, PeakLimiterProcessor, ProcessBuffers, ProcessState, RenderTimeline,
+    RenderedOutput, Saturation, SaturationParamsSnapshot, SaturationProcessor, SaturationQuality,
+    SaturationQualityValue, SaturationType, SaturationTypeValue, StreamingProcessor,
+    StreamingResampler, VolumeParamsSnapshot, VolumeProcessor, EQ_BANDS,
 };
 use ebur128::Channel;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -96,6 +99,40 @@ const GATE_NOISE_LOW_LEVEL_CHANGED_FRACTION_MIN: f64 = 0.99;
 const GATE_NOISE_STRESS_PEAK_MAX: f64 = 1.0;
 const GATE_NOISE_STRESS_NON_FINITE_MAX: f64 = 0.0;
 const GATE_LOUDNESS_PARITY_MAX_LU: f64 = 1.0e-6; // wrapper forwards to ebur128
+
+// --- Parameter-transition continuity probe ---------------------------------
+//
+// One uniform discontinuity probe over every field of every in-scope
+// `Atomic*Params`. See `measure_parameter_transitions` for the method and
+// `PARAMETER_TRANSITION_CASES` for the per-field smoothing declarations.
+
+/// Probe tone amplitude. Low enough that no in-scope processor limits or
+/// saturates it on its own, so a measured discontinuity is attributable to the
+/// parameter step rather than to the processor's steady-state nonlinearity.
+const PARAM_STEP_AMPLITUDE_DBFS: f64 = -12.0;
+/// Frames rendered before the step, so every smoother has settled and the
+/// filter history is in steady state.
+const PARAM_STEP_WARMUP_FRAMES: usize = 8_192;
+/// Frames rendered after the step. Must exceed the longest declared smoothing
+/// window (the limiter's ~493-frame attack budget at 10 ms/48 kHz) with room
+/// for the trajectory to settle.
+const PARAM_STEP_SETTLE_FRAMES: usize = 8_192;
+/// Block size the probe renders with. The step is published between blocks,
+/// which is how a real control thread reaches the callback.
+const PARAM_STEP_BLOCK_FRAMES: usize = 512;
+/// Minimum settled output change a case must produce for its bound to mean
+/// anything. Below this the parameter has no authority over the probe signal
+/// (e.g. a 16 kHz EQ band against a 200 Hz tone), so the case is reported as
+/// `skipped` rather than passed — an inert probe is not evidence.
+const PARAM_STEP_AUTHORITY_FLOOR: f64 = 1.0e-6;
+/// Multiplier applied to the derived per-sample bound `authority /
+/// smoothing_frames`. Covers the peak slope of a non-linear smoothing curve
+/// (a smoothstep peaks at 1.5x its mean slope, an exponential at
+/// `1/(1 - exp(-1)) ~ 1.58x`), filter phase movement during the ramp, and
+/// block-boundary granularity. It is not a fudge factor for an unsmoothed
+/// parameter: at `smoothing_frames = 1` the bound degenerates to the full step
+/// and the case is classified `report`, not `gate`.
+const PARAM_STEP_BOUND_SAFETY: f64 = 8.0;
 
 const EBU_TRUE_PEAK_FILES: [EbuExpectedFile; 9] = [
     EbuExpectedFile::new("seq-3341-15-24bit.wav.wav", -6.0),
@@ -306,6 +343,7 @@ struct QualityReport {
     noise_shaping: NoiseShapingSection,
     loudness_reference: LoudnessReferenceSection,
     full_output_true_peak: FullOutputTruePeakSection,
+    parameter_transitions: ParameterTransitionSection,
     // Machine-readable gate/report classification for every metric a reader might
     // cite. `gate` metrics fail the run under `--enforce`; `report` metrics are
     // evidence only. This makes README numbers traceable to a named, classified
@@ -477,6 +515,7 @@ struct Conditions {
     limiter_method: &'static str,
     noise_shaping_method: &'static str,
     loudness_reference_method: &'static str,
+    parameter_transition_method: &'static str,
     full_output_true_peak_method: String,
     render_timeline: &'static str,
     unknown_tail_energy_threshold_dbfs: f64,
@@ -864,6 +903,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
     let loudness_reference = measure_loudness_reference(ebu_dir)?;
     let render_policy = OfflineRenderPolicy::default();
     let full_output_true_peak = measure_full_output_true_peak(frames, ebu_dir, render_policy)?;
+    let parameter_transitions = measure_parameter_transitions()?;
 
     let metrics = build_metrics(
         &resampler_fit,
@@ -877,6 +917,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         &noise_shaping,
         &loudness_reference,
         &full_output_true_peak,
+        &parameter_transitions,
     );
 
     Ok(QualityReport {
@@ -898,6 +939,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
             limiter_method: "PeakLimiter (default 4x-oversampled true-peak detection) in-place processing; reports sample-peak ceiling, below-threshold THD+N, and intersample-peak stress vs legacy sample-peak mode",
             noise_shaping_method: "16-bit NoiseShaper error signal FFT with Hann window; equal-width 2-6/6-10/14-18 kHz RMS bands plus -140 dBFS, silence, overload, and non-finite boundary probes",
             loudness_reference_method: "LoudnessMeter wrapper compared with direct ebur128 over deterministic f64 fixtures; optional EBU Tech 3341/3342 corpus expected-value checks",
+            parameter_transition_method: "per-field step probe: three passes (hold pre-step / step at a block boundary / hold post-step) through one adapter; authority = max|C-A| over the settled tail, excess step = max(0, |dB| - max(|dA|,|dC|)) so the signal's own slew is not counted, bound = authority / documented_ramp_frames * safety",
             full_output_true_peak_method: format!(
                 "offline render stages: {}; post-render analysis: {}",
                 offline_render_stage_order_csv(),
@@ -926,6 +968,7 @@ fn run_measurements(quick: bool, ebu_dir: &Path) -> Result<QualityReport, String
         noise_shaping,
         loudness_reference,
         full_output_true_peak,
+        parameter_transitions,
         metrics,
     })
 }
@@ -943,6 +986,7 @@ fn build_metrics(
     noise_shaping: &NoiseShapingSection,
     loudness_reference: &LoudnessReferenceSection,
     full_output_true_peak: &FullOutputTruePeakSection,
+    parameter_transitions: &ParameterTransitionSection,
 ) -> Vec<MetricResult> {
     let mut metrics = vec![
         // --- Deterministic / high-headroom synthetic gates (always run) ---
@@ -1148,6 +1192,9 @@ fn build_metrics(
     // --- EBU corpus gates: enforced only when reference vectors are present ---
     build_ebu_loudness_metrics(&loudness_reference.ebu_corpus, &mut metrics);
     build_ebu_true_peak_metrics(&full_output_true_peak.ebu_true_peak_corpus, &mut metrics);
+
+    // --- Per-parameter transition continuity: one row per Atomic*Params field ---
+    metrics.extend(parameter_transition_metrics(parameter_transitions));
 
     metrics
 }
@@ -1752,6 +1799,1238 @@ struct CrossfeedContinuityResult {
     first_frame_delta: f64,
     preserved_max_delta: f64,
     legacy_reset_max_delta: f64,
+}
+
+/// How a parameter's transition behaviour is *documented* to work. This is a
+/// declaration of intent read from the implementation, not a measurement: the
+/// probe's job is to check the code still matches it.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SmoothingKind {
+    /// The processor ramps this parameter over a documented window, so the
+    /// per-sample step is bounded by `authority / frames`. Gated.
+    Smoothed,
+    /// The processor applies this parameter as a hard switch by design (bypass
+    /// gating, quantizer geometry, detector topology). The measured step is
+    /// recorded as evidence of its size, not as a pass/fail. Report-only.
+    HardSwitch,
+    /// The parameter changes a rate or a mapping rather than an output level,
+    /// so it has no direct step of its own. Report-only: the number is here so
+    /// that a future change which *does* introduce a step becomes visible.
+    RateOnly,
+    /// A continuous parameter that reaches the signal path with **no** ramp,
+    /// and whose discontinuity is not a documented design decision. This is a
+    /// finding, not a contract. Report-only here because fixing smoothing
+    /// behaviour is out of this probe's scope; the recorded number is the size
+    /// of the step a listener would hear.
+    Unsmoothed,
+}
+
+/// One (processor, field) transition probe.
+struct ParameterTransitionCase {
+    /// Full, stable metric name. Written out per case rather than formatted from
+    /// a prefix because [`MetricResult::name`] is `&'static str`.
+    key: &'static str,
+    /// Which processor owns the parameter, for the report and the docs table.
+    processor: &'static str,
+    /// Which adapter to instantiate for this case.
+    proc: ProcKind,
+    /// The `Atomic*Params` field being stepped.
+    field: &'static str,
+    kind: SmoothingKind,
+    /// Documented ramp length in frames at [`SAMPLE_RATE`]. `1` means the value
+    /// takes effect on the next sample.
+    smoothing_frames: f64,
+    /// Where the documented window comes from, for the docs table.
+    smoothing_source: &'static str,
+    /// Probe tone frequency. Chosen per case so the parameter has authority
+    /// over the signal; an inert choice shows up as a `skipped` case.
+    probe_hz: f64,
+    /// Probe tone level. The limiter cases need a level above the ceiling for
+    /// the gain path to engage at all, and the noise-shaper cases need a level
+    /// where quantization is audible.
+    probe_dbfs: f64,
+    /// Whether the probe is hard-panned (left only). The crossfeed cases need
+    /// this: crossfeed acts on inter-channel bleed, so a dual-mono probe leaves
+    /// `mix` and `cutoff_hz` with no authority at all.
+    panned: bool,
+    /// Puts the processor into the state where this field has authority, before
+    /// any audio runs and before the adapter is built. Most processors ship
+    /// disabled (`Saturation` also ships unarmed), so without this the probe
+    /// would measure a bypassed path and land in `skipped`.
+    ///
+    /// This publishes the *pre-step* state, so it must not touch the field under
+    /// test; `apply(Stage::From)` owns that.
+    setup: fn(&ParamHandles),
+    /// Publishes either the pre-step or the post-step value of this one field.
+    /// A function pointer rather than a pair of `f64`s so each case states its
+    /// two values in the field's own units and types. The `usize` carries the
+    /// EQ band index; every other case ignores it.
+    apply: fn(&ParamHandles, Stage, usize),
+    /// EQ band index. Unused (`0`) for the other five processors.
+    index: usize,
+    /// Human-readable "from -> to", for the report and the docs table.
+    transition: &'static str,
+}
+
+/// Which adapter a case drives. The adapters have different constructors, so the
+/// probe body dispatches on this rather than on the display name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcKind {
+    Eq,
+    Saturation,
+    Crossfeed,
+    Limiter,
+    Volume,
+    NoiseShaper,
+}
+
+/// No-op setup, for the processors that already ship in a state where the field
+/// under test has authority (`PeakLimiter` and `Volume`).
+fn param_step_no_setup(_: &ParamHandles) {}
+
+/// Which end of a case's transition to publish.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    From,
+    To,
+}
+
+/// The six in-scope parameter publishers, all live at once so one probe body
+/// serves every case.
+struct ParamHandles {
+    eq: Arc<AtomicEqParams>,
+    saturation: Arc<AtomicSaturationParams>,
+    crossfeed: Arc<AtomicCrossfeedParams>,
+    limiter: Arc<AtomicPeakLimiterParams>,
+    volume: Arc<AtomicVolumeParams>,
+    noise_shaper: Arc<AtomicNoiseShaperParams>,
+}
+
+/// EQ band centre frequencies, mirroring the private `Equalizer::FREQUENCIES`
+/// table so each band can be probed where it has authority.
+///
+/// A drift between this list and the real one only moves the probe tone off the
+/// band centre, which *lowers* the measured authority and can push a case below
+/// [`PARAM_STEP_AUTHORITY_FLOOR`] into `skipped`. It cannot turn a continuous
+/// parameter into a falsely passing gate, so the duplication is safe in the one
+/// direction that matters.
+const PARAM_STEP_EQ_BAND_HZ: [f64; EQ_BANDS] = [
+    31.0, 62.0, 125.0, 250.0, 500.0, 1_000.0, 2_000.0, 4_000.0, 8_000.0, 16_000.0,
+];
+
+/// Every field of every in-scope `Atomic*Params`, one case each.
+///
+/// Exhaustiveness is enforced by `parameter_transition_cases_cover_every_field`
+/// in `tests/`, which destructures each snapshot so a newly added field is a
+/// compile error until it appears here.
+fn parameter_transition_cases() -> Vec<ParameterTransitionCase> {
+    let mut cases = Vec::new();
+
+    // --- Equalizer -------------------------------------------------------
+    // Per-band gains crossfade over EQ_SMOOTH_SAMPLES; `enabled` is a bypass
+    // gate in `process_fixed_1_to_1` and steps.
+    for (band, &hz) in PARAM_STEP_EQ_BAND_HZ.iter().enumerate() {
+        cases.push(ParameterTransitionCase {
+            key: PARAM_STEP_EQ_BAND_KEYS[band],
+            processor: "Equalizer",
+            proc: ProcKind::Eq,
+            field: "gains[n]",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 1_024.0,
+            smoothing_source: "EQ_SMOOTH_SAMPLES (eq.rs)",
+            probe_hz: hz,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: false,
+            // Ships disabled; the bypass gate would hide the band gain entirely.
+            setup: |h| h.eq.set_enabled(true),
+            apply: |h, stage, band| {
+                h.eq.set_band_gain(band, if stage == Stage::From { 0.0 } else { 9.0 });
+            },
+            index: band,
+            transition: "0 -> +9 dB",
+        });
+    }
+    cases.push(ParameterTransitionCase {
+        key: "param_step_eq_enabled",
+        processor: "Equalizer",
+        proc: ProcKind::Eq,
+        field: "enabled",
+        kind: SmoothingKind::HardSwitch,
+        smoothing_frames: 1.0,
+        smoothing_source: "process_fixed_1_to_1 bypass gate",
+        probe_hz: 1_000.0,
+        probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+        panned: false,
+        // A flat EQ would make the bypass inaudible, so give the 1 kHz band gain
+        // for the switch to reveal. `enabled` itself stays with `apply`.
+        setup: |h| h.eq.set_band_gain(5, 9.0),
+        apply: |h, stage, _| h.eq.set_enabled(stage == Stage::To),
+        index: 0,
+        transition: "false -> true (with +9 dB at 1 kHz)",
+    });
+
+    cases.extend(parameter_transition_saturation_cases());
+    cases.extend(parameter_transition_remaining_cases());
+    cases
+}
+
+/// Stable per-band metric names. Written out rather than formatted so they stay
+/// `&'static str`, which `MetricResult` requires.
+const PARAM_STEP_EQ_BAND_KEYS: [&str; EQ_BANDS] = [
+    "param_step_eq_gain_band0",
+    "param_step_eq_gain_band1",
+    "param_step_eq_gain_band2",
+    "param_step_eq_gain_band3",
+    "param_step_eq_gain_band4",
+    "param_step_eq_gain_band5",
+    "param_step_eq_gain_band6",
+    "param_step_eq_gain_band7",
+    "param_step_eq_gain_band8",
+    "param_step_eq_gain_band9",
+];
+
+/// Probe level for the saturation cases: 0.794 linear.
+const PARAM_STEP_SATURATION_DBFS: f64 = -2.0;
+
+/// Knee threshold the saturation probes run against.
+///
+/// `apply_thresholded_saturation` returns its input untouched while
+/// `|input| <= threshold`, and the shipped default is `0.88` — above the probe's
+/// 0.794, so at the default the waveshaper never engages and `drive`, `mix`,
+/// `sat_type` and `quality` all measure exactly zero authority. Lowering the
+/// knee to 0.5 puts the probe well inside it (the knee is 0.05 wide).
+const PARAM_STEP_SATURATION_THRESHOLD: f64 = 0.5;
+
+/// Puts `Saturation` where its continuous parameters reach the waveshaper.
+///
+/// `enabled` and `armed` already ship `true`; setting them explicitly keeps the
+/// probe independent of the shipped defaults. The threshold is what actually
+/// matters — see [`PARAM_STEP_SATURATION_THRESHOLD`].
+fn param_step_saturation_setup(h: &ParamHandles) {
+    h.saturation.set_enabled(true);
+    h.saturation.set_armed(true);
+    h.saturation.set_threshold(PARAM_STEP_SATURATION_THRESHOLD);
+}
+
+/// `AtomicSaturationParams`: 11 fields.
+///
+/// Six of them (`drive`, `threshold`, `mix`, `input_gain_db`, `output_gain_db`,
+/// `highpass_cutoff`) reach the waveshaper with no ramp at all — `set_drive` and
+/// friends in `saturation.rs:395-446` sanitize and assign. Those are recorded as
+/// [`SmoothingKind::Unsmoothed`] findings; this probe measures, it does not
+/// redesign the ramps.
+fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
+    vec![
+        ParameterTransitionCase {
+            key: "param_step_saturation_drive",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "drive",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_drive assigns directly)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation
+                    .set_drive(if stage == Stage::From { 1.0 } else { 2.0 });
+            },
+            index: 0,
+            transition: "1.0 -> 2.0",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_threshold",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "threshold",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_threshold assigns directly)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            // `threshold` is the field under test, so setup must not set it.
+            // Both ends sit below the probe's 0.794, so the knee is engaged
+            // throughout and the step moves how deep into it the signal sits.
+            setup: |h| {
+                h.saturation.set_enabled(true);
+                h.saturation.set_armed(true);
+            },
+            apply: |h, stage, _| {
+                h.saturation
+                    .set_threshold(if stage == Stage::From { 0.7 } else { 0.4 });
+            },
+            index: 0,
+            transition: "0.7 -> 0.4",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_mix",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "mix",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_mix assigns directly)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation
+                    .set_mix(if stage == Stage::From { 0.5 } else { 1.0 });
+            },
+            index: 0,
+            transition: "0.5 -> 1.0 (dry/wet)",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_input_gain_db",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "input_gain_db",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_input_gain assigns directly)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation
+                    .set_input_gain(if stage == Stage::From { 0.0 } else { 6.0 });
+            },
+            index: 0,
+            transition: "0 -> +6 dB",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_output_gain_db",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "output_gain_db",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_output_gain assigns directly)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation
+                    .set_output_gain(if stage == Stage::From { 0.0 } else { -6.0 });
+            },
+            index: 0,
+            transition: "0 -> -6 dB",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_highpass_cutoff",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "highpass_cutoff",
+            kind: SmoothingKind::Unsmoothed,
+            smoothing_frames: 1.0,
+            smoothing_source: "none (set_highpass_cutoff assigns directly)",
+            // Between the two corner positions, so the step moves the probe from
+            // inside the saturated band to outside it.
+            probe_hz: 3_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            // The cutoff only reaches the signal path with highpass mode on.
+            // Both ends must stay inside
+            // [SATURATION_HIGHPASS_CUTOFF_HZ_MIN, ..MAX] = [1000, 12000] or the
+            // setter clamps them to the same value and the case reads zero.
+            setup: |h| {
+                param_step_saturation_setup(h);
+                h.saturation.set_highpass_mode(true);
+                h.saturation.set_highpass_cutoff(1_500.0);
+            },
+            apply: |h, stage, _| {
+                h.saturation.set_highpass_cutoff(if stage == Stage::From {
+                    1_500.0
+                } else {
+                    6_000.0
+                });
+            },
+            index: 0,
+            transition: "1500 -> 6000 Hz",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_sat_type",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "sat_type",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "curve identity swap (no crossfade)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation.set_sat_type(if stage == Stage::From {
+                    SaturationTypeValue::Tape
+                } else {
+                    SaturationTypeValue::Transistor
+                });
+            },
+            index: 0,
+            transition: "Tape -> Transistor",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_quality",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "quality",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 32.0,
+            smoothing_source: "SATURATION_TRANSITION_FRAMES (adapters.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: param_step_saturation_setup,
+            apply: |h, stage, _| {
+                h.saturation.set_quality(if stage == Stage::From {
+                    SaturationQualityValue::Direct
+                } else {
+                    SaturationQualityValue::Oversampled4x
+                });
+            },
+            index: 0,
+            transition: "Direct -> Oversampled4x",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_highpass_mode",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "highpass_mode",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "HPF topology insert (no crossfade)",
+            // Below the corner: fullband mode saturates this probe, highpass mode
+            // largely does not, which is the authority the switch has.
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            setup: |h| {
+                param_step_saturation_setup(h);
+                h.saturation.set_highpass_cutoff(4_000.0);
+            },
+            apply: |h, stage, _| h.saturation.set_highpass_mode(stage == Stage::To),
+            index: 0,
+            transition: "false -> true (4 kHz corner)",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_enabled",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "enabled",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 32.0,
+            smoothing_source: "SATURATION_TRANSITION_FRAMES (adapters.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            // Armed but soft-disabled: `enabled` is the field under test. Armed
+            // means the core keeps running, so this is a weight crossfade with no
+            // latency change.
+            setup: |h| {
+                h.saturation.set_armed(true);
+                h.saturation.set_threshold(PARAM_STEP_SATURATION_THRESHOLD);
+            },
+            apply: |h, stage, _| h.saturation.set_enabled(stage == Stage::To),
+            index: 0,
+            transition: "false -> true",
+        },
+        ParameterTransitionCase {
+            key: "param_step_saturation_armed",
+            processor: "Saturation",
+            proc: ProcKind::Saturation,
+            field: "armed",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "arming gate ahead of the effect transition",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_SATURATION_DBFS,
+            panned: false,
+            // Enabled but unarmed: `armed` is the field under test.
+            setup: |h| {
+                h.saturation.set_enabled(true);
+                h.saturation.set_threshold(PARAM_STEP_SATURATION_THRESHOLD);
+            },
+            apply: |h, stage, _| h.saturation.set_armed(stage == Stage::To),
+            index: 0,
+            // FINDING. `sync_params` only ignores a runtime `armed` change while
+            // `stream_started`, but `process` returns at the hard-bypass branch
+            // *before* setting that flag (adapters.rs:829-838). A processor that
+            // starts unarmed therefore never marks the stream as started, so
+            // arming mid-stream is honoured, the core gains its 4-frame delay,
+            // and the output timeline jumps. `set_hard_bypassed` refuses the same
+            // change with an error; the params path has no equivalent guard.
+            transition: "false -> true (mid-stream arming shifts latency 0 -> 4 frames)",
+        },
+    ]
+}
+
+/// Probe level for the limiter cases: above the default -1 dBFS ceiling, so the
+/// gain-reduction path actually engages and the threshold has authority.
+const PARAM_STEP_LIMITER_DBFS: f64 = 2.0;
+
+/// Probe level for the noise-shaper cases. Quantization to 16 bits is inaudible
+/// against a -12 dBFS tone; near the LSB it dominates, which is where `bits` and
+/// `curve` have authority. Matches the existing noise-shaping section's level.
+const PARAM_STEP_NOISE_SHAPER_DBFS: f64 = -90.0;
+
+/// `AtomicCrossfeedParams` (3), `AtomicPeakLimiterParams` (4),
+/// `AtomicVolumeParams` (2), and `AtomicNoiseShaperParams` (3).
+fn parameter_transition_remaining_cases() -> Vec<ParameterTransitionCase> {
+    vec![
+        // --- Crossfeed ---------------------------------------------------
+        // `mix` and `cutoff_hz` retarget over PARAMETER_RAMP_MS; `enabled` is a
+        // bypass gate. All three need a hard-panned probe.
+        ParameterTransitionCase {
+            key: "param_step_crossfeed_mix",
+            processor: "Crossfeed",
+            proc: ProcKind::Crossfeed,
+            field: "mix",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 480.0,
+            smoothing_source: "PARAMETER_RAMP_MS = 10 ms (crossfeed.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: true,
+            setup: |h| h.crossfeed.set_enabled(true),
+            apply: |h, stage, _| {
+                h.crossfeed
+                    .set_mix(if stage == Stage::From { 0.3 } else { 0.7 });
+            },
+            index: 0,
+            transition: "0.3 -> 0.7",
+        },
+        ParameterTransitionCase {
+            key: "param_step_crossfeed_cutoff_hz",
+            processor: "Crossfeed",
+            proc: ProcKind::Crossfeed,
+            field: "cutoff_hz",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 480.0,
+            smoothing_source: "PARAMETER_RAMP_MS = 10 ms (crossfeed.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: true,
+            setup: |h| {
+                h.crossfeed.set_enabled(true);
+                h.crossfeed.set_cutoff(700.0);
+            },
+            apply: |h, stage, _| {
+                h.crossfeed
+                    .set_cutoff(if stage == Stage::From { 700.0 } else { 1_500.0 });
+            },
+            index: 0,
+            transition: "700 -> 1500 Hz",
+        },
+        ParameterTransitionCase {
+            key: "param_step_crossfeed_enabled",
+            processor: "Crossfeed",
+            proc: ProcKind::Crossfeed,
+            field: "enabled",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "bypass gate (no crossfade)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: true,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| h.crossfeed.set_enabled(stage == Stage::To),
+            index: 0,
+            transition: "false -> true",
+        },
+        // --- PeakLimiter -------------------------------------------------
+        // `threshold_db` moves the ceiling, which the 08-11 attack ramp covers
+        // over the true-peak reconstruction delay. `release_ms` is a rate.
+        ParameterTransitionCase {
+            key: "param_step_limiter_threshold_db",
+            processor: "PeakLimiter",
+            proc: ProcKind::Limiter,
+            field: "threshold_db",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 479.0,
+            smoothing_source: "attack_frames_for(TRUE_PEAK_DELAY) (limiter.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_LIMITER_DBFS,
+            panned: false,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| {
+                h.limiter
+                    .set_threshold(if stage == Stage::From { -1.0 } else { -6.0 });
+            },
+            index: 0,
+            transition: "-1 -> -6 dBFS",
+        },
+        ParameterTransitionCase {
+            key: "param_step_limiter_release_ms",
+            processor: "PeakLimiter",
+            proc: ProcKind::Limiter,
+            field: "release_ms",
+            kind: SmoothingKind::RateOnly,
+            smoothing_frames: 1.0,
+            smoothing_source: "release coefficient (rate, not level)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_LIMITER_DBFS,
+            panned: false,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| {
+                h.limiter
+                    .set_release(if stage == Stage::From { 100.0 } else { 20.0 });
+            },
+            index: 0,
+            transition: "100 -> 20 ms",
+        },
+        ParameterTransitionCase {
+            key: "param_step_limiter_mode",
+            processor: "PeakLimiter",
+            proc: ProcKind::Limiter,
+            field: "mode",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "detector topology and output delay change",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_LIMITER_DBFS,
+            panned: false,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| {
+                h.limiter.set_mode(if stage == Stage::From {
+                    LimiterMode::TruePeak
+                } else {
+                    LimiterMode::SamplePeak
+                });
+            },
+            index: 0,
+            transition: "TruePeak -> SamplePeak",
+        },
+        ParameterTransitionCase {
+            key: "param_step_limiter_enabled",
+            processor: "PeakLimiter",
+            proc: ProcKind::Limiter,
+            field: "enabled",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "bypass gate (no crossfade)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_LIMITER_DBFS,
+            panned: false,
+            // Ships enabled; `enabled` is the field under test, so start it off.
+            setup: |h| h.limiter.set_enabled(false),
+            apply: |h, stage, _| h.limiter.set_enabled(stage == Stage::To),
+            index: 0,
+            transition: "false -> true",
+        },
+        // --- Volume ------------------------------------------------------
+        // Both fields run through the 5 ms exponential smoother. `muted` is
+        // documented in the adapter as a smoothed gain change, not a bypass.
+        ParameterTransitionCase {
+            key: "param_step_volume_volume",
+            processor: "Volume",
+            proc: ProcKind::Volume,
+            field: "volume",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 240.0,
+            smoothing_source: "5 ms exponential smoother (adapters.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: false,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| {
+                h.volume
+                    .set_volume(if stage == Stage::From { 1.0 } else { 0.25 });
+            },
+            index: 0,
+            transition: "1.0 -> 0.25",
+        },
+        ParameterTransitionCase {
+            key: "param_step_volume_muted",
+            processor: "Volume",
+            proc: ProcKind::Volume,
+            field: "muted",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: 240.0,
+            smoothing_source: "5 ms exponential smoother (adapters.rs)",
+            probe_hz: 1_000.0,
+            probe_dbfs: PARAM_STEP_AMPLITUDE_DBFS,
+            panned: false,
+            setup: param_step_no_setup,
+            apply: |h, stage, _| h.volume.set_muted(stage == Stage::To),
+            index: 0,
+            transition: "false -> true",
+        },
+        // --- NoiseShaper -------------------------------------------------
+        // All three fields are immediate by design: the quantizer geometry and
+        // the noise-transfer filter cannot be crossfaded without dithering twice.
+        ParameterTransitionCase {
+            key: "param_step_noise_shaper_enabled",
+            processor: "NoiseShaper",
+            proc: ProcKind::NoiseShaper,
+            field: "enabled",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "quantizer bypass (no crossfade)",
+            probe_hz: NOISE_STIMULUS_FREQUENCY_HZ,
+            probe_dbfs: PARAM_STEP_NOISE_SHAPER_DBFS,
+            panned: false,
+            // The shipped default is 24 bits, whose LSB (~1.2e-7) sits below
+            // PARAM_STEP_AUTHORITY_FLOOR. 16 bits gives the quantizer authority
+            // the probe can actually see. `enabled` stays the field under test.
+            setup: |h| h.noise_shaper.set_bits(NOISE_SHAPER_BITS),
+            apply: |h, stage, _| h.noise_shaper.set_enabled(stage == Stage::To),
+            index: 0,
+            // The TPDF stream only advances while the shaper is enabled, so the
+            // steady runs hold uncorrelated dither. That inflates `authority` and
+            // `natural_step` for this one case; it is report-only, and the
+            // recorded number is still the size of the audible change.
+            transition: "false -> true (dither streams desync; report-only)",
+        },
+        ParameterTransitionCase {
+            key: "param_step_noise_shaper_bits",
+            processor: "NoiseShaper",
+            proc: ProcKind::NoiseShaper,
+            field: "bits",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "quantizer step size (no crossfade)",
+            probe_hz: NOISE_STIMULUS_FREQUENCY_HZ,
+            probe_dbfs: PARAM_STEP_NOISE_SHAPER_DBFS,
+            panned: false,
+            setup: |h| h.noise_shaper.set_enabled(true),
+            apply: |h, stage, _| {
+                h.noise_shaper
+                    .set_bits(if stage == Stage::From { 16 } else { 8 });
+            },
+            index: 0,
+            transition: "16 -> 8 bits",
+        },
+        ParameterTransitionCase {
+            key: "param_step_noise_shaper_curve",
+            processor: "NoiseShaper",
+            proc: ProcKind::NoiseShaper,
+            field: "curve",
+            kind: SmoothingKind::HardSwitch,
+            smoothing_frames: 1.0,
+            smoothing_source: "noise-transfer filter swap (no crossfade)",
+            probe_hz: NOISE_STIMULUS_FREQUENCY_HZ,
+            probe_dbfs: PARAM_STEP_NOISE_SHAPER_DBFS,
+            panned: false,
+            // 16 bits so the curve difference clears the authority floor.
+            setup: |h| {
+                h.noise_shaper.set_enabled(true);
+                h.noise_shaper.set_bits(NOISE_SHAPER_BITS);
+            },
+            apply: |h, stage, _| {
+                h.noise_shaper.set_curve(if stage == Stage::From {
+                    NoiseShaperCurve::Lipshitz5
+                } else {
+                    NoiseShaperCurve::FWeighted9
+                });
+            },
+            index: 0,
+            transition: "Lipshitz5 -> FWeighted9",
+        },
+    ]
+}
+
+/// Per-case measured result.
+#[derive(Clone, Serialize)]
+struct ParameterTransitionResult {
+    key: &'static str,
+    processor: &'static str,
+    field: &'static str,
+    kind: SmoothingKind,
+    smoothing_frames: f64,
+    smoothing_source: &'static str,
+    probe_hz: f64,
+    /// Largest settled output change the step produces, `max |C - A|`. This is
+    /// the size of the transition the smoother has to cover.
+    authority: f64,
+    /// Worst per-sample step in the stepped run that is *not* explained by
+    /// either endpoint's own slew: `max(0, |dB| - max(|dA|, |dC|))`.
+    excess_step: f64,
+    /// `authority / smoothing_frames * PARAM_STEP_BOUND_SAFETY`.
+    bound: f64,
+    /// Natural slew of the steady runs, for context in the report.
+    natural_step: f64,
+    /// Documented ramp length this case's bound was derived from.
+    smoothing_frames_used: f64,
+    /// Human-readable "from -> to".
+    transition: &'static str,
+    /// Reported latency difference between the pre-step and post-step
+    /// configurations, in frames.
+    ///
+    /// Non-zero means the two steady runs are on different timelines, so `A` and
+    /// `C` are compared while phase-shifted and `authority` measures that shift
+    /// rather than a level change. Such a case cannot be gated; it is recorded
+    /// with the shift stated so nobody reads the number as a step size.
+    latency_shift_frames: i64,
+}
+
+/// One pass's captured output plus the latency the processor reported for it.
+struct ParameterTransitionPass {
+    samples: Vec<f64>,
+    latency_frames: i64,
+}
+
+/// Runs one case's three passes and reduces them to a [`ParameterTransitionResult`].
+///
+/// * **A** holds the pre-step value for the whole run.
+/// * **B** is identical to A until the step is published at the block boundary
+///   on frame [`PARAM_STEP_WARMUP_FRAMES`], then continues.
+/// * **C** holds the post-step value for the whole run, so it is fully settled.
+///
+/// `authority = max |C - A|` is how far the output has to travel. Subtracting
+/// *both* steady runs' own per-sample slew from B's is what separates the step
+/// from the signal's natural motion: a 16 kHz tone at -12 dBFS already moves
+/// ~0.2 per sample, which would swamp any fixed threshold.
+fn measure_parameter_transition(
+    case: &ParameterTransitionCase,
+) -> Result<ParameterTransitionResult, String> {
+    let pass_a = run_parameter_transition_pass(case, false)?;
+    let pass_b = run_parameter_transition_pass(case, true)?;
+    let pass_c = run_parameter_transition_pass_settled(case)?;
+    let latency_shift_frames = pass_c.latency_frames - pass_a.latency_frames;
+    let (a, b, c) = (pass_a.samples, pass_b.samples, pass_c.samples);
+
+    // The step lands at PARAM_STEP_WARMUP_FRAMES. Start one frame earlier so the
+    // first differences that straddle the boundary are inside the window.
+    let start = PARAM_STEP_WARMUP_FRAMES.saturating_sub(1);
+    let mut authority = 0.0_f64;
+    let mut natural_step = 0.0_f64;
+    let mut excess_step = 0.0_f64;
+
+    for ch in 0..CHANNELS {
+        let a_ch = extract_channel(&a, CHANNELS, ch);
+        let b_ch = extract_channel(&b, CHANNELS, ch);
+        let c_ch = extract_channel(&c, CHANNELS, ch);
+        if a_ch.len() != b_ch.len() || a_ch.len() != c_ch.len() {
+            return Err(format!(
+                "{}: parameter-transition passes returned different lengths",
+                case.key
+            ));
+        }
+
+        // Authority is measured over the settled tail, not across the ramp.
+        let settle_from = PARAM_STEP_WARMUP_FRAMES.min(a_ch.len());
+        for n in settle_from..a_ch.len() {
+            authority = authority.max((c_ch[n] - a_ch[n]).abs());
+        }
+
+        for n in start..a_ch.len().saturating_sub(1) {
+            let da = (a_ch[n + 1] - a_ch[n]).abs();
+            let dc = (c_ch[n + 1] - c_ch[n]).abs();
+            let db = (b_ch[n + 1] - b_ch[n]).abs();
+            let natural = da.max(dc);
+            natural_step = natural_step.max(natural);
+            excess_step = excess_step.max((db - natural).max(0.0));
+        }
+    }
+
+    Ok(ParameterTransitionResult {
+        key: case.key,
+        processor: case.processor,
+        field: case.field,
+        kind: case.kind,
+        smoothing_frames: case.smoothing_frames,
+        smoothing_source: case.smoothing_source,
+        probe_hz: case.probe_hz,
+        authority,
+        excess_step,
+        bound: authority / case.smoothing_frames * PARAM_STEP_BOUND_SAFETY,
+        natural_step,
+        smoothing_frames_used: case.smoothing_frames,
+        transition: case.transition,
+        latency_shift_frames,
+    })
+}
+
+/// One pass. `step` selects run B (publish mid-stream) over run A (hold).
+fn run_parameter_transition_pass(
+    case: &ParameterTransitionCase,
+    step: bool,
+) -> Result<ParameterTransitionPass, String> {
+    let handles = ParamHandles::new();
+    (case.setup)(&handles);
+    (case.apply)(&handles, Stage::From, case.index);
+    let mut proc = build_parameter_transition_processor(case, &handles)?;
+
+    let total = PARAM_STEP_WARMUP_FRAMES + PARAM_STEP_SETTLE_FRAMES;
+    let mut captured = Vec::with_capacity(total * CHANNELS);
+    let mut frame = 0usize;
+    while frame < total {
+        if step && frame == PARAM_STEP_WARMUP_FRAMES {
+            (case.apply)(&handles, Stage::To, case.index);
+        }
+        let frames = PARAM_STEP_BLOCK_FRAMES.min(total - frame);
+        let mut block = parameter_transition_probe(case, frames, frame);
+        process_adapter_block(&mut *proc, &mut block, CHANNELS)?;
+        captured.extend_from_slice(&block);
+        frame += frames;
+    }
+    Ok(ParameterTransitionPass {
+        samples: captured,
+        latency_frames: proc.latency().frames() as i64,
+    })
+}
+
+/// Run C: the post-step value is published before the adapter is built, so the
+/// processor starts already settled at the destination.
+fn run_parameter_transition_pass_settled(
+    case: &ParameterTransitionCase,
+) -> Result<ParameterTransitionPass, String> {
+    let handles = ParamHandles::new();
+    (case.setup)(&handles);
+    (case.apply)(&handles, Stage::To, case.index);
+    let mut proc = build_parameter_transition_processor(case, &handles)?;
+
+    let total = PARAM_STEP_WARMUP_FRAMES + PARAM_STEP_SETTLE_FRAMES;
+    let mut captured = Vec::with_capacity(total * CHANNELS);
+    let mut frame = 0usize;
+    while frame < total {
+        let frames = PARAM_STEP_BLOCK_FRAMES.min(total - frame);
+        let mut block = parameter_transition_probe(case, frames, frame);
+        process_adapter_block(&mut *proc, &mut block, CHANNELS)?;
+        captured.extend_from_slice(&block);
+        frame += frames;
+    }
+    Ok(ParameterTransitionPass {
+        samples: captured,
+        latency_frames: proc.latency().frames() as i64,
+    })
+}
+
+impl ParamHandles {
+    /// All six publishers at their shipped defaults.
+    fn new() -> Self {
+        Self {
+            eq: Arc::new(AtomicEqParams::new()),
+            saturation: Arc::new(AtomicSaturationParams::new()),
+            crossfeed: Arc::new(AtomicCrossfeedParams::new()),
+            limiter: Arc::new(AtomicPeakLimiterParams::new()),
+            volume: Arc::new(AtomicVolumeParams::new()),
+            noise_shaper: Arc::new(AtomicNoiseShaperParams::new()),
+        }
+    }
+}
+
+fn build_parameter_transition_processor(
+    case: &ParameterTransitionCase,
+    handles: &ParamHandles,
+) -> Result<Box<dyn StreamingProcessor>, String> {
+    Ok(match case.proc {
+        ProcKind::Eq => Box::new(EqProcessor::new(
+            CHANNELS,
+            SAMPLE_RATE as f64,
+            Arc::clone(&handles.eq),
+        )),
+        ProcKind::Saturation => {
+            // `SaturationProcessor::new` takes no rate and defaults to 44.1 kHz,
+            // which its high-pass coefficients depend on. A real caller sets the
+            // rate during setup, and two cases probe highpass mode.
+            let mut proc = SaturationProcessor::new(CHANNELS, Arc::clone(&handles.saturation));
+            proc.set_sample_rate(SAMPLE_RATE)
+                .map_err(|err| err.to_string())?;
+            Box::new(proc)
+        }
+        ProcKind::Crossfeed => Box::new(CrossfeedProcessor::new(
+            SAMPLE_RATE as f64,
+            Arc::clone(&handles.crossfeed),
+        )),
+        ProcKind::Limiter => Box::new(
+            PeakLimiterProcessor::new(CHANNELS, SAMPLE_RATE, Arc::clone(&handles.limiter))
+                .map_err(|err| err.to_string())?,
+        ),
+        ProcKind::Volume => {
+            // Same: the constructor fixes the 5 ms smoother at 44.1 kHz
+            // (220.5 frames). Without this the running smoother would not match
+            // the `smoothing_frames` the bound is derived from.
+            let mut proc = VolumeProcessor::new(Arc::clone(&handles.volume));
+            proc.set_sample_rate(SAMPLE_RATE)
+                .map_err(|err| err.to_string())?;
+            Box::new(proc)
+        }
+        ProcKind::NoiseShaper => Box::new(
+            NoiseShaperProcessor::new(CHANNELS, SAMPLE_RATE, Arc::clone(&handles.noise_shaper))
+                .map_err(|err| err.to_string())?,
+        ),
+    })
+}
+
+#[derive(Serialize)]
+struct ParameterTransitionSection {
+    warmup_frames: usize,
+    settle_frames: usize,
+    block_frames: usize,
+    bound_safety_factor: f64,
+    authority_floor: f64,
+    cases: Vec<ParameterTransitionResult>,
+}
+
+/// Every metric name the case table is required to contain, derived by
+/// destructuring the six in-scope snapshots.
+///
+/// This is what makes PRD requirement 4 ("every parameter, not one per
+/// processor") mechanical rather than a promise. Each `let ... = snapshot` below
+/// is exhaustive with no `..` rest pattern, so adding a field to any
+/// `Atomic*Params` snapshot stops this function compiling until the field is
+/// named here, and [`assert_parameter_transition_coverage`] then fails until it
+/// also has a case. `cargo build --benches` runs in CI, so the compile half of
+/// that fence is enforced on every push.
+///
+/// Deliberately excludes `AtomicDynamicLoudnessParams`: the PRD scopes it out.
+fn parameter_transition_required_keys() -> Vec<&'static str> {
+    let mut required = Vec::new();
+
+    let EqParamsSnapshot { gains, enabled: _ } = EqParamsSnapshot::default();
+    for (band, _) in gains.iter().enumerate() {
+        required.push(PARAM_STEP_EQ_BAND_KEYS[band]);
+    }
+    required.push("param_step_eq_enabled");
+
+    let SaturationParamsSnapshot {
+        drive: _,
+        threshold: _,
+        mix: _,
+        sat_type: _,
+        quality: _,
+        input_gain_db: _,
+        output_gain_db: _,
+        highpass_mode: _,
+        highpass_cutoff: _,
+        enabled: _,
+        armed: _,
+    } = SaturationParamsSnapshot::default();
+    required.extend_from_slice(&[
+        "param_step_saturation_drive",
+        "param_step_saturation_threshold",
+        "param_step_saturation_mix",
+        "param_step_saturation_sat_type",
+        "param_step_saturation_quality",
+        "param_step_saturation_input_gain_db",
+        "param_step_saturation_output_gain_db",
+        "param_step_saturation_highpass_mode",
+        "param_step_saturation_highpass_cutoff",
+        "param_step_saturation_enabled",
+        "param_step_saturation_armed",
+    ]);
+
+    let CrossfeedParamsSnapshot {
+        mix: _,
+        cutoff_hz: _,
+        enabled: _,
+    } = CrossfeedParamsSnapshot::default();
+    required.extend_from_slice(&[
+        "param_step_crossfeed_mix",
+        "param_step_crossfeed_cutoff_hz",
+        "param_step_crossfeed_enabled",
+    ]);
+
+    let PeakLimiterParamsSnapshot {
+        threshold_db: _,
+        release_ms: _,
+        enabled: _,
+        mode: _,
+    } = PeakLimiterParamsSnapshot::default();
+    required.extend_from_slice(&[
+        "param_step_limiter_threshold_db",
+        PARAM_STEP_LIMITER_RELEASE_KEY,
+        "param_step_limiter_enabled",
+        "param_step_limiter_mode",
+    ]);
+
+    let VolumeParamsSnapshot {
+        volume: _,
+        muted: _,
+    } = VolumeParamsSnapshot::default();
+    required.extend_from_slice(&["param_step_volume_volume", "param_step_volume_muted"]);
+
+    let NoiseShaperParamsSnapshot {
+        enabled: _,
+        bits: _,
+        curve: _,
+    } = NoiseShaperParamsSnapshot::default();
+    required.extend_from_slice(&[
+        "param_step_noise_shaper_enabled",
+        "param_step_noise_shaper_bits",
+        "param_step_noise_shaper_curve",
+    ]);
+
+    required
+}
+
+/// Fails the run if a required field has no case, or a case is duplicated.
+fn assert_parameter_transition_coverage(cases: &[ParameterTransitionCase]) -> Result<(), String> {
+    let present: Vec<&str> = cases.iter().map(|case| case.key).collect();
+
+    let missing: Vec<&str> = parameter_transition_required_keys()
+        .into_iter()
+        .filter(|key| !present.contains(key))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "parameter-transition case table is missing {} field(s): {}. Every field of every \
+             in-scope Atomic*Params needs a case, so a newly added unsmoothed parameter cannot \
+             slip through.",
+            missing.len(),
+            missing.join(", ")
+        ));
+    }
+
+    for (index, key) in present.iter().enumerate() {
+        if present[index + 1..].contains(key) {
+            return Err(format!(
+                "parameter-transition case table has a duplicate metric name: {key}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn measure_parameter_transitions() -> Result<ParameterTransitionSection, String> {
+    let table = parameter_transition_cases();
+    assert_parameter_transition_coverage(&table)?;
+    let mut cases = Vec::new();
+    for case in table {
+        cases.push(measure_parameter_transition(&case)?);
+    }
+    Ok(ParameterTransitionSection {
+        warmup_frames: PARAM_STEP_WARMUP_FRAMES,
+        settle_frames: PARAM_STEP_SETTLE_FRAMES,
+        block_frames: PARAM_STEP_BLOCK_FRAMES,
+        bound_safety_factor: PARAM_STEP_BOUND_SAFETY,
+        authority_floor: PARAM_STEP_AUTHORITY_FLOOR,
+        cases,
+    })
+}
+
+/// One metric row per case.
+///
+/// * No authority (the parameter could not reach the signal path in this
+///   configuration) is `skipped`, never a silent pass.
+/// * A documented ramp is a `gate` against `authority / frames * safety`.
+/// * A hard switch, a rate parameter, or an unsmoothed finding is `report`: the
+///   number records the size of the step rather than asserting it is small.
+fn parameter_transition_metrics(section: &ParameterTransitionSection) -> Vec<MetricResult> {
+    section
+        .cases
+        .iter()
+        .map(|case| {
+            let detail = format!(
+                "{} {} {}: authority {:.6}, natural slew {:.6}, smoothing {} frames ({})",
+                case.processor,
+                case.field,
+                case.transition,
+                case.authority,
+                case.natural_step,
+                case.smoothing_frames_used,
+                case.smoothing_source,
+            );
+            if case.authority < PARAM_STEP_AUTHORITY_FLOOR {
+                return MetricResult::skipped(
+                    case.key,
+                    "amplitude",
+                    format!(
+                        "probe has no authority over this field (settled delta {:.3e} < floor \
+                         {:.3e}); {}",
+                        case.authority, PARAM_STEP_AUTHORITY_FLOOR, detail
+                    ),
+                );
+            }
+            // A field that changes the processor's reported latency puts the two
+            // steady runs on different timelines, so `authority` is a phase
+            // offset rather than a level change and the derived bound is
+            // meaningless. Report it with the shift stated; never gate it.
+            if case.latency_shift_frames != 0 {
+                let mut metric = MetricResult::report(
+                    case.key,
+                    Comparison::AtMost,
+                    case.excess_step,
+                    case.bound,
+                    "amplitude",
+                );
+                metric.detail = Some(format!(
+                    "latency shifts {:+} frames across this step, so authority is a timeline \
+                     offset, not a level change; not gated. {}",
+                    case.latency_shift_frames, detail
+                ));
+                return metric;
+            }
+            let mut metric = match case.kind {
+                SmoothingKind::Smoothed => MetricResult::gate(
+                    case.key,
+                    Comparison::AtMost,
+                    case.excess_step,
+                    case.bound,
+                    "amplitude",
+                ),
+                SmoothingKind::HardSwitch | SmoothingKind::RateOnly | SmoothingKind::Unsmoothed => {
+                    MetricResult::report(
+                        case.key,
+                        Comparison::AtMost,
+                        case.excess_step,
+                        case.bound,
+                        "amplitude",
+                    )
+                }
+            };
+            metric.detail = Some(detail);
+            metric
+        })
+        .collect()
+}
+
+/// Interleaved probe for `frames` frames starting at absolute frame
+/// `start_frame`, so a run's phase is continuous across block boundaries and
+/// identical between the three passes.
+fn parameter_transition_probe(
+    case: &ParameterTransitionCase,
+    frames: usize,
+    start_frame: usize,
+) -> Vec<f64> {
+    let amplitude = db_to_linear(case.probe_dbfs);
+    let omega = 2.0 * PI * case.probe_hz / SAMPLE_RATE as f64;
+    let burst = case.key == PARAM_STEP_LIMITER_RELEASE_KEY;
+    let mut stereo = Vec::with_capacity(frames * CHANNELS);
+    for frame in start_frame..start_frame + frames {
+        let mut sample = amplitude * (omega * frame as f64).sin();
+        if burst {
+            sample *= param_step_burst_envelope(frame);
+        }
+        stereo.push(sample);
+        stereo.push(if case.panned { 0.0 } else { sample });
+    }
+    stereo
+}
+
+/// Metric name of the one case that needs a bursted probe.
+const PARAM_STEP_LIMITER_RELEASE_KEY: &str = "param_step_limiter_release_ms";
+
+/// Burst period in frames: 2048 frames over the ceiling, then 6144 under it.
+const PARAM_STEP_BURST_PERIOD_FRAMES: usize = 8_192;
+
+/// Gate for the `release_ms` probe.
+///
+/// `release_ms` sets a recovery *rate*, so a continuous tone gives it no
+/// authority at all: the limiter settles at a fixed gain reduction and the
+/// settled outputs of the two release times are identical. Driving the limiter
+/// over the ceiling and then dropping below it makes release govern the recovery
+/// slope, which is the only place the parameter is observable.
+///
+/// The quiet span is 6144 frames (128 ms at 48 kHz), long enough for a 20 ms
+/// release to finish recovering while a 100 ms one is still climbing.
+fn param_step_burst_envelope(frame: usize) -> f64 {
+    if frame % PARAM_STEP_BURST_PERIOD_FRAMES < 2_048 {
+        1.0
+    } else {
+        // Well under the -1 dBFS ceiling, so the limiter releases rather than
+        // holding gain reduction.
+        db_to_linear(-18.0)
+    }
 }
 
 fn process_adapter_block<P: StreamingProcessor + ?Sized>(

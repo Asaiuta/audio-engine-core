@@ -189,6 +189,73 @@ redistributes quantization error rather than lowering broadband noise: the
 curves strongly reduce the 2–6 kHz band while pushing energy into 14–18 kHz,
 for up to a +34.8 dB ear-band advantage over flat TPDF dither.
 
+### Parameter transition continuity
+
+Every field of every in-scope `Atomic*Params` snapshot is stepped mid-stream and
+measured for the discontinuity it introduces. 34 cases: 17 gated, 17 report-only.
+
+| Metric | Result |
+| --- | ---: |
+| Worst gated excess step, EQ band gains (10 bands) | 4.81e-4 (bound 3.09e-3) |
+| Worst gated excess step, all 17 gated cases | 9.70e-4 (`volume_muted`, bound 8.37e-3) |
+| Tightest gated margin | `crossfeed_cutoff_hz`, 1.37x |
+| Unsmoothed continuous parameters found | 6 (all `Saturation`) |
+| Cases whose latency shifts across the step | 3 (report-only) |
+
+Each case runs the same probe three times through one adapter: **A** holds the
+pre-step value, **B** publishes the step at a block boundary, **C** holds the
+post-step value from construction so it is fully settled.
+
+- `authority = max |C − A|` over the settled tail — how far the output has to
+  travel. Below 1e-6 the probe has no authority over the field and the case is
+  reported `skipped`, never a silent pass.
+- `excess_step = max(0, |ΔB| − max(|ΔA|, |ΔC|))` per sample pair. Subtracting
+  *both* steady runs' own slew is what separates the parameter step from the
+  signal's natural motion. At 16 kHz a −12 dBFS tone already moves 1.226 per
+  sample, so a raw first-difference threshold would be meaningless there; that
+  case measures excess 0.0, correctly reporting that the step is entirely hidden
+  inside the carrier's own slew.
+- `bound = authority / documented_ramp_frames × 8`, derived from each
+  processor's documented smoothing window (`EQ_SMOOTH_SAMPLES`,
+  `PARAMETER_RAMP_MS`, `SATURATION_TRANSITION_FRAMES`, the limiter attack ramp,
+  the volume smoother) rather than pinned to observed output.
+
+**What this does not prove.** These are synthetic single-tone probes at one
+sample rate and one block size, not listening evidence, and a bounded
+per-sample step is not the same as an inaudible transition. Specifically:
+
+- The bound models a *linear* ramp of the output level. A parameter that ramps
+  its filter coefficients instead (`crossfeed_cutoff_hz`) moves the output
+  non-linearly during the ramp, which is why its margin is the tightest at
+  1.37x; the safety factor absorbs the mismatch rather than modelling it.
+- Three fields change the processor's reported latency across the step, so their
+  two steady runs are on different timelines and `authority` measures that phase
+  offset rather than a level change. They are reported with the shift stated and
+  never gated: `saturation_armed` (+4 frames), `limiter_mode` (−13),
+  `limiter_enabled` (+493).
+- The noise-shaper rows compare independently dithered runs. Dither is
+  per-sample random, so `excess_step` there can exceed `authority`, and the
+  derived bound carries no meaning for a dithered quantizer. All three are
+  report-only.
+- `release_ms` sets a recovery rate, so it has no authority under a steady tone.
+  It is probed with a burst (2048 frames over the ceiling, 6144 under) so
+  release governs an observable recovery slope.
+
+**Findings, recorded not fixed.** Six `Saturation` continuous parameters reach
+the waveshaper with no ramp at all — `drive`, `threshold`, `mix`,
+`input_gain_db`, `output_gain_db`, `highpass_cutoff`. Their setters sanitize and
+assign. The largest measured step is `input_gain_db` at 0.554 for a +6 dB move.
+These are classified as findings rather than contracts; this probe measures, it
+does not redesign ramps.
+
+Separately, a runtime `armed` change is honoured when it should not be.
+`sync_params` ignores it only while `stream_started`, but `process` returns at
+the hard-bypass branch *before* setting that flag, so a processor that starts
+unarmed never marks the stream as started. Arming mid-stream then adds the
+core's 4-frame delay and the output timeline jumps. `set_hard_bypassed` refuses
+the same change with an error; the published-params path has no equivalent
+guard.
+
 ### Convolution
 
 Correctness: convolution results are validated against an overlap-save
@@ -906,7 +973,9 @@ Additional limits already stated inline: all timing is same-machine evidence
 (likely to differ by CPU, compiler version, and load); scheduler noise remains
 in raw distributions even under affinity/priority pinning; native allocator
 accounting excludes allocations made outside Rust's global allocator;
-single-machine results are not universal hardware guarantees.
+single-machine results are not universal hardware guarantees; parameter-step
+continuity is bounded per sample at one sample rate and block size, which is not
+the same as an inaudible transition.
 
 ---
 
