@@ -49,6 +49,118 @@ impl_test_process_block!(
 );
 
 #[test]
+fn saturation_refuses_mid_stream_arm_on_process_path() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_armed(false);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    assert!(proc.is_hard_bypassed());
+    assert_eq!(proc.latency(), FrameDuration::ZERO);
+
+    let mut input = vec![0.5; 64];
+    let _ = proc.process(&mut input, 1);
+
+    params.set_armed(true);
+    let mut armed_input = vec![0.7; 64];
+    let control_input = armed_input.clone();
+    let _ = proc.process(&mut armed_input, 1);
+
+    assert!(proc.is_hard_bypassed());
+    assert_eq!(proc.latency(), FrameDuration::ZERO);
+    assert_eq!(armed_input, control_input);
+}
+
+#[test]
+fn saturation_refuses_mid_stream_arm_on_events_path() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_armed(false);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    assert!(proc.is_hard_bypassed());
+
+    let mut input = vec![0.5; 64];
+    let _ = proc.process_with_events(&mut input, 1, &[]).unwrap();
+
+    params.set_armed(true);
+    let mut armed_input = vec![0.7; 64];
+    let control_input = armed_input.clone();
+    let _ = proc.process_with_events(&mut armed_input, 1, &[]).unwrap();
+
+    assert!(proc.is_hard_bypassed());
+    assert_eq!(proc.latency(), FrameDuration::ZERO);
+    assert_eq!(armed_input, control_input);
+}
+
+#[test]
+fn saturation_deferred_arm_applies_at_reset() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_armed(false);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    assert!(proc.is_hard_bypassed());
+
+    let mut input = vec![0.5; 64];
+    let _ = proc.process(&mut input, 1);
+    params.set_armed(true);
+    let mut armed_input = vec![0.7; 64];
+    let _ = proc.process(&mut armed_input, 1);
+    assert!(proc.is_hard_bypassed());
+
+    let _ = proc.reset();
+    assert!(!proc.is_hard_bypassed());
+    assert_eq!(proc.latency().frames(), SATURATION_LATENCY_FRAMES);
+}
+
+#[test]
+fn saturation_call_with_no_output_room_does_not_latch() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_armed(false);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    assert!(proc.is_hard_bypassed());
+
+    // Input frames but no output room: `process_fixed_1_to_1` moves
+    // `min(input, output)` == 0 frames, so this call must not latch. Latching on
+    // the input capacity alone would be a permanent arming lockout.
+    let input = vec![0.5; 32];
+    let mut empty: Vec<f64> = vec![];
+    let buffers = ProcessBuffers::out_of_place(
+        AudioBlockRef::new(&input, 1).unwrap(),
+        AudioBlockMut::new(&mut empty, 1).unwrap(),
+    )
+    .unwrap();
+    let _ = super::super::traits::process_checked(&mut proc, buffers).unwrap();
+
+    params.set_armed(true);
+    let mut armed_input = vec![0.5; 32];
+    let _ = proc.process(&mut armed_input, 1);
+    assert!(!proc.is_hard_bypassed());
+    assert_eq!(proc.latency().frames(), SATURATION_LATENCY_FRAMES);
+}
+
+#[test]
+fn saturation_set_hard_bypassed_errors_after_processing_while_bypassed() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    params.set_armed(false);
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    assert!(proc.is_hard_bypassed());
+
+    let mut input = vec![0.5; 64];
+    let _ = proc.process(&mut input, 1);
+
+    // Frames passed through the stage, so the setup-time window is closed even
+    // though none of them passed through the effect. Before the latch moved,
+    // this guard was unreachable on a bypassed chain.
+    let result = proc.set_hard_bypassed(false);
+    assert!(matches!(
+        result,
+        Err(ProcessError::Backend {
+            processor: "Saturation",
+            operation: "set hard bypass",
+            message: _,
+        })
+    ));
+    assert!(proc.is_hard_bypassed());
+    assert_eq!(proc.latency(), FrameDuration::ZERO);
+}
+
+#[test]
 fn geometry_dependent_adapter_constructors_reject_before_allocating_state() {
     let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
     let noise_params = Arc::new(AtomicNoiseShaperParams::new());

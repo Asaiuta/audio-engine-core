@@ -327,6 +327,13 @@ pub struct SaturationProcessor {
     lifecycle: FixedLifecycle,
     finish_remaining_frames: Option<usize>,
     hard_bypassed: bool,
+    /// Whether any frame has been processed since construction or the last reset.
+    ///
+    /// Latched by every processing call that moves at least one frame, bypassed
+    /// or not, and cleared only by `reset` / `set_sample_rate`. This is what
+    /// makes the `armed` guard in `sync_params` and the error in
+    /// `set_hard_bypassed` enforceable; see `set_hard_bypassed` for the contract
+    /// they defend.
     stream_started: bool,
     effect_weight: f64,
     effect_transition_start: f64,
@@ -410,6 +417,15 @@ impl SaturationProcessor {
                     self.cached.sat_type,
                 ));
             }
+            // `armed` is a setup-time decision. Honouring it mid-stream would move
+            // this stage's reported latency between zero and
+            // `SATURATION_LATENCY_FRAMES`, and owning chains snapshot latency when
+            // they compose, not per block — so the change would silently desync
+            // the timeline they already published. Refuse it once frames have
+            // moved. `self.cached` above already holds the new value, so
+            // `reset` / `set_sample_rate` applies it at the next boundary, which is
+            // what `set_armed` documents. Silent by necessity: this runs on the
+            // audio thread, where returning an error or logging is not available.
             if previous.armed != self.cached.armed && !self.stream_started {
                 self.hard_bypassed = !self.cached.armed;
             }
@@ -678,7 +694,29 @@ impl SaturationProcessor {
     ///
     /// Runtime automation must publish through
     /// [`AtomicSaturationParams::set_enabled`]; a hard bypass change after
-    /// processing starts would change the public timeline.
+    /// processing starts would change the public timeline, since an armed stage
+    /// reports `SATURATION_LATENCY_FRAMES` of latency and a bypassed one reports
+    /// zero, and owning chains snapshot that when they compose.
+    ///
+    /// # Errors
+    ///
+    /// `ProcessError::Backend` once any frame has been processed since
+    /// construction or the last reset. A chain running hard-bypassed closes that
+    /// window too: what matters is that frames passed through the stage, not that
+    /// they passed through the effect.
+    ///
+    /// # The parameter path refuses the same change, silently
+    ///
+    /// `AtomicSaturationParams::set_armed` reaches the same guard during
+    /// parameter sync, which runs on the audio thread and so can neither return
+    /// an error nor log. The publish is **not lost** — the cached snapshot keeps
+    /// the new value, and `reset` or `set_sample_rate` applies it. That is what
+    /// `set_armed`'s own documentation means by "for the next reset/setup
+    /// boundary".
+    ///
+    /// To mute and unmute a *running* stage, use
+    /// [`AtomicSaturationParams::set_enabled`] instead: it leaves the core
+    /// running, so latency stays stable and the transition is crossfaded.
     pub fn set_hard_bypassed(&mut self, bypassed: bool) -> Result<(), ProcessError> {
         if self.stream_started {
             return Err(ProcessError::Backend {
@@ -736,6 +774,12 @@ impl SaturationProcessor {
 
         self.sync_params();
 
+        // Same reasoning as `StreamingProcessor::process`: latch before the
+        // hard-bypass return, so a chain that starts bypassed still marks the
+        // stream as started and the `armed` guard engages. This path is in-place,
+        // so `frames` is already both the input and the output count.
+        self.stream_started |= frames > 0;
+
         if self.hard_bypassed {
             self.apply_events_without_processing(events);
             return Ok(
@@ -743,7 +787,6 @@ impl SaturationProcessor {
             );
         }
 
-        self.stream_started |= frames > 0;
         let mut cursor = 0usize;
         let mut event_index = 0usize;
         while event_index < events.len() {
@@ -826,6 +869,25 @@ impl StreamingProcessor for SaturationProcessor {
         self.lifecycle.ensure_processing("Saturation")?;
         self.sync_params();
 
+        // Latch *before* the hard-bypass return. `stream_started` is what makes
+        // the `armed` guard in `sync_params` and the one in `set_hard_bypassed`
+        // enforceable, and a bypassed chain consumes frames just as an armed one
+        // does. Latching after the return left a chain that starts bypassed
+        // permanently unlatched, so a runtime `armed` publish was honoured and
+        // the stage's reported latency changed mid-stream — the one thing both
+        // doc comments promise is refused.
+        //
+        // The count must be what `process_fixed_1_to_1` will actually process,
+        // `min(input, output)`, not the input capacity alone: an out-of-place
+        // call with input frames and no output room processes nothing, and
+        // latching on it would lock out arming until the next reset.
+        //
+        // Staying after `sync_params` is deliberate. A publish observed on the
+        // first block is still setup-time, because no frame has been processed
+        // yet, so it is honoured; every later one is refused.
+        let capacity = buffers.capacity();
+        self.stream_started |= capacity.input_frames().min(capacity.output_frames()) > 0;
+
         if self.hard_bypassed {
             return process_fixed_1_to_1(
                 "Saturation",
@@ -835,7 +897,6 @@ impl StreamingProcessor for SaturationProcessor {
                 |_, _| Ok(()),
             );
         }
-        self.stream_started |= buffers.capacity().input_frames() > 0;
 
         process_fixed_1_to_1(
             "Saturation",
