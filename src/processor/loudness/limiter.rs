@@ -536,7 +536,16 @@ impl PeakLimiter {
         self.release_coeff = (-1.0 / release_samples.max(1.0)).exp();
     }
 
-    /// Check if limiter is conceptually enabled (always true for PeakLimiter)
+    /// Always `true`: a `PeakLimiter` has no bypass of its own.
+    ///
+    /// Bypass is owned one level up. `PeakLimiterProcessor` gates its call into
+    /// this limiter on its own cached `enabled` flag, so a disabled stage never
+    /// reaches this type at all.
+    ///
+    /// Consequently this method cannot be used to detect an enable/disable
+    /// transition — comparing it against a desired state yields "is the desired
+    /// state disabled", not "did the state change". Track the previous published
+    /// value instead.
     pub fn is_enabled(&self) -> bool {
         true
     }

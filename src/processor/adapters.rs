@@ -1259,6 +1259,7 @@ impl PeakLimiterProcessor {
             .params
             .load_realtime_if_changed_since(&self.params_reader, self.cached_generation)
         {
+            let previous = self.cached;
             self.cached = current;
             self.cached_generation = generation;
             changed = true;
@@ -1268,8 +1269,15 @@ impl PeakLimiterProcessor {
             // and resets internal state when the active window changes.
             self.limiter.set_mode(self.effective_mode());
             self.limiter.set_release_ms(self.cached.release_ms);
-            // If enabled state changed, limiter reset may be needed
-            if self.cached.enabled != self.limiter.is_enabled() {
+            // Bypass is owned by this adapter, not by the core limiter: while
+            // `cached.enabled` is false `process_fixed_1_to_1` never calls
+            // `process_validated`, so the lookahead buffer and gain state freeze
+            // at whatever they held when the stage went quiet. Clearing on both
+            // edges keeps a re-enable from replaying that frozen audio.
+            // `PeakLimiter::is_enabled()` cannot serve as the left-hand side here
+            // — it is constitutionally `true`, because the core type has no
+            // bypass of its own.
+            if self.cached.enabled != previous.enabled {
                 self.limiter.reset();
             }
         }
@@ -1563,7 +1571,14 @@ impl StreamingProcessor for VolumeProcessor {
 pub struct NoiseShaperProcessor {
     noise_shaper: NoiseShaper,
     params: Arc<AtomicNoiseShaperParams>,
-    params_reader: RealtimeSnapshotReader<NoiseShaperParamsSnapshot>,
+    /// `None` in latch mode, where the snapshot arrives via
+    /// `output_guard_latch` and this reader would never be read.
+    ///
+    /// A live reader is not free: it holds a hazard slot that every publish on
+    /// `params` walks in its retire scan, and a slot whose hazard is always null
+    /// can never protect a retired snapshot. Subscribing in latch mode buys
+    /// nothing and taxes an unrelated publisher.
+    params_reader: Option<RealtimeSnapshotReader<NoiseShaperParamsSnapshot>>,
     cached_generation: u64,
     cached: NoiseShaperParamsSnapshot,
     sample_rate: u32,
@@ -1579,24 +1594,7 @@ impl NoiseShaperProcessor {
         sample_rate: u32,
         params: Arc<AtomicNoiseShaperParams>,
     ) -> Result<Self, ProcessError> {
-        validated_channel_count(channels)?;
-        validate_sample_rate("NoiseShaper", sample_rate)?;
-        let (params_reader, cached, cached_generation) = params.subscribe_realtime();
-        let mut noise_shaper = NoiseShaper::new_validated(channels, sample_rate, cached.bits);
-        noise_shaper.set_enabled(cached.enabled);
-        noise_shaper.set_curve(cached.curve);
-
-        Ok(Self {
-            noise_shaper,
-            params,
-            params_reader,
-            cached_generation,
-            cached,
-            sample_rate,
-            channels,
-            lifecycle: FixedLifecycle::default(),
-            output_guard_latch: None,
-        })
+        Self::build(channels, sample_rate, params, None)
     }
 
     pub(super) fn new_with_output_guard_latch(
@@ -1605,14 +1603,57 @@ impl NoiseShaperProcessor {
         params: Arc<AtomicNoiseShaperParams>,
         latch: NoiseShaperSnapshotLatch,
     ) -> Result<Self, ProcessError> {
-        let mut processor = Self::new(channels, sample_rate, params)?;
-        processor.output_guard_latch = Some(latch);
-        let snapshot = processor
-            .output_guard_latch
-            .as_ref()
-            .map(NoiseShaperSnapshotLatch::load)
-            .unwrap_or(processor.cached);
-        processor.apply_snapshot(snapshot);
+        Self::build(channels, sample_rate, params, Some(latch))
+    }
+
+    /// Shared construction for both modes.
+    ///
+    /// Latch mode deliberately does not call `subscribe_realtime`: `sync_params`
+    /// returns straight after reading the latch, so the reader would be a hazard
+    /// slot that every publish on `params` scans and that never protects
+    /// anything. The initial snapshot comes from the control-side `load()`
+    /// instead, which is allowed here because construction is off the audio
+    /// thread, and is then overridden by the latch's own value.
+    fn build(
+        channels: usize,
+        sample_rate: u32,
+        params: Arc<AtomicNoiseShaperParams>,
+        latch: Option<NoiseShaperSnapshotLatch>,
+    ) -> Result<Self, ProcessError> {
+        validated_channel_count(channels)?;
+        validate_sample_rate("NoiseShaper", sample_rate)?;
+
+        let (params_reader, cached, cached_generation) = match latch {
+            Some(_) => {
+                let (snapshot, generation) = params.load_with_generation();
+                (None, *snapshot, generation)
+            }
+            None => {
+                let (reader, snapshot, generation) = params.subscribe_realtime();
+                (Some(reader), snapshot, generation)
+            }
+        };
+
+        let mut noise_shaper = NoiseShaper::new_validated(channels, sample_rate, cached.bits);
+        noise_shaper.set_enabled(cached.enabled);
+        noise_shaper.set_curve(cached.curve);
+
+        let mut processor = Self {
+            noise_shaper,
+            params,
+            params_reader,
+            cached_generation,
+            cached,
+            sample_rate,
+            channels,
+            lifecycle: FixedLifecycle::default(),
+            output_guard_latch: latch,
+        };
+
+        if let Some(latch) = processor.output_guard_latch.as_ref() {
+            let snapshot = latch.load();
+            processor.apply_snapshot(snapshot);
+        }
         Ok(processor)
     }
 
@@ -1638,9 +1679,12 @@ impl NoiseShaperProcessor {
             }
             return;
         }
+        let Some(reader) = self.params_reader.as_ref() else {
+            return;
+        };
         if let Some((current, generation)) = self
             .params
-            .load_realtime_if_changed_since(&self.params_reader, self.cached_generation)
+            .load_realtime_if_changed_since(reader, self.cached_generation)
         {
             self.cached_generation = generation;
             self.apply_snapshot(current);

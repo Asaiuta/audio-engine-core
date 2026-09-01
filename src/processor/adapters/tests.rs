@@ -1682,6 +1682,52 @@ fn final_output_guard_survives_callback_sample_rate_initialization() {
     assert_eq!(rebuilt_output, fresh_output);
 }
 
+/// The 2026-08-11 review, finding I: a latched noise shaper subscribed a
+/// realtime reader it never read. `sync_params` returns straight after loading
+/// the latch, so the subscription only cost — it holds a hazard slot that every
+/// publish on the shared params walks in its retire scan, and a slot whose
+/// hazard stays null can never protect a retired snapshot.
+///
+/// The limiter in the same output chain shares those params and *does* read
+/// them, so the count distinguishes the two modes rather than just counting to
+/// zero.
+#[test]
+fn latched_noise_shaper_does_not_occupy_a_hazard_slot() {
+    let noise_params = Arc::new(AtomicNoiseShaperParams::new());
+    assert_eq!(noise_params.realtime_reader_count(), 0);
+
+    // Standalone mode reads the params directly, so it must subscribe.
+    let direct = NoiseShaperProcessor::new(1, 48_000, Arc::clone(&noise_params)).unwrap();
+    assert_eq!(
+        noise_params.realtime_reader_count(),
+        1,
+        "standalone mode reads params on the audio thread and must subscribe"
+    );
+    drop(direct);
+
+    // A publish reclaims the dropped reader's slot.
+    noise_params.set_bits(16);
+    assert_eq!(noise_params.realtime_reader_count(), 0);
+
+    // Latch mode must not add one.
+    let latch = NoiseShaperSnapshotLatch::new(noise_params.read());
+    let latched = NoiseShaperProcessor::new_with_output_guard_latch(
+        1,
+        48_000,
+        Arc::clone(&noise_params),
+        latch,
+    )
+    .unwrap();
+    assert_eq!(
+        noise_params.realtime_reader_count(),
+        0,
+        "latch mode never reads params_reader; subscribing taxes every publish"
+    );
+
+    // The latched snapshot still reached the shaper.
+    assert_eq!(latched.cached.bits, 16);
+}
+
 #[test]
 fn final_limiter_and_noise_shaper_share_one_block_snapshot() {
     let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
@@ -2387,4 +2433,84 @@ fn finite_finish_paths_are_allocation_free_after_processing() {
         .unwrap();
         assert_eq!(convolver_progress.state(), ProcessState::Finished);
     });
+}
+
+/// The 2026-08-11 review, finding F: the adapter's reset predicate compared
+/// `cached.enabled` against `PeakLimiter::is_enabled()`, which is
+/// constitutionally `true`, so it actually read "is the new state disabled"
+/// rather than "did the state change". It happened to clear state at the
+/// disable moment, and that accidental coverage is what this test makes
+/// intentional.
+///
+/// Bypass is owned by the adapter: while disabled, `process_fixed_1_to_1`
+/// never calls `process_validated`, so the lookahead delay line freezes
+/// holding whatever was in flight. Without a clear on the transition, the
+/// first re-enabled block reads those stale frames straight out of
+/// `delay_buffer` — loud audio surfacing under a silent input.
+#[test]
+fn peak_limiter_disable_transition_clears_the_lookahead() {
+    let params = Arc::new(AtomicPeakLimiterParams::new());
+    let mut proc = PeakLimiterProcessor::new(1, 48_000, Arc::clone(&params)).unwrap();
+
+    // Fill the lookahead with full-scale audio. One block shorter than the
+    // delay line keeps those frames in flight rather than flushed out.
+    let delay_frames = proc.latency().frames();
+    assert!(delay_frames > 0, "true-peak mode must have lookahead");
+    let mut loud = vec![1.0_f64; delay_frames];
+    proc.process(&mut loud, 1);
+
+    // Control thread disables the stage, then re-enables it.
+    params.set_enabled(false);
+    let mut bypassed = vec![0.0_f64; delay_frames];
+    let progress = proc.process(&mut bypassed, 1);
+    assert!(
+        progress.is_bypassed(),
+        "a disabled limiter must pass through"
+    );
+
+    params.set_enabled(true);
+    let mut silence = vec![0.0_f64; delay_frames];
+    proc.process(&mut silence, 1);
+
+    let leaked = silence.iter().fold(0.0_f64, |peak, s| peak.max(s.abs()));
+    assert!(
+        leaked <= f64::EPSILON,
+        "re-enabling replayed {leaked} of stale lookahead audio under a silent \
+         input; the enable transition must clear the delay line"
+    );
+}
+
+/// The inverse of the above, and the half that pins the *new* predicate: a
+/// publish that leaves `enabled` alone must not reset, because a reset
+/// mid-stream discards audio still in the lookahead.
+///
+/// The pre-fix predicate reset on every publish while disabled, where nothing
+/// accumulates — which is why finding F was filed as style-only rather than a
+/// defect. Nothing observable changed. What this test guards is the other
+/// direction: a future refactor that widens the condition would start dropping
+/// in-flight frames on any unrelated parameter change, and the delay line is
+/// where that shows up.
+#[test]
+fn peak_limiter_reset_needs_an_enabled_transition_not_just_a_publish() {
+    let params = Arc::new(AtomicPeakLimiterParams::new());
+    let mut proc = PeakLimiterProcessor::new(1, 48_000, Arc::clone(&params)).unwrap();
+    let delay_frames = proc.latency().frames();
+
+    // Park full-scale audio in the lookahead, below the threshold so no gain
+    // reduction is engaged and the delay line is the only state in play.
+    let mut loud = vec![0.5_f64; delay_frames];
+    proc.process(&mut loud, 1);
+
+    // A publish that does not touch `enabled`, then a silent block: the parked
+    // frames must still come out. A reset here would swallow them.
+    params.set_release(200.0);
+    let mut silence = vec![0.0_f64; delay_frames];
+    proc.process(&mut silence, 1);
+
+    let recovered = silence.iter().fold(0.0_f64, |peak, s| peak.max(s.abs()));
+    assert!(
+        recovered > 0.4,
+        "a release_ms publish discarded the lookahead (recovered {recovered} of \
+         0.5); only an enabled transition may reset"
+    );
 }

@@ -403,6 +403,14 @@ impl<T: Copy> SharedParams<T> {
         self.realtime
             .load_if_changed_since(reader, cached_generation)
     }
+
+    /// Hazard slots currently registered, for tests that assert a consumer did
+    /// or did not subscribe. Every slot here is walked by each publish's retire
+    /// scan, so an unused one is pure overhead on an unrelated publisher.
+    #[cfg(test)]
+    fn realtime_reader_count(&self) -> usize {
+        lock_unpoisoned(&self.realtime.control).readers.len()
+    }
 }
 
 impl<T: Copy> SharedParams<T> {
@@ -484,6 +492,16 @@ macro_rules! impl_snapshot_accessors {
         /// before entering an audio callback.
         pub fn subscribe_realtime(&self) -> (RealtimeSnapshotReader<$snapshot>, $snapshot, u64) {
             self.shared.subscribe_realtime()
+        }
+
+        /// Registered hazard slots, for tests asserting subscription behavior.
+        ///
+        /// Generated for every snapshot type; only the types whose subscription
+        /// policy is under test actually call it.
+        #[cfg(test)]
+        #[allow(dead_code)]
+        pub(crate) fn realtime_reader_count(&self) -> usize {
+            self.shared.realtime_reader_count()
         }
 
         /// Copy a newly published complete snapshot without allocation or
@@ -1690,11 +1708,18 @@ impl AtomicDynamicLoudnessTelemetry {
 
     #[inline]
     /// Publish the current compensation factor and seven band gains.
+    ///
+    /// `factor` is stored **last**, and that order is load-bearing: it is the
+    /// release that [`Self::band_gains`] acquires against, so a reader that sees
+    /// a given factor is guaranteed to see the band gains published alongside
+    /// it, or newer. Storing `factor` first — as this did until the 2026-08-11
+    /// review — makes that acquire order against the *previous* update instead,
+    /// which is to say against nothing useful.
     pub fn update(&self, factor: f64, band_gains: [f64; LOUDNESS_BANDS_N]) {
-        self.factor.store(factor, Ordering::Release);
         for (dst, gain) in self.band_gains.iter().zip(band_gains.iter().copied()) {
-            dst.store(gain, Ordering::Release);
+            dst.store(gain, Ordering::Relaxed);
         }
+        self.factor.store(factor, Ordering::Release);
     }
 
     #[inline]
@@ -1705,6 +1730,17 @@ impl AtomicDynamicLoudnessTelemetry {
 
     #[inline]
     /// Read the most recently published seven-band gain array.
+    ///
+    /// The leading acquire load pairs with the release store of `factor` in
+    /// [`Self::update`], so every gain returned here is from that update or a
+    /// later one — never from before it.
+    ///
+    /// This is still not a coherent snapshot, and the type does not promise one.
+    /// A publish landing between the acquire and the per-band relaxed loads can
+    /// leave the returned array straddling two updates, and a caller reading
+    /// `factor()` and `band_gains()` separately can pair a factor with gains
+    /// from a later update. Both are acceptable for meter display, which is the
+    /// only consumer (`PlaybackParameters::dynamic_loudness_telemetry`).
     pub fn band_gains(&self) -> [f64; LOUDNESS_BANDS_N] {
         let _ = self.factor.load(Ordering::Acquire);
         std::array::from_fn(|i| self.band_gains[i].load(Ordering::Relaxed))
