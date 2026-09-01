@@ -2260,14 +2260,20 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             },
             apply: |h, stage, _| h.saturation.set_armed(stage == Stage::To),
             index: 0,
-            // FINDING. `sync_params` only ignores a runtime `armed` change while
-            // `stream_started`, but `process` returns at the hard-bypass branch
-            // *before* setting that flag (adapters.rs:829-838). A processor that
-            // starts unarmed therefore never marks the stream as started, so
-            // arming mid-stream is honoured, the core gains its 4-frame delay,
-            // and the output timeline jumps. `set_hard_bypassed` refuses the same
-            // change with an error; the params path has no equivalent guard.
-            transition: "false -> true (mid-stream arming shifts latency 0 -> 4 frames)",
+            // `armed` is a setup-time decision, so a mid-stream step is refused:
+            // the adapter latches `stream_started` on any call that moves frames,
+            // bypassed or not, and `sync_params` then declines to reconcile
+            // `hard_bypassed`. Run B therefore matches its control bit-for-bit and
+            // records a 0.0 excess step. The publish is remembered and applies at
+            // the next reset, which is what `set_armed` documents.
+            //
+            // This row stays `report`, not `gate`, and always will: passes A and C
+            // sit on either side of the arming boundary, so `latency_shift_frames`
+            // is `SATURATION_LATENCY_FRAMES` by construction and the latency-shift
+            // rule classifies before reaching `kind`. Enforcement of the refusal
+            // lives in the adapter unit tests; this row is evidence, not a gate.
+            transition:
+                "false -> true (refused mid-stream; A/C straddle the 0 -> 4 frame latency step)",
         },
     ]
 }
