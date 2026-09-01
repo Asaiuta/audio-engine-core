@@ -466,3 +466,129 @@ fn assert_close(expected: &[f64], actual: &[f64], tolerance: f64) {
         );
     }
 }
+
+/// An IR long enough that `tail_partitions` exceeds a handful of slots, so a
+/// warmup can fill the whole history ring rather than a corner of it.
+fn long_partitioned_ir(channels: usize) -> Vec<f64> {
+    synthetic_ir(PARTITIONED_CONVOLUTION_PARTITION_SIZE * 12, channels)
+}
+
+fn partitioned_engine(conv: &FFTConvolver) -> &PartitionedConvolver {
+    match &conv.engine {
+        ConvolverEngine::Partitioned(engine) => engine,
+        ConvolverEngine::OverlapSave(_) => panic!("expected the partitioned engine"),
+    }
+}
+
+/// The 2026-08-11 review, finding C: `reset` cleared `input_history_ffts`, which
+/// is sized by IR length, inside the audio callback — tens of megabytes for a
+/// long stereo IR, in one block.
+///
+/// Reset now drops a validity watermark instead, and the history buffer is left
+/// exactly as it was. This asserts the mechanism directly: not one word of the
+/// O(IR) buffer is written, so the work cannot scale with IR length.
+#[test]
+fn partitioned_reset_does_no_work_proportional_to_ir_length() {
+    let channels = 2;
+    let ir = long_partitioned_ir(channels);
+    let mut conv = FFTConvolver::new(&ir, channels).unwrap();
+
+    // Fill every history slot, so a clearing reset would have real data to wipe.
+    let tail_partitions = partitioned_engine(&conv).tail_partitions;
+    assert!(tail_partitions > 4, "IR too short to exercise the ring");
+    let warmup = synthetic_input(
+        PARTITIONED_CONVOLUTION_PARTITION_SIZE * (tail_partitions + 1),
+        channels,
+    );
+    let mut scratch = vec![0.0; warmup.len()];
+    conv.process_into(&warmup, &mut scratch).unwrap();
+
+    let engine = partitioned_engine(&conv);
+    assert_eq!(
+        engine.history_valid_slots, tail_partitions,
+        "warmup should saturate the watermark"
+    );
+    let history_before: Vec<Vec<Complex<f64>>> = engine
+        .channel_states
+        .iter()
+        .map(|state| state.input_history_ffts.clone())
+        .collect();
+    let nonzero = history_before
+        .iter()
+        .flatten()
+        .filter(|value| value.re != 0.0 || value.im != 0.0)
+        .count();
+    assert!(
+        nonzero > 0,
+        "history must hold real input to be worth clearing"
+    );
+
+    conv.reset();
+
+    let engine = partitioned_engine(&conv);
+    assert_eq!(
+        engine.history_valid_slots, 0,
+        "reset must invalidate the whole ring"
+    );
+    for (channel, before) in history_before.iter().enumerate() {
+        let after = &engine.channel_states[channel].input_history_ffts;
+        assert_eq!(after.len(), before.len());
+        // Count rather than compare wholesale: this buffer is megabytes, and a
+        // failing `assert_eq!` on the slices would print all of it.
+        let overwritten = before
+            .iter()
+            .zip(after.iter())
+            .filter(|(before, after)| before != after)
+            .count();
+        assert_eq!(
+            overwritten,
+            0,
+            "reset wrote {overwritten} of {} words to the O(IR) history buffer on \
+             channel {channel}; that cost scales with IR length",
+            before.len()
+        );
+    }
+}
+
+/// The other half of finding C: skipping the history must be *bit-identical* to
+/// clearing it, not merely close. A slot above the watermark would have
+/// contributed `±0.0` to each accumulator lane, and adding `±0.0` changes no
+/// value, so a reset engine must agree with a fresh one to the last bit.
+///
+/// The pre-existing reset test warms only a corner of the ring and compares
+/// within `1e-8`; this one saturates the ring and compares bit patterns.
+#[test]
+fn partitioned_reset_output_is_bit_identical_to_a_fresh_engine() {
+    let channels = 2;
+    let ir = long_partitioned_ir(channels);
+    let mut reused = FFTConvolver::new(&ir, channels).unwrap();
+    let mut fresh = FFTConvolver::new(&ir, channels).unwrap();
+
+    let tail_partitions = partitioned_engine(&reused).tail_partitions;
+    let warmup = synthetic_input(
+        PARTITIONED_CONVOLUTION_PARTITION_SIZE * (tail_partitions + 1),
+        channels,
+    );
+    let mut scratch = vec![0.0; warmup.len()];
+    reused.process_into(&warmup, &mut scratch).unwrap();
+    reused.reset();
+
+    // Run past one full history period so every skipped slot is eventually
+    // reoccupied by post-reset input.
+    let input = synthetic_input(
+        PARTITIONED_CONVOLUTION_PARTITION_SIZE * (tail_partitions + 2),
+        channels,
+    );
+    let mut expected = vec![0.0; input.len()];
+    let mut actual = vec![0.0; input.len()];
+    fresh.process_into(&input, &mut expected).unwrap();
+    reused.process_into(&input, &mut actual).unwrap();
+
+    for (index, (&left, &right)) in expected.iter().zip(actual.iter()).enumerate() {
+        assert_eq!(
+            left.to_bits(),
+            right.to_bits(),
+            "sample {index} differs: fresh {left:.17e}, reset {right:.17e}"
+        );
+    }
+}

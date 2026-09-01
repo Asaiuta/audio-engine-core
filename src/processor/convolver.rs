@@ -670,6 +670,27 @@ impl OverlapSaveConvolver {
     }
 }
 
+/// Uniform-partition convolution with a time-distributed tail.
+///
+/// # Lazy history invalidation
+///
+/// [`Self::reset`] runs inside the audio callback, reached from the pipeline's
+/// `REQUEST_RESET`. Clearing `input_history_ffts` there would be work
+/// proportional to IR length — tens of megabytes for a million-frame stereo IR,
+/// in one block — which is the unbounded hot-path work the crate's realtime
+/// rules forbid, and the reason this engine spreads its tail work in quanta to
+/// begin with.
+///
+/// So reset does not clear the history. It drops `history_valid_slots` to 0, and
+/// the two sites that read history skip any slot at or above that watermark.
+/// Commits raise it one slot at a time, so it saturates after one full period
+/// and the check then costs one comparison per quantum.
+///
+/// The output is bit-identical to clearing. A skipped slot would have
+/// contributed `input * ir` with `input == 0`, i.e. `±0.0` added to each
+/// accumulator lane; adding `±0.0` leaves every value unchanged, and the
+/// accumulator is only ever seeded with `+0.0`, so it can never hold `-0.0`
+/// where the sign of the addend would matter.
 #[derive(Clone)]
 struct PartitionedConvolver {
     channels: usize,
@@ -703,6 +724,16 @@ struct PartitionedConvolver {
     spread_channel: usize,
     spread_partition: usize,
     spread_history_slot: usize,
+    /// History slots holding input committed since the last reset.
+    ///
+    /// Slots are committed in cursor order from 0, and [`Self::reset`] returns
+    /// the cursor to 0, so slot `i` holds post-reset input exactly while
+    /// `i < history_valid_slots`. Everything at or above the watermark is
+    /// logically silent and is skipped rather than read.
+    ///
+    /// This is what keeps `reset` O(1) instead of O(IR): see the type-level
+    /// note on lazy history invalidation.
+    history_valid_slots: usize,
 }
 
 #[derive(Clone)]
@@ -801,6 +832,9 @@ impl PartitionedConvolver {
             spread_channel: 0,
             spread_partition: 1,
             spread_history_slot: tail_partitions.saturating_sub(1),
+            // A fresh engine has committed nothing; the allocation is already
+            // zeroed, so the watermark and the buffer contents agree.
+            history_valid_slots: 0,
         })
     }
 
@@ -828,8 +862,17 @@ impl PartitionedConvolver {
         self.spread_partition = 1;
         self.spread_history_slot = self.tail_partitions.saturating_sub(1);
 
+        // Invalidate the input history instead of clearing it. `input_history_ffts`
+        // is the one buffer here sized by IR length — a million-frame stereo IR
+        // makes it tens of MB — and this reset runs inside an audio callback, so
+        // clearing it is exactly the unbounded work the crate forbids on the hot
+        // path. Dropping the watermark to 0 is O(1) and bit-identical: an
+        // unwritten slot is skipped, and accumulating a zero spectrum would have
+        // added `±0.0` to each accumulator lane, which changes no value (the
+        // accumulator always starts at `+0.0`, so it can never be `-0.0`).
+        self.history_valid_slots = 0;
+
         for state in &mut self.channel_states {
-            state.input_history_ffts.fill(Complex::new(0.0, 0.0));
             state.input_block.fill(0.0);
             state.tail_output_block.fill(0.0);
             state.tail_overlap.fill(0.0);
@@ -978,17 +1021,22 @@ impl PartitionedConvolver {
         let history_start = self.spread_history_slot * spectrum_size;
         let ir_start = partition * spectrum_size;
 
-        let PartitionedChannelState {
-            tail_ir_ffts,
-            input_history_ffts,
-            tail_accum_spectrum,
-            ..
-        } = &mut self.channel_states[channel];
-        accumulate_spectrum_in_place(
-            tail_accum_spectrum,
-            &input_history_ffts[history_start..history_start + spectrum_size],
-            &tail_ir_ffts[ir_start..ir_start + spectrum_size],
-        );
+        // A slot above the watermark holds no post-reset input. Skipping it is
+        // equivalent to accumulating a zero spectrum, and it must not skip the
+        // schedule bookkeeping below — the boundary asserts every quantum ran.
+        if self.spread_history_slot < self.history_valid_slots {
+            let PartitionedChannelState {
+                tail_ir_ffts,
+                input_history_ffts,
+                tail_accum_spectrum,
+                ..
+            } = &mut self.channel_states[channel];
+            accumulate_spectrum_in_place(
+                tail_accum_spectrum,
+                &input_history_ffts[history_start..history_start + spectrum_size],
+                &tail_ir_ffts[ir_start..ir_start + spectrum_size],
+            );
+        }
         self.spread_quanta_done += 1;
         self.spread_channel += 1;
         if self.spread_channel == self.channels {
@@ -1033,8 +1081,13 @@ impl PartitionedConvolver {
             ..
         } = self;
 
+        // The first boundary after a reset lands before any commit, so the
+        // "newest" slot is the one the cursor wrapped past and still holds
+        // pre-reset input. Gate it on the same watermark as the spread quanta.
+        let newest_is_valid = newest_slot < self.history_valid_slots;
+
         for state in channel_states.iter_mut() {
-            {
+            if newest_is_valid {
                 let PartitionedChannelState {
                     tail_ir_ffts,
                     input_history_ffts,
@@ -1106,6 +1159,13 @@ impl PartitionedConvolver {
             state.input_history_ffts[spectrum_start..spectrum_start + spectrum_size]
                 .copy_from_slice(&self.scratch_spectrum);
             state.input_block.fill(0.0);
+        }
+
+        // Slot `history_slot` now holds post-reset input. Because commits run in
+        // cursor order from 0, advancing the watermark by one keeps the
+        // "valid iff index < watermark" invariant without tracking each slot.
+        if self.history_valid_slots < self.tail_partitions {
+            self.history_valid_slots += 1;
         }
 
         self.history_cursor += 1;
