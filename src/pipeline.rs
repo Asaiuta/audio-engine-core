@@ -223,6 +223,30 @@ const REQUEST_STOP_WITH_FADE: u8 = 3;
 /// — so the callback always observes a coherent request without a lock or a
 /// second load. Requests coalesce: if several are published between two
 /// callback blocks, only the newest takes effect.
+///
+/// # Generation wraparound
+///
+/// The counter is 40 bits, so `(generation + 1) << 24` in [`Self::publish`]
+/// silently truncates on the 2^40'th request — sustaining one request per
+/// millisecond, that is roughly 35 years of continuous publishing, which is why
+/// this is documented rather than guarded.
+///
+/// Two things would go wrong at that point, and both are recorded here so a
+/// future reader does not have to re-derive them:
+///
+/// - `publish` returns the untruncated `generation`, while the word stores its
+///   low 40 bits. The value handed to the caller would no longer match what
+///   [`Self::requested_generation`] reports, so a settled check against it would
+///   never converge.
+/// - [`Self::take_newer_than`] compares generations with `==`, not `>`. A
+///   wrapped generation of 0 against a `seen_generation` of 0 reads as "nothing
+///   new", so exactly one request would be dropped per wrap.
+///
+/// Equality is deliberate, not an oversight: it is what makes coalescing work
+/// when the callback is behind by several requests, and it avoids any ordering
+/// assumption between the control and callback sides. Widening the field or
+/// switching to wrapping-difference comparison would both fix the above, and
+/// neither is worth the complexity at this reach.
 #[derive(Debug)]
 struct LifecycleChannel {
     request: AtomicU64,
