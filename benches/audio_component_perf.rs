@@ -4,7 +4,7 @@ use std::time::Instant;
 use audio_engine_core::{
     analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, ChannelLayout,
     DownmixCoefficients, Downmixer, LoudnessMeter, MediaLocation, RingBuffer, SpectrumAnalyzer,
-    TruePeakDetector,
+    SpectrumConfig, TruePeakDetector,
 };
 #[cfg(feature = "loudness-db")]
 use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, TrackLoudness};
@@ -122,6 +122,22 @@ fn main() -> Result<(), String> {
     let mut cases = vec![
         benchmark_spectrum(1_024, 64, 128 * workload.iteration_scale, workload.trials)?,
         benchmark_spectrum(4_096, 96, 32 * workload.iteration_scale, workload.trials)?,
+        benchmark_spectrum_push(
+            false,
+            4_096,
+            96,
+            512,
+            128 * workload.iteration_scale,
+            workload.trials,
+        )?,
+        benchmark_spectrum_push(
+            true,
+            4_096,
+            128,
+            512,
+            128 * workload.iteration_scale,
+            workload.trials,
+        )?,
         benchmark_downmix(
             ChannelLayout::surround_5_1(),
             DownmixCoefficients::ItuRbs775,
@@ -276,15 +292,20 @@ fn benchmark_spectrum(
     let mut samples = Vec::with_capacity(trials);
     let mut checksum = 0.0;
     for _ in 0..trials {
+        #[allow(deprecated)]
         let mut analyzer =
             SpectrumAnalyzer::new(fft_size, bins).map_err(|error| error.to_string())?;
-        black_box(
-            analyzer
-                .analyze(&input, SAMPLE_RATE_HZ)
-                .map_err(|error| error.to_string())?,
-        );
+        #[allow(deprecated)]
+        {
+            black_box(
+                analyzer
+                    .analyze(&input, SAMPLE_RATE_HZ)
+                    .map_err(|error| error.to_string())?,
+            );
+        }
         let start = Instant::now();
         for iteration in 0..iterations {
+            #[allow(deprecated)]
             let output = analyzer
                 .analyze(black_box(&input), SAMPLE_RATE_HZ)
                 .map_err(|error| error.to_string())?;
@@ -293,8 +314,10 @@ fn benchmark_spectrum(
         }
         samples.push(ns_per_work(start, iterations * fft_size));
     }
+    #[allow(deprecated)]
     let mut validation_analyzer =
         SpectrumAnalyzer::new(fft_size, bins).map_err(|error| error.to_string())?;
+    #[allow(deprecated)]
     let validation = validation_analyzer
         .analyze(&input, SAMPLE_RATE_HZ)
         .map_err(|error| error.to_string())?;
@@ -310,6 +333,83 @@ fn benchmark_spectrum(
         samples,
         expected_operations: trials * iterations,
         expected_work_items: trials * iterations * fft_size,
+        all_output_finite: finite,
+        output_nontrivial: nontrivial,
+        checksum: checksum
+            + validation
+                .iter()
+                .map(|value| f64::from(*value))
+                .sum::<f64>(),
+    })
+}
+
+fn benchmark_spectrum_push(
+    multi_resolution: bool,
+    fft_size: usize,
+    bins: usize,
+    block_size: usize,
+    iterations: usize,
+    trials: usize,
+) -> Result<ComponentCase, String> {
+    let input = synthetic_samples(block_size, 1);
+    let warmup_size = if multi_resolution { 65_536 } else { fft_size };
+    let warmup = synthetic_samples(warmup_size, 1);
+    let config = SpectrumConfig {
+        fft_size,
+        num_bins: bins,
+        hop_divisor: 4,
+        multi_resolution,
+        ..SpectrumConfig::default()
+    };
+    let mut samples = Vec::with_capacity(trials);
+    let mut checksum = 0.0;
+
+    for _ in 0..trials {
+        let mut analyzer = SpectrumAnalyzer::with_config(config.clone(), SAMPLE_RATE_HZ)
+            .map_err(|error| error.to_string())?;
+        analyzer.push(&warmup);
+
+        let start = Instant::now();
+        for iteration in 0..iterations {
+            let frames = analyzer.push(black_box(&input));
+            let spectrum = analyzer
+                .spectrum()
+                .ok_or_else(|| "spectrum push benchmark lost its primed output".to_string())?;
+            checksum += frames as f64 + f64::from(spectrum[iteration % spectrum.len()]);
+            black_box(spectrum);
+        }
+        samples.push(ns_per_work(start, iterations * block_size));
+    }
+
+    let mut validation_analyzer =
+        SpectrumAnalyzer::with_config(config, SAMPLE_RATE_HZ).map_err(|error| error.to_string())?;
+    let warmup_frames = validation_analyzer.push(&warmup);
+    let validation_frames = validation_analyzer.push(&input);
+    let validation = validation_analyzer
+        .spectrum()
+        .ok_or_else(|| "spectrum push validation produced no frame".to_string())?;
+    let finite = validation.iter().all(|value| value.is_finite());
+    let nontrivial =
+        warmup_frames > 0 && validation_frames <= 1 && validation.iter().any(|value| *value > 0.0);
+    let mode = if multi_resolution { "multi" } else { "single" };
+    let geometry = if multi_resolution {
+        "tiers=4096-16384-65536".to_string()
+    } else {
+        format!("fft={fft_size}")
+    };
+
+    component_case(ComponentCaseInput {
+        case_key: format!(
+            "component=spectrum;operation=push;mode={mode};{geometry};bins={bins};hop_divisor=4;block={block_size}"
+        ),
+        component: "SpectrumAnalyzer",
+        operation: "push",
+        primary_unit: "ns/input-sample",
+        work_items_per_iteration: block_size,
+        iterations_per_trial: iterations,
+        samples,
+        expected_operations: trials * iterations,
+        expected_work_items: trials * iterations * block_size,
         all_output_finite: finite,
         output_nontrivial: nontrivial,
         checksum: checksum
@@ -845,6 +945,8 @@ fn expected_component_case_keys() -> Vec<String> {
     let keys = vec![
         "component=spectrum;operation=analyze;fft=1024;bins=64".to_string(),
         "component=spectrum;operation=analyze;fft=4096;bins=96".to_string(),
+        "component=spectrum;operation=push;mode=single;fft=4096;bins=96;hop_divisor=4;block=512".to_string(),
+        "component=spectrum;operation=push;mode=multi;tiers=4096-16384-65536;bins=128;hop_divisor=4;block=512".to_string(),
         "component=downmixer;operation=process_into;source_channels=6;target_channels=2;coefficients=itu_r_bs775;frames=512".to_string(),
         "component=downmixer;operation=process_into;source_channels=8;target_channels=2;coefficients=atsc_a85;frames=512".to_string(),
         "component=loudness_meter;operation=process;channels=2;frames=512;true_peak=4x_fir".to_string(),

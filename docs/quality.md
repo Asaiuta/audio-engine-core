@@ -519,11 +519,12 @@ implied by the table.
 ### Components
 
 `audio_component_perf` supplies dedicated timing for all previously uncovered
-public component families. Its default-feature quick report has 16 cases:
-SpectrumAnalyzer (1,024/4,096 FFT), Downmixer (5.1/7.1 to stereo),
+public component families. Its default-feature quick report has 18 cases:
+SpectrumAnalyzer (legacy 1,024/4,096 FFT plus single-tier and multi-resolution
+streaming push), Downmixer (5.1/7.1 to stereo),
 LoudnessMeter (512/4,096 frames), contiguous and strided TruePeakDetector,
 AutoMix Head/Full, RingBuffer write/read/advance, and five in-memory
-LoudnessDatabase operations. The Rubato-only feature set reports 11 cases and
+LoudnessDatabase operations. The Rubato-only feature set reports 13 cases and
 records LoudnessDatabase as explicitly excluded because `loudness-db` is not
 compiled. The JSON retains every case and raw trial.
 
@@ -535,12 +536,21 @@ compare within a row, not across the table.
 | Case | Median | As of | Note |
 | --- | ---: | --- | --- |
 | SpectrumAnalyzer, 1,024-point | ~4.5 ns/sample | 2026-08-13 | was 5.05 ns/sample before the `realfft` migration below |
+| SpectrumAnalyzer `push`, 4,096-point single tier, 512-sample input | 18.02 ns/input-sample | 2026-09-03 | 75% overlap, default 30/250 ms smoothing, 96 bands; construction and warm-up excluded |
+| SpectrumAnalyzer `push`, 4,096/16,384/65,536 multi-resolution, 512-sample input | 35.31 ns/input-sample | 2026-09-03 | 75% overlap, default 30/250 ms smoothing, 128 bands; all tiers primed before timing |
 | Downmixer, 5.1 to stereo | 4.72 ns/frame | 2026-07-26 | unchanged since |
 | LoudnessMeter, 4,096-frame blocks | ~14 ns/input-sample | 2026-08-13 | was 42.37 ns/input-sample before the metering change below (−67%) |
 | LoudnessMeter, 512-frame blocks | — | 2026-08-13 | −92% from the same change; see the paired A/B table below |
 | TruePeakDetector, contiguous | 9.96 ns/sample | 2026-07-26 | unchanged since; independently reproduced at 9.53 ns/sample on the 2026-08-13 host |
 | AutoMix Head / Full | 54.42 / 108.18 ms | 2026-07-26 | 12 s fixture, 5 s window; superseded by the window caching below (−27.3% / −20.5% on the 2026-08-13 host) — see [AutoMix cost breakdown](#automix-cost-breakdown) |
 | LoudnessDatabase, 128-row batch upsert | 8.08 μs/row | 2026-07-26 | `loudness-db` only |
+
+The 2026-09-03 spectrum push rows are report-only medians from the enforced
+seven-trial quick run on Windows/x86_64, Intel Family 6 Model 154, rustc 1.93.1.
+The exact JSON is retained at
+`.trellis/tasks/09-02-spectrum-analyzer-streaming/research/audio-component-perf-quick-20260903.json`.
+No compatible pre-change case set exists for these new rows, so they establish
+coverage and a future baseline candidate but do not claim a regression delta.
 
 The two changes referenced above are recorded next: the metering mode narrowing
 and the `realfft` migration.
