@@ -150,8 +150,8 @@ pub use processor::{
     PostRenderAnalysisDescriptor, PostRenderAnalysisId, ProcessBufferMode, ProcessBufferParts,
     ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState, RenderTimeline,
     RenderedOutput, Resampler, SaturationEvent, SaturationEventKind, SpectrumAnalyzer,
-    StreamingProcessor, StreamingResampler, TailSpec, TimingError, TruePeakDetector,
-    UnknownTailPolicy, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
+    SpectrumConfig, StreamingProcessor, StreamingResampler, TailSpec, TimingError,
+    TruePeakDetector, UnknownTailPolicy, WindowFunction, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
     PARTITIONED_CONVOLUTION_PARTITION_SIZE, RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
 };
 

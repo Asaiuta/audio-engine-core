@@ -3,7 +3,7 @@
 use audio_engine_core::{
     analysis, audio_block, dsp, processor, AudioBlockError, AudioBlockMut, AudioBlockRef,
     AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions, AutomixError, LoudnessInfo,
-    LoudnessMeter, SpectrumAnalyzer, TruePeakDetector,
+    LoudnessMeter, SpectrumAnalyzer, SpectrumConfig, TruePeakDetector, WindowFunction,
 };
 
 #[test]
@@ -23,6 +23,26 @@ fn analysis_facade_matches_existing_public_types() {
     let _: Option<analysis::SpectrumAnalyzer> = None;
     let _: Option<SpectrumAnalyzer> = None;
     let _: Option<processor::SpectrumAnalyzer> = None;
+    let _: Option<analysis::SpectrumConfig> = None;
+    let _: Option<SpectrumConfig> = None;
+    let _: Option<processor::SpectrumConfig> = None;
+    let _: Option<analysis::WindowFunction> = None;
+    let _: Option<WindowFunction> = None;
+    let _: Option<processor::WindowFunction> = None;
+
+    // Assign through every facade so this test proves type identity rather
+    // than only proving that three same-named paths resolve.
+    let root_window = WindowFunction::Hann;
+    let canonical_window: analysis::WindowFunction = root_window;
+    let _: processor::WindowFunction = canonical_window;
+    let root_config = SpectrumConfig::legacy(16, 4);
+    let canonical_config: analysis::SpectrumConfig = root_config;
+    let processor_config: processor::SpectrumConfig = canonical_config;
+    let root_analyzer =
+        SpectrumAnalyzer::with_config(processor_config, 48_000).expect("valid spectrum geometry");
+    let canonical_analyzer: analysis::SpectrumAnalyzer = root_analyzer;
+    let _: processor::SpectrumAnalyzer = canonical_analyzer;
+
     let _: Option<analysis::LoudnessInfo> = None;
     let _: Option<LoudnessInfo> = None;
     let _: Option<processor::LoudnessInfo> = None;

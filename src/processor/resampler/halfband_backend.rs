@@ -19,7 +19,7 @@ use std::arch::x86_64::{
 };
 
 use super::{BackendInitError, BackendProcessError};
-use crate::processor::fir_design::modified_bessel_i0;
+use crate::dsp::modified_bessel_i0;
 
 /// Odd length keeps the half-band center on an exact output frame. A 127-tap
 /// Kaiser design is the smallest power-of-two-history candidate that keeps the

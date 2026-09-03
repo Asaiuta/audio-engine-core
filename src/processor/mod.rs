@@ -105,7 +105,7 @@ pub use saturation::{Saturation, SaturationQuality, SaturationSettings, Saturati
 // Its implementation now lives under `analysis`; this re-export keeps the
 // historical processor path source-compatible during the physical module
 // split. See `.trellis/spec/backend/analysis-compatibility.md`.
-pub use crate::analysis::SpectrumAnalyzer;
+pub use crate::analysis::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};
 
 // Re-export unified abstraction types
 pub use adapters::{

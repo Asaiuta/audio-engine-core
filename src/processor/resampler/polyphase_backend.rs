@@ -16,9 +16,8 @@ use super::BackendProcessError;
 #[cfg(test)]
 use crate::config::PhaseResponse;
 use crate::config::ResampleQuality;
-use crate::processor::fir_design::{
-    minimum_phase_from_log_magnitude, modified_bessel_i0, FirFftPlans,
-};
+use crate::dsp::modified_bessel_i0;
+use crate::processor::fir_design::{minimum_phase_from_log_magnitude, FirFftPlans};
 
 pub(super) const MAX_REDUCED_RATE: usize = 1_024;
 pub(super) const MAX_POLYPHASE_COEFFICIENTS: usize = 524_288;

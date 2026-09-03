@@ -20,4 +20,4 @@ pub use automix::{
 pub use loudness_info::LoudnessInfo;
 pub(crate) use measurement::{true_peak_fir, true_peak_reconstruction_l1_bound, TRUE_PEAK_DELAY};
 pub use measurement::{LoudnessMeter, TruePeakDetector};
-pub use spectrum::SpectrumAnalyzer;
+pub use spectrum::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};

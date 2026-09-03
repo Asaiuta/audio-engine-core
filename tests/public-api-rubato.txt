@@ -53,6 +53,26 @@ impl core::marker::Unpin for audio_engine_core::AutomixError
 impl core::marker::UnsafeUnpin for audio_engine_core::AutomixError
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixError
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixError
+pub enum audio_engine_core::analysis::WindowFunction
+pub audio_engine_core::analysis::WindowFunction::BlackmanHarris4
+pub audio_engine_core::analysis::WindowFunction::Hann
+pub audio_engine_core::analysis::WindowFunction::Kaiser
+pub audio_engine_core::analysis::WindowFunction::Kaiser::beta: f64
+impl core::clone::Clone for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
+impl core::cmp::PartialEq for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
+impl core::fmt::Debug for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::WindowFunction
+impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
+impl core::marker::Freeze for audio_engine_core::WindowFunction
+impl core::marker::Send for audio_engine_core::WindowFunction
+impl core::marker::Sync for audio_engine_core::WindowFunction
+impl core::marker::Unpin for audio_engine_core::WindowFunction
+impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
 pub struct audio_engine_core::analysis::AutomixAnalysis
 pub audio_engine_core::analysis::AutomixAnalysis::analyze_window: f64
 pub audio_engine_core::analysis::AutomixAnalysis::bpm: core::option::Option<f64>
@@ -152,7 +172,13 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
 pub struct audio_engine_core::analysis::SpectrumAnalyzer
 impl audio_engine_core::SpectrumAnalyzer
 pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
 pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
@@ -160,6 +186,43 @@ impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
 impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
+pub struct audio_engine_core::analysis::SpectrumConfig
+pub audio_engine_core::analysis::SpectrumConfig::attack_ms: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectrumConfig::db_max: f64
+pub audio_engine_core::analysis::SpectrumConfig::db_min: f64
+pub audio_engine_core::analysis::SpectrumConfig::fft_size: usize
+pub audio_engine_core::analysis::SpectrumConfig::hop_divisor: usize
+pub audio_engine_core::analysis::SpectrumConfig::multi_resolution: bool
+pub audio_engine_core::analysis::SpectrumConfig::num_bins: usize
+pub audio_engine_core::analysis::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectrumConfig::release_ms: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectrumConfig::tilt_db_per_octave: f64
+pub audio_engine_core::analysis::SpectrumConfig::window: audio_engine_core::WindowFunction
+impl audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
+impl core::clone::Clone for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
+impl core::default::Default for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::SpectrumConfig
+impl core::marker::Send for audio_engine_core::SpectrumConfig
+impl core::marker::Sync for audio_engine_core::SpectrumConfig
+impl core::marker::Unpin for audio_engine_core::SpectrumConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
 pub struct audio_engine_core::analysis::TruePeakDetector
 impl audio_engine_core::TruePeakDetector
 pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
@@ -3087,6 +3150,26 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
+pub enum audio_engine_core::processor::WindowFunction
+pub audio_engine_core::processor::WindowFunction::BlackmanHarris4
+pub audio_engine_core::processor::WindowFunction::Hann
+pub audio_engine_core::processor::WindowFunction::Kaiser
+pub audio_engine_core::processor::WindowFunction::Kaiser::beta: f64
+impl core::clone::Clone for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
+impl core::cmp::PartialEq for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
+impl core::fmt::Debug for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::WindowFunction
+impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
+impl core::marker::Freeze for audio_engine_core::WindowFunction
+impl core::marker::Send for audio_engine_core::WindowFunction
+impl core::marker::Sync for audio_engine_core::WindowFunction
+impl core::marker::Unpin for audio_engine_core::WindowFunction
+impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
 pub struct audio_engine_core::processor::AtomicCrossfeedParams
 impl audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams
 pub fn audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams::is_enabled(&self) -> bool
@@ -4393,7 +4476,13 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::Satu
 pub struct audio_engine_core::processor::SpectrumAnalyzer
 impl audio_engine_core::SpectrumAnalyzer
 pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
 pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
@@ -4401,6 +4490,43 @@ impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
 impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
+pub struct audio_engine_core::processor::SpectrumConfig
+pub audio_engine_core::processor::SpectrumConfig::attack_ms: core::option::Option<f64>
+pub audio_engine_core::processor::SpectrumConfig::db_max: f64
+pub audio_engine_core::processor::SpectrumConfig::db_min: f64
+pub audio_engine_core::processor::SpectrumConfig::fft_size: usize
+pub audio_engine_core::processor::SpectrumConfig::hop_divisor: usize
+pub audio_engine_core::processor::SpectrumConfig::multi_resolution: bool
+pub audio_engine_core::processor::SpectrumConfig::num_bins: usize
+pub audio_engine_core::processor::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
+pub audio_engine_core::processor::SpectrumConfig::release_ms: core::option::Option<f64>
+pub audio_engine_core::processor::SpectrumConfig::tilt_db_per_octave: f64
+pub audio_engine_core::processor::SpectrumConfig::window: audio_engine_core::WindowFunction
+impl audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
+impl core::clone::Clone for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
+impl core::default::Default for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::SpectrumConfig
+impl core::marker::Send for audio_engine_core::SpectrumConfig
+impl core::marker::Sync for audio_engine_core::SpectrumConfig
+impl core::marker::Unpin for audio_engine_core::SpectrumConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
 pub struct audio_engine_core::processor::StreamingResampler
 impl audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::from_rate(&self) -> u32
@@ -5284,6 +5410,26 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
+pub enum audio_engine_core::WindowFunction
+pub audio_engine_core::WindowFunction::BlackmanHarris4
+pub audio_engine_core::WindowFunction::Hann
+pub audio_engine_core::WindowFunction::Kaiser
+pub audio_engine_core::WindowFunction::Kaiser::beta: f64
+impl core::clone::Clone for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
+impl core::cmp::PartialEq for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
+impl core::fmt::Debug for audio_engine_core::WindowFunction
+pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::WindowFunction
+impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
+impl core::marker::Freeze for audio_engine_core::WindowFunction
+impl core::marker::Send for audio_engine_core::WindowFunction
+impl core::marker::Sync for audio_engine_core::WindowFunction
+impl core::marker::Unpin for audio_engine_core::WindowFunction
+impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
 pub struct audio_engine_core::AtomicLoudnessState
 impl audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
@@ -6347,7 +6493,13 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::SpectrumAnalyzer
 impl audio_engine_core::SpectrumAnalyzer
 pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
 pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
 impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
@@ -6355,6 +6507,43 @@ impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
 impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
+pub struct audio_engine_core::SpectrumConfig
+pub audio_engine_core::SpectrumConfig::attack_ms: core::option::Option<f64>
+pub audio_engine_core::SpectrumConfig::db_max: f64
+pub audio_engine_core::SpectrumConfig::db_min: f64
+pub audio_engine_core::SpectrumConfig::fft_size: usize
+pub audio_engine_core::SpectrumConfig::hop_divisor: usize
+pub audio_engine_core::SpectrumConfig::multi_resolution: bool
+pub audio_engine_core::SpectrumConfig::num_bins: usize
+pub audio_engine_core::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
+pub audio_engine_core::SpectrumConfig::release_ms: core::option::Option<f64>
+pub audio_engine_core::SpectrumConfig::tilt_db_per_octave: f64
+pub audio_engine_core::SpectrumConfig::window: audio_engine_core::WindowFunction
+impl audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
+pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
+impl core::clone::Clone for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
+impl core::default::Default for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::SpectrumConfig
+pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::SpectrumConfig
+impl core::marker::Send for audio_engine_core::SpectrumConfig
+impl core::marker::Sync for audio_engine_core::SpectrumConfig
+impl core::marker::Unpin for audio_engine_core::SpectrumConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
 pub struct audio_engine_core::StreamingDecoder
 impl audio_engine_core::StreamingDecoder
 pub const audio_engine_core::StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES: u64
