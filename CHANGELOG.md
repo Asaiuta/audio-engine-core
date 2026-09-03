@@ -10,17 +10,7 @@ version bumps, as permitted by SemVer.
 
 ## [Unreleased]
 
-> **Pending release decision.** This section contains two auto-trait narrowings
-> that `cargo-semver-checks` classifies as requiring a major version (see
-> *Changed / BREAKING* below). The version number in `Cargo.toml` is still
-> `1.1.0` and has **not** been decided yet, so all three
-> `cargo semver-checks --release-type patch` gates are currently expected to
-> fail with `auto_trait_impl_removed`. That failure is the gate working, not a
-> broken gate. Resolve it by choosing the release version (and refreshing the
-> committed baselines as an explicit API-policy decision), not by relaxing the
-> check.
-
-### Changed / BREAKING
+### Changed
 - **The default resampler backend is now the pure-Rust `rubato` backend.**
   `default = ["http", "loudness-db", "rubato"]` replaces
   `default = ["http", "loudness-db", "soxr"]`. A default build therefore links no
@@ -31,20 +21,18 @@ version bumps, as permitted by SemVer.
   `soxr` remains fully supported as an opt-in feature. Because the pre-existing
   backend priority is unchanged (SoXR wins when both features are enabled),
   adding `features = ["soxr"]` on top of the default set restores the previous
-  backend exactly, including its auto-trait impls.
+  backend exactly. `StreamingResampler` preserves `Send`, `Sync`, `UnwindSafe`,
+  `RefUnwindSafe`, and `Freeze` under both selections. Rubato's internal
+  `Async<f64>` is isolated behind a zero-cost static exclusive-access wrapper;
+  state advancement still requires `&mut self` and takes no lock.
 
-  **Breaking:** on the rubato backend `StreamingResampler` is no longer `Sync`,
-  `UnwindSafe`, or `RefUnwindSafe`. The cause is upstream: rubato's `Async<f64>`
-  holds a `Box<dyn InnerResampler<f64>>` whose trait object does not declare
-  those auto traits, so they cannot be recovered from this crate. `Send` is
-  unaffected, and the narrowing does not propagate: `OutputRenderChain`,
-  `PlaybackPipeline`, `DspChain`, and `ConvolverProcessor` were already `!Sync`
-  under the previous default. Since `process`, `finish`, `reset`, and
-  `set_sample_rate` all take `&mut self`, both usable sharing patterns still
-  work — `Arc<Mutex<StreamingResampler>>` (needs only `Send`) and moving the
-  resampler to the audio thread. Only `Arc<StreamingResampler>`, which could
-  call the read-only accessors and nothing else, is rejected. Enable `soxr` if
-  the `Sync` impl itself is required.
+### Fixed
+- Restored the stable auto-trait surface for `FirEq` and the Rubato-backed
+  `StreamingResampler` after private FFT/backend trait objects leaked narrower
+  bounds into the public API. The repair keeps FFT-plan reuse and Rubato output,
+  lifecycle, and realtime routing unchanged, uses no local unsafe impl, and is
+  pinned by compile-time trait assertions plus all three public API/SemVer
+  matrices.
 
 ### Added
 - **Default-feature public API and SemVer coverage.** `tests/public_api.rs` gained

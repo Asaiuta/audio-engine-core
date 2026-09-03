@@ -673,12 +673,14 @@ and `interleaved_tap_counts_do_not_cross_contaminate_cached_plans` pin that with
 exact equality rather than a tolerance; the latter was verified to fail when the
 cache ignores its size key.
 
-Holding a plan does cost an auto trait: `FirEq` becomes `!UnwindSafe` /
-`!RefUnwindSafe`, because `dyn Fft` and `dyn ComplexToReal` do not declare
-`RefUnwindSafe`. This is a deliberate, reviewed narrowing of the public surface,
-and it matches `SpectrumAnalyzer` and `FFTConvolver`, which already hold plans and
-were already `!UnwindSafe`. The regenerated baselines contain exactly those two
-lines per feature set and no other change.
+The FFT trait objects do not declare `RefUnwindSafe`, but that private detail
+must not narrow `FirEq`'s stable public auto traits. `FirEq` wraps only its plan
+cache in `AssertUnwindSafe`: the plans are read-only during transforms, cache
+mutation requires `&mut FirEq`, and the exact-output tests above show reuse is
+not logical state visible through a shared reference. Keeping the assertion at
+the field rather than implementing traits for the whole type means future
+unrelated fields still participate in compiler derivation. A compile-time test
+pins `FirEq: Send + Sync + UnwindSafe + RefUnwindSafe`.
 
 Note for anyone re-measuring: this code path needs the rubato backend, i.e. the
 default feature set or `--no-default-features --features rubato`. Adding `soxr`
