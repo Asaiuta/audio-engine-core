@@ -10,17 +10,19 @@
 //! wins. The public `Resampler` / `StreamingResampler` API is identical for
 //! both.
 //!
-//! One auto trait differs. [`StreamingResampler`] is `Send` under either
-//! backend, but on the rubato backend it is **not** `Sync`, `UnwindSafe`, or
-//! `RefUnwindSafe`, because rubato's `Async<f64>` holds a
-//! `Box<dyn InnerResampler<f64>>` whose trait object does not declare those auto
-//! traits. Every method that advances state takes `&mut self`, so
-//! `Arc<Mutex<StreamingResampler>>` (needs only `Send`) and moving the resampler
-//! to the audio thread both still work; only `Arc<StreamingResampler>` is
-//! rejected. Enable `soxr` if the `Sync` impl itself is required.
+//! Both backends expose the same `Send + Sync + UnwindSafe + RefUnwindSafe`
+//! surface. Rubato's `Async<f64>` contains a
+//! `Box<dyn InnerResampler<f64>>` that does not provide those auto traits, so
+//! the private backend uses an exclusive-access wrapper. State-advancing
+//! methods already take `&mut self` and access the backend through `get_mut`;
+//! the realtime algorithm therefore remains lock-free and unchanged.
 
 use crate::audio_block::{AudioBlockError, AudioBlockMut, AudioBlockRef};
 use crate::config::{PhaseResponse, ResampleQuality};
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+use std::panic::AssertUnwindSafe;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
+use sync_wrapper::SyncWrapper;
 use thiserror::Error;
 
 #[cfg(not(any(feature = "soxr", feature = "rubato")))]
@@ -641,21 +643,19 @@ impl Resampler {
 ///
 /// # Thread safety
 ///
-/// Always `Send`. On the default rubato backend it is **not** `Sync` (nor
-/// `UnwindSafe` / `RefUnwindSafe`), because rubato's `Async<f64>` holds a
-/// `Box<dyn InnerResampler<f64>>` that does not declare those auto traits; the
-/// `soxr` backend does provide them. Since [`process`](Self::process),
+/// Both supported backends provide `Send + Sync + UnwindSafe + RefUnwindSafe`.
+/// Rubato's backend is wrapped privately in a static exclusive-access boundary
+/// solely to preserve those auto traits. [`process`](Self::process),
 /// [`finish`](Self::finish), [`reset`](Self::reset), and
-/// [`set_sample_rate`](Self::set_sample_rate) all take `&mut self`, sharing via
-/// `Arc<Mutex<StreamingResampler>>` (which needs only `Send`) or moving the
-/// resampler onto the audio thread work on both backends.
+/// [`set_sample_rate`](Self::set_sample_rate) all take `&mut self` and use
+/// `SyncWrapper::get_mut`, so the processing and drain paths acquire no lock.
 ///
 /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {
     #[cfg(feature = "soxr")]
     backends: Vec<MonoBackend>,
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-    backend: MonoBackend,
+    backend: AssertUnwindSafe<SyncWrapper<MonoBackend>>,
     channels: usize,
     from_rate: u32,
     to_rate: u32,
@@ -893,7 +893,7 @@ impl StreamingResampler {
             #[cfg(feature = "soxr")]
             backends,
             #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-            backend,
+            backend: AssertUnwindSafe(SyncWrapper::new(backend)),
             channels,
             from_rate,
             to_rate,
@@ -984,7 +984,7 @@ impl StreamingResampler {
         input: &[f64],
         output: &mut [f64],
     ) -> Result<BackendProgress, BackendProcessError> {
-        self.backend.process(input, output)
+        self.backend.get_mut().process(input, output)
     }
 
     #[cfg(feature = "soxr")]
@@ -1228,7 +1228,7 @@ impl StreamingResampler {
         &mut self,
         output: &mut [f64],
     ) -> Result<usize, BackendProcessError> {
-        self.backend.drain(output)
+        self.backend.get_mut().drain(output)
     }
 
     #[cfg(feature = "soxr")]
@@ -1414,11 +1414,16 @@ impl StreamingProcessor for StreamingResampler {
             }
         }
         #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-        let first_error = self.backend.clear().err().map(|_| ProcessError::Backend {
-            processor: "StreamingResampler",
-            operation: "reset",
-            message: "backend clear failed",
-        });
+        let first_error = self
+            .backend
+            .get_mut()
+            .clear()
+            .err()
+            .map(|_| ProcessError::Backend {
+                processor: "StreamingResampler",
+                operation: "reset",
+                message: "backend clear failed",
+            });
         #[cfg(feature = "soxr")]
         self.clear_work_buffers();
         self.finishing = false;

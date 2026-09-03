@@ -34,9 +34,10 @@ struct RealInversePlan {
 ///
 /// Plans are read-only once built (`process` does not mutate them) and a cached
 /// plan is bit-identical in output to a freshly built one, so reuse is a pure
-/// performance change. Holding one does cost `UnwindSafe`/`RefUnwindSafe` for
-/// the owning type, because `dyn Fft` and `dyn ComplexToReal` do not declare
-/// `RefUnwindSafe`; that narrowing is recorded in the public API baseline.
+/// performance change. The trait objects do not declare `RefUnwindSafe`, so a
+/// public owner that exposes no shared plan mutation must place a narrow
+/// `AssertUnwindSafe` boundary around this private cache. `FirEq` does so while
+/// leaving all of its other fields subject to compiler-derived auto traits.
 pub(crate) struct FirFftPlans {
     planner: FftPlanner<f64>,
     /// Cached plans. The helpers here use a handful of power-of-two sizes per

@@ -3897,8 +3897,8 @@ impl core::marker::Send for audio_engine_core::processor::FirEq
 impl core::marker::Sync for audio_engine_core::processor::FirEq
 impl core::marker::Unpin for audio_engine_core::processor::FirEq
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::FirEq
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::FirEq
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::FirEq
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::FirEq
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::FirEq
 pub struct audio_engine_core::processor::FrameDuration
 impl audio_engine_core::processor::traits::FrameDuration
 pub const audio_engine_core::processor::traits::FrameDuration::ZERO: Self
@@ -4548,11 +4548,11 @@ pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::StreamingResampler
 impl core::marker::Send for audio_engine_core::StreamingResampler
-impl !core::marker::Sync for audio_engine_core::StreamingResampler
+impl core::marker::Sync for audio_engine_core::StreamingResampler
 impl core::marker::Unpin for audio_engine_core::StreamingResampler
 impl core::marker::UnsafeUnpin for audio_engine_core::StreamingResampler
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
 pub struct audio_engine_core::processor::TruePeakDetector
 impl audio_engine_core::TruePeakDetector
 pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
@@ -6588,11 +6588,11 @@ pub fn audio_engine_core::StreamingResampler::tail(&self) -> audio_engine_core::
 pub fn audio_engine_core::StreamingResampler::tail_energy_observation_barrier(&self) -> bool
 impl core::marker::Freeze for audio_engine_core::StreamingResampler
 impl core::marker::Send for audio_engine_core::StreamingResampler
-impl !core::marker::Sync for audio_engine_core::StreamingResampler
+impl core::marker::Sync for audio_engine_core::StreamingResampler
 impl core::marker::Unpin for audio_engine_core::StreamingResampler
 impl core::marker::UnsafeUnpin for audio_engine_core::StreamingResampler
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
 pub struct audio_engine_core::TruePeakDetector
 impl audio_engine_core::TruePeakDetector
 pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64

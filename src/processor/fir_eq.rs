@@ -8,6 +8,7 @@ use realfft::num_complex::Complex;
 use super::fir_design::{minimum_phase_from_log_magnitude, FirFftPlans};
 use super::lockfree_params::{sanitized, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
 use std::f64::consts::PI;
+use std::panic::AssertUnwindSafe;
 
 /// Standard 10-band EQ frequencies (ISO octave bands)
 ///
@@ -61,7 +62,10 @@ pub struct FirEq {
     /// `regenerate_ir` runs on every `set_band` / `set_bands` / `set_sample_rate`
     /// / `set_num_taps` / `set_phase_mode`, i.e. once per EQ slider movement, not
     /// just at construction. Rebuilding a planner each time dominated that cost.
-    plans: FirFftPlans,
+    // The plan objects are setup-only and never expose shared mutable state.
+    // Keep the unwind-safety assertion narrow to this private cache so any
+    // future FirEq field still participates in compiler-derived auto traits.
+    plans: AssertUnwindSafe<FirFftPlans>,
 }
 
 impl FirEq {
@@ -89,7 +93,7 @@ impl FirEq {
             bands: STANDARD_BANDS,
             phase_mode: FirPhaseMode::Linear,
             cached_ir: Vec::new(),
-            plans: FirFftPlans::new(),
+            plans: AssertUnwindSafe(FirFftPlans::new()),
         };
 
         // Generate initial IR

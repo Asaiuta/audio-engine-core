@@ -39,6 +39,7 @@ path = "src/lib.rs"
 symphonia = { version = "0.6", features = ["all"] }
 soxr = { version = "0.6.0", optional = true }
 rubato = { version = "4.0", optional = true }
+sync_wrapper = { version = "1.0", optional = true }
 rustfft = "6.2"
 realfft = "3.5"
 ebur128 = "0.1"
@@ -65,15 +66,17 @@ loudness-db = ["dep:rusqlite", "dep:sha2"]
 # library required at build/link time. Opt-in; enable it with
 # `features = ["soxr"]`. At least one resampler backend must be enabled; when
 # both are enabled, soxr wins, so adding `soxr` on top of the default set is
-# enough to select the native backend (and to restore
-# `StreamingResampler: Sync`).
+# enough to select the native backend. Both selected backends preserve the same
+# public auto-trait surface.
 soxr = ["dep:soxr"]
 # Pure Rust quality-aware resampler backend, enabled by default. Exact-2x
 # Linear/High upsampling uses a dedicated half-band FIR; other common ratios use
 # FFT at every quality tier (UltraHigh uses a 2x longer single-sub-chunk FFT
 # filter); pathological ratios use sinc; Minimum/Maximum use a bounded causal
-# polyphase FIR. No native dependency.
-rubato = ["dep:rubato"]
+# polyphase FIR. `sync_wrapper` provides the zero-cost exclusive-access boundary
+# around Rubato's `Send` backend; processing still requires `&mut self` and
+# takes no lock. No native dependency.
+rubato = ["dep:rubato", "dep:sync_wrapper"]
 
 [dev-dependencies]
 assert_no_alloc = "1.1"
