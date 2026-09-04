@@ -536,8 +536,8 @@ compare within a row, not across the table.
 | Case | Median | As of | Note |
 | --- | ---: | --- | --- |
 | SpectrumAnalyzer, 1,024-point | ~4.5 ns/sample | 2026-08-13 | was 5.05 ns/sample before the `realfft` migration below |
-| SpectrumAnalyzer `push`, 4,096-point single tier, 512-sample input | 18.02 ns/input-sample | 2026-09-03 | 75% overlap, default 30/250 ms smoothing, 96 bands; construction and warm-up excluded |
-| SpectrumAnalyzer `push`, 4,096/16,384/65,536 multi-resolution, 512-sample input | 35.31 ns/input-sample | 2026-09-03 | 75% overlap, default 30/250 ms smoothing, 128 bands; all tiers primed before timing |
+| SpectrumAnalyzer `push`, 4,096-point single tier, 512-sample input | 18.0 ns/input-sample | 2026-09-04 | 75% overlap, default 30/250 ms smoothing, 96 bands; construction and warm-up excluded; was 18.02 ns/input-sample on 2026-09-03 before decimated tiers (−0.1%) |
+| SpectrumAnalyzer `push`, 4,096-point tiers at ÷1/÷4/÷16 (effective 4,096/16,384/65,536), 512-sample input | 30.6 ns/input-sample | 2026-09-04 | 75% overlap, default 30/250 ms smoothing, 128 bands; all tiers primed before timing; was 35.31 ns/input-sample on 2026-09-03 before decimated tiers (−13.3%); decimation reduces memory from ~3.5 MB to ~0.5 MB per analyzer |
 | Downmixer, 5.1 to stereo | 4.72 ns/frame | 2026-07-26 | unchanged since |
 | LoudnessMeter, 4,096-frame blocks | ~14 ns/input-sample | 2026-08-13 | was 42.37 ns/input-sample before the metering change below (−67%) |
 | LoudnessMeter, 512-frame blocks | — | 2026-08-13 | −92% from the same change; see the paired A/B table below |
