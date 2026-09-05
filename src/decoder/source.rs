@@ -247,7 +247,7 @@ impl OpenedMediaSource {
 }
 
 pub(super) fn configured_decode_memory_limit() -> (usize, usize) {
-    let budget = crate::diagnostics::decode_memory_budget();
+    let budget = crate::decode_budget::decode_memory_budget();
     (budget.limit_mb, budget.limit_bytes)
 }
 

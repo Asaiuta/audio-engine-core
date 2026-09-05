@@ -151,6 +151,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::analysis::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -486,6 +487,29 @@ impl core::marker::Unpin for audio_engine_core::config::LoudnessConfig
 impl core::marker::UnsafeUnpin for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::config::LoudnessConfig
+pub mod audio_engine_core::decode_budget
+pub struct audio_engine_core::decode_budget::DecodeMemoryBudget
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::limit_bytes: usize
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::limit_mb: usize
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::source: &'static str
+impl core::clone::Clone for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::clone(&self) -> audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::fmt::Debug for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Send for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Sync for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Unpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::UnsafeUnpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub const audio_engine_core::decode_budget::DEFAULT_DECODE_MAX_MEMORY_MB: usize
+pub const audio_engine_core::decode_budget::ENV_DECODE_MAX_MEMORY_MB: &str
+pub const audio_engine_core::decode_budget::MAX_DECODE_MAX_MEMORY_MB: usize
+pub const audio_engine_core::decode_budget::MIN_DECODE_MAX_MEMORY_MB: usize
+pub fn audio_engine_core::decode_budget::decode_memory_budget() -> audio_engine_core::decode_budget::DecodeMemoryBudget
 pub mod audio_engine_core::decoder
 pub enum audio_engine_core::decoder::DecoderError
 pub audio_engine_core::decoder::DecoderError::Canceled
@@ -777,27 +801,142 @@ pub struct audio_engine_core::diagnostics::DecodeMemoryBudget
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_bytes: usize
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_mb: usize
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::source: &'static str
-impl core::clone::Clone for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::clone(&self) -> audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::fmt::Debug for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Send for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Sync for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Unpin for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::UnsafeUnpin for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::diagnostics::DecodeMemoryBudget
+impl core::clone::Clone for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::clone(&self) -> audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::fmt::Debug for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Send for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Sync for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Unpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::UnsafeUnpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
 pub const audio_engine_core::diagnostics::DEFAULT_DECODE_MAX_MEMORY_MB: usize
 pub const audio_engine_core::diagnostics::ENV_DECODE_MAX_MEMORY_MB: &str
 pub const audio_engine_core::diagnostics::MAX_DECODE_MAX_MEMORY_MB: usize
 pub const audio_engine_core::diagnostics::MIN_DECODE_MAX_MEMORY_MB: usize
-pub fn audio_engine_core::diagnostics::decode_memory_budget() -> audio_engine_core::diagnostics::DecodeMemoryBudget
+pub fn audio_engine_core::diagnostics::decode_memory_budget() -> audio_engine_core::decode_budget::DecodeMemoryBudget
 pub mod audio_engine_core::dsp
 pub fn audio_engine_core::dsp::db_to_linear(f64) -> f64
 pub fn audio_engine_core::dsp::linear_to_db(f64) -> f64
+pub mod audio_engine_core::loudness_db
+#[non_exhaustive] pub enum audio_engine_core::loudness_db::LoudnessDatabaseError
+pub audio_engine_core::loudness_db::LoudnessDatabaseError::CreateDirectory(core::io::error::Error)
+pub audio_engine_core::loudness_db::LoudnessDatabaseError::Database(rusqlite::error::Error)
+pub audio_engine_core::loudness_db::LoudnessDatabaseError::LockPoisoned
+impl core::convert::From<core::io::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(core::io::error::Error) -> Self
+impl core::convert::From<rusqlite::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(rusqlite::error::Error) -> Self
+impl core::error::Error for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub struct audio_engine_core::loudness_db::DatabaseStats
+pub audio_engine_core::loudness_db::DatabaseStats::current_scan_version: i32
+pub audio_engine_core::loudness_db::DatabaseStats::outdated_tracks: i64
+pub audio_engine_core::loudness_db::DatabaseStats::total_tracks: i64
+pub audio_engine_core::loudness_db::DatabaseStats::with_album_gain: i64
+impl core::clone::Clone for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::clone(&self) -> audio_engine_core::loudness_db::DatabaseStats
+impl core::fmt::Debug for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Send for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Sync for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Unpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::DatabaseStats
+pub struct audio_engine_core::loudness_db::LoudnessDatabase
+impl audio_engine_core::loudness_db::LoudnessDatabase
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::loudness_db::TrackLoudness]) -> core::result::Result<usize, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::delete(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_fresh(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_outdated_tracks(&self) -> core::result::Result<alloc::vec::Vec<audio_engine_core::loudness_db::LoudnessSourceIdentity>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::in_memory() -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::needs_scan(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::path(&self) -> &std::path::Path
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::set_album_gain(&self, &[audio_engine_core::loudness_db::LoudnessSourceIdentity], f64) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::stats(&self) -> core::result::Result<audio_engine_core::loudness_db::DatabaseStats, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::upsert(&self, &audio_engine_core::loudness_db::TrackLoudness) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+impl !core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
+pub struct audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::cache_id(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::display_label(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::from_location(&audio_engine_core::MediaLocation) -> Self
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::kind(&self) -> audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::local_path(&self) -> core::option::Option<&std::path::Path>
+impl core::clone::Clone for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::clone(&self) -> audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::Eq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::PartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::eq(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> bool
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub struct audio_engine_core::loudness_db::TrackLoudness
+pub audio_engine_core::loudness_db::TrackLoudness::album_gain_db: core::option::Option<f64>
+pub audio_engine_core::loudness_db::TrackLoudness::file_mtime: core::option::Option<i64>
+pub audio_engine_core::loudness_db::TrackLoudness::file_size: core::option::Option<i64>
+pub audio_engine_core::loudness_db::TrackLoudness::integrated_lufs: f64
+pub audio_engine_core::loudness_db::TrackLoudness::loudness_range: core::option::Option<f64>
+pub audio_engine_core::loudness_db::TrackLoudness::scan_version: i32
+pub audio_engine_core::loudness_db::TrackLoudness::scanned_at: i64
+pub audio_engine_core::loudness_db::TrackLoudness::source: audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub audio_engine_core::loudness_db::TrackLoudness::track_gain_db: f64
+pub audio_engine_core::loudness_db::TrackLoudness::true_peak_dbtp: f64
+impl audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_for_target(&self, f64) -> f64
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_linear(&self, f64) -> f32
+pub fn audio_engine_core::loudness_db::TrackLoudness::new(&audio_engine_core::MediaLocation, f64, f64, core::option::Option<f64>, f64) -> Self
+impl core::clone::Clone for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::clone(&self) -> audio_engine_core::loudness_db::TrackLoudness
+impl core::fmt::Debug for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Send for audio_engine_core::loudness_db::TrackLoudness
+impl !core::marker::Sync for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Unpin for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::TrackLoudness
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::TrackLoudness
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::TrackLoudness
+pub const audio_engine_core::loudness_db::CURRENT_SCAN_VERSION: i32
+pub const audio_engine_core::loudness_db::DEFAULT_STREAMING_TARGET_LUFS: f64
 pub mod audio_engine_core::pipeline
 #[non_exhaustive] pub enum audio_engine_core::pipeline::PlaybackLifecycleState
 pub audio_engine_core::pipeline::PlaybackLifecycleState::Draining
@@ -1133,21 +1272,21 @@ impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackTiming
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackTiming
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackTiming
 pub struct audio_engine_core::pipeline::RingBuffer
-impl audio_engine_core::pipeline::RingBuffer
-pub fn audio_engine_core::pipeline::RingBuffer::advance_read_pos(&mut self, u64)
-pub fn audio_engine_core::pipeline::RingBuffer::available_frames(&self, u64) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::new(usize, usize) -> Self
-pub fn audio_engine_core::pipeline::RingBuffer::overflow_count(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::read(&self, u64, &mut [f64]) -> usize
-pub fn audio_engine_core::pipeline::RingBuffer::total_written(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
-impl core::marker::Freeze for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Send for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Sync for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Unpin for audio_engine_core::pipeline::RingBuffer
-impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::RingBuffer
+impl audio_engine_core::RingBuffer
+pub fn audio_engine_core::RingBuffer::advance_read_pos(&mut self, u64)
+pub fn audio_engine_core::RingBuffer::available_frames(&self, u64) -> u64
+pub fn audio_engine_core::RingBuffer::new(usize, usize) -> Self
+pub fn audio_engine_core::RingBuffer::overflow_count(&self) -> u64
+pub fn audio_engine_core::RingBuffer::read(&self, u64, &mut [f64]) -> usize
+pub fn audio_engine_core::RingBuffer::total_written(&self) -> u64
+pub fn audio_engine_core::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
+impl core::marker::Freeze for audio_engine_core::RingBuffer
+impl core::marker::Send for audio_engine_core::RingBuffer
+impl core::marker::Sync for audio_engine_core::RingBuffer
+impl core::marker::Unpin for audio_engine_core::RingBuffer
+impl core::marker::UnsafeUnpin for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RingBuffer
 pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MAX: f64
 pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::pipeline::CROSSFEED_MIX_MAX: f64
@@ -1368,6 +1507,7 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduction_db(&self) -> f64
+pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_stage_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
@@ -2723,23 +2863,23 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LimiterMode
 pub audio_engine_core::processor::LoudnessDatabaseError::CreateDirectory(core::io::error::Error)
 pub audio_engine_core::processor::LoudnessDatabaseError::Database(rusqlite::error::Error)
 pub audio_engine_core::processor::LoudnessDatabaseError::LockPoisoned
-impl core::convert::From<core::io::error::Error> for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::from(core::io::error::Error) -> Self
-impl core::convert::From<rusqlite::error::Error> for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::from(rusqlite::error::Error) -> Self
-impl core::error::Error for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Debug for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Send for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Sync for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Unpin for audio_engine_core::LoudnessDatabaseError
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessDatabaseError
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessDatabaseError
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessDatabaseError
+impl core::convert::From<core::io::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(core::io::error::Error) -> Self
+impl core::convert::From<rusqlite::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(rusqlite::error::Error) -> Self
+impl core::error::Error for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
 pub enum audio_engine_core::processor::NoiseShaperCurve
 pub audio_engine_core::processor::NoiseShaperCurve::FWeighted9
 pub audio_engine_core::processor::NoiseShaperCurve::ImprovedE9
@@ -3730,19 +3870,19 @@ pub audio_engine_core::processor::DatabaseStats::current_scan_version: i32
 pub audio_engine_core::processor::DatabaseStats::outdated_tracks: i64
 pub audio_engine_core::processor::DatabaseStats::total_tracks: i64
 pub audio_engine_core::processor::DatabaseStats::with_album_gain: i64
-impl core::clone::Clone for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::clone(&self) -> audio_engine_core::DatabaseStats
-impl core::fmt::Debug for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::DatabaseStats
-impl core::marker::Send for audio_engine_core::DatabaseStats
-impl core::marker::Sync for audio_engine_core::DatabaseStats
-impl core::marker::Unpin for audio_engine_core::DatabaseStats
-impl core::marker::UnsafeUnpin for audio_engine_core::DatabaseStats
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::DatabaseStats
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::DatabaseStats
+impl core::clone::Clone for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::clone(&self) -> audio_engine_core::loudness_db::DatabaseStats
+impl core::fmt::Debug for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Send for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Sync for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Unpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::DatabaseStats
 pub struct audio_engine_core::processor::Downmixer
 impl audio_engine_core::processor::downmix::Downmixer
 pub fn audio_engine_core::processor::downmix::Downmixer::coefficients(&self) -> audio_engine_core::processor::downmix::DownmixCoefficients
@@ -3997,26 +4137,26 @@ impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::FrameDu
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::FrameDuration
 pub struct audio_engine_core::processor::LoudnessDatabase
-impl audio_engine_core::LoudnessDatabase
-pub fn audio_engine_core::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::TrackLoudness]) -> core::result::Result<usize, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::delete(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::TrackLoudness>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get_fresh(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::TrackLoudness>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get_outdated_tracks(&self) -> core::result::Result<alloc::vec::Vec<audio_engine_core::LoudnessSourceIdentity>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::in_memory() -> core::result::Result<Self, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::needs_scan(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::path(&self) -> &std::path::Path
-pub fn audio_engine_core::LoudnessDatabase::set_album_gain(&self, &[audio_engine_core::LoudnessSourceIdentity], f64) -> core::result::Result<(), audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::stats(&self) -> core::result::Result<audio_engine_core::DatabaseStats, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::upsert(&self, &audio_engine_core::TrackLoudness) -> core::result::Result<(), audio_engine_core::LoudnessDatabaseError>
-impl !core::marker::Freeze for audio_engine_core::LoudnessDatabase
-impl core::marker::Send for audio_engine_core::LoudnessDatabase
-impl core::marker::Sync for audio_engine_core::LoudnessDatabase
-impl core::marker::Unpin for audio_engine_core::LoudnessDatabase
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessDatabase
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessDatabase
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessDatabase
+impl audio_engine_core::loudness_db::LoudnessDatabase
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::loudness_db::TrackLoudness]) -> core::result::Result<usize, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::delete(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_fresh(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_outdated_tracks(&self) -> core::result::Result<alloc::vec::Vec<audio_engine_core::loudness_db::LoudnessSourceIdentity>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::in_memory() -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::needs_scan(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::path(&self) -> &std::path::Path
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::set_album_gain(&self, &[audio_engine_core::loudness_db::LoudnessSourceIdentity], f64) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::stats(&self) -> core::result::Result<audio_engine_core::loudness_db::DatabaseStats, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::upsert(&self, &audio_engine_core::loudness_db::TrackLoudness) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+impl !core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
 pub struct audio_engine_core::processor::LoudnessInfo
 pub audio_engine_core::processor::LoudnessInfo::current_gain_db: f64
 pub audio_engine_core::processor::LoudnessInfo::integrated_lufs: f64
@@ -4041,6 +4181,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::processor::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -4085,31 +4226,31 @@ impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessNormalizer
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
 pub struct audio_engine_core::processor::LoudnessSourceIdentity
-impl audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::cache_id(&self) -> &str
-pub fn audio_engine_core::LoudnessSourceIdentity::display_label(&self) -> &str
-pub fn audio_engine_core::LoudnessSourceIdentity::from_location(&audio_engine_core::MediaLocation) -> Self
-pub fn audio_engine_core::LoudnessSourceIdentity::kind(&self) -> audio_engine_core::MediaLocationKind
-pub fn audio_engine_core::LoudnessSourceIdentity::local_path(&self) -> core::option::Option<&std::path::Path>
-impl core::clone::Clone for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::clone(&self) -> audio_engine_core::LoudnessSourceIdentity
-impl core::cmp::Eq for audio_engine_core::LoudnessSourceIdentity
-impl core::cmp::PartialEq for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::eq(&self, &audio_engine_core::LoudnessSourceIdentity) -> bool
-impl core::fmt::Debug for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::StructuralPartialEq for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Freeze for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Send for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Sync for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Unpin for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessSourceIdentity
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessSourceIdentity
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessSourceIdentity
+impl audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::cache_id(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::display_label(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::from_location(&audio_engine_core::MediaLocation) -> Self
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::kind(&self) -> audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::local_path(&self) -> core::option::Option<&std::path::Path>
+impl core::clone::Clone for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::clone(&self) -> audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::Eq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::PartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::eq(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> bool
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
 pub struct audio_engine_core::processor::NoiseShaper
 impl audio_engine_core::NoiseShaper
 pub fn audio_engine_core::NoiseShaper::bits(&self) -> u32
@@ -4316,6 +4457,7 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::PeakLimiterProcessor
 impl audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduction_db(&self) -> f64
+pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_stage_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
@@ -4680,24 +4822,24 @@ pub audio_engine_core::processor::TrackLoudness::integrated_lufs: f64
 pub audio_engine_core::processor::TrackLoudness::loudness_range: core::option::Option<f64>
 pub audio_engine_core::processor::TrackLoudness::scan_version: i32
 pub audio_engine_core::processor::TrackLoudness::scanned_at: i64
-pub audio_engine_core::processor::TrackLoudness::source: audio_engine_core::LoudnessSourceIdentity
+pub audio_engine_core::processor::TrackLoudness::source: audio_engine_core::loudness_db::LoudnessSourceIdentity
 pub audio_engine_core::processor::TrackLoudness::track_gain_db: f64
 pub audio_engine_core::processor::TrackLoudness::true_peak_dbtp: f64
-impl audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::gain_for_target(&self, f64) -> f64
-pub fn audio_engine_core::TrackLoudness::gain_linear(&self, f64) -> f32
-pub fn audio_engine_core::TrackLoudness::new(&audio_engine_core::MediaLocation, f64, f64, core::option::Option<f64>, f64) -> Self
-impl core::clone::Clone for audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::clone(&self) -> audio_engine_core::TrackLoudness
-impl core::fmt::Debug for audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl !core::marker::Freeze for audio_engine_core::TrackLoudness
-impl core::marker::Send for audio_engine_core::TrackLoudness
-impl !core::marker::Sync for audio_engine_core::TrackLoudness
-impl core::marker::Unpin for audio_engine_core::TrackLoudness
-impl core::marker::UnsafeUnpin for audio_engine_core::TrackLoudness
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::TrackLoudness
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::TrackLoudness
+impl audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_for_target(&self, f64) -> f64
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_linear(&self, f64) -> f32
+pub fn audio_engine_core::loudness_db::TrackLoudness::new(&audio_engine_core::MediaLocation, f64, f64, core::option::Option<f64>, f64) -> Self
+impl core::clone::Clone for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::clone(&self) -> audio_engine_core::loudness_db::TrackLoudness
+impl core::fmt::Debug for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Send for audio_engine_core::loudness_db::TrackLoudness
+impl !core::marker::Sync for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Unpin for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::TrackLoudness
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::TrackLoudness
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::TrackLoudness
 pub struct audio_engine_core::processor::TruePeakDetector
 impl audio_engine_core::TruePeakDetector
 pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
@@ -5176,23 +5318,23 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LimiterMode
 pub audio_engine_core::LoudnessDatabaseError::CreateDirectory(core::io::error::Error)
 pub audio_engine_core::LoudnessDatabaseError::Database(rusqlite::error::Error)
 pub audio_engine_core::LoudnessDatabaseError::LockPoisoned
-impl core::convert::From<core::io::error::Error> for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::from(core::io::error::Error) -> Self
-impl core::convert::From<rusqlite::error::Error> for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::from(rusqlite::error::Error) -> Self
-impl core::error::Error for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Debug for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::LoudnessDatabaseError
-pub fn audio_engine_core::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Send for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Sync for audio_engine_core::LoudnessDatabaseError
-impl core::marker::Unpin for audio_engine_core::LoudnessDatabaseError
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessDatabaseError
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessDatabaseError
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessDatabaseError
+impl core::convert::From<core::io::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(core::io::error::Error) -> Self
+impl core::convert::From<rusqlite::error::Error> for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::from(rusqlite::error::Error) -> Self
+impl core::error::Error for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessDatabaseError
+pub fn audio_engine_core::loudness_db::LoudnessDatabaseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabaseError
 pub enum audio_engine_core::MediaLocation
 pub audio_engine_core::MediaLocation::Http(audio_engine_core::HttpMediaLocation)
 pub audio_engine_core::MediaLocation::Local(std::path::PathBuf)
@@ -5857,19 +5999,19 @@ pub audio_engine_core::DatabaseStats::current_scan_version: i32
 pub audio_engine_core::DatabaseStats::outdated_tracks: i64
 pub audio_engine_core::DatabaseStats::total_tracks: i64
 pub audio_engine_core::DatabaseStats::with_album_gain: i64
-impl core::clone::Clone for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::clone(&self) -> audio_engine_core::DatabaseStats
-impl core::fmt::Debug for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::DatabaseStats
-pub fn audio_engine_core::DatabaseStats::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::DatabaseStats
-impl core::marker::Send for audio_engine_core::DatabaseStats
-impl core::marker::Sync for audio_engine_core::DatabaseStats
-impl core::marker::Unpin for audio_engine_core::DatabaseStats
-impl core::marker::UnsafeUnpin for audio_engine_core::DatabaseStats
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::DatabaseStats
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::DatabaseStats
+impl core::clone::Clone for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::clone(&self) -> audio_engine_core::loudness_db::DatabaseStats
+impl core::fmt::Debug for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::loudness_db::DatabaseStats
+pub fn audio_engine_core::loudness_db::DatabaseStats::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Send for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Sync for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::Unpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::DatabaseStats
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::DatabaseStats
 pub struct audio_engine_core::Downmixer
 impl audio_engine_core::processor::downmix::Downmixer
 pub fn audio_engine_core::processor::downmix::Downmixer::coefficients(&self) -> audio_engine_core::processor::downmix::DownmixCoefficients
@@ -6048,26 +6190,26 @@ impl core::marker::UnsafeUnpin for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::config::LoudnessConfig
 pub struct audio_engine_core::LoudnessDatabase
-impl audio_engine_core::LoudnessDatabase
-pub fn audio_engine_core::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::TrackLoudness]) -> core::result::Result<usize, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::delete(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::TrackLoudness>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get_fresh(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::TrackLoudness>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::get_outdated_tracks(&self) -> core::result::Result<alloc::vec::Vec<audio_engine_core::LoudnessSourceIdentity>, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::in_memory() -> core::result::Result<Self, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::needs_scan(&self, &audio_engine_core::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::path(&self) -> &std::path::Path
-pub fn audio_engine_core::LoudnessDatabase::set_album_gain(&self, &[audio_engine_core::LoudnessSourceIdentity], f64) -> core::result::Result<(), audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::stats(&self) -> core::result::Result<audio_engine_core::DatabaseStats, audio_engine_core::LoudnessDatabaseError>
-pub fn audio_engine_core::LoudnessDatabase::upsert(&self, &audio_engine_core::TrackLoudness) -> core::result::Result<(), audio_engine_core::LoudnessDatabaseError>
-impl !core::marker::Freeze for audio_engine_core::LoudnessDatabase
-impl core::marker::Send for audio_engine_core::LoudnessDatabase
-impl core::marker::Sync for audio_engine_core::LoudnessDatabase
-impl core::marker::Unpin for audio_engine_core::LoudnessDatabase
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessDatabase
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessDatabase
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessDatabase
+impl audio_engine_core::loudness_db::LoudnessDatabase
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::batch_upsert(&self, &[audio_engine_core::loudness_db::TrackLoudness]) -> core::result::Result<usize, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::delete(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_fresh(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<core::option::Option<audio_engine_core::loudness_db::TrackLoudness>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::get_outdated_tracks(&self) -> core::result::Result<alloc::vec::Vec<audio_engine_core::loudness_db::LoudnessSourceIdentity>, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::in_memory() -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::needs_scan(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> core::result::Result<bool, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::open<P: core::convert::AsRef<std::path::Path>>(P) -> core::result::Result<Self, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::path(&self) -> &std::path::Path
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::set_album_gain(&self, &[audio_engine_core::loudness_db::LoudnessSourceIdentity], f64) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::stats(&self) -> core::result::Result<audio_engine_core::loudness_db::DatabaseStats, audio_engine_core::loudness_db::LoudnessDatabaseError>
+pub fn audio_engine_core::loudness_db::LoudnessDatabase::upsert(&self, &audio_engine_core::loudness_db::TrackLoudness) -> core::result::Result<(), audio_engine_core::loudness_db::LoudnessDatabaseError>
+impl !core::marker::Freeze for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessDatabase
 pub struct audio_engine_core::LoudnessInfo
 pub audio_engine_core::LoudnessInfo::current_gain_db: f64
 pub audio_engine_core::LoudnessInfo::integrated_lufs: f64
@@ -6092,6 +6234,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -6136,31 +6279,31 @@ impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessNormalizer
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessNormalizer
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessNormalizer
 pub struct audio_engine_core::LoudnessSourceIdentity
-impl audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::cache_id(&self) -> &str
-pub fn audio_engine_core::LoudnessSourceIdentity::display_label(&self) -> &str
-pub fn audio_engine_core::LoudnessSourceIdentity::from_location(&audio_engine_core::MediaLocation) -> Self
-pub fn audio_engine_core::LoudnessSourceIdentity::kind(&self) -> audio_engine_core::MediaLocationKind
-pub fn audio_engine_core::LoudnessSourceIdentity::local_path(&self) -> core::option::Option<&std::path::Path>
-impl core::clone::Clone for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::clone(&self) -> audio_engine_core::LoudnessSourceIdentity
-impl core::cmp::Eq for audio_engine_core::LoudnessSourceIdentity
-impl core::cmp::PartialEq for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::eq(&self, &audio_engine_core::LoudnessSourceIdentity) -> bool
-impl core::fmt::Debug for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for audio_engine_core::LoudnessSourceIdentity
-pub fn audio_engine_core::LoudnessSourceIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::StructuralPartialEq for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Freeze for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Send for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Sync for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::Unpin for audio_engine_core::LoudnessSourceIdentity
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessSourceIdentity
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessSourceIdentity
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessSourceIdentity
+impl audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::cache_id(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::display_label(&self) -> &str
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::from_location(&audio_engine_core::MediaLocation) -> Self
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::kind(&self) -> audio_engine_core::MediaLocationKind
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::local_path(&self) -> core::option::Option<&std::path::Path>
+impl core::clone::Clone for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::clone(&self) -> audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::Eq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::cmp::PartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::eq(&self, &audio_engine_core::loudness_db::LoudnessSourceIdentity) -> bool
+impl core::fmt::Debug for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::loudness_db::LoudnessSourceIdentity
+pub fn audio_engine_core::loudness_db::LoudnessSourceIdentity::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Freeze for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Send for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Sync for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::Unpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::LoudnessSourceIdentity
 pub struct audio_engine_core::NoiseShaper
 impl audio_engine_core::NoiseShaper
 pub fn audio_engine_core::NoiseShaper::bits(&self) -> u32
@@ -6689,21 +6832,21 @@ impl core::marker::UnsafeUnpin for audio_engine_core::Resampler
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::Resampler
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::Resampler
 pub struct audio_engine_core::RingBuffer
-impl audio_engine_core::pipeline::RingBuffer
-pub fn audio_engine_core::pipeline::RingBuffer::advance_read_pos(&mut self, u64)
-pub fn audio_engine_core::pipeline::RingBuffer::available_frames(&self, u64) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::new(usize, usize) -> Self
-pub fn audio_engine_core::pipeline::RingBuffer::overflow_count(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::read(&self, u64, &mut [f64]) -> usize
-pub fn audio_engine_core::pipeline::RingBuffer::total_written(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
-impl core::marker::Freeze for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Send for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Sync for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Unpin for audio_engine_core::pipeline::RingBuffer
-impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::RingBuffer
+impl audio_engine_core::RingBuffer
+pub fn audio_engine_core::RingBuffer::advance_read_pos(&mut self, u64)
+pub fn audio_engine_core::RingBuffer::available_frames(&self, u64) -> u64
+pub fn audio_engine_core::RingBuffer::new(usize, usize) -> Self
+pub fn audio_engine_core::RingBuffer::overflow_count(&self) -> u64
+pub fn audio_engine_core::RingBuffer::read(&self, u64, &mut [f64]) -> usize
+pub fn audio_engine_core::RingBuffer::total_written(&self) -> u64
+pub fn audio_engine_core::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
+impl core::marker::Freeze for audio_engine_core::RingBuffer
+impl core::marker::Send for audio_engine_core::RingBuffer
+impl core::marker::Sync for audio_engine_core::RingBuffer
+impl core::marker::Unpin for audio_engine_core::RingBuffer
+impl core::marker::UnsafeUnpin for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RingBuffer
 pub struct audio_engine_core::SaturationEvent
 pub audio_engine_core::SaturationEvent::frame_offset: usize
 pub audio_engine_core::SaturationEvent::kind: audio_engine_core::processor::adapters::SaturationEventKind
@@ -6834,24 +6977,24 @@ pub audio_engine_core::TrackLoudness::integrated_lufs: f64
 pub audio_engine_core::TrackLoudness::loudness_range: core::option::Option<f64>
 pub audio_engine_core::TrackLoudness::scan_version: i32
 pub audio_engine_core::TrackLoudness::scanned_at: i64
-pub audio_engine_core::TrackLoudness::source: audio_engine_core::LoudnessSourceIdentity
+pub audio_engine_core::TrackLoudness::source: audio_engine_core::loudness_db::LoudnessSourceIdentity
 pub audio_engine_core::TrackLoudness::track_gain_db: f64
 pub audio_engine_core::TrackLoudness::true_peak_dbtp: f64
-impl audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::gain_for_target(&self, f64) -> f64
-pub fn audio_engine_core::TrackLoudness::gain_linear(&self, f64) -> f32
-pub fn audio_engine_core::TrackLoudness::new(&audio_engine_core::MediaLocation, f64, f64, core::option::Option<f64>, f64) -> Self
-impl core::clone::Clone for audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::clone(&self) -> audio_engine_core::TrackLoudness
-impl core::fmt::Debug for audio_engine_core::TrackLoudness
-pub fn audio_engine_core::TrackLoudness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl !core::marker::Freeze for audio_engine_core::TrackLoudness
-impl core::marker::Send for audio_engine_core::TrackLoudness
-impl !core::marker::Sync for audio_engine_core::TrackLoudness
-impl core::marker::Unpin for audio_engine_core::TrackLoudness
-impl core::marker::UnsafeUnpin for audio_engine_core::TrackLoudness
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::TrackLoudness
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::TrackLoudness
+impl audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_for_target(&self, f64) -> f64
+pub fn audio_engine_core::loudness_db::TrackLoudness::gain_linear(&self, f64) -> f32
+pub fn audio_engine_core::loudness_db::TrackLoudness::new(&audio_engine_core::MediaLocation, f64, f64, core::option::Option<f64>, f64) -> Self
+impl core::clone::Clone for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::clone(&self) -> audio_engine_core::loudness_db::TrackLoudness
+impl core::fmt::Debug for audio_engine_core::loudness_db::TrackLoudness
+pub fn audio_engine_core::loudness_db::TrackLoudness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Send for audio_engine_core::loudness_db::TrackLoudness
+impl !core::marker::Sync for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::Unpin for audio_engine_core::loudness_db::TrackLoudness
+impl core::marker::UnsafeUnpin for audio_engine_core::loudness_db::TrackLoudness
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::loudness_db::TrackLoudness
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::loudness_db::TrackLoudness
 pub struct audio_engine_core::TruePeakDetector
 impl audio_engine_core::TruePeakDetector
 pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64

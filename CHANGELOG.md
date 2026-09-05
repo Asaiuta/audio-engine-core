@@ -24,7 +24,10 @@ version bumps, as permitted by SemVer.
 ### Deprecated
 - `LoudnessMeter::samples_processed()` is a source-compatible alias for
   `frames_processed()`; despite the historical name it always measured
-  interleaved frames, never scalar samples.
+  interleaved frames, never scalar samples. The public-API/SemVer gates move
+  to `--release-type minor` per the documented deprecation policy in
+  `.trellis/spec/backend/analysis-compatibility.md` (deprecation is a
+  minor-release change under `cargo-semver-checks`).
 
 ### Changed
 - Semantic documentation corrections with no behavior change: AutoMix

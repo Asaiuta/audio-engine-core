@@ -133,14 +133,14 @@ jobs:
           cargo semver-checks
           --baseline-rustdoc tests/semver-baseline/all-features/audio_engine_core.json
           --current-rustdoc target/public-api/all-features/doc/audio_engine_core.json
-          --release-type patch
+          --release-type minor
 
       - name: SemVer compatibility (pure Rust backend)
         run: >-
           cargo semver-checks
           --baseline-rustdoc tests/semver-baseline/rubato/audio_engine_core.json
           --current-rustdoc target/public-api/rubato/doc/audio_engine_core.json
-          --release-type patch
+          --release-type minor
 
       # The surface a plain `cargo add` produces. Neither matrix above covers it:
       # all-features enables `soxr`, which wins the backend priority, and the
@@ -150,7 +150,7 @@ jobs:
           cargo semver-checks
           --baseline-rustdoc tests/semver-baseline/default/audio_engine_core.json
           --current-rustdoc target/public-api/default/doc/audio_engine_core.json
-          --release-type patch
+          --release-type minor
 
   test:
     name: test (${{ matrix.os }})

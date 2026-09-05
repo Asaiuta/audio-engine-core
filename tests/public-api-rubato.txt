@@ -151,6 +151,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::analysis::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -486,6 +487,29 @@ impl core::marker::Unpin for audio_engine_core::config::LoudnessConfig
 impl core::marker::UnsafeUnpin for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::config::LoudnessConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::config::LoudnessConfig
+pub mod audio_engine_core::decode_budget
+pub struct audio_engine_core::decode_budget::DecodeMemoryBudget
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::limit_bytes: usize
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::limit_mb: usize
+pub audio_engine_core::decode_budget::DecodeMemoryBudget::source: &'static str
+impl core::clone::Clone for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::clone(&self) -> audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::fmt::Debug for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Send for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Sync for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Unpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::UnsafeUnpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub const audio_engine_core::decode_budget::DEFAULT_DECODE_MAX_MEMORY_MB: usize
+pub const audio_engine_core::decode_budget::ENV_DECODE_MAX_MEMORY_MB: &str
+pub const audio_engine_core::decode_budget::MAX_DECODE_MAX_MEMORY_MB: usize
+pub const audio_engine_core::decode_budget::MIN_DECODE_MAX_MEMORY_MB: usize
+pub fn audio_engine_core::decode_budget::decode_memory_budget() -> audio_engine_core::decode_budget::DecodeMemoryBudget
 pub mod audio_engine_core::decoder
 pub enum audio_engine_core::decoder::DecoderError
 pub audio_engine_core::decoder::DecoderError::Canceled
@@ -744,24 +768,24 @@ pub struct audio_engine_core::diagnostics::DecodeMemoryBudget
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_bytes: usize
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_mb: usize
 pub audio_engine_core::diagnostics::DecodeMemoryBudget::source: &'static str
-impl core::clone::Clone for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::clone(&self) -> audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::fmt::Debug for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::diagnostics::DecodeMemoryBudget
-pub fn audio_engine_core::diagnostics::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Send for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Sync for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::Unpin for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::marker::UnsafeUnpin for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::diagnostics::DecodeMemoryBudget
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::diagnostics::DecodeMemoryBudget
+impl core::clone::Clone for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::clone(&self) -> audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::fmt::Debug for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::decode_budget::DecodeMemoryBudget
+pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Send for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Sync for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::Unpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::marker::UnsafeUnpin for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
 pub const audio_engine_core::diagnostics::DEFAULT_DECODE_MAX_MEMORY_MB: usize
 pub const audio_engine_core::diagnostics::ENV_DECODE_MAX_MEMORY_MB: &str
 pub const audio_engine_core::diagnostics::MAX_DECODE_MAX_MEMORY_MB: usize
 pub const audio_engine_core::diagnostics::MIN_DECODE_MAX_MEMORY_MB: usize
-pub fn audio_engine_core::diagnostics::decode_memory_budget() -> audio_engine_core::diagnostics::DecodeMemoryBudget
+pub fn audio_engine_core::diagnostics::decode_memory_budget() -> audio_engine_core::decode_budget::DecodeMemoryBudget
 pub mod audio_engine_core::dsp
 pub fn audio_engine_core::dsp::db_to_linear(f64) -> f64
 pub fn audio_engine_core::dsp::linear_to_db(f64) -> f64
@@ -1100,21 +1124,21 @@ impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::PlaybackTiming
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::PlaybackTiming
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::PlaybackTiming
 pub struct audio_engine_core::pipeline::RingBuffer
-impl audio_engine_core::pipeline::RingBuffer
-pub fn audio_engine_core::pipeline::RingBuffer::advance_read_pos(&mut self, u64)
-pub fn audio_engine_core::pipeline::RingBuffer::available_frames(&self, u64) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::new(usize, usize) -> Self
-pub fn audio_engine_core::pipeline::RingBuffer::overflow_count(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::read(&self, u64, &mut [f64]) -> usize
-pub fn audio_engine_core::pipeline::RingBuffer::total_written(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
-impl core::marker::Freeze for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Send for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Sync for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Unpin for audio_engine_core::pipeline::RingBuffer
-impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::RingBuffer
+impl audio_engine_core::RingBuffer
+pub fn audio_engine_core::RingBuffer::advance_read_pos(&mut self, u64)
+pub fn audio_engine_core::RingBuffer::available_frames(&self, u64) -> u64
+pub fn audio_engine_core::RingBuffer::new(usize, usize) -> Self
+pub fn audio_engine_core::RingBuffer::overflow_count(&self) -> u64
+pub fn audio_engine_core::RingBuffer::read(&self, u64, &mut [f64]) -> usize
+pub fn audio_engine_core::RingBuffer::total_written(&self) -> u64
+pub fn audio_engine_core::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
+impl core::marker::Freeze for audio_engine_core::RingBuffer
+impl core::marker::Send for audio_engine_core::RingBuffer
+impl core::marker::Sync for audio_engine_core::RingBuffer
+impl core::marker::Unpin for audio_engine_core::RingBuffer
+impl core::marker::UnsafeUnpin for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RingBuffer
 pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MAX: f64
 pub const audio_engine_core::pipeline::CROSSFEED_CUTOFF_HZ_MIN: f64
 pub const audio_engine_core::pipeline::CROSSFEED_MIX_MAX: f64
@@ -1335,6 +1359,7 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adap
 pub struct audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduction_db(&self) -> f64
+pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_stage_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
@@ -3948,6 +3973,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::processor::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -4197,6 +4223,7 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lock
 pub struct audio_engine_core::processor::PeakLimiterProcessor
 impl audio_engine_core::processor::adapters::PeakLimiterProcessor
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::gain_reduction_db(&self) -> f64
+pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::is_stage_enabled(&self) -> bool
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::new_with_output_guard(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::PeakLimiterProcessor::output_ceiling_guard_db(&self) -> f64
@@ -5885,6 +5912,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
 pub struct audio_engine_core::LoudnessMeter
 impl audio_engine_core::LoudnessMeter
+pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
 pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
 pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
 pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
@@ -6456,21 +6484,21 @@ impl core::marker::UnsafeUnpin for audio_engine_core::Resampler
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::Resampler
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::Resampler
 pub struct audio_engine_core::RingBuffer
-impl audio_engine_core::pipeline::RingBuffer
-pub fn audio_engine_core::pipeline::RingBuffer::advance_read_pos(&mut self, u64)
-pub fn audio_engine_core::pipeline::RingBuffer::available_frames(&self, u64) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::new(usize, usize) -> Self
-pub fn audio_engine_core::pipeline::RingBuffer::overflow_count(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::read(&self, u64, &mut [f64]) -> usize
-pub fn audio_engine_core::pipeline::RingBuffer::total_written(&self) -> u64
-pub fn audio_engine_core::pipeline::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
-impl core::marker::Freeze for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Send for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Sync for audio_engine_core::pipeline::RingBuffer
-impl core::marker::Unpin for audio_engine_core::pipeline::RingBuffer
-impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::RingBuffer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::RingBuffer
+impl audio_engine_core::RingBuffer
+pub fn audio_engine_core::RingBuffer::advance_read_pos(&mut self, u64)
+pub fn audio_engine_core::RingBuffer::available_frames(&self, u64) -> u64
+pub fn audio_engine_core::RingBuffer::new(usize, usize) -> Self
+pub fn audio_engine_core::RingBuffer::overflow_count(&self) -> u64
+pub fn audio_engine_core::RingBuffer::read(&self, u64, &mut [f64]) -> usize
+pub fn audio_engine_core::RingBuffer::total_written(&self) -> u64
+pub fn audio_engine_core::RingBuffer::write(&mut self, &[f64]) -> (usize, core::option::Option<u64>)
+impl core::marker::Freeze for audio_engine_core::RingBuffer
+impl core::marker::Send for audio_engine_core::RingBuffer
+impl core::marker::Sync for audio_engine_core::RingBuffer
+impl core::marker::Unpin for audio_engine_core::RingBuffer
+impl core::marker::UnsafeUnpin for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::RingBuffer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::RingBuffer
 pub struct audio_engine_core::SaturationEvent
 pub audio_engine_core::SaturationEvent::frame_offset: usize
 pub audio_engine_core::SaturationEvent::kind: audio_engine_core::processor::adapters::SaturationEventKind
