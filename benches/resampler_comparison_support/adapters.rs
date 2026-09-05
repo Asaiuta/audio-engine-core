@@ -13,10 +13,11 @@ use std::path::Path;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
 
+use audio_engine_core::audio_block::{AudioBlockMut, AudioBlockRef};
 use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::{
-    finish_checked, process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, ProcessState,
-    StreamingProcessor, StreamingResampler, RESAMPLER_BACKEND_NAME,
+    finish_checked, process_checked, ProcessBuffers, ProcessState, StreamingProcessor,
+    StreamingResampler, RESAMPLER_BACKEND_NAME,
 };
 use libloading::Library;
 use sha2::{Digest, Sha256};

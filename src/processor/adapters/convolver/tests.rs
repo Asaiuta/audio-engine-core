@@ -3,8 +3,9 @@ use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Barrier};
 
 use super::*;
+use crate::audio_block::AudioBlockMut;
 use crate::processor::convolver::FFTConvolver;
-use crate::processor::traits::{finish_checked, process_checked, AudioBlockMut, ProcessBuffers};
+use crate::processor::traits::{finish_checked, process_checked, ProcessBuffers};
 
 fn valid_convolver(ir: &[f64], channels: usize) -> FFTConvolver {
     FFTConvolver::new(ir, channels).unwrap()

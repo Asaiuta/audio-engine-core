@@ -1471,7 +1471,8 @@ impl StreamingProcessor for StreamingResampler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::processor::traits::{finish_checked, process_checked, AudioBlockError};
+    use crate::audio_block::AudioBlockError;
+    use crate::processor::traits::{finish_checked, process_checked};
 
     fn fixture(frames: usize, channels: usize) -> Vec<f64> {
         (0..frames * channels)

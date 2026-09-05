@@ -13,14 +13,11 @@
 //! - [`Equalizer`] - 10-band fixed-band graphic IIR equalizer
 //! - [`VolumeProcessor`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
-//! - [`LoudnessNormalizer`], [`LoudnessMeter`], and [`TruePeakDetector`] - EBU R128 loudness normalization
+//! - [`LoudnessNormalizer`] and [`LoudnessInfo`] - EBU R128 loudness normalization
 //! - [`DynamicLoudness`] - ISO 226 dynamic loudness compensation (Fletcher-Munson)
 //! - [`Saturation`] - Tube/tape saturation for analog warmth
 //! - [`Crossfeed`] - Bauer binaural crossfeed for headphones
 //! - [`FirEq`] - FIR EQ with linear/minimum phase options
-//!
-//! The [`SpectrumAnalyzer`] re-export below is retained for compatibility;
-//! its canonical path is [`crate::analysis::SpectrumAnalyzer`].
 //!
 //! ## Unified Abstraction (Lock-Free Design)
 //! - [`StreamingProcessor`] and streaming block/progress types - full consumed/produced,
@@ -29,9 +26,8 @@
 //! - [`adapters`] - processor adapters implementing [`StreamingProcessor`]
 //! - [`DspChain`] - composable DSP processing chain
 //!
-//! Offline/read-only analysis types are also available from [`crate::analysis`].
-//! The re-exports in this module remain the compatibility surface for existing
-//! consumers; new code should prefer the semantic analysis namespace.
+//! Offline/read-only analysis types live in [`crate::analysis`], the semantic
+//! namespace for AutoMix, spectrum, and loudness measurement.
 
 mod atomic_f64;
 mod convolver;
@@ -42,9 +38,6 @@ mod fir_design;
 mod fir_eq;
 mod loudness;
 mod noise_shaper;
-// COMPAT: loudness-db persistence lives at the crate root (`crate::loudness_db`)
-// because it is control-side storage, not a realtime DSP building block. The
-// historical `processor::*` public re-exports below are retained.
 mod output_chain;
 mod resampler;
 mod saturation;
@@ -56,45 +49,19 @@ pub mod dsp_chain;
 pub mod lockfree_params;
 pub mod traits;
 
-// Public processor API re-exports. Analysis entries are compatibility aliases
-// tracked in `.trellis/spec/backend/analysis-compatibility.md`.
-// COMPAT: analysis-layer — AutoMix implementation now lives under `analysis`,
-// while these historical processor paths remain source-compatible.
-pub use crate::analysis::{
-    analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
-    AutomixAnalysisOptions, AutomixError,
-};
+// Public processor API re-exports.
 pub use convolver::{
     ConvolutionStrategy, FFTConvolver, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
     PARTITIONED_CONVOLUTION_PARTITION_SIZE,
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
-// COMPAT: dsp-layer — scalar gain helpers moved to the crate-level stateless
-// DSP namespace; processor-level names remain source-compatible.
-pub use crate::dsp::{db_to_linear, linear_to_db};
 pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
 pub use eq::Equalizer;
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
-    // COMPAT: analysis-layer — measurement types remain here while the
-    // normalizer/limiter shared core is split safely.
-    AtomicLoudnessState,
-    LimiterMode,
-    LoudnessNormalizer,
-    PeakLimiter,
+    AtomicLoudnessState, LimiterMode, LoudnessInfo, LoudnessNormalizer, PeakLimiter,
 };
 pub use noise_shaper::{NoiseShaper, NoiseShaperCurve};
-// COMPAT: analysis-layer — measurement types remain available at their
-// historical processor paths while their implementation is analysis-owned.
-pub use crate::analysis::{LoudnessMeter, TruePeakDetector};
-// LoudnessInfo is processor-owned (normalizer control state); the analysis
-// path is the compatibility re-export.
-#[cfg(feature = "loudness-db")]
-pub use crate::loudness_db::{
-    DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
-    CURRENT_SCAN_VERSION, DEFAULT_STREAMING_TARGET_LUFS,
-};
-pub use loudness::LoudnessInfo;
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
     canonical_post_render_analysis_descriptors, offline_render_stage_names,
@@ -105,12 +72,6 @@ pub use output_chain::{
 };
 pub use resampler::{Resampler, ResamplerError, StreamingResampler, RESAMPLER_BACKEND_NAME};
 pub use saturation::{Saturation, SaturationQuality, SaturationSettings, SaturationType};
-// COMPAT: analysis-layer — `SpectrumAnalyzer` is an offline/read-only analyzer.
-// Its implementation now lives under `analysis`; this re-export keeps the
-// historical processor path source-compatible during the physical module
-// split. See `.trellis/spec/backend/analysis-compatibility.md`.
-pub use crate::analysis::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};
-
 // Re-export unified abstraction types
 pub use adapters::{
     ConvolverControl, ConvolverProcessor, ConvolverStatus, CrossfeedProcessor,
@@ -140,8 +101,7 @@ pub use lockfree_params::{
     SATURATION_MIX_MIN, SATURATION_THRESHOLD_MAX, SATURATION_THRESHOLD_MIN, VOLUME_MAX, VOLUME_MIN,
 };
 pub use traits::{
-    finish_checked, process_checked, AudioBlockError, AudioBlockMut, AudioBlockRef,
-    FixedInPlaceProcessor, FrameDuration, FrameRounding, ProcessBufferMode, ProcessBufferParts,
-    ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState,
-    StreamingProcessor, TailSpec, TimingError,
+    finish_checked, process_checked, FixedInPlaceProcessor, FrameDuration, FrameRounding,
+    ProcessBufferMode, ProcessBufferParts, ProcessBuffers, ProcessCapacity, ProcessError,
+    ProcessProgress, ProcessState, StreamingProcessor, TailSpec, TimingError,
 };

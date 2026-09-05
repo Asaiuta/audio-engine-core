@@ -8,6 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Since 1.0.0 the public API is stable: breaking changes are reserved for major
 version bumps, as permitted by SemVer.
 
+## [2.0.0] - Unreleased
+
+### Removed
+
+**Breaking (major release).** The 1.x compatibility aliases kept during the
+analysis-layer migration are gone. Every removed path below has a canonical
+replacement; the full table also lives in
+`.trellis/spec/backend/analysis-compatibility.md`.
+
+- Root aliases for the analysis namespace:
+  `audio_engine_core::{SpectrumAnalyzer, SpectrumConfig, WindowFunction,
+  analyze_automix, analyze_automix_with_cancel, AutomixAnalysis,
+  AutomixAnalysisMode, AutomixAnalysisOptions, AutomixError, LoudnessMeter,
+  TruePeakDetector, AudioBlockError, AudioBlockRef, AudioBlockMut}`.
+  Import these from `audio_engine_core::analysis::*` and
+  `audio_engine_core::audio_block::*` instead.
+- `audio_engine_core::processor::{SpectrumAnalyzer, SpectrumConfig,
+  WindowFunction, analyze_automix, analyze_automix_with_cancel,
+  AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions, AutomixError,
+  LoudnessMeter, TruePeakDetector}` — use `audio_engine_core::analysis::*`.
+- `audio_engine_core::processor::{db_to_linear, linear_to_db}` — use
+  `audio_engine_core::dsp::{db_to_linear, linear_to_db}`.
+- `audio_engine_core::processor::AudioBlock*` and
+  `audio_engine_core::processor::traits::AudioBlock*` — use
+  `audio_engine_core::audio_block::AudioBlock*`.
+- `audio_engine_core::processor::{LoudnessDatabase, LoudnessDatabaseError,
+  LoudnessSourceIdentity, TrackLoudness, DatabaseStats,
+  CURRENT_SCAN_VERSION, DEFAULT_STREAMING_TARGET_LUFS}` — use the canonical
+  `audio_engine_core::loudness_db::*` module.
+- `audio_engine_core::diagnostics` (module) — renamed to
+  `audio_engine_core::decode_budget`; the historical path was a re-export
+  facade. `audio_engine_core::analysis::LoudnessInfo` moved its canonical
+  home to `audio_engine_core::processor::LoudnessInfo` in the same cycle;
+  the temporary analysis-side alias is gone too.
+- `LoudnessMeter::samples_processed()` — deprecated alias removed before any
+  release carried it; use `frames_processed()`, which documents that the
+  counter measures interleaved frames.
+
+Deliberately **not** removed: the deprecated `SpectrumAnalyzer::new` /
+`analyze` pair stays until the two legacy-geometry benchmark cases in
+`audio_component_perf` are reworked, because stable benchmark `case_key`s
+pin baseline comparability.
+
 ## [Unreleased]
 
 ### Added

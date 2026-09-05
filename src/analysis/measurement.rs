@@ -210,22 +210,8 @@ impl LoudnessMeter {
     /// Total interleaved frames consumed since construction or reset.
     ///
     /// One frame is one sample per channel, so a stereo `process(&[f64])` call
-    /// with `2 * n` scalar samples advances this counter by `n`. This is the
-    /// canonical counter name; [`Self::samples_processed`] is the deprecated
-    /// compatibility alias returning the same value.
+    /// with `2 * n` scalar samples advances this counter by `n`.
     pub fn frames_processed(&self) -> u64 {
-        self.frames_processed
-    }
-
-    /// Deprecated compatibility alias for [`Self::frames_processed`].
-    ///
-    /// Despite the historical name this counter always measured interleaved
-    /// **frames** (one frame = one sample per channel), never scalar samples.
-    #[deprecated(
-        since = "1.2.0",
-        note = "the counter measures interleaved frames; use frames_processed()"
-    )]
-    pub fn samples_processed(&self) -> u64 {
         self.frames_processed
     }
 
@@ -726,10 +712,6 @@ mod tests {
         meter.process(&samples).unwrap();
 
         assert_eq!(meter.frames_processed(), 512);
-        #[allow(deprecated)]
-        {
-            assert_eq!(meter.samples_processed(), meter.frames_processed());
-        }
     }
 
     #[test]

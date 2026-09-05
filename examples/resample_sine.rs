@@ -15,9 +15,9 @@
 //! cargo run --example resample_sine
 //! ```
 
+use audio_engine_core::audio_block::{AudioBlockMut, AudioBlockRef};
 use audio_engine_core::{
-    finish_checked, process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, ProcessState,
-    StreamingResampler,
+    finish_checked, process_checked, ProcessBuffers, ProcessState, StreamingResampler,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

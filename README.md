@@ -313,9 +313,9 @@ For custom processing graphs or lower-level atomic controls, use the `OutputChai
 Processors implement the object-safe `StreamingProcessor` lifecycle.
 
 ```rust
+use audio_engine_core::audio_block::AudioBlockMut;
 use audio_engine_core::processor::traits::{
     process_checked,
-    AudioBlockMut,
     ProcessBuffers,
     ProcessError,
     ProcessProgress,
@@ -548,11 +548,8 @@ Measure integrated loudness:
 ```rust
 use std::path::Path;
 
-use audio_engine_core::{
-    LoudnessMeter,
-    MediaLocation,
-    StreamingDecoder,
-};
+use audio_engine_core::analysis::LoudnessMeter;
+use audio_engine_core::{MediaLocation, StreamingDecoder};
 
 fn analyze_file(
     path: &Path,

@@ -3,32 +3,32 @@ pub mod audio_engine_core::analysis
 pub enum audio_engine_core::analysis::AutomixAnalysisMode
 pub audio_engine_core::analysis::AutomixAnalysisMode::Full
 pub audio_engine_core::analysis::AutomixAnalysisMode::Head
-impl audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::includes_tail(self) -> bool
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::clone(&self) -> audio_engine_core::AutomixAnalysisMode
-impl core::cmp::Eq for audio_engine_core::AutomixAnalysisMode
-impl core::cmp::PartialEq for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::eq(&self, &audio_engine_core::AutomixAnalysisMode) -> bool
-impl core::default::Default for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::default() -> audio_engine_core::AutomixAnalysisMode
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for audio_engine_core::AutomixAnalysisMode
-impl core::marker::StructuralPartialEq for audio_engine_core::AutomixAnalysisMode
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Send for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisMode
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisMode
+impl audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::includes_tail(self) -> bool
+impl core::clone::Clone for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::clone(&self) -> audio_engine_core::analysis::AutomixAnalysisMode
+impl core::cmp::Eq for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::cmp::PartialEq for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::eq(&self, &audio_engine_core::analysis::AutomixAnalysisMode) -> bool
+impl core::default::Default for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::default() -> audio_engine_core::analysis::AutomixAnalysisMode
+impl core::fmt::Debug for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::AutomixAnalysisMode
+impl serde_core::ser::Serialize for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for audio_engine_core::analysis::AutomixAnalysisMode
+pub fn audio_engine_core::analysis::AutomixAnalysisMode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::marker::Send for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::marker::Sync for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::marker::Unpin for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::AutomixAnalysisMode
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::AutomixAnalysisMode
 #[non_exhaustive] pub enum audio_engine_core::analysis::AutomixError
 pub audio_engine_core::analysis::AutomixError::Canceled
 pub audio_engine_core::analysis::AutomixError::Decoder(audio_engine_core::decoder::DecoderError)
@@ -36,43 +36,43 @@ pub audio_engine_core::analysis::AutomixError::Loudness(audio_engine_core::proce
 pub audio_engine_core::analysis::AutomixError::TailSeekPastStart
 pub audio_engine_core::analysis::AutomixError::TailSeekPastStart::planned_frame: u64
 pub audio_engine_core::analysis::AutomixError::TailSeekPastStart::realized_frame: u64
-impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
-impl core::error::Error for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Debug for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixError
-impl core::marker::Send for audio_engine_core::AutomixError
-impl core::marker::Sync for audio_engine_core::AutomixError
-impl core::marker::Unpin for audio_engine_core::AutomixError
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixError
+impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
+impl core::error::Error for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::AutomixError
+impl core::marker::Send for audio_engine_core::analysis::AutomixError
+impl core::marker::Sync for audio_engine_core::analysis::AutomixError
+impl core::marker::Unpin for audio_engine_core::analysis::AutomixError
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::AutomixError
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::AutomixError
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::AutomixError
 pub enum audio_engine_core::analysis::WindowFunction
 pub audio_engine_core::analysis::WindowFunction::BlackmanHarris4
 pub audio_engine_core::analysis::WindowFunction::Hann
 pub audio_engine_core::analysis::WindowFunction::Kaiser
 pub audio_engine_core::analysis::WindowFunction::Kaiser::beta: f64
-impl core::clone::Clone for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
-impl core::cmp::PartialEq for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
-impl core::fmt::Debug for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::WindowFunction
-impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
-impl core::marker::Freeze for audio_engine_core::WindowFunction
-impl core::marker::Send for audio_engine_core::WindowFunction
-impl core::marker::Sync for audio_engine_core::WindowFunction
-impl core::marker::Unpin for audio_engine_core::WindowFunction
-impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
+impl core::clone::Clone for audio_engine_core::analysis::WindowFunction
+pub fn audio_engine_core::analysis::WindowFunction::clone(&self) -> audio_engine_core::analysis::WindowFunction
+impl core::cmp::PartialEq for audio_engine_core::analysis::WindowFunction
+pub fn audio_engine_core::analysis::WindowFunction::eq(&self, &audio_engine_core::analysis::WindowFunction) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::WindowFunction
+pub fn audio_engine_core::analysis::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::analysis::WindowFunction
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::WindowFunction
+impl core::marker::Freeze for audio_engine_core::analysis::WindowFunction
+impl core::marker::Send for audio_engine_core::analysis::WindowFunction
+impl core::marker::Sync for audio_engine_core::analysis::WindowFunction
+impl core::marker::Unpin for audio_engine_core::analysis::WindowFunction
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::WindowFunction
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::WindowFunction
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::WindowFunction
 pub struct audio_engine_core::analysis::AutomixAnalysis
 pub audio_engine_core::analysis::AutomixAnalysis::analyze_window: f64
 pub audio_engine_core::analysis::AutomixAnalysis::bpm: core::option::Option<f64>
@@ -89,104 +89,81 @@ pub audio_engine_core::analysis::AutomixAnalysis::loudness: core::option::Option
 pub audio_engine_core::analysis::AutomixAnalysis::mix_center_pos: f64
 pub audio_engine_core::analysis::AutomixAnalysis::mix_end_pos: f64
 pub audio_engine_core::analysis::AutomixAnalysis::mix_start_pos: f64
-pub audio_engine_core::analysis::AutomixAnalysis::mode: audio_engine_core::AutomixAnalysisMode
+pub audio_engine_core::analysis::AutomixAnalysis::mode: audio_engine_core::analysis::AutomixAnalysisMode
 pub audio_engine_core::analysis::AutomixAnalysis::outro_energy_level: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::true_peak_dbtp: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::version: u32
 pub audio_engine_core::analysis::AutomixAnalysis::vocal_in_pos: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::vocal_last_in_pos: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::vocal_out_pos: core::option::Option<f64>
-impl core::clone::Clone for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::clone(&self) -> audio_engine_core::AutomixAnalysis
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysis
-impl core::marker::Send for audio_engine_core::AutomixAnalysis
-impl core::marker::Sync for audio_engine_core::AutomixAnalysis
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysis
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysis
+impl core::clone::Clone for audio_engine_core::analysis::AutomixAnalysis
+pub fn audio_engine_core::analysis::AutomixAnalysis::clone(&self) -> audio_engine_core::analysis::AutomixAnalysis
+impl core::fmt::Debug for audio_engine_core::analysis::AutomixAnalysis
+pub fn audio_engine_core::analysis::AutomixAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_engine_core::analysis::AutomixAnalysis
+pub fn audio_engine_core::analysis::AutomixAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_engine_core::analysis::AutomixAnalysis
+impl core::marker::Send for audio_engine_core::analysis::AutomixAnalysis
+impl core::marker::Sync for audio_engine_core::analysis::AutomixAnalysis
+impl core::marker::Unpin for audio_engine_core::analysis::AutomixAnalysis
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::AutomixAnalysis
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::AutomixAnalysis
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::AutomixAnalysis
 pub struct audio_engine_core::analysis::AutomixAnalysisOptions
 pub audio_engine_core::analysis::AutomixAnalysisOptions::max_analyze_time_sec: f64
-pub audio_engine_core::analysis::AutomixAnalysisOptions::mode: audio_engine_core::AutomixAnalysisMode
-impl audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::normalized(self) -> Self
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::clone(&self) -> audio_engine_core::AutomixAnalysisOptions
-impl core::default::Default for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::default() -> Self
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Send for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisOptions
-pub struct audio_engine_core::analysis::LoudnessInfo
-pub audio_engine_core::analysis::LoudnessInfo::current_gain_db: f64
-pub audio_engine_core::analysis::LoudnessInfo::integrated_lufs: f64
-pub audio_engine_core::analysis::LoudnessInfo::loudness_range: f64
-pub audio_engine_core::analysis::LoudnessInfo::momentary_lufs: f64
-pub audio_engine_core::analysis::LoudnessInfo::preamp_db: f64
-pub audio_engine_core::analysis::LoudnessInfo::short_term_lufs: f64
-pub audio_engine_core::analysis::LoudnessInfo::target_gain_db: f64
-pub audio_engine_core::analysis::LoudnessInfo::true_peak_dbtp: f64
-impl core::clone::Clone for audio_engine_core::LoudnessInfo
-pub fn audio_engine_core::LoudnessInfo::clone(&self) -> audio_engine_core::LoudnessInfo
-impl core::fmt::Debug for audio_engine_core::LoudnessInfo
-pub fn audio_engine_core::LoudnessInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::LoudnessInfo
-pub fn audio_engine_core::LoudnessInfo::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::LoudnessInfo
-impl core::marker::Send for audio_engine_core::LoudnessInfo
-impl core::marker::Sync for audio_engine_core::LoudnessInfo
-impl core::marker::Unpin for audio_engine_core::LoudnessInfo
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessInfo
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
+pub audio_engine_core::analysis::AutomixAnalysisOptions::mode: audio_engine_core::analysis::AutomixAnalysisMode
+impl audio_engine_core::analysis::AutomixAnalysisOptions
+pub fn audio_engine_core::analysis::AutomixAnalysisOptions::normalized(self) -> Self
+impl core::clone::Clone for audio_engine_core::analysis::AutomixAnalysisOptions
+pub fn audio_engine_core::analysis::AutomixAnalysisOptions::clone(&self) -> audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::default::Default for audio_engine_core::analysis::AutomixAnalysisOptions
+pub fn audio_engine_core::analysis::AutomixAnalysisOptions::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::AutomixAnalysisOptions
+pub fn audio_engine_core::analysis::AutomixAnalysisOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::marker::Send for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::marker::Sync for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::marker::Unpin for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::AutomixAnalysisOptions
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::AutomixAnalysisOptions
 pub struct audio_engine_core::analysis::LoudnessMeter
-impl audio_engine_core::LoudnessMeter
-pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
-pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::momentary_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::reset(&mut self)
-pub fn audio_engine_core::LoudnessMeter::samples_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::short_term_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::true_peak(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::LoudnessMeter
-impl core::marker::Send for audio_engine_core::LoudnessMeter
-impl core::marker::Sync for audio_engine_core::LoudnessMeter
-impl core::marker::Unpin for audio_engine_core::LoudnessMeter
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
+impl audio_engine_core::analysis::LoudnessMeter
+pub fn audio_engine_core::analysis::LoudnessMeter::frames_processed(&self) -> u64
+pub fn audio_engine_core::analysis::LoudnessMeter::has_reliable_measurement(&self) -> bool
+pub fn audio_engine_core::analysis::LoudnessMeter::integrated_loudness(&self) -> f64
+pub fn audio_engine_core::analysis::LoudnessMeter::loudness_range(&self) -> f64
+pub fn audio_engine_core::analysis::LoudnessMeter::momentary_loudness(&self) -> f64
+pub fn audio_engine_core::analysis::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::LoudnessMeter::reset(&mut self)
+pub fn audio_engine_core::analysis::LoudnessMeter::short_term_loudness(&self) -> f64
+pub fn audio_engine_core::analysis::LoudnessMeter::true_peak(&self) -> f64
+pub fn audio_engine_core::analysis::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl core::marker::Freeze for audio_engine_core::analysis::LoudnessMeter
+impl core::marker::Send for audio_engine_core::analysis::LoudnessMeter
+impl core::marker::Sync for audio_engine_core::analysis::LoudnessMeter
+impl core::marker::Unpin for audio_engine_core::analysis::LoudnessMeter
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::LoudnessMeter
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::LoudnessMeter
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::LoudnessMeter
 pub struct audio_engine_core::analysis::SpectrumAnalyzer
-impl audio_engine_core::SpectrumAnalyzer
-pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
-pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
+impl audio_engine_core::analysis::SpectrumAnalyzer
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::config(&self) -> &audio_engine_core::analysis::SpectrumConfig
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::sample_rate(&self) -> u32
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
+pub fn audio_engine_core::analysis::SpectrumAnalyzer::with_config(audio_engine_core::analysis::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+impl core::marker::Freeze for audio_engine_core::analysis::SpectrumAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::SpectrumAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::SpectrumAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::SpectrumAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::SpectrumAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::SpectrumAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::SpectrumAnalyzer
 pub struct audio_engine_core::analysis::SpectrumConfig
 pub audio_engine_core::analysis::SpectrumConfig::attack_ms: core::option::Option<f64>
 pub audio_engine_core::analysis::SpectrumConfig::db_max: f64
@@ -198,51 +175,51 @@ pub audio_engine_core::analysis::SpectrumConfig::num_bins: usize
 pub audio_engine_core::analysis::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
 pub audio_engine_core::analysis::SpectrumConfig::release_ms: core::option::Option<f64>
 pub audio_engine_core::analysis::SpectrumConfig::tilt_db_per_octave: f64
-pub audio_engine_core::analysis::SpectrumConfig::window: audio_engine_core::WindowFunction
-impl audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
-impl core::clone::Clone for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
-impl core::default::Default for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::default() -> Self
-impl core::fmt::Debug for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::SpectrumConfig
-impl core::marker::Send for audio_engine_core::SpectrumConfig
-impl core::marker::Sync for audio_engine_core::SpectrumConfig
-impl core::marker::Unpin for audio_engine_core::SpectrumConfig
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
+pub audio_engine_core::analysis::SpectrumConfig::window: audio_engine_core::analysis::WindowFunction
+impl audio_engine_core::analysis::SpectrumConfig
+pub fn audio_engine_core::analysis::SpectrumConfig::legacy(usize, usize) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_bins(self, usize) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_db_range(self, f64, f64) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_fft_size(self, usize) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_multi_resolution(self, bool) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_overlap_percent(self, u32) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_tilt(self, f64) -> Self
+pub fn audio_engine_core::analysis::SpectrumConfig::with_window(self, audio_engine_core::analysis::WindowFunction) -> Self
+impl core::clone::Clone for audio_engine_core::analysis::SpectrumConfig
+pub fn audio_engine_core::analysis::SpectrumConfig::clone(&self) -> audio_engine_core::analysis::SpectrumConfig
+impl core::default::Default for audio_engine_core::analysis::SpectrumConfig
+pub fn audio_engine_core::analysis::SpectrumConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::SpectrumConfig
+pub fn audio_engine_core::analysis::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::SpectrumConfig
+impl core::marker::Send for audio_engine_core::analysis::SpectrumConfig
+impl core::marker::Sync for audio_engine_core::analysis::SpectrumConfig
+impl core::marker::Unpin for audio_engine_core::analysis::SpectrumConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::SpectrumConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::SpectrumConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::SpectrumConfig
 pub struct audio_engine_core::analysis::TruePeakDetector
-impl audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::max_true_peak_db(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::new() -> Self
-pub fn audio_engine_core::TruePeakDetector::process(&mut self, &[f64])
-pub fn audio_engine_core::TruePeakDetector::process_strided(&mut self, &[f64], usize, usize)
-pub fn audio_engine_core::TruePeakDetector::reset(&mut self)
-impl core::default::Default for audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::default() -> Self
-impl core::marker::Freeze for audio_engine_core::TruePeakDetector
-impl core::marker::Send for audio_engine_core::TruePeakDetector
-impl core::marker::Sync for audio_engine_core::TruePeakDetector
-impl core::marker::Unpin for audio_engine_core::TruePeakDetector
-impl core::marker::UnsafeUnpin for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::analysis::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
-pub fn audio_engine_core::analysis::analyze_automix_with_cancel(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
+impl audio_engine_core::analysis::TruePeakDetector
+pub fn audio_engine_core::analysis::TruePeakDetector::max_true_peak(&self) -> f64
+pub fn audio_engine_core::analysis::TruePeakDetector::max_true_peak_db(&self) -> f64
+pub fn audio_engine_core::analysis::TruePeakDetector::new() -> Self
+pub fn audio_engine_core::analysis::TruePeakDetector::process(&mut self, &[f64])
+pub fn audio_engine_core::analysis::TruePeakDetector::process_strided(&mut self, &[f64], usize, usize)
+pub fn audio_engine_core::analysis::TruePeakDetector::reset(&mut self)
+impl core::default::Default for audio_engine_core::analysis::TruePeakDetector
+pub fn audio_engine_core::analysis::TruePeakDetector::default() -> Self
+impl core::marker::Freeze for audio_engine_core::analysis::TruePeakDetector
+impl core::marker::Send for audio_engine_core::analysis::TruePeakDetector
+impl core::marker::Sync for audio_engine_core::analysis::TruePeakDetector
+impl core::marker::Unpin for audio_engine_core::analysis::TruePeakDetector
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::TruePeakDetector
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::TruePeakDetector
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::TruePeakDetector
+pub fn audio_engine_core::analysis::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::analysis::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::analysis::AutomixAnalysis, audio_engine_core::analysis::AutomixError>
+pub fn audio_engine_core::analysis::analyze_automix_with_cancel(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::analysis::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::analysis::AutomixAnalysis, audio_engine_core::analysis::AutomixError>
 pub mod audio_engine_core::audio_block
 pub enum audio_engine_core::audio_block::AudioBlockError
 pub audio_engine_core::audio_block::AudioBlockError::ChannelMismatch
@@ -521,8 +498,8 @@ pub audio_engine_core::decoder::DecoderError::FileOpen(core::io::error::Error)
 pub audio_engine_core::decoder::DecoderError::NoAudioTrack
 pub audio_engine_core::decoder::DecoderError::Probe(alloc::string::String)
 pub audio_engine_core::decoder::DecoderError::UnsupportedFormat
-impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
+impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
 impl core::convert::From<core::io::error::Error> for audio_engine_core::decoder::DecoderError
 pub fn audio_engine_core::decoder::DecoderError::from(core::io::error::Error) -> Self
 impl core::error::Error for audio_engine_core::decoder::DecoderError
@@ -763,29 +740,6 @@ impl core::marker::Unpin for audio_engine_core::decoder::TrackMetadata
 impl core::marker::UnsafeUnpin for audio_engine_core::decoder::TrackMetadata
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decoder::TrackMetadata
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decoder::TrackMetadata
-pub mod audio_engine_core::diagnostics
-pub struct audio_engine_core::diagnostics::DecodeMemoryBudget
-pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_bytes: usize
-pub audio_engine_core::diagnostics::DecodeMemoryBudget::limit_mb: usize
-pub audio_engine_core::diagnostics::DecodeMemoryBudget::source: &'static str
-impl core::clone::Clone for audio_engine_core::decode_budget::DecodeMemoryBudget
-pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::clone(&self) -> audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::fmt::Debug for audio_engine_core::decode_budget::DecodeMemoryBudget
-pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::decode_budget::DecodeMemoryBudget
-pub fn audio_engine_core::decode_budget::DecodeMemoryBudget::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::marker::Send for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::marker::Sync for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::marker::Unpin for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::marker::UnsafeUnpin for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::decode_budget::DecodeMemoryBudget
-pub const audio_engine_core::diagnostics::DEFAULT_DECODE_MAX_MEMORY_MB: usize
-pub const audio_engine_core::diagnostics::ENV_DECODE_MAX_MEMORY_MB: &str
-pub const audio_engine_core::diagnostics::MAX_DECODE_MAX_MEMORY_MB: usize
-pub const audio_engine_core::diagnostics::MIN_DECODE_MAX_MEMORY_MB: usize
-pub fn audio_engine_core::diagnostics::decode_memory_budget() -> audio_engine_core::decode_budget::DecodeMemoryBudget
 pub mod audio_engine_core::dsp
 pub fn audio_engine_core::dsp::db_to_linear(f64) -> f64
 pub fn audio_engine_core::dsp::linear_to_db(f64) -> f64
@@ -2023,37 +1977,6 @@ pub const audio_engine_core::processor::lockfree_params::SATURATION_THRESHOLD_MI
 pub const audio_engine_core::processor::lockfree_params::VOLUME_MAX: f64
 pub const audio_engine_core::processor::lockfree_params::VOLUME_MIN: f64
 pub mod audio_engine_core::processor::traits
-pub enum audio_engine_core::processor::traits::AudioBlockError
-pub audio_engine_core::processor::traits::AudioBlockError::ChannelMismatch
-pub audio_engine_core::processor::traits::AudioBlockError::ChannelMismatch::input_channels: usize
-pub audio_engine_core::processor::traits::AudioBlockError::ChannelMismatch::output_channels: usize
-pub audio_engine_core::processor::traits::AudioBlockError::IncompleteFrame
-pub audio_engine_core::processor::traits::AudioBlockError::IncompleteFrame::channels: usize
-pub audio_engine_core::processor::traits::AudioBlockError::IncompleteFrame::samples: usize
-pub audio_engine_core::processor::traits::AudioBlockError::ZeroChannels
-impl core::clone::Clone for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::clone(&self) -> audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::Eq for audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::PartialEq for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::eq(&self, &audio_engine_core::audio_block::AudioBlockError) -> bool
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::ResamplerError
-pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
-pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::error::Error for audio_engine_core::audio_block::AudioBlockError
-impl core::fmt::Debug for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::StructuralPartialEq for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Freeze for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Send for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Sync for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Unpin for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockError
 pub enum audio_engine_core::processor::traits::FrameRounding
 pub audio_engine_core::processor::traits::FrameRounding::Ceil
 pub audio_engine_core::processor::traits::FrameRounding::Floor
@@ -2166,8 +2089,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -2252,47 +2175,6 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
-pub struct audio_engine_core::processor::traits::AudioBlockMut<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::as_ref(&self) -> audio_engine_core::audio_block::AudioBlockRef<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::channels(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::frames(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::into_samples(self) -> &'a mut [f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::is_empty(&self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::new(&'a mut [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::reborrow(&mut self) -> audio_engine_core::audio_block::AudioBlockMut<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::sample_count(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples(&self) -> &[f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples_mut(&mut self) -> &mut [f64]
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> !core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub struct audio_engine_core::processor::traits::AudioBlockRef<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::channels(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::frames(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::is_empty(self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::new(&'a [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::sample_count(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::samples(self) -> &'a [f64]
-impl<'a> core::clone::Clone for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::clone(&self) -> audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Copy for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
 pub struct audio_engine_core::processor::traits::FrameDuration
 impl audio_engine_core::processor::traits::FrameDuration
 pub const audio_engine_core::processor::traits::FrameDuration::ZERO: Self
@@ -2498,90 +2380,6 @@ pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> a
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
 pub fn audio_engine_core::processor::traits::finish_checked<P: audio_engine_core::processor::traits::StreamingProcessor + ?core::marker::Sized>(&mut P, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::traits::process_checked<P: audio_engine_core::processor::traits::StreamingProcessor + ?core::marker::Sized>(&mut P, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub enum audio_engine_core::processor::AudioBlockError
-pub audio_engine_core::processor::AudioBlockError::ChannelMismatch
-pub audio_engine_core::processor::AudioBlockError::ChannelMismatch::input_channels: usize
-pub audio_engine_core::processor::AudioBlockError::ChannelMismatch::output_channels: usize
-pub audio_engine_core::processor::AudioBlockError::IncompleteFrame
-pub audio_engine_core::processor::AudioBlockError::IncompleteFrame::channels: usize
-pub audio_engine_core::processor::AudioBlockError::IncompleteFrame::samples: usize
-pub audio_engine_core::processor::AudioBlockError::ZeroChannels
-impl core::clone::Clone for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::clone(&self) -> audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::Eq for audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::PartialEq for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::eq(&self, &audio_engine_core::audio_block::AudioBlockError) -> bool
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::ResamplerError
-pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
-pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::error::Error for audio_engine_core::audio_block::AudioBlockError
-impl core::fmt::Debug for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::StructuralPartialEq for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Freeze for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Send for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Sync for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Unpin for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockError
-pub enum audio_engine_core::processor::AutomixAnalysisMode
-pub audio_engine_core::processor::AutomixAnalysisMode::Full
-pub audio_engine_core::processor::AutomixAnalysisMode::Head
-impl audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::includes_tail(self) -> bool
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::clone(&self) -> audio_engine_core::AutomixAnalysisMode
-impl core::cmp::Eq for audio_engine_core::AutomixAnalysisMode
-impl core::cmp::PartialEq for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::eq(&self, &audio_engine_core::AutomixAnalysisMode) -> bool
-impl core::default::Default for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::default() -> audio_engine_core::AutomixAnalysisMode
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for audio_engine_core::AutomixAnalysisMode
-impl core::marker::StructuralPartialEq for audio_engine_core::AutomixAnalysisMode
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Send for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisMode
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisMode
-#[non_exhaustive] pub enum audio_engine_core::processor::AutomixError
-pub audio_engine_core::processor::AutomixError::Canceled
-pub audio_engine_core::processor::AutomixError::Decoder(audio_engine_core::decoder::DecoderError)
-pub audio_engine_core::processor::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
-pub audio_engine_core::processor::AutomixError::TailSeekPastStart
-pub audio_engine_core::processor::AutomixError::TailSeekPastStart::planned_frame: u64
-pub audio_engine_core::processor::AutomixError::TailSeekPastStart::realized_frame: u64
-impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
-impl core::error::Error for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Debug for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixError
-impl core::marker::Send for audio_engine_core::AutomixError
-impl core::marker::Sync for audio_engine_core::AutomixError
-impl core::marker::Unpin for audio_engine_core::AutomixError
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixError
 pub enum audio_engine_core::processor::ConvolutionStrategy
 pub audio_engine_core::processor::ConvolutionStrategy::OverlapSave
 pub audio_engine_core::processor::ConvolutionStrategy::Partitioned
@@ -2885,8 +2683,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -3175,26 +2973,6 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
-pub enum audio_engine_core::processor::WindowFunction
-pub audio_engine_core::processor::WindowFunction::BlackmanHarris4
-pub audio_engine_core::processor::WindowFunction::Hann
-pub audio_engine_core::processor::WindowFunction::Kaiser
-pub audio_engine_core::processor::WindowFunction::Kaiser::beta: f64
-impl core::clone::Clone for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
-impl core::cmp::PartialEq for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
-impl core::fmt::Debug for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::WindowFunction
-impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
-impl core::marker::Freeze for audio_engine_core::WindowFunction
-impl core::marker::Send for audio_engine_core::WindowFunction
-impl core::marker::Sync for audio_engine_core::WindowFunction
-impl core::marker::Unpin for audio_engine_core::WindowFunction
-impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
 pub struct audio_engine_core::processor::AtomicCrossfeedParams
 impl audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams
 pub fn audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams::is_enabled(&self) -> bool
@@ -3423,101 +3201,6 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Atom
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicVolumeParams
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicVolumeParams
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicVolumeParams
-pub struct audio_engine_core::processor::AudioBlockMut<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::as_ref(&self) -> audio_engine_core::audio_block::AudioBlockRef<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::channels(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::frames(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::into_samples(self) -> &'a mut [f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::is_empty(&self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::new(&'a mut [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::reborrow(&mut self) -> audio_engine_core::audio_block::AudioBlockMut<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::sample_count(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples(&self) -> &[f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples_mut(&mut self) -> &mut [f64]
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> !core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub struct audio_engine_core::processor::AudioBlockRef<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::channels(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::frames(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::is_empty(self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::new(&'a [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::sample_count(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::samples(self) -> &'a [f64]
-impl<'a> core::clone::Clone for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::clone(&self) -> audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Copy for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub struct audio_engine_core::processor::AutomixAnalysis
-pub audio_engine_core::processor::AutomixAnalysis::analyze_window: f64
-pub audio_engine_core::processor::AutomixAnalysis::bpm: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::bpm_confidence: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::cut_in_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::cut_out_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::drop_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::duration: f64
-pub audio_engine_core::processor::AutomixAnalysis::energy_profile: alloc::vec::Vec<f64>
-pub audio_engine_core::processor::AutomixAnalysis::fade_in_pos: f64
-pub audio_engine_core::processor::AutomixAnalysis::fade_out_pos: f64
-pub audio_engine_core::processor::AutomixAnalysis::first_beat_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::loudness: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::mix_center_pos: f64
-pub audio_engine_core::processor::AutomixAnalysis::mix_end_pos: f64
-pub audio_engine_core::processor::AutomixAnalysis::mix_start_pos: f64
-pub audio_engine_core::processor::AutomixAnalysis::mode: audio_engine_core::AutomixAnalysisMode
-pub audio_engine_core::processor::AutomixAnalysis::outro_energy_level: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::true_peak_dbtp: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::version: u32
-pub audio_engine_core::processor::AutomixAnalysis::vocal_in_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::vocal_last_in_pos: core::option::Option<f64>
-pub audio_engine_core::processor::AutomixAnalysis::vocal_out_pos: core::option::Option<f64>
-impl core::clone::Clone for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::clone(&self) -> audio_engine_core::AutomixAnalysis
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysis
-impl core::marker::Send for audio_engine_core::AutomixAnalysis
-impl core::marker::Sync for audio_engine_core::AutomixAnalysis
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysis
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysis
-pub struct audio_engine_core::processor::AutomixAnalysisOptions
-pub audio_engine_core::processor::AutomixAnalysisOptions::max_analyze_time_sec: f64
-pub audio_engine_core::processor::AutomixAnalysisOptions::mode: audio_engine_core::AutomixAnalysisMode
-impl audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::normalized(self) -> Self
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::clone(&self) -> audio_engine_core::AutomixAnalysisOptions
-impl core::default::Default for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::default() -> Self
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Send for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisOptions
 pub struct audio_engine_core::processor::ChainFinishPolicy
 pub audio_engine_core::processor::ChainFinishPolicy::energy_threshold_dbfs: f64
 pub audio_engine_core::processor::ChainFinishPolicy::max_tail_frames: usize
@@ -3971,27 +3654,6 @@ impl core::marker::Unpin for audio_engine_core::LoudnessInfo
 impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
-pub struct audio_engine_core::processor::LoudnessMeter
-impl audio_engine_core::LoudnessMeter
-pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
-pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::momentary_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::reset(&mut self)
-pub fn audio_engine_core::LoudnessMeter::samples_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::short_term_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::true_peak(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::LoudnessMeter
-impl core::marker::Send for audio_engine_core::LoudnessMeter
-impl core::marker::Sync for audio_engine_core::LoudnessMeter
-impl core::marker::Unpin for audio_engine_core::LoudnessMeter
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
 pub struct audio_engine_core::processor::LoudnessNormalizer
 impl audio_engine_core::LoudnessNormalizer
 pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
@@ -4500,60 +4162,6 @@ impl core::marker::Unpin for audio_engine_core::processor::SaturationSettings
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::SaturationSettings
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::SaturationSettings
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::SaturationSettings
-pub struct audio_engine_core::processor::SpectrumAnalyzer
-impl audio_engine_core::SpectrumAnalyzer
-pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
-pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
-pub struct audio_engine_core::processor::SpectrumConfig
-pub audio_engine_core::processor::SpectrumConfig::attack_ms: core::option::Option<f64>
-pub audio_engine_core::processor::SpectrumConfig::db_max: f64
-pub audio_engine_core::processor::SpectrumConfig::db_min: f64
-pub audio_engine_core::processor::SpectrumConfig::fft_size: usize
-pub audio_engine_core::processor::SpectrumConfig::hop_divisor: usize
-pub audio_engine_core::processor::SpectrumConfig::multi_resolution: bool
-pub audio_engine_core::processor::SpectrumConfig::num_bins: usize
-pub audio_engine_core::processor::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
-pub audio_engine_core::processor::SpectrumConfig::release_ms: core::option::Option<f64>
-pub audio_engine_core::processor::SpectrumConfig::tilt_db_per_octave: f64
-pub audio_engine_core::processor::SpectrumConfig::window: audio_engine_core::WindowFunction
-impl audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
-impl core::clone::Clone for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
-impl core::default::Default for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::default() -> Self
-impl core::fmt::Debug for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::SpectrumConfig
-impl core::marker::Send for audio_engine_core::SpectrumConfig
-impl core::marker::Sync for audio_engine_core::SpectrumConfig
-impl core::marker::Unpin for audio_engine_core::SpectrumConfig
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
 pub struct audio_engine_core::processor::StreamingResampler
 impl audio_engine_core::StreamingResampler
 pub fn audio_engine_core::StreamingResampler::from_rate(&self) -> u32
@@ -4580,23 +4188,6 @@ impl core::marker::Unpin for audio_engine_core::StreamingResampler
 impl core::marker::UnsafeUnpin for audio_engine_core::StreamingResampler
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
-pub struct audio_engine_core::processor::TruePeakDetector
-impl audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::max_true_peak_db(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::new() -> Self
-pub fn audio_engine_core::TruePeakDetector::process(&mut self, &[f64])
-pub fn audio_engine_core::TruePeakDetector::process_strided(&mut self, &[f64], usize, usize)
-pub fn audio_engine_core::TruePeakDetector::reset(&mut self)
-impl core::default::Default for audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::default() -> Self
-impl core::marker::Freeze for audio_engine_core::TruePeakDetector
-impl core::marker::Send for audio_engine_core::TruePeakDetector
-impl core::marker::Sync for audio_engine_core::TruePeakDetector
-impl core::marker::Unpin for audio_engine_core::TruePeakDetector
-impl core::marker::UnsafeUnpin for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::TruePeakDetector
 pub struct audio_engine_core::processor::UnknownTailPolicy
 pub audio_engine_core::processor::UnknownTailPolicy::energy_threshold_dbfs: f64
 pub audio_engine_core::processor::UnknownTailPolicy::max_tail_ms: u32
@@ -4807,15 +4398,11 @@ pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
-pub fn audio_engine_core::processor::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
-pub fn audio_engine_core::processor::analyze_automix_with_cancel(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::DecodeCancelToken>) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
 pub fn audio_engine_core::processor::callback_stage_names() -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::callback_stage_order_csv() -> alloc::string::String
 pub fn audio_engine_core::processor::canonical_output_stage_descriptors() -> &'static [audio_engine_core::OutputStageDescriptor]
 pub fn audio_engine_core::processor::canonical_post_render_analysis_descriptors() -> &'static [audio_engine_core::PostRenderAnalysisDescriptor]
-pub fn audio_engine_core::processor::db_to_linear(f64) -> f64
 pub fn audio_engine_core::processor::finish_checked<P: audio_engine_core::processor::traits::StreamingProcessor + ?core::marker::Sized>(&mut P, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::linear_to_db(f64) -> f64
 pub fn audio_engine_core::processor::offline_render_stage_names() -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::processor::offline_render_stage_order_csv() -> alloc::string::String
 pub fn audio_engine_core::processor::post_render_analysis_names() -> alloc::vec::Vec<&'static str>
@@ -4825,90 +4412,6 @@ pub mod audio_engine_core::runtime
 pub fn audio_engine_core::runtime::audio_thread_float_mode_is_enabled() -> bool
 pub fn audio_engine_core::runtime::audio_thread_init()
 pub fn audio_engine_core::runtime::flush_subnormal_sample(f64) -> f64
-pub enum audio_engine_core::AudioBlockError
-pub audio_engine_core::AudioBlockError::ChannelMismatch
-pub audio_engine_core::AudioBlockError::ChannelMismatch::input_channels: usize
-pub audio_engine_core::AudioBlockError::ChannelMismatch::output_channels: usize
-pub audio_engine_core::AudioBlockError::IncompleteFrame
-pub audio_engine_core::AudioBlockError::IncompleteFrame::channels: usize
-pub audio_engine_core::AudioBlockError::IncompleteFrame::samples: usize
-pub audio_engine_core::AudioBlockError::ZeroChannels
-impl core::clone::Clone for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::clone(&self) -> audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::Eq for audio_engine_core::audio_block::AudioBlockError
-impl core::cmp::PartialEq for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::eq(&self, &audio_engine_core::audio_block::AudioBlockError) -> bool
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::ResamplerError
-pub fn audio_engine_core::processor::ResamplerError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
-pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::error::Error for audio_engine_core::audio_block::AudioBlockError
-impl core::fmt::Debug for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::audio_block::AudioBlockError
-pub fn audio_engine_core::audio_block::AudioBlockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::StructuralPartialEq for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Freeze for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Send for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Sync for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::Unpin for audio_engine_core::audio_block::AudioBlockError
-impl core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockError
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockError
-pub enum audio_engine_core::AutomixAnalysisMode
-pub audio_engine_core::AutomixAnalysisMode::Full
-pub audio_engine_core::AutomixAnalysisMode::Head
-impl audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::includes_tail(self) -> bool
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::clone(&self) -> audio_engine_core::AutomixAnalysisMode
-impl core::cmp::Eq for audio_engine_core::AutomixAnalysisMode
-impl core::cmp::PartialEq for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::eq(&self, &audio_engine_core::AutomixAnalysisMode) -> bool
-impl core::default::Default for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::default() -> audio_engine_core::AutomixAnalysisMode
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for audio_engine_core::AutomixAnalysisMode
-impl core::marker::StructuralPartialEq for audio_engine_core::AutomixAnalysisMode
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for audio_engine_core::AutomixAnalysisMode
-pub fn audio_engine_core::AutomixAnalysisMode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Send for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisMode
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisMode
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisMode
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisMode
-#[non_exhaustive] pub enum audio_engine_core::AutomixError
-pub audio_engine_core::AutomixError::Canceled
-pub audio_engine_core::AutomixError::Decoder(audio_engine_core::decoder::DecoderError)
-pub audio_engine_core::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
-pub audio_engine_core::AutomixError::TailSeekPastStart
-pub audio_engine_core::AutomixError::TailSeekPastStart::planned_frame: u64
-pub audio_engine_core::AutomixError::TailSeekPastStart::realized_frame: u64
-impl core::convert::From<audio_engine_core::decoder::DecoderError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::decoder::DecoderError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
-impl core::error::Error for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Debug for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixError
-impl core::marker::Send for audio_engine_core::AutomixError
-impl core::marker::Sync for audio_engine_core::AutomixError
-impl core::marker::Unpin for audio_engine_core::AutomixError
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixError
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixError
 pub enum audio_engine_core::ChannelPosition
 pub audio_engine_core::ChannelPosition::FrontCenter
 pub audio_engine_core::ChannelPosition::FrontLeft
@@ -5311,8 +4814,8 @@ impl core::cmp::PartialEq for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::eq(&self, &audio_engine_core::processor::traits::ProcessError) -> bool
 impl core::convert::From<audio_engine_core::audio_block::AudioBlockError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::audio_block::AudioBlockError) -> Self
-impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::AutomixError
-pub fn audio_engine_core::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_engine_core::analysis::AutomixError
+pub fn audio_engine_core::analysis::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
 impl core::convert::From<audio_engine_core::processor::traits::TimingError> for audio_engine_core::processor::traits::ProcessError
 pub fn audio_engine_core::processor::traits::ProcessError::from(audio_engine_core::processor::traits::TimingError) -> Self
 impl core::error::Error for audio_engine_core::processor::traits::ProcessError
@@ -5437,26 +4940,6 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
-pub enum audio_engine_core::WindowFunction
-pub audio_engine_core::WindowFunction::BlackmanHarris4
-pub audio_engine_core::WindowFunction::Hann
-pub audio_engine_core::WindowFunction::Kaiser
-pub audio_engine_core::WindowFunction::Kaiser::beta: f64
-impl core::clone::Clone for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::clone(&self) -> audio_engine_core::WindowFunction
-impl core::cmp::PartialEq for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::eq(&self, &audio_engine_core::WindowFunction) -> bool
-impl core::fmt::Debug for audio_engine_core::WindowFunction
-pub fn audio_engine_core::WindowFunction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::WindowFunction
-impl core::marker::StructuralPartialEq for audio_engine_core::WindowFunction
-impl core::marker::Freeze for audio_engine_core::WindowFunction
-impl core::marker::Send for audio_engine_core::WindowFunction
-impl core::marker::Sync for audio_engine_core::WindowFunction
-impl core::marker::Unpin for audio_engine_core::WindowFunction
-impl core::marker::UnsafeUnpin for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::WindowFunction
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::WindowFunction
 pub struct audio_engine_core::AtomicLoudnessState
 impl audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
@@ -5484,101 +4967,6 @@ impl core::marker::Unpin for audio_engine_core::AtomicLoudnessState
 impl core::marker::UnsafeUnpin for audio_engine_core::AtomicLoudnessState
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AtomicLoudnessState
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AtomicLoudnessState
-pub struct audio_engine_core::AudioBlockMut<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::as_ref(&self) -> audio_engine_core::audio_block::AudioBlockRef<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::channels(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::frames(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::into_samples(self) -> &'a mut [f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::is_empty(&self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::new(&'a mut [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::reborrow(&mut self) -> audio_engine_core::audio_block::AudioBlockMut<'_>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::sample_count(&self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples(&self) -> &[f64]
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::samples_mut(&mut self) -> &mut [f64]
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub fn audio_engine_core::audio_block::AudioBlockMut<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-impl<'a> !core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockMut<'a>
-pub struct audio_engine_core::AudioBlockRef<'a>
-impl<'a> audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::channels(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::frames(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::is_empty(self) -> bool
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::new(&'a [f64], usize) -> core::result::Result<Self, audio_engine_core::audio_block::AudioBlockError>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::sample_count(self) -> usize
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::samples(self) -> &'a [f64]
-impl<'a> core::clone::Clone for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::clone(&self) -> audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::fmt::Debug for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub fn audio_engine_core::audio_block::AudioBlockRef<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'a> core::marker::Copy for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Freeze for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Send for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Sync for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::Unpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::marker::UnsafeUnpin for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
-impl<'a> core::panic::unwind_safe::UnwindSafe for audio_engine_core::audio_block::AudioBlockRef<'a>
-pub struct audio_engine_core::AutomixAnalysis
-pub audio_engine_core::AutomixAnalysis::analyze_window: f64
-pub audio_engine_core::AutomixAnalysis::bpm: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::bpm_confidence: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::cut_in_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::cut_out_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::drop_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::duration: f64
-pub audio_engine_core::AutomixAnalysis::energy_profile: alloc::vec::Vec<f64>
-pub audio_engine_core::AutomixAnalysis::fade_in_pos: f64
-pub audio_engine_core::AutomixAnalysis::fade_out_pos: f64
-pub audio_engine_core::AutomixAnalysis::first_beat_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::loudness: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::mix_center_pos: f64
-pub audio_engine_core::AutomixAnalysis::mix_end_pos: f64
-pub audio_engine_core::AutomixAnalysis::mix_start_pos: f64
-pub audio_engine_core::AutomixAnalysis::mode: audio_engine_core::AutomixAnalysisMode
-pub audio_engine_core::AutomixAnalysis::outro_energy_level: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::true_peak_dbtp: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::version: u32
-pub audio_engine_core::AutomixAnalysis::vocal_in_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::vocal_last_in_pos: core::option::Option<f64>
-pub audio_engine_core::AutomixAnalysis::vocal_out_pos: core::option::Option<f64>
-impl core::clone::Clone for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::clone(&self) -> audio_engine_core::AutomixAnalysis
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl serde_core::ser::Serialize for audio_engine_core::AutomixAnalysis
-pub fn audio_engine_core::AutomixAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysis
-impl core::marker::Send for audio_engine_core::AutomixAnalysis
-impl core::marker::Sync for audio_engine_core::AutomixAnalysis
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysis
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysis
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysis
-pub struct audio_engine_core::AutomixAnalysisOptions
-pub audio_engine_core::AutomixAnalysisOptions::max_analyze_time_sec: f64
-pub audio_engine_core::AutomixAnalysisOptions::mode: audio_engine_core::AutomixAnalysisMode
-impl audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::normalized(self) -> Self
-impl core::clone::Clone for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::clone(&self) -> audio_engine_core::AutomixAnalysisOptions
-impl core::default::Default for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::default() -> Self
-impl core::fmt::Debug for audio_engine_core::AutomixAnalysisOptions
-pub fn audio_engine_core::AutomixAnalysisOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Send for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Sync for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::Unpin for audio_engine_core::AutomixAnalysisOptions
-impl core::marker::UnsafeUnpin for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::AutomixAnalysisOptions
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::AutomixAnalysisOptions
 pub struct audio_engine_core::CallbackSpec
 impl audio_engine_core::pipeline::CallbackSpec
 pub const fn audio_engine_core::pipeline::CallbackSpec::channels(self) -> usize
@@ -5910,27 +5298,6 @@ impl core::marker::Unpin for audio_engine_core::LoudnessInfo
 impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessInfo
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessInfo
-pub struct audio_engine_core::LoudnessMeter
-impl audio_engine_core::LoudnessMeter
-pub fn audio_engine_core::LoudnessMeter::frames_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::has_reliable_measurement(&self) -> bool
-pub fn audio_engine_core::LoudnessMeter::integrated_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::loudness_range(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::momentary_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::new(usize, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::process(&mut self, &[f64]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::LoudnessMeter::reset(&mut self)
-pub fn audio_engine_core::LoudnessMeter::samples_processed(&self) -> u64
-pub fn audio_engine_core::LoudnessMeter::short_term_loudness(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::true_peak(&self) -> f64
-pub fn audio_engine_core::LoudnessMeter::with_layout(&audio_engine_core::channel_layout::ChannelLayout, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::LoudnessMeter
-impl core::marker::Send for audio_engine_core::LoudnessMeter
-impl core::marker::Sync for audio_engine_core::LoudnessMeter
-impl core::marker::Unpin for audio_engine_core::LoudnessMeter
-impl core::marker::UnsafeUnpin for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::LoudnessMeter
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::LoudnessMeter
 pub struct audio_engine_core::LoudnessNormalizer
 impl audio_engine_core::LoudnessNormalizer
 pub fn audio_engine_core::LoudnessNormalizer::analyze_track(&mut self, &[f64]) -> core::result::Result<f64, audio_engine_core::processor::traits::ProcessError>
@@ -6518,60 +5885,6 @@ impl core::marker::Unpin for audio_engine_core::processor::adapters::SaturationE
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::SaturationEvent
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::SaturationEvent
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::SaturationEvent
-pub struct audio_engine_core::SpectrumAnalyzer
-impl audio_engine_core::SpectrumAnalyzer
-pub fn audio_engine_core::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::config(&self) -> &audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumAnalyzer::new(usize, usize) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::SpectrumAnalyzer::push(&mut self, &[f64]) -> usize
-pub fn audio_engine_core::SpectrumAnalyzer::sample_rate(&self) -> u32
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::spectrum_db(&self) -> core::option::Option<&[f32]>
-pub fn audio_engine_core::SpectrumAnalyzer::with_config(audio_engine_core::SpectrumConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
-impl core::marker::Freeze for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Send for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Sync for audio_engine_core::SpectrumAnalyzer
-impl core::marker::Unpin for audio_engine_core::SpectrumAnalyzer
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumAnalyzer
-impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumAnalyzer
-pub struct audio_engine_core::SpectrumConfig
-pub audio_engine_core::SpectrumConfig::attack_ms: core::option::Option<f64>
-pub audio_engine_core::SpectrumConfig::db_max: f64
-pub audio_engine_core::SpectrumConfig::db_min: f64
-pub audio_engine_core::SpectrumConfig::fft_size: usize
-pub audio_engine_core::SpectrumConfig::hop_divisor: usize
-pub audio_engine_core::SpectrumConfig::multi_resolution: bool
-pub audio_engine_core::SpectrumConfig::num_bins: usize
-pub audio_engine_core::SpectrumConfig::peak_hold_ms: core::option::Option<f64>
-pub audio_engine_core::SpectrumConfig::release_ms: core::option::Option<f64>
-pub audio_engine_core::SpectrumConfig::tilt_db_per_octave: f64
-pub audio_engine_core::SpectrumConfig::window: audio_engine_core::WindowFunction
-impl audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::legacy(usize, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_attack_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_bins(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_db_range(self, f64, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_fft_size(self, usize) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_multi_resolution(self, bool) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_overlap_percent(self, u32) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_peak_hold_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_release_ms(self, core::option::Option<f64>) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_tilt(self, f64) -> Self
-pub fn audio_engine_core::SpectrumConfig::with_window(self, audio_engine_core::WindowFunction) -> Self
-impl core::clone::Clone for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::clone(&self) -> audio_engine_core::SpectrumConfig
-impl core::default::Default for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::default() -> Self
-impl core::fmt::Debug for audio_engine_core::SpectrumConfig
-pub fn audio_engine_core::SpectrumConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for audio_engine_core::SpectrumConfig
-impl core::marker::Send for audio_engine_core::SpectrumConfig
-impl core::marker::Sync for audio_engine_core::SpectrumConfig
-impl core::marker::Unpin for audio_engine_core::SpectrumConfig
-impl core::marker::UnsafeUnpin for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::SpectrumConfig
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::SpectrumConfig
 pub struct audio_engine_core::StreamingDecoder
 impl audio_engine_core::StreamingDecoder
 pub const audio_engine_core::StreamingDecoder::SEEK_COARSE_TOLERANCE_FRAMES: u64
@@ -6621,23 +5934,6 @@ impl core::marker::Unpin for audio_engine_core::StreamingResampler
 impl core::marker::UnsafeUnpin for audio_engine_core::StreamingResampler
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::StreamingResampler
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::StreamingResampler
-pub struct audio_engine_core::TruePeakDetector
-impl audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::max_true_peak(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::max_true_peak_db(&self) -> f64
-pub fn audio_engine_core::TruePeakDetector::new() -> Self
-pub fn audio_engine_core::TruePeakDetector::process(&mut self, &[f64])
-pub fn audio_engine_core::TruePeakDetector::process_strided(&mut self, &[f64], usize, usize)
-pub fn audio_engine_core::TruePeakDetector::reset(&mut self)
-impl core::default::Default for audio_engine_core::TruePeakDetector
-pub fn audio_engine_core::TruePeakDetector::default() -> Self
-impl core::marker::Freeze for audio_engine_core::TruePeakDetector
-impl core::marker::Send for audio_engine_core::TruePeakDetector
-impl core::marker::Sync for audio_engine_core::TruePeakDetector
-impl core::marker::Unpin for audio_engine_core::TruePeakDetector
-impl core::marker::UnsafeUnpin for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::TruePeakDetector
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::TruePeakDetector
 pub struct audio_engine_core::UnknownTailPolicy
 pub audio_engine_core::UnknownTailPolicy::energy_threshold_dbfs: f64
 pub audio_engine_core::UnknownTailPolicy::max_tail_ms: u32
@@ -6773,7 +6069,6 @@ pub fn audio_engine_core::processor::adapters::VolumeProcessor::reset(&mut self)
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::VolumeProcessor::tail_energy_observation_barrier(&self) -> bool
-pub fn audio_engine_core::analyze_automix(audio_engine_core::MediaLocation, core::option::Option<audio_engine_core::decoder::HttpCredentials>, audio_engine_core::AutomixAnalysisOptions) -> core::result::Result<audio_engine_core::AutomixAnalysis, audio_engine_core::AutomixError>
 pub fn audio_engine_core::callback_stage_names() -> alloc::vec::Vec<&'static str>
 pub fn audio_engine_core::callback_stage_order_csv() -> alloc::string::String
 pub fn audio_engine_core::canonical_output_stage_descriptors() -> &'static [audio_engine_core::OutputStageDescriptor]

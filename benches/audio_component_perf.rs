@@ -1,11 +1,11 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use audio_engine_core::{
-    analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, ChannelLayout,
-    DownmixCoefficients, Downmixer, LoudnessMeter, MediaLocation, RingBuffer, SpectrumAnalyzer,
+use audio_engine_core::analysis::{
+    analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, LoudnessMeter, SpectrumAnalyzer,
     SpectrumConfig, TruePeakDetector,
 };
+use audio_engine_core::{ChannelLayout, DownmixCoefficients, Downmixer, MediaLocation, RingBuffer};
 #[cfg(feature = "loudness-db")]
 use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, TrackLoudness};
 use serde::{Deserialize, Serialize};

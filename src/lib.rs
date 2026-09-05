@@ -113,10 +113,6 @@ pub mod channel_layout;
 pub mod config;
 pub mod decode_budget;
 pub mod decoder;
-/// Decode-buffer memory budget environment resolution (off-realtime setup).
-///
-/// Compatibility facade: the canonical owner is [`crate::decode_budget`].
-pub mod diagnostics;
 /// Stateless low-level DSP mathematics shared by analysis and processors.
 pub mod dsp;
 /// Loudness-database SQLite persistence (requires the `loudness-db` feature).
@@ -141,31 +137,26 @@ pub use pipeline::{
     PlaybackLifecycleStatus, PlaybackNoiseShapingConfig, PlaybackParameters, PlaybackPipeline,
     PlaybackSaturationConfig, PlaybackTiming, RingBuffer, MAX_STOP_FADE_MS,
 };
-// COMPAT: analysis-layer — root-level analysis names remain source-compatible
-// aliases for the canonical `analysis::*` namespace. See
-// `.trellis/spec/backend/analysis-compatibility.md` before removing any row.
 pub use processor::{
-    analyze_automix, callback_stage_names, callback_stage_order_csv,
-    canonical_output_stage_descriptors, canonical_post_render_analysis_descriptors, finish_checked,
-    offline_render_stage_names, offline_render_stage_order_csv, post_render_analysis_names,
-    post_render_analysis_order_csv, process_checked, AtomicLoudnessState, AudioBlockError,
-    AudioBlockMut, AudioBlockRef, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
-    AutomixError, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl, ConvolverStatus,
-    DownmixCoefficients, DownmixError, Downmixer, DspChain, Equalizer, FFTConvolver,
-    FixedInPlaceProcessor, FrameDuration, FrameRounding, LimiterMode, LoudnessInfo, LoudnessMeter,
+    callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
+    canonical_post_render_analysis_descriptors, finish_checked, offline_render_stage_names,
+    offline_render_stage_order_csv, post_render_analysis_names, post_render_analysis_order_csv,
+    process_checked, AtomicLoudnessState, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl,
+    ConvolverStatus, DownmixCoefficients, DownmixError, Downmixer, DspChain, Equalizer,
+    FFTConvolver, FixedInPlaceProcessor, FrameDuration, FrameRounding, LimiterMode, LoudnessInfo,
     LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams,
     OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter,
     PostRenderAnalysisDescriptor, PostRenderAnalysisId, ProcessBufferMode, ProcessBufferParts,
     ProcessBuffers, ProcessCapacity, ProcessError, ProcessProgress, ProcessState, RenderTimeline,
-    RenderedOutput, Resampler, SaturationEvent, SaturationEventKind, SpectrumAnalyzer,
-    SpectrumConfig, StreamingProcessor, StreamingResampler, TailSpec, TimingError,
-    TruePeakDetector, UnknownTailPolicy, WindowFunction, PARTITIONED_CONVOLUTION_IR_THRESHOLD,
-    PARTITIONED_CONVOLUTION_PARTITION_SIZE, RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
+    RenderedOutput, Resampler, SaturationEvent, SaturationEventKind, StreamingProcessor,
+    StreamingResampler, TailSpec, TimingError, UnknownTailPolicy,
+    PARTITIONED_CONVOLUTION_IR_THRESHOLD, PARTITIONED_CONVOLUTION_PARTITION_SIZE,
+    RESAMPLER_BACKEND_NAME, SATURATION_TRANSITION_FRAMES,
 };
 
 /// Loudness-database persistence types (requires the `loudness-db` feature).
 #[cfg(feature = "loudness-db")]
-pub use processor::{
+pub use loudness_db::{
     DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
     CURRENT_SCAN_VERSION,
 };

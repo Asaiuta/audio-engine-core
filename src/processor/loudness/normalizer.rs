@@ -447,8 +447,8 @@ fn checked_gain(value: f64, parameter: &'static str) -> Result<f64, ProcessError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsp::linear_to_db;
     use crate::audio_block::AudioBlockError;
+    use crate::dsp::linear_to_db;
 
     fn loudness_info_bits(info: &LoudnessInfo) -> [u64; 8] {
         [

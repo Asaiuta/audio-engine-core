@@ -1,6 +1,6 @@
 use super::*;
+use crate::audio_block::{AudioBlockError, AudioBlockRef};
 use crate::processor::loudness::LimiterMode;
-use crate::processor::traits::{AudioBlockError, AudioBlockRef};
 
 fn valid_convolver(ir: &[f64], channels: usize) -> FFTConvolver {
     FFTConvolver::new(ir, channels).unwrap()

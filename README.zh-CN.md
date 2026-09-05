@@ -310,9 +310,9 @@ let progress = pipeline.process(&mut samples)?;
 处理器实现对象安全的 `StreamingProcessor` 生命周期。
 
 ```rust
+use audio_engine_core::audio_block::AudioBlockMut;
 use audio_engine_core::processor::traits::{
     process_checked,
-    AudioBlockMut,
     ProcessBuffers,
     ProcessError,
     ProcessProgress,
@@ -533,11 +533,8 @@ audio-engine-core = {
 ```rust
 use std::path::Path;
 
-use audio_engine_core::{
-    LoudnessMeter,
-    MediaLocation,
-    StreamingDecoder,
-};
+use audio_engine_core::analysis::LoudnessMeter;
+use audio_engine_core::{MediaLocation, StreamingDecoder};
 
 fn analyze_file(
     path: &Path,

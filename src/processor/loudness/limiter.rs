@@ -574,8 +574,8 @@ impl PeakLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::processor::lockfree_params::LIMITER_THRESHOLD_DB_MIN;
     use crate::audio_block::AudioBlockError;
+    use crate::processor::lockfree_params::LIMITER_THRESHOLD_DB_MIN;
 
     /// The 2026-08 review: public construction accepted a negative release
     /// (whose `exp(-1/negative) > 1` coefficient makes released gain diverge

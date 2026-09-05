@@ -1,6 +1,6 @@
 use super::*;
-use crate::dsp::linear_to_db;
 use crate::audio_block::AudioBlockError;
+use crate::dsp::linear_to_db;
 
 #[derive(Debug, PartialEq, Eq)]
 struct DynamicLoudnessState {

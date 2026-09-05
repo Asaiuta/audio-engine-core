@@ -14,9 +14,9 @@ use support::{
     REPORT_SCHEMA_VERSION,
 };
 
+use audio_engine_core::audio_block::{AudioBlockMut, AudioBlockRef};
 use audio_engine_core::processor::{
-    process_checked, AudioBlockMut, AudioBlockRef, ProcessBuffers, StreamingProcessor,
-    StreamingResampler, RESAMPLER_BACKEND_NAME,
+    process_checked, ProcessBuffers, StreamingProcessor, StreamingResampler, RESAMPLER_BACKEND_NAME,
 };
 
 const CHANNELS: usize = 2;

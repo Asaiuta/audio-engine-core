@@ -8,9 +8,8 @@ use std::num::NonZeroU32;
 use thiserror::Error;
 
 // Shared block geometry lives at the crate level so offline analysis does not
-// depend on the processor lifecycle protocol. These re-exports preserve the
-// historical public paths.
-pub use crate::audio_block::{AudioBlockError, AudioBlockMut, AudioBlockRef};
+// depend on the processor lifecycle protocol.
+use crate::audio_block::{AudioBlockError, AudioBlockMut, AudioBlockRef};
 
 /// Buffer shape selected for one streaming processor call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
