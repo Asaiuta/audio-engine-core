@@ -1377,7 +1377,7 @@ impl PeakLimiterProcessor {
     /// This reads the adapter's most recently observed `enabled` control — the
     /// same value `process_fixed_1_to_1` gates on — so it is the correctly
     /// named predicate for the stage's published state. The core
-    /// [`PeakLimiter`](super::PeakLimiter) has no bypass of its own and its
+    /// [`PeakLimiter`] has no bypass of its own and its
     /// `is_enabled()` is constitutionally `true`; stage enable/disable state
     /// and transitions must be tracked here, never inferred from the core
     /// method.

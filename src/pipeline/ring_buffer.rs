@@ -13,7 +13,7 @@
 ///
 /// Supported, but not used by any other type in this crate. It exists for a
 /// consuming application that needs a decode-side producer/consumer conduit;
-/// the callback path built by [`PlaybackPipeline`] does not use it and needs no
+/// the callback path built by [`PlaybackPipeline`](super::PlaybackPipeline) does not use it and needs no
 /// intermediate buffer. It is not a realtime-safe allocator boundary either:
 /// [`Self::new`] allocates, so construct it during setup.
 ///

@@ -48,6 +48,8 @@ pub struct SpectrumConfig {
     /// Number of output bins (must be > 0)
     pub num_bins: usize,
     /// Hop divisor: 1 = no overlap, 2 = 50% overlap, 4 = 75% overlap (default).
+    /// Each tier's hop is its effective input window divided by this value,
+    /// rounded down in input samples, including for non-power-of-two divisors.
     pub hop_divisor: usize,
     /// Window function
     pub window: WindowFunction,
@@ -242,12 +244,12 @@ impl SpectrumConfig {
 /// Preallocated state for one FFT resolution tier.
 struct Tier {
     fft_size: usize,
-    hop_size: usize,
+    input_samples_per_hop: usize,
     decimation: usize,
     ring_buffer: Vec<f64>,
     ring_pos: usize,
     filled_samples: usize,
-    samples_since_hop: usize,
+    input_samples_since_hop: usize,
     fft: Arc<dyn RealToComplex<f64>>,
     window: Vec<f64>,
     fft_input: Vec<f64>,
@@ -402,24 +404,23 @@ impl SpectrumAnalyzer {
         fft_size: usize,
         decimation: usize,
     ) -> Tier {
-        let hop_size = fft_size / config.hop_divisor;
+        let input_samples_per_hop = fft_size * decimation / config.hop_divisor;
         let fft = planner.plan_fft_forward(fft_size);
         let fft_scratch_len = fft.get_scratch_len();
         let window = Self::window_values(config.window, fft_size);
         let window_power_mean =
             window.iter().map(|value| value * value).sum::<f64>() / fft_size as f64;
-        let input_samples_per_hop = hop_size * decimation;
         let (attack_alpha, release_alpha) =
             Self::smoothing_alphas(config, sample_rate, input_samples_per_hop);
 
         Tier {
             fft_size,
-            hop_size,
+            input_samples_per_hop,
             decimation,
             ring_buffer: vec![0.0; fft_size],
             ring_pos: 0,
             filled_samples: 0,
-            samples_since_hop: 0,
+            input_samples_since_hop: 0,
             fft,
             window,
             fft_input: vec![0.0; fft_size],
@@ -811,20 +812,18 @@ impl SpectrumAnalyzer {
     }
 
     /// Advance a tier by one event-bounded block and report whether it fired.
-    fn advance_tier(tier: &mut Tier, sample_count: usize) -> bool {
-        if sample_count == 0 {
-            return false;
-        }
-
+    fn advance_tier(tier: &mut Tier, sample_count: usize, input_sample_count: usize) -> bool {
         if tier.filled_samples < tier.fft_size {
             debug_assert!(sample_count <= tier.fft_size - tier.filled_samples);
             tier.filled_samples += sample_count;
             tier.filled_samples == tier.fft_size
         } else {
-            debug_assert!(sample_count <= tier.hop_size - tier.samples_since_hop);
-            tier.samples_since_hop += sample_count;
-            if tier.samples_since_hop == tier.hop_size {
-                tier.samples_since_hop = 0;
+            debug_assert!(
+                input_sample_count <= tier.input_samples_per_hop - tier.input_samples_since_hop
+            );
+            tier.input_samples_since_hop += input_sample_count;
+            if tier.input_samples_since_hop == tier.input_samples_per_hop {
+                tier.input_samples_since_hop = 0;
                 true
             } else {
                 false
@@ -843,16 +842,12 @@ impl SpectrumAnalyzer {
             // begin in the middle of the caller's block.
             let mut step = remaining.len().min(PUSH_STEP_SAMPLES);
             for tier in &self.tiers {
-                let tier_samples_until_event = if tier.filled_samples < tier.fft_size {
-                    tier.fft_size - tier.filled_samples
+                let input_until_event = if tier.filled_samples < tier.fft_size {
+                    let phase = (self.input_consumed % tier.decimation as u64) as usize;
+                    (tier.fft_size - tier.filled_samples) * tier.decimation - phase
                 } else {
-                    tier.hop_size - tier.samples_since_hop
+                    tier.input_samples_per_hop - tier.input_samples_since_hop
                 };
-                let phase = (self.input_consumed % tier.decimation as u64) as usize;
-                let input_until_event = tier_samples_until_event
-                    .saturating_mul(tier.decimation)
-                    .saturating_sub(phase)
-                    .max(1);
                 step = step.min(input_until_event);
             }
             // Keeping the step no larger than tier A's ring makes every ring
@@ -878,8 +873,11 @@ impl SpectrumAnalyzer {
 
             let mut ready = [false; 3];
             for tier_idx in 0..self.tiers.len() {
-                ready[tier_idx] =
-                    Self::advance_tier(&mut self.tiers[tier_idx], tier_sample_counts[tier_idx]);
+                ready[tier_idx] = Self::advance_tier(
+                    &mut self.tiers[tier_idx],
+                    tier_sample_counts[tier_idx],
+                    step,
+                );
             }
 
             if self.config.multi_resolution {
@@ -956,7 +954,7 @@ impl SpectrumAnalyzer {
         for tier in &mut self.tiers {
             tier.ring_pos = 0;
             tier.filled_samples = 0;
-            tier.samples_since_hop = 0;
+            tier.input_samples_since_hop = 0;
         }
 
         if let Some(chain) = &mut self.decimation_chain {
@@ -1119,7 +1117,7 @@ impl SpectrumAnalyzer {
 
         let attack_alpha = tier.attack_alpha;
         let release_alpha = tier.release_alpha;
-        let input_samples_per_hop = tier.hop_size * tier.decimation;
+        let input_samples_per_hop = tier.input_samples_per_hop;
 
         // Only publish the bands owned by this tier. Other tiers retain their
         // latest independently timestamped values until their next update.
@@ -1131,7 +1129,7 @@ impl SpectrumAnalyzer {
         self.result_db.fill(self.config.db_min as f32);
         let attack_alpha = self.tiers[0].attack_alpha;
         let release_alpha = self.tiers[0].release_alpha;
-        let elapsed_samples = self.tiers[0].hop_size;
+        let elapsed_samples = self.tiers[0].input_samples_per_hop;
 
         for band_idx in 0..self.bin_ranges.len() {
             let (idx_low, idx_high) = self.bin_ranges[band_idx];
@@ -1249,8 +1247,7 @@ impl SpectrumAnalyzer {
             .config
             .peak_hold_ms
             .map_or(0, |ms| (ms * sample_rate as f64 / 1_000.0).ceil() as usize);
-        let hop_size = self.tiers[0].hop_size;
-        let input_samples_per_hop = hop_size * self.tiers[0].decimation;
+        let input_samples_per_hop = self.tiers[0].input_samples_per_hop;
         let (attack_alpha, release_alpha) =
             Self::smoothing_alphas(&self.config, sample_rate, input_samples_per_hop);
         self.tiers[0].attack_alpha = attack_alpha;
@@ -1796,8 +1793,8 @@ mod tests {
         // Verify ring_pos wrapped (should be at position 100 % 16 = 4)
         assert_eq!(analyzer.tiers[0].ring_pos, 4);
 
-        // Verify samples_since_hop is residual (100 % 8 = 4)
-        assert_eq!(analyzer.tiers[0].samples_since_hop, 4);
+        // Verify the input hop residual (100 % 8 = 4).
+        assert_eq!(analyzer.tiers[0].input_samples_since_hop, 4);
     }
 
     #[test]
@@ -1885,12 +1882,12 @@ mod tests {
             .any(|&db| db > analyzer.config.db_min as f32));
 
         // Record tier B's hop counter before the push
-        let tier_b_samples_since_hop_before = analyzer.tiers[1].samples_since_hop;
+        let tier_b_samples_since_hop_before = analyzer.tiers[1].input_samples_since_hop;
 
         assert_eq!(analyzer.push(&input[16_384..]), 1);
 
         // Tier B should not have computed a new spectrum (hop counter should have increased)
-        let tier_b_samples_since_hop_after = analyzer.tiers[1].samples_since_hop;
+        let tier_b_samples_since_hop_after = analyzer.tiers[1].input_samples_since_hop;
         assert!(
             tier_b_samples_since_hop_after > tier_b_samples_since_hop_before,
             "Tier B should not have hopped (before: {}, after: {})",
@@ -1901,30 +1898,32 @@ mod tests {
 
     #[test]
     fn multi_resolution_push_and_read_are_allocation_free_after_construction() {
-        let config = SpectrumConfig {
-            num_bins: 128,
-            hop_divisor: 4,
-            multi_resolution: true,
-            attack_ms: Some(30.0),
-            release_ms: Some(250.0),
-            peak_hold_ms: Some(500.0),
-            ..SpectrumConfig::default()
-        };
-        let mut analyzer = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
-        let warmup: Vec<f64> = (0..65_536)
-            .map(|i| (std::f64::consts::TAU * 997.0 * i as f64 / 48_000.0).sin())
-            .collect();
-        assert_eq!(analyzer.push(&warmup), 61);
-        // Tier 2 uses ÷16 decimation: 65536 ÷ 16 = 4096 decimated samples (fills the 4096 FFT buffer)
-        assert_eq!(analyzer.tiers[2].filled_samples, 4_096);
-        assert_eq!(analyzer.tiers[2].samples_since_hop, 0);
-        let input = &warmup[..16_384];
+        for (hop_divisor, warmup_publications, steady_publications) in [(3, 57, 15), (4, 61, 16)] {
+            let config = SpectrumConfig {
+                num_bins: 128,
+                hop_divisor,
+                multi_resolution: true,
+                attack_ms: Some(30.0),
+                release_ms: Some(250.0),
+                peak_hold_ms: Some(500.0),
+                ..SpectrumConfig::default()
+            };
+            let mut analyzer = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
+            let warmup: Vec<f64> = (0..65_536)
+                .map(|i| (std::f64::consts::TAU * 997.0 * i as f64 / 48_000.0).sin())
+                .collect();
+            assert_eq!(analyzer.push(&warmup), warmup_publications);
+            // Tier 2 uses ÷16 decimation: 65536 ÷ 16 = 4096 decimated samples (fills the 4096 FFT buffer)
+            assert_eq!(analyzer.tiers[2].filled_samples, 4_096);
+            assert_eq!(analyzer.tiers[2].input_samples_since_hop, 0);
+            let input = &warmup[..16_384];
 
-        assert_no_alloc::assert_no_alloc(|| {
-            assert_eq!(analyzer.push(input), 16);
-            assert_eq!(analyzer.spectrum().unwrap().len(), 128);
-            assert_eq!(analyzer.spectrum_db().unwrap().len(), 128);
-        });
+            assert_no_alloc::assert_no_alloc(|| {
+                assert_eq!(analyzer.push(input), steady_publications);
+                assert_eq!(analyzer.spectrum().unwrap().len(), 128);
+                assert_eq!(analyzer.spectrum_db().unwrap().len(), 128);
+            });
+        }
     }
 
     #[test]
@@ -1957,57 +1956,130 @@ mod tests {
     }
 
     #[test]
-    fn multi_resolution_is_bit_exact_across_random_input_chunks() {
+    fn multi_resolution_publication_positions_preserve_full_rate_hops() {
+        for sample_rate in [8_000, 48_000] {
+            for hop_divisor in [3, 7] {
+                let mut analyzer = SpectrumAnalyzer::with_config(
+                    SpectrumConfig {
+                        hop_divisor,
+                        attack_ms: None,
+                        release_ms: None,
+                        ..SpectrumConfig::default()
+                    },
+                    sample_rate,
+                )
+                .unwrap();
+                let full_rate_sizes = SpectrumAnalyzer::calculate_tier_sizes(sample_rate);
+                let input_len = full_rate_sizes[2] * 2;
+                for position in 1..=input_len {
+                    let expected = full_rate_sizes.iter().any(|&size| {
+                        position >= size && (position - size) % (size / hop_divisor) == 0
+                    });
+                    assert_eq!(
+                        analyzer.push(&[0.0]),
+                        usize::from(expected),
+                        "publication at input {position}, rate {sample_rate}, divisor {hop_divisor}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn multi_resolution_ballistics_preserve_full_rate_hops() {
         let config = SpectrumConfig {
-            num_bins: 128,
-            hop_divisor: 4,
-            window: WindowFunction::Hann,
-            multi_resolution: true,
-            attack_ms: None,
-            release_ms: None,
-            peak_hold_ms: None,
-            tilt_db_per_octave: 0.0,
+            hop_divisor: 3,
+            attack_ms: Some(30.0),
+            release_ms: Some(250.0),
+            peak_hold_ms: Some(1_000.0),
             ..SpectrumConfig::default()
         };
-        let samples: Vec<f64> = (0..100_000)
-            .map(|index| {
-                let t = index as f64 / 48_000.0;
-                0.31 * (std::f64::consts::TAU * 40.0 * t).sin()
-                    + 0.23 * (std::f64::consts::TAU * 997.0 * t).sin()
-                    + (index as f64 * 0.037).cos() * 0.07
-            })
-            .collect();
-
-        let mut one_block = SpectrumAnalyzer::with_config(config.clone(), 48_000).unwrap();
-        let expected_publications = one_block.push(&samples);
-
-        let mut chunked = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
-        let mut offset = 0;
-        let mut state = 0x4d59_5df4_d0f3_3173_u64;
-        let mut actual_publications = 0;
-        while offset < samples.len() {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            let requested = (state as usize % 5_000) + 1;
-            let end = (offset + requested).min(samples.len());
-            actual_publications += chunked.push(&samples[offset..end]);
-            offset = end;
-        }
-
-        assert_eq!(actual_publications, expected_publications);
-        for (band, (&expected, &actual)) in one_block
-            .spectrum_db()
+        let mut analyzer = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
+        let silence = vec![0.0; 65_536];
+        analyzer.push(&silence);
+        analyzer.peak_db.as_mut().unwrap().fill(-10.0);
+        analyzer
+            .peak_hold_remaining_samples
+            .as_mut()
             .unwrap()
-            .iter()
-            .zip(chunked.spectrum_db().unwrap())
-            .enumerate()
-        {
-            assert_eq!(
-                actual.to_bits(),
-                expected.to_bits(),
-                "band {band} differed: expected {expected}, actual {actual}"
-            );
+            .fill(48_000);
+        let elapsed = 30_000;
+        analyzer.push(&silence[..elapsed]);
+
+        for (tier_idx, size) in [4_096, 16_384, 65_536].into_iter().enumerate() {
+            let hop = size / 3;
+            let tier = &analyzer.tiers[tier_idx];
+            for (actual, time_ms) in [(tier.attack_alpha, 30.0), (tier.release_alpha, 250.0)] {
+                let expected = 1.0 - (-(hop as f64) * 1_000.0 / (48_000.0 * time_ms)).exp();
+                assert_eq!(actual, expected, "tier {tier_idx}, tau {time_ms}");
+            }
+            let updates = (65_536 + elapsed - size) / hop - (65_536 - size) / hop;
+            for (band, &owner) in analyzer.band_to_tier.iter().enumerate() {
+                if owner == tier_idx {
+                    assert_eq!(
+                        analyzer.peak_hold_remaining_samples.as_ref().unwrap()[band],
+                        48_000 - updates * hop,
+                        "peak hold for band {band} in tier {tier_idx}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn multi_resolution_is_bit_exact_across_random_input_chunks() {
+        for hop_divisor in [3, 4, 7] {
+            let config = SpectrumConfig {
+                num_bins: 128,
+                hop_divisor,
+                window: WindowFunction::Hann,
+                multi_resolution: true,
+                attack_ms: None,
+                release_ms: None,
+                peak_hold_ms: None,
+                tilt_db_per_octave: 0.0,
+                ..SpectrumConfig::default()
+            };
+            let samples: Vec<f64> = (0..100_000)
+                .map(|index| {
+                    let t = index as f64 / 48_000.0;
+                    0.31 * (std::f64::consts::TAU * 40.0 * t).sin()
+                        + 0.23 * (std::f64::consts::TAU * 997.0 * t).sin()
+                        + (index as f64 * 0.037).cos() * 0.07
+                })
+                .collect();
+
+            let mut one_block = SpectrumAnalyzer::with_config(config.clone(), 48_000).unwrap();
+            let expected_publications = one_block.push(&samples);
+
+            let mut chunked = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
+            let mut offset = 0;
+            let mut state = 0x4d59_5df4_d0f3_3173_u64;
+            let mut actual_publications = 0;
+            while offset < samples.len() {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let requested = (state as usize % 5_000) + 1;
+                let end = (offset + requested).min(samples.len());
+                actual_publications += chunked.push(&samples[offset..end]);
+                offset = end;
+            }
+
+            assert_eq!(actual_publications, expected_publications);
+            for (band, (&expected, &actual)) in one_block
+                .spectrum_db()
+                .unwrap()
+                .iter()
+                .zip(chunked.spectrum_db().unwrap())
+                .enumerate()
+            {
+                assert_eq!(
+                    actual.to_bits(),
+                    expected.to_bits(),
+                    "band {band} differed: expected {expected}, actual {actual}"
+                );
+            }
         }
     }
 

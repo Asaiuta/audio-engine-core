@@ -195,11 +195,7 @@ mod tests {
 
             if f_norm <= 0.2 {
                 // Passband: deviation from unity
-                let dev_db = (mag - 1.0).abs();
-                if dev_db > 1e-15 {
-                    let dev_db_log = 20.0 * (1.0 + dev_db).log10();
-                    max_passband_deviation_db = max_passband_deviation_db.max(dev_db_log);
-                }
+                max_passband_deviation_db = max_passband_deviation_db.max(mag_db.abs());
             } else if f_norm >= 0.3 {
                 // Stopband
                 max_stopband_level_db = max_stopband_level_db.max(mag_db);
