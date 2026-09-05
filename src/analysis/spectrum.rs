@@ -54,10 +54,10 @@ pub struct SpectrumConfig {
     /// Enable multi-resolution mode (3 tiers scaled by sample rate).
     ///
     /// When enabled, the analyzer uses three FFT tiers (e.g., 4096-point FFTs at
-    /// 48 kHz, 96 kHz, 192 kHz decimated input rates) to achieve true frequency
-    /// resolution down to 20 Hz. Each output band is computed from the smallest
+    /// 48, 12, and 3 kHz tier rates for a 48 kHz input) to achieve true frequency
+    /// resolution down to 20 Hz. Each output band is computed from the coarsest
     /// tier that provides ≥2 bins of coverage within its usable passband (≤0.8×
-    /// tier Nyquist), falling back to the next tier for finer output grids.
+    /// tier Nyquist), falling back to a finer usable tier for denser output grids.
     /// This enables distinct representation of low-frequency partials (e.g., 30 Hz
     /// vs 45 Hz) that would otherwise alias to the same bin.
     ///
@@ -785,174 +785,117 @@ impl SpectrumAnalyzer {
     ///
     /// After pushing, call `spectrum()` to read the most recent frame.
     pub fn push(&mut self, samples: &[f64]) -> usize {
-        if self.config.multi_resolution {
-            self.push_multi_res(samples)
-        } else {
-            self.push_single_tier(samples)
-        }
+        self.push_blockwise(samples)
     }
 
-    /// Push samples (single-tier mode).
-    fn push_single_tier(&mut self, samples: &[f64]) -> usize {
-        let mut spectra_computed = 0;
+    /// Append one bounded block to a tier ring using at most two bulk copies.
+    fn write_tier_samples(tier: &mut Tier, samples: &[f64]) {
+        if samples.is_empty() {
+            return;
+        }
+        debug_assert!(samples.len() <= tier.fft_size);
 
-        for &sample in samples {
-            let ready = {
-                let tier = &mut self.tiers[0];
-                tier.ring_buffer[tier.ring_pos] = sample;
-                tier.ring_pos = (tier.ring_pos + 1) % tier.fft_size;
-
-                if tier.filled_samples < tier.fft_size {
-                    tier.filled_samples += 1;
-                    if tier.filled_samples == tier.fft_size {
-                        tier.samples_since_hop = 0;
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    tier.samples_since_hop += 1;
-                    if tier.samples_since_hop == tier.hop_size {
-                        tier.samples_since_hop = 0;
-                        true
-                    } else {
-                        false
-                    }
-                }
-            };
-
-            if ready {
-                self.compute_spectrum_single_tier();
-                spectra_computed += 1;
+        let first_len = samples.len().min(tier.fft_size - tier.ring_pos);
+        tier.ring_buffer[tier.ring_pos..tier.ring_pos + first_len]
+            .copy_from_slice(&samples[..first_len]);
+        let second_len = samples.len() - first_len;
+        if second_len > 0 {
+            tier.ring_buffer[..second_len].copy_from_slice(&samples[first_len..]);
+            tier.ring_pos = second_len;
+        } else {
+            tier.ring_pos += first_len;
+            if tier.ring_pos == tier.fft_size {
+                tier.ring_pos = 0;
             }
         }
-
-        spectra_computed
     }
 
-    /// Push samples (multi-resolution mode).
-    fn push_multi_res(&mut self, samples: &[f64]) -> usize {
+    /// Advance a tier by one event-bounded block and report whether it fired.
+    fn advance_tier(tier: &mut Tier, sample_count: usize) -> bool {
+        if sample_count == 0 {
+            return false;
+        }
+
+        if tier.filled_samples < tier.fft_size {
+            debug_assert!(sample_count <= tier.fft_size - tier.filled_samples);
+            tier.filled_samples += sample_count;
+            tier.filled_samples == tier.fft_size
+        } else {
+            debug_assert!(sample_count <= tier.hop_size - tier.samples_since_hop);
+            tier.samples_since_hop += sample_count;
+            if tier.samples_since_hop == tier.hop_size {
+                tier.samples_since_hop = 0;
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Push either analyzer mode through the same event-stepped block loop.
+    fn push_blockwise(&mut self, samples: &[f64]) -> usize {
         let mut published = 0;
         let mut remaining = samples;
 
         while !remaining.is_empty() {
-            // Calculate input distance to next event for each tier
-            let mut min_step = remaining.len();
+            // Calculate input distance to the next event for each tier.  The
+            // running counter accounts for a decimator whose next output can
+            // begin in the middle of the caller's block.
+            let mut step = remaining.len().min(PUSH_STEP_SAMPLES);
             for tier in &self.tiers {
                 let tier_samples_until_event = if tier.filled_samples < tier.fft_size {
                     tier.fft_size - tier.filled_samples
                 } else {
                     tier.hop_size - tier.samples_since_hop
                 };
-                // Convert tier samples to input samples
-                let input_until_event = tier_samples_until_event * tier.decimation
-                    - (self.input_consumed % tier.decimation as u64) as usize;
-                min_step = min_step.min(input_until_event);
+                let phase = (self.input_consumed % tier.decimation as u64) as usize;
+                let input_until_event = tier_samples_until_event
+                    .saturating_mul(tier.decimation)
+                    .saturating_sub(phase)
+                    .max(1);
+                step = step.min(input_until_event);
             }
-
-            // Bound by PUSH_STEP_SAMPLES and ensure at least 1
-            let step = min_step.clamp(1, PUSH_STEP_SAMPLES);
+            // Keeping the step no larger than tier A's ring makes every ring
+            // append a single bounded operation (at most two copies), even
+            // for the small FFT sizes used by focused tests.
+            step = step.min(self.tiers[0].fft_size).max(1);
             let input_chunk = &remaining[..step];
 
-            // Write to tier A ring (≤ 2 copy_from_slice)
-            let tier_a = &mut self.tiers[0];
-            let ring_size = tier_a.fft_size;
-            let pos = tier_a.ring_pos;
-            let split = ring_size - pos;
-            if step <= split {
-                tier_a.ring_buffer[pos..pos + step].copy_from_slice(input_chunk);
-                tier_a.ring_pos = (pos + step) % ring_size;
-            } else {
-                tier_a.ring_buffer[pos..].copy_from_slice(&input_chunk[..split]);
-                tier_a.ring_buffer[..step - split].copy_from_slice(&input_chunk[split..]);
-                tier_a.ring_pos = step - split;
-            }
+            let mut tier_sample_counts = [step, 0, 0];
+            Self::write_tier_samples(&mut self.tiers[0], input_chunk);
 
-            // Decimate and write to tier B and tier C
             if let Some(chain) = &mut self.decimation_chain {
                 let (b_count, c_count) = chain.process(
                     input_chunk,
                     &mut self.tier_b_scratch,
                     &mut self.tier_c_scratch,
                 );
-
-                // Write tier B samples
-                if b_count > 0 {
-                    let tier_b = &mut self.tiers[1];
-                    let pos = tier_b.ring_pos;
-                    let split = tier_b.fft_size - pos;
-                    if b_count <= split {
-                        tier_b.ring_buffer[pos..pos + b_count]
-                            .copy_from_slice(&self.tier_b_scratch[..b_count]);
-                        tier_b.ring_pos = (pos + b_count) % tier_b.fft_size;
-                    } else {
-                        tier_b.ring_buffer[pos..].copy_from_slice(&self.tier_b_scratch[..split]);
-                        tier_b.ring_buffer[..b_count - split]
-                            .copy_from_slice(&self.tier_b_scratch[split..b_count]);
-                        tier_b.ring_pos = b_count - split;
-                    }
-                }
-
-                // Write tier C samples
-                if c_count > 0 {
-                    let tier_c = &mut self.tiers[2];
-                    let pos = tier_c.ring_pos;
-                    let split = tier_c.fft_size - pos;
-                    if c_count <= split {
-                        tier_c.ring_buffer[pos..pos + c_count]
-                            .copy_from_slice(&self.tier_c_scratch[..c_count]);
-                        tier_c.ring_pos = (pos + c_count) % tier_c.fft_size;
-                    } else {
-                        tier_c.ring_buffer[pos..].copy_from_slice(&self.tier_c_scratch[..split]);
-                        tier_c.ring_buffer[..c_count - split]
-                            .copy_from_slice(&self.tier_c_scratch[split..c_count]);
-                        tier_c.ring_pos = c_count - split;
-                    }
-                }
-
-                // Update filled_samples and samples_since_hop for tiers B and C
-                for (tier_idx, &tier_samples) in [b_count, c_count].iter().enumerate() {
-                    let tier = &mut self.tiers[tier_idx + 1];
-                    if tier.filled_samples < tier.fft_size {
-                        tier.filled_samples += tier_samples;
-                    } else {
-                        tier.samples_since_hop += tier_samples;
-                    }
-                }
+                tier_sample_counts[1] = b_count;
+                tier_sample_counts[2] = c_count;
+                Self::write_tier_samples(&mut self.tiers[1], &self.tier_b_scratch[..b_count]);
+                Self::write_tier_samples(&mut self.tiers[2], &self.tier_c_scratch[..c_count]);
             }
 
-            // Update tier A filled_samples and samples_since_hop
-            {
-                let tier = &mut self.tiers[0];
-                if tier.filled_samples < tier.fft_size {
-                    tier.filled_samples += step;
-                } else {
-                    tier.samples_since_hop += step;
-                }
-            }
-
-            // Check for events and compute spectra
-            let mut any_ready = false;
+            let mut ready = [false; 3];
             for tier_idx in 0..self.tiers.len() {
-                let tier = &self.tiers[tier_idx];
-                // A tier is ready when:
-                // 1. First fill: filled_samples just reached fft_size
-                // 2. Subsequent hops: samples_since_hop >= hop_size
-                let first_fill =
-                    tier.filled_samples >= tier.fft_size && tier.samples_since_hop == 0;
-                let subsequent_hop =
-                    tier.filled_samples >= tier.fft_size && tier.samples_since_hop >= tier.hop_size;
-                let ready = first_fill || subsequent_hop;
-
-                if ready {
-                    // Reset hop counter
-                    self.tiers[tier_idx].samples_since_hop = 0;
-                    self.compute_spectrum_tier(tier_idx);
-                    any_ready = true;
-                }
+                ready[tier_idx] =
+                    Self::advance_tier(&mut self.tiers[tier_idx], tier_sample_counts[tier_idx]);
             }
 
-            if any_ready {
+            if self.config.multi_resolution {
+                for (tier_idx, &tier_ready) in ready.iter().enumerate().take(self.tiers.len()) {
+                    if tier_ready {
+                        self.compute_spectrum_tier(tier_idx);
+                    }
+                }
+            } else if ready[0] {
+                self.compute_spectrum_single_tier();
+            }
+
+            if ready[..self.tiers.len()]
+                .iter()
+                .any(|&tier_ready| tier_ready)
+            {
                 self.result_valid = true;
                 published += 1;
             }
@@ -1293,7 +1236,7 @@ impl SpectrumAnalyzer {
                 });
             }
             self.reset_streaming_state();
-            self.push_multi_res(samples);
+            self.push_blockwise(samples);
             return Ok(&self.result);
         }
 
@@ -1315,7 +1258,7 @@ impl SpectrumAnalyzer {
 
         self.reset_streaming_state();
         let fft_size = self.tiers[0].fft_size;
-        self.push_single_tier(&samples[..samples.len().min(fft_size)]);
+        self.push_blockwise(&samples[..samples.len().min(fft_size)]);
         Ok(&self.result)
     }
 
@@ -2011,6 +1954,205 @@ mod tests {
         let minimum = levels_db.iter().copied().fold(f64::INFINITY, f64::min);
         let maximum = levels_db.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         assert!(maximum - minimum < 1.0e-9, "tier levels: {levels_db:?}");
+    }
+
+    #[test]
+    fn multi_resolution_is_bit_exact_across_random_input_chunks() {
+        let config = SpectrumConfig {
+            num_bins: 128,
+            hop_divisor: 4,
+            window: WindowFunction::Hann,
+            multi_resolution: true,
+            attack_ms: None,
+            release_ms: None,
+            peak_hold_ms: None,
+            tilt_db_per_octave: 0.0,
+            ..SpectrumConfig::default()
+        };
+        let samples: Vec<f64> = (0..100_000)
+            .map(|index| {
+                let t = index as f64 / 48_000.0;
+                0.31 * (std::f64::consts::TAU * 40.0 * t).sin()
+                    + 0.23 * (std::f64::consts::TAU * 997.0 * t).sin()
+                    + (index as f64 * 0.037).cos() * 0.07
+            })
+            .collect();
+
+        let mut one_block = SpectrumAnalyzer::with_config(config.clone(), 48_000).unwrap();
+        let expected_publications = one_block.push(&samples);
+
+        let mut chunked = SpectrumAnalyzer::with_config(config, 48_000).unwrap();
+        let mut offset = 0;
+        let mut state = 0x4d59_5df4_d0f3_3173_u64;
+        let mut actual_publications = 0;
+        while offset < samples.len() {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let requested = (state as usize % 5_000) + 1;
+            let end = (offset + requested).min(samples.len());
+            actual_publications += chunked.push(&samples[offset..end]);
+            offset = end;
+        }
+
+        assert_eq!(actual_publications, expected_publications);
+        for (band, (&expected, &actual)) in one_block
+            .spectrum_db()
+            .unwrap()
+            .iter()
+            .zip(chunked.spectrum_db().unwrap())
+            .enumerate()
+        {
+            assert_eq!(
+                actual.to_bits(),
+                expected.to_bits(),
+                "band {band} differed: expected {expected}, actual {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_resolution_band_assignment_matches_reference_and_passband_limits() {
+        for (num_bins, tier_c_end, tier_b_end) in [(64, 8, 20), (128, 29, 54)] {
+            let analyzer = SpectrumAnalyzer::with_config(
+                SpectrumConfig {
+                    num_bins,
+                    multi_resolution: true,
+                    ..SpectrumConfig::default()
+                },
+                48_000,
+            )
+            .unwrap();
+
+            assert!(analyzer.band_to_tier[..=tier_c_end]
+                .iter()
+                .all(|&tier| tier == 2));
+            assert!(analyzer.band_to_tier[tier_c_end + 1..=tier_b_end]
+                .iter()
+                .all(|&tier| tier == 1));
+            assert!(analyzer.band_to_tier[tier_b_end + 1..]
+                .iter()
+                .all(|&tier| tier == 0));
+        }
+
+        let analyzer = SpectrumAnalyzer::with_config(
+            SpectrumConfig {
+                num_bins: 2_048,
+                multi_resolution: true,
+                ..SpectrumConfig::default()
+            },
+            48_000,
+        )
+        .unwrap();
+        let log_min = MIN_FREQUENCY_HZ.log10();
+        let log_max = (48_000.0_f64 / 2.0).log10();
+        for (band, (&tier_idx, &(idx_low, idx_high))) in analyzer
+            .band_to_tier
+            .iter()
+            .zip(&analyzer.multi_band_ranges)
+            .enumerate()
+        {
+            let freq_high =
+                10.0_f64.powf(log_min + (log_max - log_min) * (band + 1) as f64 / 2_048.0);
+            let tier = &analyzer.tiers[tier_idx];
+            if tier.decimation > 1 {
+                let usable_hz =
+                    DECIMATED_PASSBAND_FRACTION * (48_000.0 / (2.0 * tier.decimation as f64));
+                assert!(
+                    freq_high <= usable_hz,
+                    "band {band} reaches {freq_high} Hz beyond tier {tier_idx} edge {usable_hz} Hz"
+                );
+            }
+            assert!(idx_low < idx_high, "empty range for band {band}");
+            assert!(
+                idx_high <= tier.magnitudes.len(),
+                "band {band} range {idx_low}..{idx_high} exceeds tier {tier_idx}"
+            );
+        }
+    }
+
+    fn full_rate_reference_band_db(
+        samples: &[f64],
+        fft_size: usize,
+        bin_range: (usize, usize),
+    ) -> f64 {
+        let window = SpectrumAnalyzer::window_values(WindowFunction::Hann, fft_size);
+        let window_power_mean =
+            window.iter().map(|value| value * value).sum::<f64>() / fft_size as f64;
+        let mut buffer: Vec<OracleComplex<f64>> = samples[samples.len() - fft_size..]
+            .iter()
+            .zip(&window)
+            .map(|(&sample, &weight)| OracleComplex::new(sample * weight, 0.0))
+            .collect();
+        FftPlanner::new()
+            .plan_fft_forward(fft_size)
+            .process(&mut buffer);
+
+        let (idx_low, idx_high) = bin_range;
+        let n_squared = (fft_size as f64) * (fft_size as f64);
+        let sum_power = buffer[1 + idx_low..1 + idx_high]
+            .iter()
+            .map(|value| value.norm_sqr() / n_squared)
+            .sum::<f64>();
+        10.0 * (sum_power / window_power_mean + 1e-18).log10()
+    }
+
+    #[test]
+    fn decimated_tier_levels_match_full_rate_fft_reference() {
+        const SAMPLE_RATE: u32 = 48_000;
+        const INPUT_LEN: usize = 98_304;
+
+        for (frequency_hz, expected_tier) in [(40.0, 2), (150.0, 1)] {
+            let config = SpectrumConfig {
+                num_bins: 128,
+                hop_divisor: 4,
+                window: WindowFunction::Hann,
+                multi_resolution: true,
+                attack_ms: None,
+                release_ms: None,
+                peak_hold_ms: None,
+                tilt_db_per_octave: 0.0,
+                ..SpectrumConfig::default()
+            };
+            let samples: Vec<f64> = (0..INPUT_LEN)
+                .map(|index| {
+                    0.5 * (std::f64::consts::TAU * frequency_hz * index as f64 / SAMPLE_RATE as f64)
+                        .sin()
+                })
+                .collect();
+            let mut analyzer = SpectrumAnalyzer::with_config(config, SAMPLE_RATE).unwrap();
+            analyzer.push(&samples);
+
+            let log_min = MIN_FREQUENCY_HZ.log10();
+            let log_max = (SAMPLE_RATE as f64 / 2.0).log10();
+            let band = (0..analyzer.config.num_bins)
+                .find(|&band| {
+                    let low = 10.0_f64.powf(
+                        log_min
+                            + (log_max - log_min) * band as f64 / analyzer.config.num_bins as f64,
+                    );
+                    let high = 10.0_f64.powf(
+                        log_min
+                            + (log_max - log_min) * (band + 1) as f64
+                                / analyzer.config.num_bins as f64,
+                    );
+                    frequency_hz >= low && frequency_hz < high
+                })
+                .unwrap();
+            assert_eq!(analyzer.band_to_tier[band], expected_tier);
+
+            let tier = &analyzer.tiers[expected_tier];
+            let reference_db = full_rate_reference_band_db(
+                &samples,
+                tier.fft_size * tier.decimation,
+                analyzer.multi_band_ranges[band],
+            );
+            let actual_db = analyzer.spectrum_db().unwrap()[band] as f64;
+            assert!(
+                (actual_db - reference_db).abs() <= 0.1,
+                "{frequency_hz} Hz band {band}: tier={actual_db:.6} dB, reference={reference_db:.6} dB"
+            );
+        }
     }
 
     #[test]
