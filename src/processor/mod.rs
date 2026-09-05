@@ -10,7 +10,7 @@
 //!
 //! ## Core Processors
 //! - [`StreamingResampler`] and [`Resampler`] - backend-selectable resampling (SoXR or pure Rust)
-//! - [`Equalizer`] - 10-band parametric IIR equalizer
+//! - [`Equalizer`] - 10-band fixed-band graphic IIR equalizer
 //! - [`VolumeProcessor`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
 //! - [`LoudnessNormalizer`], [`LoudnessMeter`], and [`TruePeakDetector`] - EBU R128 loudness normalization

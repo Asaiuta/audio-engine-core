@@ -485,7 +485,7 @@ fn benchmark_loudness(
         let mut meter =
             LoudnessMeter::new(channels, SAMPLE_RATE_HZ).map_err(|error| error.to_string())?;
         meter.process(&input).map_err(|error| error.to_string())?;
-        let before = meter.samples_processed();
+        let before = meter.frames_processed();
         let start = Instant::now();
         for _ in 0..iterations {
             meter
@@ -494,7 +494,7 @@ fn benchmark_loudness(
         }
         samples.push(ns_per_work(start, iterations * input.len()));
         let expected_frames = frames as u64 * iterations as u64;
-        if meter.samples_processed().saturating_sub(before) != expected_frames {
+        if meter.frames_processed().saturating_sub(before) != expected_frames {
             return Err("loudness meter processed-frame count changed during timing".to_string());
         }
         checksum += meter.integrated_loudness() + meter.true_peak();
@@ -527,7 +527,7 @@ fn benchmark_loudness(
         expected_operations: trials * iterations,
         expected_work_items: trials * iterations * input.len(),
         all_output_finite: validation_values.iter().all(|value| value.is_finite()),
-        output_nontrivial: validation_meter.samples_processed() > 0
+        output_nontrivial: validation_meter.frames_processed() > 0
             && validation_meter.true_peak() > -70.0,
         checksum: checksum + validation_values.iter().sum::<f64>(),
     })

@@ -30,7 +30,7 @@ pub struct LoudnessMeter {
     sample_rate: u32,
     channels: usize,
     true_peak: f64,
-    samples_processed: u64,
+    frames_processed: u64,
     // 4x FIR true peak detector (per channel).
     true_peak_detectors: Vec<TruePeakDetector>,
 }
@@ -96,7 +96,7 @@ impl LoudnessMeter {
             sample_rate,
             channels,
             true_peak: -70.0,
-            samples_processed: 0,
+            frames_processed: 0,
             true_peak_detectors,
         })
     }
@@ -105,7 +105,7 @@ impl LoudnessMeter {
     pub fn reset(&mut self) {
         self.ebur128.reset();
         self.true_peak = -70.0;
-        self.samples_processed = 0;
+        self.frames_processed = 0;
         // Reset true peak detectors
         for detector in &mut self.true_peak_detectors {
             detector.reset();
@@ -129,7 +129,7 @@ impl LoudnessMeter {
                 message: "EBU R128 rejected the audio block",
             })?;
 
-        self.samples_processed += frames as u64;
+        self.frames_processed += frames as u64;
 
         // True peak using 4x polyphase FIR oversampling.
         let fir = true_peak_fir();
@@ -180,7 +180,7 @@ impl LoudnessMeter {
         read: impl FnOnce(&ebur128::EbuR128) -> Result<f64, ebur128::Error>,
         pre_measurement: f64,
     ) -> f64 {
-        if self.samples_processed == 0 {
+        if self.frames_processed == 0 {
             return pre_measurement;
         }
         read(&self.ebur128).unwrap_or(pre_measurement)
@@ -207,9 +207,26 @@ impl LoudnessMeter {
     pub fn true_peak(&self) -> f64 {
         self.true_peak
     }
-    /// Total samples consumed since construction or reset.
+    /// Total interleaved frames consumed since construction or reset.
+    ///
+    /// One frame is one sample per channel, so a stereo `process(&[f64])` call
+    /// with `2 * n` scalar samples advances this counter by `n`. This is the
+    /// canonical counter name; [`Self::samples_processed`] is the deprecated
+    /// compatibility alias returning the same value.
+    pub fn frames_processed(&self) -> u64 {
+        self.frames_processed
+    }
+
+    /// Deprecated compatibility alias for [`Self::frames_processed`].
+    ///
+    /// Despite the historical name this counter always measured interleaved
+    /// **frames** (one frame = one sample per channel), never scalar samples.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the counter measures interleaved frames; use frames_processed()"
+    )]
     pub fn samples_processed(&self) -> u64 {
-        self.samples_processed
+        self.frames_processed
     }
 
     /// Whether enough audio has been measured for the readers to be meaningful.
@@ -218,7 +235,7 @@ impl LoudnessMeter {
     /// of audio has actually been consumed.
     pub fn has_reliable_measurement(&self) -> bool {
         let min_samples = (self.sample_rate as f64 * 0.4) as u64;
-        self.samples_processed >= min_samples
+        self.frames_processed >= min_samples
     }
 }
 
@@ -495,7 +512,7 @@ mod tests {
         meter.process(&deterministic_interleaved(64, 2)).unwrap();
         let samples = vec![0.1, -0.1, 0.2];
         let before = (
-            meter.samples_processed(),
+            meter.frames_processed(),
             meter.integrated_loudness().to_bits(),
             meter.short_term_loudness().to_bits(),
             meter.momentary_loudness().to_bits(),
@@ -515,7 +532,7 @@ mod tests {
 
         assert_eq!(
             (
-                meter.samples_processed(),
+                meter.frames_processed(),
                 meter.integrated_loudness().to_bits(),
                 meter.short_term_loudness().to_bits(),
                 meter.momentary_loudness().to_bits(),
@@ -664,7 +681,7 @@ mod tests {
         meter.reset();
         eager.reset();
         assert_eq!(read(&meter), (-70.0, -70.0, -70.0, 0.0));
-        assert_eq!(meter.samples_processed(), 0);
+        assert_eq!(meter.frames_processed(), 0);
 
         // A single post-reset block is shorter than one gating window, so the
         // backend legitimately reports -inf for integrated loudness. What
@@ -695,8 +712,23 @@ mod tests {
 
             meter.process(&samples).unwrap();
 
-            assert_eq!(meter.samples_processed(), 256);
+            assert_eq!(meter.frames_processed(), 256);
             assert!(meter.true_peak().is_finite());
+        }
+    }
+
+    #[test]
+    fn frame_counter_reports_interleaved_frames_not_scalar_samples() {
+        let mut meter = LoudnessMeter::new(2, 48_000).unwrap();
+        // 1024 interleaved stereo scalar samples are 512 frames.
+        let samples = vec![0.1f64; 1024];
+
+        meter.process(&samples).unwrap();
+
+        assert_eq!(meter.frames_processed(), 512);
+        #[allow(deprecated)]
+        {
+            assert_eq!(meter.samples_processed(), meter.frames_processed());
         }
     }
 

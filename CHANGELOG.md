@@ -10,6 +10,37 @@ version bumps, as permitted by SemVer.
 
 ## [Unreleased]
 
+### Added
+- `LoudnessMeter::frames_processed()` is the canonical name for the meter's
+  counter, documented as counting interleaved **frames** (one frame = one
+  sample per channel), with a stereo regression proving 1024 scalar samples
+  report 512 frames.
+- `PeakLimiterProcessor::is_stage_enabled()` exposes the adapter's published
+  enable state under a correctly named predicate. The core `PeakLimiter` has
+  no bypass of its own (`is_enabled()` is always `true`), so stage
+  enable/disable state and transitions must be tracked on the adapter, never
+  inferred from the core method.
+
+### Deprecated
+- `LoudnessMeter::samples_processed()` is a source-compatible alias for
+  `frames_processed()`; despite the historical name it always measured
+  interleaved frames, never scalar samples.
+
+### Changed
+- Semantic documentation corrections with no behavior change: AutoMix
+  `duration` now documents the placement timeline (container metadata, frame
+  fallback, or analyzed head span) and `analyze_window` documents that it
+  reports the configured cap rather than the realized head length;
+  `AutomixAnalysisOptions::max_analyze_time_sec` documents the per-window
+  source-audio duration cap; the IIR `Equalizer` is described as a 10-band
+  fixed-band graphic EQ instead of parametric; the dynamic-loudness biquad
+  comment names transposed direct form II; the dynamic-loudness smoother's
+  `samples_remaining` is documented as a smoothing-active flag rather than a
+  countdown; `FirPhaseMode` latency wording states the linear group delay and
+  the minimum-phase tail-fade approximation; the minimum-phase IR generator
+  describes the shared real-cepstrum factorization; and the loudness database
+  helper `chrono_timestamp` is renamed `unix_timestamp_secs` (private).
+
 ### Changed
 - **The default resampler backend is now the pure-Rust `rubato` backend.**
   `default = ["http", "loudness-db", "rubato"]` replaces

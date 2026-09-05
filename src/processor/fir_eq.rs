@@ -33,10 +33,14 @@ pub const STANDARD_BANDS: [(f64, f64); 10] = [
 /// Supported as part of the [`FirEq`] surface.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FirPhaseMode {
-    /// Linear phase: symmetric IR with half-tap latency.
+    /// Linear phase: symmetric IR with a group delay of
+    /// `(num_taps - 1) / 2` samples.
     #[default]
     Linear,
-    /// Minimum phase: zero added latency, non-linear phase.
+    /// Minimum phase: impulse energy front-loaded so no input lookahead is
+    /// needed, at the cost of non-linear phase. The tail is subsequently
+    /// faded by a raised-cosine window, so the realized magnitude response
+    /// approximates the requested gains.
     Minimum,
 }
 
@@ -271,7 +275,10 @@ impl FirEq {
     }
 
     /// Generate minimum-phase FIR IR
-    /// Uses cepstral method: log|H(w)| -> IFFT -> cosine transform -> FFT -> exp -> IFFT
+    ///
+    /// Builds the log-magnitude spectrum, applies the shared real-cepstrum
+    /// spectral factorization ([`minimum_phase_from_log_magnitude`]), then
+    /// fades the tail with [`minimum_phase_tail_weight`].
     fn generate_minimum_phase_ir(&mut self) {
         let num_taps = self.num_taps;
         let sr = self.sample_rate;

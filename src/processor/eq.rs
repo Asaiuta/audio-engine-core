@@ -1,4 +1,4 @@
-//! IIR Biquad Equalizer - 10-band parametric EQ
+//! IIR Biquad Equalizer - 10-band fixed-band graphic EQ
 
 use std::cmp::Ordering;
 

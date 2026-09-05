@@ -355,7 +355,7 @@ impl TrackLoudness {
             track_gain_db,
             album_gain_db: None,
             scan_version: CURRENT_SCAN_VERSION,
-            scanned_at: chrono_timestamp(),
+            scanned_at: unix_timestamp_secs(),
             file_mtime,
             file_size,
             cached_gain_target_lufs: Cell::new(None),
@@ -894,8 +894,11 @@ pub struct DatabaseStats {
 // Helper Functions
 // ============================================================================
 
-/// Get current Unix timestamp in seconds
-fn chrono_timestamp() -> i64 {
+/// Current Unix timestamp in whole seconds.
+///
+/// Reads `std::time` directly (no chrono dependency); clocks before the
+/// epoch yield `0`.
+fn unix_timestamp_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

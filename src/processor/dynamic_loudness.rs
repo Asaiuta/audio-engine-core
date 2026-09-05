@@ -245,7 +245,7 @@ impl BiquadFilter {
         };
     }
 
-    /// Process a single sample (Direct Form I)
+    /// Process a single sample (transposed direct form II)
     #[inline(always)]
     fn process(&mut self, x: f64) -> f64 {
         let y = self.coeffs.b0 * x + self.state.z1;
@@ -295,7 +295,11 @@ struct ParameterSmoother {
     target: f64,
     /// Smoothing coefficient per sample (exp(-1/tau))
     coeff: f64,
-    /// Samples remaining to reach target (for block-based updates)
+    /// Smoothing-active flag, not a countdown: `0` means the smoother is
+    /// settled at its target, any non-zero value (set to `usize::MAX` on
+    /// retarget) means a ramp toward `target` is in progress. `next_block`
+    /// drives the whole block's ramp at once and clears the flag once the
+    /// output reaches `target` within tolerance.
     samples_remaining: usize,
 }
 

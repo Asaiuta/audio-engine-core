@@ -74,8 +74,19 @@ pub struct AutomixAnalysis {
     /// Analysis mode that produced this result.
     pub mode: AutomixAnalysisMode,
     /// Analyzed track duration in seconds.
+    ///
+    /// This is the placement timeline, not the decoded-coverage duration: it
+    /// is taken from container metadata when plausible, else derived from the
+    /// total frame count, and falls back to the analyzed head span when
+    /// neither is available. In [`AutomixAnalysisMode::Full`] the interior
+    /// between the two analyzed windows is never decoded.
     pub duration: f64,
-    /// Duration of the analyzed head section in seconds.
+    /// Requested per-window analysis duration in seconds.
+    ///
+    /// This reports the configured cap from
+    /// [`AutomixAnalysisOptions::max_analyze_time_sec`] rather than the
+    /// realized head length; the head window is clamped to the track duration
+    /// when the track is shorter than the cap.
     pub analyze_window: f64,
     /// Estimated tempo in BPM, when the beat tracker converged.
     pub bpm: Option<f64>,
@@ -148,8 +159,12 @@ pub enum AutomixError {
 pub struct AutomixAnalysisOptions {
     /// Which analysis mode to run.
     pub mode: AutomixAnalysisMode,
-    /// Time budget cap for analysis in seconds; non-finite values reset to
-    /// the built-in default.
+    /// Per-window source-audio duration cap in seconds.
+    ///
+    /// Each decoded window (the head, and the tail in
+    /// [`AutomixAnalysisMode::Full`]) covers at most this many seconds of
+    /// source audio; it is not a wall-clock compute-time budget. Non-finite
+    /// values reset to the built-in default.
     pub max_analyze_time_sec: f64,
 }
 
@@ -1380,7 +1395,7 @@ mod tests {
             .process(selected, &mut meter, &mut segment)
             .unwrap();
 
-        assert_eq!(meter.samples_processed(), 1_024);
+        assert_eq!(meter.frames_processed(), 1_024);
         assert_eq!(segment.frames_analyzed, 1_024);
         assert_eq!(segment.envelope.len(), 6);
         assert_eq!(segment.low_envelope.len(), 6);
@@ -1650,7 +1665,7 @@ mod tests {
                 }
             ))
         ));
-        assert_eq!(meter.samples_processed(), 0);
+        assert_eq!(meter.frames_processed(), 0);
         assert_eq!(segment.frames_analyzed, 0);
     }
 }

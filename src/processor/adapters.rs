@@ -1372,6 +1372,19 @@ impl PeakLimiterProcessor {
         self.limiter.gain_reduction_db()
     }
 
+    /// Whether the published enable state currently lets this stage process.
+    ///
+    /// This reads the adapter's most recently observed `enabled` control — the
+    /// same value `process_fixed_1_to_1` gates on — so it is the correctly
+    /// named predicate for the stage's published state. The core
+    /// [`PeakLimiter`](super::PeakLimiter) has no bypass of its own and its
+    /// `is_enabled()` is constitutionally `true`; stage enable/disable state
+    /// and transitions must be tracked here, never inferred from the core
+    /// method.
+    pub fn is_stage_enabled(&self) -> bool {
+        self.cached.enabled
+    }
+
     /// Derived internal headroom below the user-facing ceiling.
     pub fn output_ceiling_guard_db(&self) -> f64 {
         self.output_ceiling_guard_db
