@@ -73,10 +73,9 @@
 //!
 //! ```
 //! use std::sync::Arc;
+//! use audio_engine_core::audio_block::AudioBlockMut;
 //! use audio_engine_core::processor::{AtomicVolumeParams, VolumeProcessor};
-//! use audio_engine_core::processor::traits::{
-//!     process_checked, AudioBlockMut, ProcessBuffers, ProcessError,
-//! };
+//! use audio_engine_core::processor::traits::{process_checked, ProcessBuffers, ProcessError};
 //!
 //! # fn main() -> Result<(), ProcessError> {
 //! let params = Arc::new(AtomicVolumeParams::new());

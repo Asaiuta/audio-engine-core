@@ -538,7 +538,7 @@ impl NoiseShaper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::processor::traits::AudioBlockError;
+    use crate::audio_block::AudioBlockError;
 
     type NoiseShaperState = (Vec<[f64; 9]>, Vec<[f64; 18]>, Vec<usize>, Vec<u64>);
 
