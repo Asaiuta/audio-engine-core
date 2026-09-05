@@ -1,5 +1,5 @@
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use audio_engine_core::analysis::{
     analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, LoudnessMeter, SpectrumAnalyzer,
@@ -13,17 +13,31 @@ use serde::{Deserialize, Serialize};
 pub mod support;
 
 use support::audio_fixture::{
-    ensure_deterministic_pcm_fixture, fixture_path_display, DeterministicPcmFixtureMetadata,
+    ensure_deterministic_pcm_fixture, fixture_path_display, DeterministicPcmFixture,
+    DeterministicPcmFixtureMetadata,
 };
 use support::{
-    compare_case_medians, environment_json, generated_unix_ms, read_json, regression_gate_error,
-    summarize_trials, validate_case_key_set, validate_performance_baseline, write_json_round_trip,
-    BenchEnvironment, BenchMode, PerfArgs, PerformanceReportIdentity, RegressionComparison,
-    TrialDistribution, REPORT_SCHEMA_VERSION,
+    compare_case_medians, environment_json, generated_unix_ms, parse_pinned_probe_args,
+    pin_current_thread, read_json, regression_gate_error, summarize_trials, validate_case_key_set,
+    validate_performance_baseline, write_json_round_trip, BenchEnvironment, BenchMode, PerfArgs,
+    PerformanceReportIdentity, PinnedSchedulingState, RegressionComparison, TrialDistribution,
+    REPORT_SCHEMA_VERSION,
 };
 
 const PROBE: &str = "audio_public_component_perf";
 const SAMPLE_RATE_HZ: u32 = 48_000;
+const WARMUP_MIN_PASSES: usize = 2;
+const WARMUP_MIN_MS: u64 = 100;
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct ComponentSampling {
+    protocol: String,
+    warmup_min_passes: usize,
+    warmup_min_ms: u64,
+    database_open_iterations: usize,
+    database_repetitions: usize,
+    database_upsert_iterations_per_database: usize,
+}
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct ComponentConditions {
@@ -38,6 +52,17 @@ struct ComponentConditions {
     loudness_database_scope: String,
     timer_scope: String,
     network_scope: String,
+    #[serde(default)]
+    sampling: Option<ComponentSampling>,
+    #[serde(default)]
+    pinned_scheduling: Option<PinnedSchedulingState>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+struct SamplingDiagnostics {
+    min_timed_ms: f64,
+    median_timed_ms: f64,
+    relative_mad_pct: f64,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -63,6 +88,8 @@ struct ComponentCase {
     expected_timing_samples: usize,
     distribution: TrialDistribution,
     work_validation: ComponentWorkValidation,
+    #[serde(default)]
+    sampling_diagnostics: Option<SamplingDiagnostics>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -92,6 +119,9 @@ struct ComponentWorkload {
     trials: usize,
     iteration_scale: usize,
     automix_trials: usize,
+    database_open_iterations: usize,
+    database_repetitions: usize,
+    database_upsert_iterations: usize,
 }
 
 struct ComponentCaseInput {
@@ -110,65 +140,99 @@ struct ComponentCaseInput {
 }
 
 fn main() -> Result<(), String> {
-    let args = PerfArgs::parse(std::env::args().skip(1).collect())?;
+    let pinned = parse_pinned_probe_args(std::env::args().skip(1).collect())?;
+    let args = PerfArgs::parse(pinned.remaining)?;
     if args.help {
         print_help();
         return Ok(());
     }
 
+    let scheduling = if pinned.enabled {
+        Some(pin_current_thread(pinned.core)?)
+    } else {
+        None
+    };
+    let environment = BenchEnvironment::capture();
     let workload = workload(args.mode);
     let fixture = ensure_deterministic_pcm_fixture()?;
     let fixture_path = fixture.path.to_string_lossy().into_owned();
+    let conditions = component_conditions(workload, &fixture, scheduling);
+    let baseline: Option<ComponentReport> = args
+        .baseline
+        .as_deref()
+        .map(|path| read_json(path, "component baseline report"))
+        .transpose()?;
+    if let Some(baseline) = &baseline {
+        validate_component_baseline(args.mode, &environment, &conditions, baseline)?;
+    }
     let mut cases = vec![
-        benchmark_spectrum(1_024, 64, 128 * workload.iteration_scale, workload.trials)?,
-        benchmark_spectrum(4_096, 96, 32 * workload.iteration_scale, workload.trials)?,
-        benchmark_spectrum_push(
-            false,
-            4_096,
-            96,
-            512,
-            128 * workload.iteration_scale,
-            workload.trials,
-        )?,
-        benchmark_spectrum_push(
-            true,
-            4_096,
-            128,
-            512,
-            128 * workload.iteration_scale,
-            workload.trials,
-        )?,
-        benchmark_downmix(
-            ChannelLayout::surround_5_1(),
-            DownmixCoefficients::ItuRbs775,
-            "itu_r_bs775",
-            512,
-            256 * workload.iteration_scale,
-            workload.trials,
-        )?,
-        benchmark_downmix(
-            ChannelLayout::surround_7_1(),
-            DownmixCoefficients::AtscA85,
-            "atsc_a85",
-            512,
-            192 * workload.iteration_scale,
-            workload.trials,
-        )?,
-        benchmark_loudness(512, 96 * workload.iteration_scale, workload.trials)?,
-        benchmark_loudness(4_096, 16 * workload.iteration_scale, workload.trials)?,
-        benchmark_true_peak_contiguous(4_096, 128 * workload.iteration_scale, workload.trials)?,
-        benchmark_true_peak_strided(4_096, 96 * workload.iteration_scale, workload.trials)?,
-        benchmark_automix(
-            &fixture_path,
-            AutomixAnalysisMode::Head,
-            workload.automix_trials,
-        )?,
-        benchmark_automix(
-            &fixture_path,
-            AutomixAnalysisMode::Full,
-            workload.automix_trials,
-        )?,
-        benchmark_ring_buffer(512, 1_024 * workload.iteration_scale, workload.trials)?,
+        measure_component(workload.trials, |trials| {
+            benchmark_spectrum(1_024, 64, 128 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_spectrum(4_096, 96, 32 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_spectrum_push(
+                false,
+                4_096,
+                96,
+                512,
+                128 * workload.iteration_scale,
+                trials,
+            )
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_spectrum_push(
+                true,
+                4_096,
+                128,
+                512,
+                128 * workload.iteration_scale,
+                trials,
+            )
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_downmix(
+                ChannelLayout::surround_5_1(),
+                DownmixCoefficients::ItuRbs775,
+                "itu_r_bs775",
+                512,
+                256 * workload.iteration_scale,
+                trials,
+            )
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_downmix(
+                ChannelLayout::surround_7_1(),
+                DownmixCoefficients::AtscA85,
+                "atsc_a85",
+                512,
+                192 * workload.iteration_scale,
+                trials,
+            )
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_loudness(512, 96 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_loudness(4_096, 16 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_true_peak_contiguous(4_096, 128 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_true_peak_strided(4_096, 96 * workload.iteration_scale, trials)
+        })?,
+        measure_component(workload.automix_trials, |trials| {
+            benchmark_automix(&fixture_path, AutomixAnalysisMode::Head, trials)
+        })?,
+        measure_component(workload.automix_trials, |trials| {
+            benchmark_automix(&fixture_path, AutomixAnalysisMode::Full, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_ring_buffer(512, 4_096 * workload.iteration_scale, trials)
+        })?,
     ];
 
     #[cfg(feature = "loudness-db")]
@@ -177,53 +241,19 @@ fn main() -> Result<(), String> {
     }
 
     cases.sort_by(|left, right| left.case_key.cmp(&right.case_key));
-    let conditions = ComponentConditions {
-        trials: workload.trials,
-        iteration_scale: workload.iteration_scale,
-        automix_trials: workload.automix_trials,
-        case_keys: cases.iter().map(|case| case.case_key.clone()).collect(),
-        automix_fixture_path: fixture_path_display(&fixture.path),
-        automix_fixture_hash: fixture.metadata.content_fnv1a64.clone(),
-        automix_fixture: fixture.metadata,
-        automix_window_seconds: 5.0,
-        loudness_database_scope: loudness_database_scope(),
-        timer_scope: "construction, input generation, warmup, validation, report construction, and JSON I/O excluded unless the named operation is setup/open"
-            .to_string(),
-        network_scope: "all cases are deterministic and local; AutoMix uses the generated PCM WAV and performs no HTTP request"
-            .to_string(),
-    };
-
     let mut report = ComponentReport {
         schema_version: REPORT_SCHEMA_VERSION,
         probe: PROBE.to_string(),
         generated_unix_ms: generated_unix_ms(),
         mode: args.mode,
-        environment: BenchEnvironment::capture(),
+        environment,
         conditions,
         cases,
         baseline: None,
         comparisons: Vec::new(),
     };
 
-    if let Some(path) = args.baseline.as_deref() {
-        let baseline: ComponentReport = read_json(path, "component baseline report")?;
-        validate_performance_baseline(
-            "component",
-            PerformanceReportIdentity {
-                schema_version: report.schema_version,
-                probe: &report.probe,
-                mode: report.mode,
-                environment: &report.environment,
-                conditions: &report.conditions,
-            },
-            PerformanceReportIdentity {
-                schema_version: baseline.schema_version,
-                probe: &baseline.probe,
-                mode: baseline.mode,
-                environment: &baseline.environment,
-                conditions: &baseline.conditions,
-            },
-        )?;
+    if let Some((path, baseline)) = args.baseline.as_deref().zip(baseline) {
         report.comparisons = compare_case_medians(
             report
                 .cases
@@ -254,32 +284,118 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
+fn component_conditions(
+    workload: ComponentWorkload,
+    fixture: &DeterministicPcmFixture,
+    scheduling: Option<PinnedSchedulingState>,
+) -> ComponentConditions {
+    let mut case_keys = expected_component_case_keys();
+    case_keys.sort();
+    ComponentConditions {
+        trials: workload.trials,
+        iteration_scale: workload.iteration_scale,
+        automix_trials: workload.automix_trials,
+        case_keys,
+        automix_fixture_path: fixture_path_display(&fixture.path),
+        automix_fixture_hash: fixture.metadata.content_fnv1a64.clone(),
+        automix_fixture: fixture.metadata.clone(),
+        automix_window_seconds: 5.0,
+        loudness_database_scope: loudness_database_scope(),
+        timer_scope: "construction, input generation, warmup, validation, per-trial fixture destruction, report construction, and JSON I/O excluded unless the named operation is setup/open; each open trial retains all databases until timing ends"
+            .to_string(),
+        network_scope: "all cases are deterministic and local; AutoMix uses the generated PCM WAV and performs no HTTP request"
+            .to_string(),
+        sampling: Some(ComponentSampling {
+            protocol: "fixed_work_v2".to_string(),
+            warmup_min_passes: WARMUP_MIN_PASSES,
+            warmup_min_ms: WARMUP_MIN_MS,
+            database_open_iterations: workload.database_open_iterations,
+            database_repetitions: workload.database_repetitions,
+            database_upsert_iterations_per_database: workload.database_upsert_iterations,
+        }),
+        pinned_scheduling: scheduling,
+    }
+}
+
+fn validate_component_baseline(
+    mode: BenchMode,
+    environment: &BenchEnvironment,
+    conditions: &ComponentConditions,
+    baseline: &ComponentReport,
+) -> Result<(), String> {
+    validate_performance_baseline(
+        "component",
+        PerformanceReportIdentity {
+            schema_version: REPORT_SCHEMA_VERSION,
+            probe: PROBE,
+            mode,
+            environment,
+            conditions,
+        },
+        PerformanceReportIdentity {
+            schema_version: baseline.schema_version,
+            probe: &baseline.probe,
+            mode: baseline.mode,
+            environment: &baseline.environment,
+            conditions: &baseline.conditions,
+        },
+    )
+}
+
 fn workload(mode: BenchMode) -> ComponentWorkload {
     match mode {
         BenchMode::Quick => ComponentWorkload {
-            trials: 7,
-            iteration_scale: 1,
-            automix_trials: 3,
+            trials: 11,
+            iteration_scale: 32,
+            automix_trials: 7,
+            database_open_iterations: 128,
+            database_repetitions: 16,
+            database_upsert_iterations: 128,
         },
         BenchMode::Full => ComponentWorkload {
-            trials: 15,
-            iteration_scale: 4,
-            automix_trials: 7,
+            trials: 21,
+            iteration_scale: 64,
+            automix_trials: 11,
+            database_open_iterations: 256,
+            database_repetitions: 32,
+            database_upsert_iterations: 512,
         },
         BenchMode::Heavy => ComponentWorkload {
-            trials: 31,
-            iteration_scale: 16,
-            automix_trials: 15,
+            trials: 41,
+            iteration_scale: 128,
+            automix_trials: 21,
+            database_open_iterations: 512,
+            database_repetitions: 64,
+            database_upsert_iterations: 2_048,
         },
     }
 }
 
 fn print_help() {
     println!(
-        "Usage: cargo bench --bench audio_component_perf -- [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
+        "Usage: cargo bench --bench audio_component_perf -- [--quick|--heavy] [--enforce] [--pinned] [--pin-core <logical-core>] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
          Measures SpectrumAnalyzer, Downmixer, LoudnessMeter, TruePeakDetector, AutoMix, RingBuffer, and feature-gated in-memory LoudnessDatabase operations.\n\
          Shared-runner timing is report-only without a compatible same-machine baseline."
     );
+}
+
+fn measure_component(
+    trials: usize,
+    mut run: impl FnMut(usize) -> Result<ComponentCase, String>,
+) -> Result<ComponentCase, String> {
+    // Warm complete cases on separate state, including setup/open paths. These
+    // passes never contribute samples, checksums, or work counts to the report.
+    let started = Instant::now();
+    let mut passes = 0;
+    while passes < WARMUP_MIN_PASSES || started.elapsed() < Duration::from_millis(WARMUP_MIN_MS) {
+        let warmup = run(1)?;
+        if !warmup.work_validation.valid {
+            return Err(format!("component warmup failed for {}", warmup.case_key));
+        }
+        black_box(warmup);
+        passes += 1;
+    }
+    run(trials)
 }
 
 fn benchmark_spectrum(
@@ -712,45 +828,91 @@ fn report_database<T>(result: Result<T, LoudnessDatabaseError>) -> Result<T, Str
 
 #[cfg(feature = "loudness-db")]
 fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<ComponentCase>, String> {
-    let rows = 512usize;
-    let records = database_records(rows);
+    let records = database_records(512);
     let operation_iterations = 128 * workload.iteration_scale;
-    let mut cases = Vec::new();
+    Ok(vec![
+        measure_component(workload.trials, |trials| {
+            benchmark_database_open(workload.database_open_iterations, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_database_upsert(
+                &records,
+                workload.database_upsert_iterations,
+                workload.database_repetitions,
+                trials,
+            )
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_database_get(&records, operation_iterations, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_database_batch(&records[..128], workload.database_repetitions, trials)
+        })?,
+        measure_component(workload.trials, |trials| {
+            benchmark_database_stats(&records, operation_iterations, trials)
+        })?,
+    ])
+}
 
-    let mut open_samples = Vec::with_capacity(workload.trials);
-    for _ in 0..workload.trials {
+#[cfg(feature = "loudness-db")]
+fn benchmark_database_open(iterations: usize, trials: usize) -> Result<ComponentCase, String> {
+    let mut open_samples = Vec::with_capacity(trials);
+    let mut valid = true;
+    for _ in 0..trials {
+        let mut databases = Vec::with_capacity(iterations);
         let start = Instant::now();
-        let database = report_database(LoudnessDatabase::in_memory())?;
-        open_samples.push(ns_per_work(start, 1));
-        black_box(database);
+        for _ in 0..iterations {
+            databases.push(black_box(report_database(LoudnessDatabase::in_memory())?));
+        }
+        open_samples.push(ns_per_work(start, iterations));
+        for database in &databases {
+            valid &= report_database(database.stats())?.total_tracks == 0;
+        }
     }
-    cases.push(component_case(ComponentCaseInput {
+    component_case(ComponentCaseInput {
         case_key: "component=loudness_database;operation=open;storage=in_memory".to_string(),
         component: "LoudnessDatabase",
         operation: "in_memory",
         primary_unit: "ns/open",
         work_items_per_iteration: 1,
-        iterations_per_trial: 1,
+        iterations_per_trial: iterations,
         samples: open_samples,
-        expected_operations: workload.trials,
-        expected_work_items: workload.trials,
+        expected_operations: trials * iterations,
+        expected_work_items: trials * iterations,
         all_output_finite: true,
-        output_nontrivial: true,
-        checksum: workload.trials as f64,
-    })?);
+        output_nontrivial: valid,
+        checksum: (trials * iterations) as f64,
+    })
+}
 
-    let mut upsert_samples = Vec::with_capacity(workload.trials);
+#[cfg(feature = "loudness-db")]
+fn benchmark_database_upsert(
+    records: &[TrackLoudness],
+    iterations_per_database: usize,
+    repetitions: usize,
+    trials: usize,
+) -> Result<ComponentCase, String> {
+    let rows = records.len();
+    let operation_iterations = iterations_per_database * repetitions;
+    let mut upsert_samples = Vec::with_capacity(trials);
     let mut upsert_checksum = 0.0;
-    for _ in 0..workload.trials {
-        let database = report_database(LoudnessDatabase::in_memory())?;
+    let mut valid = true;
+    for _ in 0..trials {
+        let databases = empty_databases(repetitions)?;
         let start = Instant::now();
-        for iteration in 0..operation_iterations {
-            report_database(database.upsert(&records[iteration % records.len()]))?;
+        for database in &databases {
+            for iteration in 0..iterations_per_database {
+                report_database(database.upsert(black_box(&records[iteration % rows])))?;
+            }
         }
         upsert_samples.push(ns_per_work(start, operation_iterations));
-        upsert_checksum += report_database(database.stats())?.total_tracks as f64;
+        for database in &databases {
+            let total_tracks = report_database(database.stats())?.total_tracks;
+            valid &= total_tracks as usize == iterations_per_database.min(rows);
+            upsert_checksum += total_tracks as f64;
+        }
     }
-    cases.push(component_case(ComponentCaseInput {
+    component_case(ComponentCaseInput {
         case_key: format!(
             "component=loudness_database;operation=single_upsert;storage=in_memory;working_set_rows={rows}"
         ),
@@ -760,18 +922,26 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         work_items_per_iteration: 1,
         iterations_per_trial: operation_iterations,
         samples: upsert_samples,
-        expected_operations: workload.trials * operation_iterations,
-        expected_work_items: workload.trials * operation_iterations,
+        expected_operations: trials * operation_iterations,
+        expected_work_items: trials * operation_iterations,
         all_output_finite: upsert_checksum.is_finite(),
-        output_nontrivial: upsert_checksum > 0.0,
+        output_nontrivial: valid && upsert_checksum > 0.0,
         checksum: upsert_checksum,
-    })?);
+    })
+}
 
-    let mut get_samples = Vec::with_capacity(workload.trials);
+#[cfg(feature = "loudness-db")]
+fn benchmark_database_get(
+    records: &[TrackLoudness],
+    operation_iterations: usize,
+    trials: usize,
+) -> Result<ComponentCase, String> {
+    let rows = records.len();
+    let mut get_samples = Vec::with_capacity(trials);
     let mut get_checksum = 0.0;
-    for _ in 0..workload.trials {
+    for _ in 0..trials {
         let database = report_database(LoudnessDatabase::in_memory())?;
-        report_database(database.batch_upsert(&records))?;
+        report_database(database.batch_upsert(records))?;
         let start = Instant::now();
         for iteration in 0..operation_iterations {
             let record = report_database(database.get(&records[iteration % records.len()].source))?
@@ -781,7 +951,7 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         }
         get_samples.push(ns_per_work(start, operation_iterations));
     }
-    cases.push(component_case(ComponentCaseInput {
+    component_case(ComponentCaseInput {
         case_key: format!(
             "component=loudness_database;operation=indexed_get;storage=in_memory;rows={rows}"
         ),
@@ -791,24 +961,40 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         work_items_per_iteration: 1,
         iterations_per_trial: operation_iterations,
         samples: get_samples,
-        expected_operations: workload.trials * operation_iterations,
-        expected_work_items: workload.trials * operation_iterations,
+        expected_operations: trials * operation_iterations,
+        expected_work_items: trials * operation_iterations,
         all_output_finite: get_checksum.is_finite(),
         output_nontrivial: get_checksum != 0.0,
         checksum: get_checksum,
-    })?);
+    })
+}
 
-    let batch_rows = 128usize;
-    let mut batch_samples = Vec::with_capacity(workload.trials);
+#[cfg(feature = "loudness-db")]
+fn benchmark_database_batch(
+    records: &[TrackLoudness],
+    repetitions: usize,
+    trials: usize,
+) -> Result<ComponentCase, String> {
+    let batch_rows = records.len();
+    let mut batch_samples = Vec::with_capacity(trials);
     let mut batch_checksum = 0.0;
-    for _ in 0..workload.trials {
-        let database = report_database(LoudnessDatabase::in_memory())?;
+    let mut valid = true;
+    for _ in 0..trials {
+        // Each repetition still inserts into an empty database. Setup and drop
+        // stay outside the one timer spanning all transactions in this trial.
+        let databases = empty_databases(repetitions)?;
         let start = Instant::now();
-        let inserted = report_database(database.batch_upsert(&records[..batch_rows]))?;
-        batch_samples.push(ns_per_work(start, batch_rows));
-        batch_checksum += inserted as f64;
+        for database in &databases {
+            let inserted = report_database(database.batch_upsert(black_box(records)))?;
+            batch_checksum += inserted as f64;
+            valid &= inserted == batch_rows;
+        }
+        batch_samples.push(ns_per_work(start, repetitions * batch_rows));
+        for database in &databases {
+            valid &= report_database(database.stats())?.total_tracks as usize == batch_rows;
+        }
     }
-    cases.push(component_case(ComponentCaseInput {
+    component_case(ComponentCaseInput {
         case_key: format!(
             "component=loudness_database;operation=batch_upsert;storage=in_memory;rows={batch_rows}"
         ),
@@ -816,29 +1002,39 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         operation: "batch_upsert",
         primary_unit: "ns/row",
         work_items_per_iteration: batch_rows,
-        iterations_per_trial: 1,
+        iterations_per_trial: repetitions,
         samples: batch_samples,
-        expected_operations: workload.trials,
-        expected_work_items: workload.trials * batch_rows,
+        expected_operations: trials * repetitions,
+        expected_work_items: trials * repetitions * batch_rows,
         all_output_finite: batch_checksum.is_finite(),
-        output_nontrivial: batch_checksum == (workload.trials * batch_rows) as f64,
+        output_nontrivial: valid && batch_checksum == (trials * repetitions * batch_rows) as f64,
         checksum: batch_checksum,
-    })?);
+    })
+}
 
-    let mut stats_samples = Vec::with_capacity(workload.trials);
+#[cfg(feature = "loudness-db")]
+fn benchmark_database_stats(
+    records: &[TrackLoudness],
+    operation_iterations: usize,
+    trials: usize,
+) -> Result<ComponentCase, String> {
+    let rows = records.len();
+    let mut stats_samples = Vec::with_capacity(trials);
     let mut stats_checksum = 0.0;
-    for _ in 0..workload.trials {
+    let mut valid = true;
+    for _ in 0..trials {
         let database = report_database(LoudnessDatabase::in_memory())?;
-        report_database(database.batch_upsert(&records))?;
+        report_database(database.batch_upsert(records))?;
         let start = Instant::now();
         for _ in 0..operation_iterations {
             let stats = report_database(database.stats())?;
             stats_checksum += stats.total_tracks as f64;
+            valid &= stats.total_tracks as usize == rows;
             black_box(stats);
         }
         stats_samples.push(ns_per_work(start, operation_iterations));
     }
-    cases.push(component_case(ComponentCaseInput {
+    component_case(ComponentCaseInput {
         case_key: format!(
             "component=loudness_database;operation=stats;storage=in_memory;rows={rows}"
         ),
@@ -848,14 +1044,19 @@ fn benchmark_loudness_database(workload: ComponentWorkload) -> Result<Vec<Compon
         work_items_per_iteration: 1,
         iterations_per_trial: operation_iterations,
         samples: stats_samples,
-        expected_operations: workload.trials * operation_iterations,
-        expected_work_items: workload.trials * operation_iterations,
+        expected_operations: trials * operation_iterations,
+        expected_work_items: trials * operation_iterations,
         all_output_finite: stats_checksum.is_finite(),
-        output_nontrivial: stats_checksum > 0.0,
+        output_nontrivial: valid && stats_checksum > 0.0,
         checksum: stats_checksum,
-    })?);
+    })
+}
 
-    Ok(cases)
+#[cfg(feature = "loudness-db")]
+fn empty_databases(count: usize) -> Result<Vec<LoudnessDatabase>, String> {
+    (0..count)
+        .map(|_| report_database(LoudnessDatabase::in_memory()))
+        .collect()
 }
 
 #[cfg(feature = "loudness-db")]
@@ -891,6 +1092,11 @@ fn component_case(input: ComponentCaseInput) -> Result<ComponentCase, String> {
     let observed_trials = input.samples.len();
     let observed_operations = observed_trials.saturating_mul(input.iterations_per_trial);
     let observed_work_items = observed_operations.saturating_mul(input.work_items_per_iteration);
+    let distribution = summarize_trials(input.samples)?;
+    let sampling_diagnostics = sampling_diagnostics(
+        &distribution,
+        input.iterations_per_trial * input.work_items_per_iteration,
+    );
     Ok(ComponentCase {
         case_key: input.case_key,
         component: input.component.to_string(),
@@ -899,7 +1105,8 @@ fn component_case(input: ComponentCaseInput) -> Result<ComponentCase, String> {
         work_items_per_iteration: input.work_items_per_iteration,
         iterations_per_trial: input.iterations_per_trial,
         expected_timing_samples,
-        distribution: summarize_trials(input.samples)?,
+        distribution,
+        sampling_diagnostics: Some(sampling_diagnostics),
         work_validation: ComponentWorkValidation {
             valid: observed_operations == input.expected_operations
                 && observed_work_items == input.expected_work_items
@@ -915,6 +1122,29 @@ fn component_case(input: ComponentCaseInput) -> Result<ComponentCase, String> {
             checksum: input.checksum,
         },
     })
+}
+
+fn sampling_diagnostics(
+    distribution: &TrialDistribution,
+    work_per_trial: usize,
+) -> SamplingDiagnostics {
+    let mut deviations = distribution
+        .samples
+        .iter()
+        .map(|value| (value - distribution.median).abs())
+        .collect::<Vec<_>>();
+    deviations.sort_by(f64::total_cmp);
+    let middle = deviations.len() / 2;
+    let mad = if deviations.len().is_multiple_of(2) {
+        deviations[middle - 1] / 2.0 + deviations[middle] / 2.0
+    } else {
+        deviations[middle]
+    };
+    SamplingDiagnostics {
+        min_timed_ms: distribution.min * work_per_trial as f64 / 1_000_000.0,
+        median_timed_ms: distribution.median * work_per_trial as f64 / 1_000_000.0,
+        relative_mad_pct: mad / distribution.median * 100.0,
+    }
 }
 
 fn ns_per_work(start: Instant, work_items: usize) -> f64 {
@@ -987,6 +1217,10 @@ fn print_report(report: &ComponentReport) -> Result<(), String> {
         report.conditions.loudness_database_scope,
         environment_json(&report.environment)?
     );
+    println!(
+        "component sampling={:?} scheduling={:?}",
+        report.conditions.sampling, report.conditions.pinned_scheduling
+    );
     for case in &report.cases {
         println!(
             "component case={} unit={} median={:.3} p95={:.3} max={:.3} trials={} valid={}",
@@ -998,6 +1232,12 @@ fn print_report(report: &ComponentReport) -> Result<(), String> {
             case.distribution.samples.len(),
             case.work_validation.valid
         );
+        if let Some(diagnostics) = &case.sampling_diagnostics {
+            println!(
+                "  timed_ms min={:.3} median={:.3} relative_mad={:.2}%",
+                diagnostics.min_timed_ms, diagnostics.median_timed_ms, diagnostics.relative_mad_pct,
+            );
+        }
     }
     Ok(())
 }

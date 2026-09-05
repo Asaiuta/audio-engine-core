@@ -528,6 +528,59 @@ LoudnessDatabase operations. The Rubato-only feature set reports 13 cases and
 records LoudnessDatabase as explicitly excluded because `loudness-db` is not
 compiled. The JSON retains every case and raw trial.
 
+The `fixed_work_v2` sampling protocol (2026-09-06) uses 11/21/41 ordinary
+trials and 7/11/21 AutoMix trials in quick/full/heavy mode. Before each case,
+at least two complete passes run on separate state for a minimum 100 ms
+warmup budget, including setup and validation. None of those passes enters
+the reported distribution. Fixed work per trial is longer; quick database
+open averages 128 opens with destruction after timing, and batch upsert
+averages 16 independent 128-row inserts into pre-created empty databases.
+Single-upsert repetitions preserve the original per-database operation
+counts, so the insert/update mix is not changed by repeating a group.
+
+Windows runs can use `--pinned --pin-core 2`. The JSON records the verified
+processor group, affinity mask, process priority, and thread priority in
+`conditions.pinned_scheduling`. Choose an appropriate logical core for the
+machine; affinity does not prevent interrupts, shared-core contention,
+frequency changes, or thermal throttling. It does not alter the OS power plan.
+Each case also reports minimum/median timed milliseconds and relative median
+absolute deviation (`100 * median(abs(sample - median)) / median`). This is
+dispersion evidence, not a confidence interval or an exemption from the gate.
+
+Sampling protocol and scheduling state participate in baseline compatibility.
+Old reports remain readable but are rejected before sampling or calculating
+regressions. The 10% median limit is unchanged. Historical failed gates remain
+unresolved; a new-protocol baseline cannot close an old-protocol regression.
+For local noise checks, build once with `--locked`, repeat the same executable
+in separate processes, and retain all reports. For code comparisons, apply
+the same harness and build settings to both revisions and alternate the
+binaries; compare both within-run dispersion and independent process medians.
+
+On the 2026-09-06 Windows/Intel Family 6 Model 154/rustc 1.93.1 host,
+five rotating runs per configuration gave the following descriptive results.
+Process span is `(max - min) / median` of the five process medians; both
+columns below then take the median across the 18 cases.
+
+| Configuration | Process span | Within-run relative MAD |
+| --- | ---: | ---: |
+| Previous quick protocol, unpinned | 16.27% | 2.59% |
+| `fixed_work_v2`, unpinned | 23.06% | 4.22% |
+| `fixed_work_v2`, pinned to logical core 2 | 6.70% | 1.08% |
+
+The combined protocol and scheduling change reduced process span in 16/18
+cases on this host; longer sampling alone did not improve overall stability.
+Six pinned cases still had process span above 10%, and four of the 72 pinned
+case comparisons against their first run failed the unchanged median gate.
+Quick took about 12.8 seconds pinned versus 0.69 seconds previously (excluding
+compilation). This is a local noise characterization, not a regression verdict
+between code revisions. Temperature, frequency, and background load were not
+traced; the existing Balanced power plan was retained.
+
+```powershell
+cargo bench --locked --bench audio_component_perf -- --quick --pinned --pin-core 2 --enforce --out target/bench-reports/components-v2.json
+cargo bench --locked --bench audio_component_perf -- --quick --pinned --pin-core 2 --enforce --baseline target/bench-reports/components-v2.json --out target/bench-reports/components-v2-repeat.json
+```
+
 Representative medians. The `As of` column matters: two later changes moved
 some of these, so a single date would misrepresent the table. Rows marked
 2026-08-13 were re-measured on a different host than the 2026-07-26 rows, so
