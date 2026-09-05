@@ -12,10 +12,12 @@
 //! - `LoudnessNormalizer`: High-level normalization processor ([`normalizer`])
 
 mod atomic_state;
+mod info;
 mod limiter;
 mod normalizer;
 
 pub use atomic_state::AtomicLoudnessState;
+pub use info::LoudnessInfo;
 pub use limiter::{LimiterMode, PeakLimiter};
 pub use normalizer::LoudnessNormalizer;
 

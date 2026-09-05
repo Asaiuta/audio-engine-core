@@ -18,11 +18,11 @@ use std::sync::{
 #[cfg(test)]
 use super::convolver::FFTConvolver;
 use super::crossfeed::Crossfeed;
-use super::dsp::{NoiseShaper, NoiseShaperCurve};
 use super::dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS_N};
 use super::eq::Equalizer;
 use super::lockfree_params::*;
 use super::loudness::{LimiterMode, PeakLimiter};
+use super::noise_shaper::{NoiseShaper, NoiseShaperCurve};
 use super::saturation::Saturation;
 use super::saturation::SATURATION_LATENCY_FRAMES;
 use super::traits::{

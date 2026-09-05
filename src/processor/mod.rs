@@ -36,14 +36,15 @@
 mod atomic_f64;
 mod convolver;
 mod crossfeed;
-mod dsp;
 mod dynamic_loudness;
 mod eq;
 mod fir_design;
 mod fir_eq;
 mod loudness;
-#[cfg(feature = "loudness-db")]
-mod loudness_db;
+mod noise_shaper;
+// COMPAT: loudness-db persistence lives at the crate root (`crate::loudness_db`)
+// because it is control-side storage, not a realtime DSP building block. The
+// historical `processor::*` public re-exports below are retained.
 mod output_chain;
 mod resampler;
 mod saturation;
@@ -71,7 +72,6 @@ pub use crossfeed::{Crossfeed, CrossfeedSettings};
 // COMPAT: dsp-layer — scalar gain helpers moved to the crate-level stateless
 // DSP namespace; processor-level names remain source-compatible.
 pub use crate::dsp::{db_to_linear, linear_to_db};
-pub use dsp::{NoiseShaper, NoiseShaperCurve};
 pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
 pub use eq::Equalizer;
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
@@ -83,14 +83,18 @@ pub use loudness::{
     LoudnessNormalizer,
     PeakLimiter,
 };
+pub use noise_shaper::{NoiseShaper, NoiseShaperCurve};
 // COMPAT: analysis-layer — measurement types remain available at their
 // historical processor paths while their implementation is analysis-owned.
-pub use crate::analysis::{LoudnessInfo, LoudnessMeter, TruePeakDetector};
+pub use crate::analysis::{LoudnessMeter, TruePeakDetector};
+// LoudnessInfo is processor-owned (normalizer control state); the analysis
+// path is the compatibility re-export.
 #[cfg(feature = "loudness-db")]
-pub use loudness_db::{
+pub use crate::loudness_db::{
     DatabaseStats, LoudnessDatabase, LoudnessDatabaseError, LoudnessSourceIdentity, TrackLoudness,
     CURRENT_SCAN_VERSION, DEFAULT_STREAMING_TARGET_LUFS,
 };
+pub use loudness::LoudnessInfo;
 pub use output_chain::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
     canonical_post_render_analysis_descriptors, offline_render_stage_names,

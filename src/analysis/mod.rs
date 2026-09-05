@@ -9,7 +9,6 @@
 //! processor lifecycle/error protocol is not duplicated in this module.
 
 mod automix;
-mod loudness_info;
 mod measurement;
 mod spectrum;
 
@@ -17,7 +16,10 @@ pub use automix::{
     analyze_automix, analyze_automix_with_cancel, AutomixAnalysis, AutomixAnalysisMode,
     AutomixAnalysisOptions, AutomixError,
 };
-pub use loudness_info::LoudnessInfo;
+// COMPAT: LoudnessInfo implementation moved to `processor/loudness/info.rs`
+// (its gain fields describe normalizer control state); this historical
+// analysis path is retained for downstream source compatibility.
+pub use crate::processor::LoudnessInfo;
 pub(crate) use measurement::{true_peak_fir, true_peak_reconstruction_l1_bound, TRUE_PEAK_DELAY};
 pub use measurement::{LoudnessMeter, TruePeakDetector};
 pub use spectrum::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};

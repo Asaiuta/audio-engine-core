@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use crate::analysis::{LoudnessInfo, LoudnessMeter};
+use crate::analysis::LoudnessMeter;
 use crate::audio_block::{validated_channel_count, AudioBlockMut, AudioBlockRef};
 use crate::config::{LoudnessConfig, NormalizationMode};
 use crate::processor::lockfree_params::{LIMITER_THRESHOLD_DB_MAX, LIMITER_THRESHOLD_DB_MIN};
+use crate::processor::loudness::LoudnessInfo;
 use crate::processor::traits::{
     validate_processor_channels, validate_sample_rate_hz, ProcessError,
 };

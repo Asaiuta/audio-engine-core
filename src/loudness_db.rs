@@ -1,7 +1,10 @@
-//! Loudness Database Persistence
+//! Loudness database persistence (the off-realtime `loudness-db` boundary).
 //!
 //! SQLite storage for track loudness metadata following EBU R128 standard.
-//! Enables pre-computed gain values for fast playback without real-time analysis.
+//! Enables pre-computed gain values for fast playback without real-time
+//! analysis. This is a top-level module because SQLite persistence is a
+//! control/setup-side concern, not a realtime DSP building block; the
+//! historical `processor::*` public paths remain as compatibility re-exports.
 //!
 //! [`LoudnessSourceIdentity`] separates local and HTTP cache namespaces. Local
 //! identity preserves the platform-native path representation; HTTP identity

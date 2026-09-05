@@ -1287,7 +1287,7 @@ pub struct NoiseShaperParamsSnapshot {
     /// Target integer bit depth.
     pub bits: u32,
     /// Noise-shaping coefficient curve.
-    pub curve: super::dsp::NoiseShaperCurve,
+    pub curve: super::noise_shaper::NoiseShaperCurve,
 }
 
 impl Default for NoiseShaperParamsSnapshot {
@@ -1295,7 +1295,7 @@ impl Default for NoiseShaperParamsSnapshot {
         Self {
             enabled: true,
             bits: 24,
-            curve: super::dsp::NoiseShaperCurve::Lipshitz5,
+            curve: super::noise_shaper::NoiseShaperCurve::Lipshitz5,
         }
     }
 }
@@ -1315,7 +1315,7 @@ impl AtomicNoiseShaperParams {
 
     /// Publish noise-shaping settings as one coherent snapshot.
     #[inline]
-    pub fn write(&self, enabled: bool, bits: u32, curve: super::dsp::NoiseShaperCurve) {
+    pub fn write(&self, enabled: bool, bits: u32, curve: super::noise_shaper::NoiseShaperCurve) {
         self.shared.publish(NoiseShaperParamsSnapshot {
             enabled,
             bits: bits.clamp(NOISE_SHAPER_BITS_MIN, NOISE_SHAPER_BITS_MAX),
@@ -1335,7 +1335,7 @@ impl AtomicNoiseShaperParams {
 
     #[inline]
     /// Select the noise-shaping coefficient curve.
-    pub fn set_curve(&self, curve: super::dsp::NoiseShaperCurve) {
+    pub fn set_curve(&self, curve: super::noise_shaper::NoiseShaperCurve) {
         self.shared.update(|snapshot| {
             snapshot.curve = curve;
         });
@@ -1359,7 +1359,7 @@ impl AtomicNoiseShaperParams {
 
     #[inline]
     /// Return the current noise-shaping curve.
-    pub fn curve(&self) -> super::dsp::NoiseShaperCurve {
+    pub fn curve(&self) -> super::noise_shaper::NoiseShaperCurve {
         self.read().curve
     }
 }
@@ -1847,13 +1847,17 @@ mod tests {
         assert_eq!(loudness_snapshot.strength, 0.75);
 
         let noise = AtomicNoiseShaperParams::new();
-        noise.write(true, 16, crate::processor::dsp::NoiseShaperCurve::TpdfOnly);
+        noise.write(
+            true,
+            16,
+            crate::processor::noise_shaper::NoiseShaperCurve::TpdfOnly,
+        );
         let noise_snapshot = noise.read();
         assert!(noise_snapshot.enabled);
         assert_eq!(noise_snapshot.bits, 16);
         assert_eq!(
             noise_snapshot.curve,
-            crate::processor::dsp::NoiseShaperCurve::TpdfOnly
+            crate::processor::noise_shaper::NoiseShaperCurve::TpdfOnly
         );
     }
 

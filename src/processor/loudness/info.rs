@@ -1,4 +1,10 @@
 //! Public DTO describing the current loudness measurement / gain state.
+//!
+//! Owned here (the loudness-normalizer module) because the
+//! `current_gain_db` / `target_gain_db` / `preamp_db` fields describe the
+//! normalizer's control state, not a pure analysis measurement. The
+//! historical `crate::analysis::LoudnessInfo` path remains as a documented
+//! compatibility re-export; the serialized shape is unchanged.
 
 /// Loudness measurement information for API responses
 #[derive(Debug, Clone, serde::Serialize)]

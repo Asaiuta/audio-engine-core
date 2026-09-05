@@ -17,7 +17,7 @@ use crate::config::NormalizationMode;
 use crate::dsp::db_to_linear;
 use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
 
-use crate::analysis::LoudnessInfo;
+use crate::processor::loudness::LoudnessInfo;
 
 /// Atomic loudness state for lock-free audio thread access.
 /// Uses AtomicF64 with Relaxed ordering (gains don't need strict synchronization).

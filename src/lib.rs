@@ -112,11 +112,20 @@ pub mod analysis;
 pub mod audio_block;
 pub mod channel_layout;
 pub mod config;
+pub mod decode_budget;
 pub mod decoder;
 /// Decode-buffer memory budget environment resolution (off-realtime setup).
+///
+/// Compatibility facade: the canonical owner is [`crate::decode_budget`].
 pub mod diagnostics;
 /// Stateless low-level DSP mathematics shared by analysis and processors.
 pub mod dsp;
+/// Loudness-database SQLite persistence (requires the `loudness-db` feature).
+///
+/// Canonical owner of the persistence layer; the `processor::*` re-exports
+/// remain for compatibility.
+#[cfg(feature = "loudness-db")]
+pub mod loudness_db;
 pub mod pipeline;
 pub mod processor;
 /// CPU floating-point mode helpers for realtime audio threads (FTZ/DAZ).
