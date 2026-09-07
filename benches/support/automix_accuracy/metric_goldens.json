@@ -1,0 +1,8524 @@
+{
+  "reference": "mir_eval==0.8.2",
+  "protocol": "head [0,20), trim both beat arrays at >=5 s except already_trimmed boundary cases",
+  "beat_cases": [
+    {
+      "name": "exact",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "f_measure": 1.0,
+      "amlt": 1.0
+    },
+    {
+      "name": "shifted_40ms",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.04,
+        0.54,
+        1.04,
+        1.54,
+        2.04,
+        2.54,
+        3.04,
+        3.54,
+        4.04,
+        4.54,
+        5.04,
+        5.54,
+        6.04,
+        6.54,
+        7.04,
+        7.54,
+        8.04,
+        8.54,
+        9.04,
+        9.54,
+        10.04,
+        10.54,
+        11.04,
+        11.54,
+        12.04,
+        12.54,
+        13.04,
+        13.54,
+        14.04,
+        14.54,
+        15.04,
+        15.54,
+        16.04,
+        16.54,
+        17.04,
+        17.54,
+        18.04,
+        18.54,
+        19.04,
+        19.54
+      ],
+      "f_measure": 1.0,
+      "amlt": 1.0
+    },
+    {
+      "name": "shifted_90ms",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.09,
+        0.59,
+        1.09,
+        1.59,
+        2.09,
+        2.59,
+        3.09,
+        3.59,
+        4.09,
+        4.59,
+        5.09,
+        5.59,
+        6.09,
+        6.59,
+        7.09,
+        7.59,
+        8.09,
+        8.59,
+        9.09,
+        9.59,
+        10.09,
+        10.59,
+        11.09,
+        11.59,
+        12.09,
+        12.59,
+        13.09,
+        13.59,
+        14.09,
+        14.59,
+        15.09,
+        15.59,
+        16.09,
+        16.59,
+        17.09,
+        17.59,
+        18.09,
+        18.59,
+        19.09,
+        19.59
+      ],
+      "f_measure": 0.0,
+      "amlt": 0.0
+    },
+    {
+      "name": "offbeat",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.25,
+        0.75,
+        1.25,
+        1.75,
+        2.25,
+        2.75,
+        3.25,
+        3.75,
+        4.25,
+        4.75,
+        5.25,
+        5.75,
+        6.25,
+        6.75,
+        7.25,
+        7.75,
+        8.25,
+        8.75,
+        9.25,
+        9.75,
+        10.25,
+        10.75,
+        11.25,
+        11.75,
+        12.25,
+        12.75,
+        13.25,
+        13.75,
+        14.25,
+        14.75,
+        15.25,
+        15.75,
+        16.25,
+        16.75,
+        17.25,
+        17.75,
+        18.25,
+        18.75,
+        19.25,
+        19.75
+      ],
+      "f_measure": 0.0,
+      "amlt": 0.9666666666666667
+    },
+    {
+      "name": "half",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0
+      ],
+      "f_measure": 0.6666666666666666,
+      "amlt": 1.0
+    },
+    {
+      "name": "half_odd",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.5,
+        1.5,
+        2.5,
+        3.5,
+        4.5,
+        5.5,
+        6.5,
+        7.5,
+        8.5,
+        9.5,
+        10.5,
+        11.5,
+        12.5,
+        13.5,
+        14.5,
+        15.5,
+        16.5,
+        17.5,
+        18.5,
+        19.5
+      ],
+      "f_measure": 0.6666666666666666,
+      "amlt": 1.0
+    },
+    {
+      "name": "double",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5,
+        2.75,
+        3.0,
+        3.25,
+        3.5,
+        3.75,
+        4.0,
+        4.25,
+        4.5,
+        4.75,
+        5.0,
+        5.25,
+        5.5,
+        5.75,
+        6.0,
+        6.25,
+        6.5,
+        6.75,
+        7.0,
+        7.25,
+        7.5,
+        7.75,
+        8.0,
+        8.25,
+        8.5,
+        8.75,
+        9.0,
+        9.25,
+        9.5,
+        9.75,
+        10.0,
+        10.25,
+        10.5,
+        10.75,
+        11.0,
+        11.25,
+        11.5,
+        11.75,
+        12.0,
+        12.25,
+        12.5,
+        12.75,
+        13.0,
+        13.25,
+        13.5,
+        13.75,
+        14.0,
+        14.25,
+        14.5,
+        14.75,
+        15.0,
+        15.25,
+        15.5,
+        15.75,
+        16.0,
+        16.25,
+        16.5,
+        16.75,
+        17.0,
+        17.25,
+        17.5,
+        17.75,
+        18.0,
+        18.25,
+        18.5,
+        18.75,
+        19.0,
+        19.25,
+        19.5,
+        19.75
+      ],
+      "f_measure": 0.6666666666666666,
+      "amlt": 0.9833333333333333
+    },
+    {
+      "name": "triple",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        0.16666666666666666,
+        0.3333333333333333,
+        0.5,
+        0.6666666666666666,
+        0.8333333333333333,
+        1.0,
+        1.1666666666666665,
+        1.3333333333333333,
+        1.5,
+        1.6666666666666665,
+        1.8333333333333333,
+        2.0,
+        2.1666666666666665,
+        2.333333333333333,
+        2.5,
+        2.6666666666666665,
+        2.833333333333333,
+        3.0,
+        3.1666666666666665,
+        3.333333333333333,
+        3.5,
+        3.6666666666666665,
+        3.833333333333333,
+        4.0,
+        4.166666666666666,
+        4.333333333333333,
+        4.5,
+        4.666666666666666,
+        4.833333333333333,
+        5.0,
+        5.166666666666666,
+        5.333333333333333,
+        5.5,
+        5.666666666666666,
+        5.833333333333333,
+        6.0,
+        6.166666666666666,
+        6.333333333333333,
+        6.5,
+        6.666666666666666,
+        6.833333333333333,
+        7.0,
+        7.166666666666666,
+        7.333333333333333,
+        7.5,
+        7.666666666666666,
+        7.833333333333333,
+        8.0,
+        8.166666666666666,
+        8.333333333333332,
+        8.5,
+        8.666666666666666,
+        8.833333333333332,
+        9.0,
+        9.166666666666666,
+        9.333333333333332,
+        9.5,
+        9.666666666666666,
+        9.833333333333332,
+        10.0,
+        10.166666666666666,
+        10.333333333333332,
+        10.5,
+        10.666666666666666,
+        10.833333333333332,
+        11.0,
+        11.166666666666666,
+        11.333333333333332,
+        11.5,
+        11.666666666666666,
+        11.833333333333332,
+        12.0,
+        12.166666666666666,
+        12.333333333333332,
+        12.5,
+        12.666666666666666,
+        12.833333333333332,
+        13.0,
+        13.166666666666666,
+        13.333333333333332,
+        13.5,
+        13.666666666666666,
+        13.833333333333332,
+        14.0,
+        14.166666666666666,
+        14.333333333333332,
+        14.5,
+        14.666666666666666,
+        14.833333333333332,
+        15.0,
+        15.166666666666666,
+        15.333333333333332,
+        15.5,
+        15.666666666666666,
+        15.833333333333332,
+        16.0,
+        16.166666666666664,
+        16.333333333333332,
+        16.5,
+        16.666666666666664,
+        16.833333333333332,
+        17.0,
+        17.166666666666664,
+        17.333333333333332,
+        17.5,
+        17.666666666666664,
+        17.833333333333332,
+        18.0,
+        18.166666666666664,
+        18.333333333333332,
+        18.5,
+        18.666666666666664,
+        18.833333333333332,
+        19.0,
+        19.166666666666664,
+        19.333333333333332,
+        19.5,
+        19.666666666666664,
+        19.833333333333332
+      ],
+      "f_measure": 0.5,
+      "amlt": 0.0
+    },
+    {
+      "name": "missing",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        1.5,
+        3.0,
+        4.5,
+        6.0,
+        7.5,
+        9.0,
+        10.5,
+        12.0,
+        13.5,
+        15.0,
+        16.5,
+        18.0,
+        19.5
+      ],
+      "f_measure": 0.5,
+      "amlt": 0.0
+    },
+    {
+      "name": "no_prediction",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [],
+      "f_measure": 0.0,
+      "amlt": 0.0
+    },
+    {
+      "name": "crowded",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.02,
+        0.03,
+        0.52,
+        0.53,
+        1.02,
+        1.03,
+        1.52,
+        1.53,
+        2.02,
+        2.03,
+        2.52,
+        2.53,
+        3.02,
+        3.03,
+        3.52,
+        3.53,
+        4.02,
+        4.03,
+        4.52,
+        4.53,
+        5.02,
+        5.03,
+        5.52,
+        5.53,
+        6.02,
+        6.03,
+        6.52,
+        6.53,
+        7.02,
+        7.03,
+        7.52,
+        7.53,
+        8.02,
+        8.03,
+        8.52,
+        8.53,
+        9.02,
+        9.03,
+        9.52,
+        9.53,
+        10.02,
+        10.03,
+        10.52,
+        10.53,
+        11.02,
+        11.03,
+        11.52,
+        11.53,
+        12.02,
+        12.03,
+        12.52,
+        12.53,
+        13.02,
+        13.03,
+        13.52,
+        13.53,
+        14.02,
+        14.03,
+        14.52,
+        14.53,
+        15.02,
+        15.03,
+        15.52,
+        15.53,
+        16.02,
+        16.03,
+        16.52,
+        16.53,
+        17.02,
+        17.03,
+        17.52,
+        17.53,
+        18.02,
+        18.03,
+        18.52,
+        18.53,
+        19.02,
+        19.03,
+        19.52,
+        19.53
+      ],
+      "f_measure": 0.6666666666666666,
+      "amlt": 0.5
+    },
+    {
+      "name": "trim_and_interval",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        4.99,
+        5.0,
+        5.5,
+        6.0,
+        19.5,
+        20.0,
+        21.0
+      ],
+      "f_measure": 0.23529411764705882,
+      "amlt": 0.1
+    },
+    {
+      "name": "period_drift",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "reference": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0,
+        8.5,
+        9.0,
+        9.5,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+        13.5,
+        14.0,
+        14.5,
+        15.0,
+        15.5,
+        16.0,
+        16.5,
+        17.0,
+        17.5,
+        18.0,
+        18.5,
+        19.0,
+        19.5
+      ],
+      "prediction": [
+        0.0,
+        0.56,
+        1.12,
+        1.6800000000000002,
+        2.24,
+        2.8000000000000003,
+        3.3600000000000003,
+        3.9200000000000004,
+        4.48,
+        5.040000000000001,
+        5.6000000000000005,
+        6.16,
+        6.720000000000001,
+        7.280000000000001,
+        7.840000000000001,
+        8.4,
+        8.96,
+        9.520000000000001,
+        10.080000000000002,
+        10.64,
+        11.200000000000001,
+        11.760000000000002,
+        12.32,
+        12.88,
+        13.440000000000001,
+        14.000000000000002,
+        14.560000000000002,
+        15.120000000000001,
+        15.680000000000001,
+        16.240000000000002,
+        16.8,
+        17.360000000000003,
+        17.92,
+        18.48,
+        19.040000000000003,
+        19.6
+      ],
+      "f_measure": 0.28070175438596495,
+      "amlt": 0.3333333333333333
+    },
+    {
+      "name": "single",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "already_trimmed": true,
+      "reference": [
+        5.0
+      ],
+      "prediction": [
+        5.0
+      ],
+      "f_measure": 1.0,
+      "amlt": 0.0
+    },
+    {
+      "name": "nearest_tie",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "already_trimmed": true,
+      "reference": [
+        5.0,
+        6.0,
+        7.0,
+        8.0
+      ],
+      "prediction": [
+        5.5,
+        6.5,
+        7.5
+      ],
+      "f_measure": 0.0,
+      "amlt": 1.0
+    },
+    {
+      "name": "collar_boundary",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "already_trimmed": true,
+      "reference": [
+        0.0,
+        1.0
+      ],
+      "prediction": [
+        0.07,
+        1.07
+      ],
+      "f_measure": 1.0,
+      "amlt": 1.0
+    },
+    {
+      "name": "one_to_one",
+      "start_sec": 0.0,
+      "end_sec": 20.0,
+      "already_trimmed": true,
+      "reference": [
+        5.0,
+        5.06,
+        6.0
+      ],
+      "prediction": [
+        5.03,
+        6.0
+      ],
+      "f_measure": 0.8,
+      "amlt": 1.0
+    }
+  ],
+  "key_cases": [
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 0,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 1,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.3
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 2,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 3,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 4,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 5,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 6,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.5
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 7,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 8,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 9,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 10,
+        "mode": "minor"
+      },
+      "exact": 0.0,
+      "weighted": 0.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "major"
+      },
+      "exact": 0.0,
+      "weighted": 0.2
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "exact": 1.0,
+      "weighted": 1.0
+    },
+    {
+      "reference": {
+        "pitch_class": 11,
+        "mode": "minor"
+      },
+      "prediction": null,
+      "exact": 0.0,
+      "weighted": 0.0
+    }
+  ],
+  "tempo_cases": [
+    {
+      "reference": 120.0,
+      "prediction": 40.0,
+      "accuracy1": 0.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 60.0,
+      "accuracy1": 0.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 80.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 120.0,
+      "accuracy1": 1.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 124.7,
+      "accuracy1": 1.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 125.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 127.3,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 240.0,
+      "accuracy1": 0.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": 360.0,
+      "accuracy1": 0.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 120.0,
+      "prediction": null,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 40.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 60.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 80.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 120.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 124.7,
+      "accuracy1": 1.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 125.0,
+      "accuracy1": 1.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 127.3,
+      "accuracy1": 1.0,
+      "accuracy2": 1.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 240.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": 360.0,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    },
+    {
+      "reference": 127.3,
+      "prediction": null,
+      "accuracy1": 0.0,
+      "accuracy2": 0.0
+    }
+  ]
+}

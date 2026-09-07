@@ -142,6 +142,10 @@ name = "audio_component_perf"
 harness = false
 
 [[bench]]
+name = "audio_automix_accuracy"
+harness = false
+
+[[bench]]
 name = "audio_lifecycle_memory_perf"
 harness = false
 
