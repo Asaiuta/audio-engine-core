@@ -316,6 +316,195 @@ pub enum SaturationEventKind {
     EffectEnabled(bool),
 }
 
+const SATURATION_PARAMETER_RAMP_MS: f64 = 10.0;
+
+#[derive(Clone, Copy)]
+struct SaturationScalarRamp {
+    current: f64,
+    target: f64,
+    step: f64,
+    remaining: usize,
+}
+
+impl SaturationScalarRamp {
+    fn at(value: f64) -> Self {
+        Self {
+            current: value,
+            target: value,
+            step: 0.0,
+            remaining: 0,
+        }
+    }
+
+    fn retarget(&mut self, target: f64, frames: usize) {
+        if target == self.target {
+            return;
+        }
+        let frames = frames.max(1);
+        self.target = target;
+        self.remaining = frames;
+        self.step = (target - self.current) / frames as f64;
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> f64 {
+        if self.remaining == 0 {
+            return self.current;
+        }
+        self.remaining -= 1;
+        if self.remaining == 0 {
+            self.current = self.target;
+        } else {
+            self.current += self.step;
+        }
+        self.current
+    }
+
+    fn snap(&mut self, value: f64) {
+        self.current = value;
+        self.target = value;
+        self.step = 0.0;
+        self.remaining = 0;
+    }
+}
+
+/// Gain ramp whose endpoint is specified in dB but whose audio path uses the
+/// cached linear value. The exponential factor is calculated only when a
+/// snapshot retargets, never once per sample.
+#[derive(Clone, Copy)]
+struct SaturationGainRamp {
+    current: f64,
+    target: f64,
+    factor: f64,
+    remaining: usize,
+}
+
+impl SaturationGainRamp {
+    fn at(db: f64) -> Self {
+        let value = db_to_linear(db);
+        Self {
+            current: value,
+            target: value,
+            factor: 1.0,
+            remaining: 0,
+        }
+    }
+
+    fn retarget_db(&mut self, db: f64, frames: usize) {
+        let target = db_to_linear(db);
+        if target == self.target {
+            return;
+        }
+        let frames = frames.max(1);
+        self.target = target;
+        self.remaining = frames;
+        self.factor = (target / self.current).powf(1.0 / frames as f64);
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> f64 {
+        if self.remaining == 0 {
+            return self.current;
+        }
+        self.remaining -= 1;
+        if self.remaining == 0 {
+            self.current = self.target;
+        } else {
+            self.current *= self.factor;
+        }
+        self.current
+    }
+
+    fn snap_db(&mut self, db: f64) {
+        let value = db_to_linear(db);
+        self.current = value;
+        self.target = value;
+        self.factor = 1.0;
+        self.remaining = 0;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SaturationAutomationFrame {
+    drive: f64,
+    threshold: f64,
+    mix: f64,
+    input_gain_linear: f64,
+    output_gain_linear: f64,
+    hpf_coef: f64,
+}
+
+#[derive(Clone, Copy)]
+struct SaturationAutomation {
+    drive: SaturationScalarRamp,
+    threshold: SaturationScalarRamp,
+    mix: SaturationScalarRamp,
+    input_gain: SaturationGainRamp,
+    output_gain: SaturationGainRamp,
+    hpf_coef: SaturationScalarRamp,
+}
+
+impl SaturationAutomation {
+    fn ramp_frames(sample_rate: f64) -> usize {
+        (sample_rate * SATURATION_PARAMETER_RAMP_MS / 1000.0)
+            .round()
+            .max(1.0) as usize
+    }
+
+    fn new(snapshot: SaturationParamsSnapshot, hpf_coef: f64) -> Self {
+        Self {
+            drive: SaturationScalarRamp::at(snapshot.drive),
+            threshold: SaturationScalarRamp::at(snapshot.threshold),
+            mix: SaturationScalarRamp::at(snapshot.mix),
+            input_gain: SaturationGainRamp::at(snapshot.input_gain_db),
+            output_gain: SaturationGainRamp::at(snapshot.output_gain_db),
+            hpf_coef: SaturationScalarRamp::at(hpf_coef),
+        }
+    }
+
+    fn retarget(&mut self, snapshot: SaturationParamsSnapshot, hpf_coef: f64, sample_rate: f64) {
+        let frames = Self::ramp_frames(sample_rate);
+        self.drive.retarget(snapshot.drive, frames);
+        self.threshold.retarget(snapshot.threshold, frames);
+        self.mix.retarget(snapshot.mix, frames);
+        self.input_gain.retarget_db(snapshot.input_gain_db, frames);
+        self.output_gain
+            .retarget_db(snapshot.output_gain_db, frames);
+        self.hpf_coef.retarget(hpf_coef, frames);
+    }
+
+    fn snap_to(&mut self, snapshot: SaturationParamsSnapshot, hpf_coef: f64) {
+        self.drive.snap(snapshot.drive);
+        self.threshold.snap(snapshot.threshold);
+        self.mix.snap(snapshot.mix);
+        self.input_gain.snap_db(snapshot.input_gain_db);
+        self.output_gain.snap_db(snapshot.output_gain_db);
+        self.hpf_coef.snap(hpf_coef);
+    }
+
+    fn remaining_frames(&self) -> usize {
+        self.drive
+            .remaining
+            .max(self.threshold.remaining)
+            .max(self.mix.remaining)
+            .max(self.input_gain.remaining)
+            .max(self.output_gain.remaining)
+            .max(self.hpf_coef.remaining)
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> SaturationAutomationFrame {
+        SaturationAutomationFrame {
+            drive: self.drive.next(),
+            threshold: self.threshold.next(),
+            mix: self.mix.next(),
+            input_gain_linear: self.input_gain.next(),
+            output_gain_linear: self.output_gain.next(),
+            hpf_coef: self.hpf_coef.next(),
+        }
+    }
+}
+
 /// Saturation processor adapter
 pub struct SaturationProcessor {
     channels: usize,
@@ -345,6 +534,7 @@ pub struct SaturationProcessor {
     quality_transition_target: Option<SaturationQualityValue>,
     quality_transition_cursor: usize,
     quality_scratch: [Vec<f64>; 3],
+    parameter_automation: SaturationAutomation,
 }
 
 impl SaturationProcessor {
@@ -372,6 +562,8 @@ impl SaturationProcessor {
         quality_states[1].set_quality(super::saturation::SaturationQuality::Oversampled2x);
         quality_states[2].set_quality(super::saturation::SaturationQuality::Oversampled4x);
         let quality_weights = Self::one_hot_quality(cached.quality);
+        let parameter_automation =
+            SaturationAutomation::new(cached, quality_states[0].highpass_coefficient());
         Self {
             channels,
             params,
@@ -393,6 +585,7 @@ impl SaturationProcessor {
             quality_transition_target: None,
             quality_transition_cursor: SATURATION_TRANSITION_FRAMES,
             quality_scratch: std::array::from_fn(|_| vec![0.0; channels.max(1)]),
+            parameter_automation,
         }
     }
 
@@ -405,18 +598,20 @@ impl SaturationProcessor {
             self.cached = current;
             self.cached_generation = generation;
 
+            // Continuous fields are applied by the source-frame automation
+            // ramps below. Topology and curve identity remain hard changes.
             for state in &mut self.quality_states {
-                state.set_drive(self.cached.drive);
-                state.set_threshold(self.cached.threshold);
-                state.set_mix(self.cached.mix);
-                state.set_input_gain(self.cached.input_gain_db);
-                state.set_output_gain(self.cached.output_gain_db);
                 state.set_highpass_mode(self.cached.highpass_mode);
                 state.set_highpass_cutoff(self.cached.highpass_cutoff);
                 state.set_type(super::saturation::SaturationType::from(
                     self.cached.sat_type,
                 ));
             }
+            self.parameter_automation.retarget(
+                self.cached,
+                self.quality_states[0].highpass_coefficient(),
+                self.sample_rate,
+            );
             // `armed` is a setup-time decision. Honouring it mid-stream would move
             // this stage's reported latency between zero and
             // `SATURATION_LATENCY_FRAMES`, and owning chains snapshot latency when
@@ -553,7 +748,23 @@ impl SaturationProcessor {
             .unwrap_or(0)
     }
 
+    #[inline(always)]
+    fn apply_parameter_automation_frame(&mut self) {
+        let frame = self.parameter_automation.next();
+        for state in &mut self.quality_states {
+            state.set_realtime_parameters(
+                frame.drive,
+                frame.threshold,
+                frame.mix,
+                frame.input_gain_linear,
+                frame.output_gain_linear,
+                frame.hpf_coef,
+            );
+        }
+    }
+
     fn process_quality_transition_frame(&mut self, output: &mut [f64], channels: usize) {
+        self.apply_parameter_automation_frame();
         let weights = self.current_quality_weights();
         let target_index = self
             .quality_transition_target
@@ -660,6 +871,7 @@ impl SaturationProcessor {
             let start = frame * channels;
             let end = start + channels;
             let quality_index = self.dominant_quality_index();
+            self.apply_parameter_automation_frame();
             self.quality_states[quality_index].process_with_channels_mix(
                 &mut buffer[start..end],
                 channels,
@@ -677,8 +889,27 @@ impl SaturationProcessor {
             return;
         }
 
-        let remainder = &mut buffer[frame * channels..];
         let quality_index = self.dominant_quality_index();
+        let ramp_frames = self.parameter_automation.remaining_frames();
+        let ramp_end = frame + ramp_frames.min(frames - frame);
+        while frame < ramp_end {
+            let start = frame * channels;
+            let end = start + channels;
+            self.apply_parameter_automation_frame();
+            if self.effect_weight == 0.0 {
+                self.quality_states[quality_index]
+                    .process_delayed_bypass(&mut buffer[start..end], channels);
+            } else {
+                self.quality_states[quality_index].process_with_channels_mix(
+                    &mut buffer[start..end],
+                    channels,
+                    self.effect_weight,
+                );
+            }
+            frame += 1;
+        }
+
+        let remainder = &mut buffer[frame * channels..];
         if self.effect_weight == 0.0 {
             self.quality_states[quality_index].process_delayed_bypass(remainder, channels);
         } else {
@@ -983,6 +1214,10 @@ impl StreamingProcessor for SaturationProcessor {
         self.quality_transition_start_weights = self.quality_weights;
         self.quality_transition_target = None;
         self.quality_transition_cursor = SATURATION_TRANSITION_FRAMES;
+        // The core holds the last rendered coefficient, which can be mid-ramp.
+        self.parameter_automation
+            .snap_to(self.cached, self.parameter_automation.hpf_coef.target);
+        self.apply_parameter_automation_frame();
         Ok(())
     }
 
@@ -1028,6 +1263,9 @@ impl StreamingProcessor for SaturationProcessor {
         self.quality_transition_start_weights = self.quality_weights;
         self.quality_transition_target = None;
         self.quality_transition_cursor = SATURATION_TRANSITION_FRAMES;
+        self.parameter_automation
+            .snap_to(self.cached, self.quality_states[0].highpass_coefficient());
+        self.apply_parameter_automation_frame();
         Ok(())
     }
 }

@@ -1819,12 +1819,6 @@ enum SmoothingKind {
     /// so it has no direct step of its own. Report-only: the number is here so
     /// that a future change which *does* introduce a step becomes visible.
     RateOnly,
-    /// A continuous parameter that reaches the signal path with **no** ramp,
-    /// and whose discontinuity is not a documented design decision. This is a
-    /// finding, not a contract. Report-only here because fixing smoothing
-    /// behaviour is out of this probe's scope; the recorded number is the size
-    /// of the step a listener would hear.
-    Unsmoothed,
 }
 
 /// One (processor, field) transition probe.
@@ -2003,6 +1997,11 @@ const PARAM_STEP_SATURATION_DBFS: f64 = -2.0;
 /// knee to 0.5 puts the probe well inside it (the knee is 0.05 wide).
 const PARAM_STEP_SATURATION_THRESHOLD: f64 = 0.5;
 
+/// The realtime Saturation adapter ramps continuous parameters over 10 ms in
+/// source frames. The probe runs at `SAMPLE_RATE`, so this is the bound's exact
+/// frame count rather than a rounded description.
+const PARAM_STEP_SATURATION_RAMP_FRAMES: f64 = SAMPLE_RATE as f64 * 10.0 / 1_000.0;
+
 /// Puts `Saturation` where its continuous parameters reach the waveshaper.
 ///
 /// `enabled` and `armed` already ship `true`; setting them explicitly keeps the
@@ -2017,10 +2016,9 @@ fn param_step_saturation_setup(h: &ParamHandles) {
 /// `AtomicSaturationParams`: 11 fields.
 ///
 /// Six of them (`drive`, `threshold`, `mix`, `input_gain_db`, `output_gain_db`,
-/// `highpass_cutoff`) reach the waveshaper with no ramp at all — `set_drive` and
-/// friends in `saturation.rs:395-446` sanitize and assign. Those are recorded as
-/// [`SmoothingKind::Unsmoothed`] findings; this probe measures, it does not
-/// redesign the ramps.
+/// `highpass_cutoff`) use the adapter's shared 10 ms source-frame ramp. The
+/// standalone `Saturation` setters remain immediate; this probe exercises the
+/// realtime `SaturationProcessor` path where the ramp lives.
 fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
     vec![
         ParameterTransitionCase {
@@ -2028,9 +2026,9 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "drive",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_drive assigns directly)",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
             probe_hz: 1_000.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
@@ -2047,10 +2045,12 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "threshold",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_threshold assigns directly)",
-            probe_hz: 1_000.0,
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
+            // A slow carrier separates the moving knee from the carrier slew.
+            // At the step boundary its magnitude lies between the two knees.
+            probe_hz: 11.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
             // `threshold` is the field under test, so setup must not set it.
@@ -2072,28 +2072,30 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "mix",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_mix assigns directly)",
-            probe_hz: 1_000.0,
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
+            // The delayed source is near its peak at the step boundary, where
+            // the nonlinear residual dominates carrier slew.
+            probe_hz: 110.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
             setup: param_step_saturation_setup,
             apply: |h, stage, _| {
                 h.saturation
-                    .set_mix(if stage == Stage::From { 0.5 } else { 1.0 });
+                    .set_mix(if stage == Stage::From { 1.0 } else { 0.5 });
             },
             index: 0,
-            transition: "0.5 -> 1.0 (dry/wet)",
+            transition: "1.0 -> 0.5 (dry/wet)",
         },
         ParameterTransitionCase {
             key: "param_step_saturation_input_gain_db",
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "input_gain_db",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_input_gain assigns directly)",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
             probe_hz: 1_000.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
@@ -2110,9 +2112,9 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "output_gain_db",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_output_gain assigns directly)",
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
             probe_hz: 1_000.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
@@ -2129,12 +2131,12 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             processor: "Saturation",
             proc: ProcKind::Saturation,
             field: "highpass_cutoff",
-            kind: SmoothingKind::Unsmoothed,
-            smoothing_frames: 1.0,
-            smoothing_source: "none (set_highpass_cutoff assigns directly)",
-            // Between the two corner positions, so the step moves the probe from
-            // inside the saturated band to outside it.
-            probe_hz: 3_000.0,
+            kind: SmoothingKind::Smoothed,
+            smoothing_frames: PARAM_STEP_SATURATION_RAMP_FRAMES,
+            smoothing_source: "SATURATION_PARAMETER_RAMP_MS = 10 ms (adapters.rs)",
+            // Keep carrier slew slow relative to the parameter ramp; a carrier
+            // between the corners changes phase/shape beyond the A/C envelope.
+            probe_hz: 125.0,
             probe_dbfs: PARAM_STEP_SATURATION_DBFS,
             panned: false,
             // The cutoff only reaches the signal path with highpass mode on.
@@ -2144,17 +2146,20 @@ fn parameter_transition_saturation_cases() -> Vec<ParameterTransitionCase> {
             setup: |h| {
                 param_step_saturation_setup(h);
                 h.saturation.set_highpass_mode(true);
-                h.saturation.set_highpass_cutoff(1_500.0);
+                // Expose the attenuated high-pass branch at this low frequency.
+                h.saturation.set_threshold(0.0);
+                h.saturation.set_drive(1.0);
+                h.saturation.set_mix(1.0);
             },
             apply: |h, stage, _| {
                 h.saturation.set_highpass_cutoff(if stage == Stage::From {
-                    1_500.0
-                } else {
                     6_000.0
+                } else {
+                    1_500.0
                 });
             },
             index: 0,
-            transition: "1500 -> 6000 Hz",
+            transition: "6000 -> 1500 Hz",
         },
         ParameterTransitionCase {
             key: "param_step_saturation_sat_type",
@@ -2975,15 +2980,13 @@ fn parameter_transition_metrics(section: &ParameterTransitionSection) -> Vec<Met
                     case.bound,
                     "amplitude",
                 ),
-                SmoothingKind::HardSwitch | SmoothingKind::RateOnly | SmoothingKind::Unsmoothed => {
-                    MetricResult::report(
-                        case.key,
-                        Comparison::AtMost,
-                        case.excess_step,
-                        case.bound,
-                        "amplitude",
-                    )
-                }
+                SmoothingKind::HardSwitch | SmoothingKind::RateOnly => MetricResult::report(
+                    case.key,
+                    Comparison::AtMost,
+                    case.excess_step,
+                    case.bound,
+                    "amplitude",
+                ),
             };
             metric.detail = Some(detail);
             metric

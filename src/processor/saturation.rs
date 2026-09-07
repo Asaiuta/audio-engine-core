@@ -445,6 +445,31 @@ impl Saturation {
         self.output_gain_linear = db_to_linear(gain_db);
     }
 
+    /// Apply already-sanitized realtime values without redesigning a filter or
+    /// converting gain domains. The adapter owns the ramps and calls this once
+    /// per source frame; standalone setters remain immediate by design.
+    pub(crate) fn set_realtime_parameters(
+        &mut self,
+        drive: f64,
+        threshold: f64,
+        mix: f64,
+        input_gain_linear: f64,
+        output_gain_linear: f64,
+        hpf_coef: f64,
+    ) {
+        self.drive = drive;
+        self.threshold = threshold;
+        self.mix = mix;
+        self.input_gain_linear = input_gain_linear;
+        self.output_gain_linear = output_gain_linear;
+        self.hpf_coef = hpf_coef;
+    }
+
+    /// Return the cached first-order high-pass coefficient for adapter setup.
+    pub(crate) const fn highpass_coefficient(&self) -> f64 {
+        self.hpf_coef
+    }
+
     /// Enable/disable saturation
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;

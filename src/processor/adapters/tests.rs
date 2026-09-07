@@ -699,6 +699,330 @@ fn test_saturation_processor() {
 }
 
 #[test]
+fn saturation_parameter_automation_ramps_all_six_continuous_fields() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    let initial_drive = proc.parameter_automation.drive.current;
+    let initial_threshold = proc.parameter_automation.threshold.current;
+    let initial_mix = proc.parameter_automation.mix.current;
+    let initial_input_gain = proc.parameter_automation.input_gain.current;
+    let initial_output_gain = proc.parameter_automation.output_gain.current;
+    let initial_hpf = proc.parameter_automation.hpf_coef.current;
+
+    params.set_drive(1.5);
+    params.set_threshold(0.4);
+    params.set_mix(0.9);
+    params.set_gains_db(6.0, -6.0);
+    params.set_highpass_cutoff(8_000.0);
+
+    let mut first = [0.8];
+    proc.process(&mut first, 1);
+    let ramp_frames = SaturationAutomation::ramp_frames(proc.sample_rate);
+    assert_eq!(proc.parameter_automation.drive.remaining, ramp_frames - 1);
+    assert!(proc.parameter_automation.drive.current > initial_drive);
+    assert!(proc.parameter_automation.drive.current < 1.5);
+    assert!(proc.parameter_automation.threshold.current < initial_threshold);
+    assert!(proc.parameter_automation.threshold.current > 0.4);
+    assert!(proc.parameter_automation.mix.current > initial_mix);
+    assert!(proc.parameter_automation.mix.current < 0.9);
+    assert!(proc.parameter_automation.input_gain.current > initial_input_gain);
+    assert!(proc.parameter_automation.output_gain.current < initial_output_gain);
+    assert!(proc.parameter_automation.hpf_coef.current < initial_hpf);
+
+    let mut rest = vec![0.8; ramp_frames - 1];
+    proc.process(&mut rest, 1);
+    assert_eq!(proc.parameter_automation.drive.remaining, 0);
+    assert_eq!(proc.parameter_automation.drive.current, 1.5);
+    assert_eq!(proc.parameter_automation.threshold.current, 0.4);
+    assert_eq!(proc.parameter_automation.mix.current, 0.9);
+    assert_eq!(
+        proc.parameter_automation.input_gain.current,
+        crate::dsp::db_to_linear(6.0)
+    );
+    assert_eq!(
+        proc.parameter_automation.output_gain.current,
+        crate::dsp::db_to_linear(-6.0)
+    );
+    assert_eq!(
+        proc.parameter_automation.hpf_coef.current,
+        proc.quality_states[0].highpass_coefficient()
+    );
+}
+
+#[test]
+fn saturation_parameter_automation_is_chunk_invariant() {
+    fn make_params() -> Arc<AtomicSaturationParams> {
+        let params = Arc::new(AtomicSaturationParams::new());
+        params.set_drive(0.3);
+        params.set_threshold(0.7);
+        params.set_mix(0.35);
+        params.set_gains_db(-2.0, 1.0);
+        params.set_highpass_mode(true);
+        params.set_highpass_cutoff(2_000.0);
+        params
+    }
+
+    let whole_params = make_params();
+    let chunked_params = make_params();
+    let mut whole = SaturationProcessor::new(1, Arc::clone(&whole_params));
+    let mut chunked = SaturationProcessor::new(1, Arc::clone(&chunked_params));
+    let warm = vec![0.82; 16];
+    let mut whole_warm = warm.clone();
+    let mut chunked_warm = warm;
+    whole.process(&mut whole_warm, 1);
+    chunked.process(&mut chunked_warm, 1);
+
+    whole_params.set_drive(1.7);
+    whole_params.set_threshold(0.45);
+    whole_params.set_mix(0.95);
+    whole_params.set_gains_db(7.0, -5.0);
+    whole_params.set_highpass_cutoff(9_000.0);
+    chunked_params.set_drive(1.7);
+    chunked_params.set_threshold(0.45);
+    chunked_params.set_mix(0.95);
+    chunked_params.set_gains_db(7.0, -5.0);
+    chunked_params.set_highpass_cutoff(9_000.0);
+
+    let input = (0..512)
+        .map(|frame| ((frame as f64) * 0.217).sin() * 0.91)
+        .collect::<Vec<_>>();
+    let mut whole_output = input.clone();
+    let events = [
+        SaturationEvent {
+            frame_offset: 31,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled4x),
+        },
+        SaturationEvent {
+            frame_offset: 71,
+            kind: SaturationEventKind::EffectEnabled(false),
+        },
+        SaturationEvent {
+            frame_offset: 111,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Oversampled2x),
+        },
+        SaturationEvent {
+            frame_offset: 145,
+            kind: SaturationEventKind::EffectEnabled(true),
+        },
+        SaturationEvent {
+            frame_offset: 430,
+            kind: SaturationEventKind::Quality(SaturationQualityValue::Direct),
+        },
+    ];
+    let _ = whole
+        .process_with_events(&mut whole_output, 1, &events)
+        .unwrap();
+
+    let mut chunked_output = input;
+    let mut start = 0;
+    for length in [7usize, 31, 2, 113, 5, 89, 191, 74] {
+        let end = (start + length).min(chunked_output.len());
+        if start == end {
+            break;
+        }
+        let local_events: Vec<_> = events
+            .iter()
+            .filter(|event| (start..end).contains(&event.frame_offset))
+            .map(|event| SaturationEvent {
+                frame_offset: event.frame_offset - start,
+                kind: event.kind,
+            })
+            .collect();
+        let _ = chunked
+            .process_with_events(&mut chunked_output[start..end], 1, &local_events)
+            .unwrap();
+        start = end;
+    }
+    if start < chunked_output.len() {
+        chunked.process(&mut chunked_output[start..], 1);
+    }
+
+    assert!(whole_output
+        .iter()
+        .zip(&chunked_output)
+        .all(|(left, right)| left.to_bits() == right.to_bits()));
+}
+
+#[test]
+fn saturation_parameter_automation_matches_direct_core_reference() {
+    fn publish(params: &AtomicSaturationParams, values: [f64; 6]) {
+        let [drive, threshold, mix, input_db, output_db, cutoff] = values;
+        params.set_drive(drive);
+        params.set_threshold(threshold);
+        params.set_mix(mix);
+        params.set_gains_db(input_db, output_db);
+        params.set_highpass_cutoff(cutoff);
+    }
+
+    fn apply(core: &mut Saturation, values: [f64; 6]) {
+        let [drive, threshold, mix, input_db, output_db, cutoff] = values;
+        core.set_drive(drive);
+        core.set_threshold(threshold);
+        core.set_mix(mix);
+        core.set_input_gain(input_db);
+        core.set_output_gain(output_db);
+        core.set_highpass_cutoff(cutoff);
+    }
+
+    for (rate, channels, quality, highpass) in [
+        (44_100, 1, SaturationQualityValue::Direct, false),
+        (48_000, 2, SaturationQualityValue::Oversampled2x, true),
+        (96_000, 6, SaturationQualityValue::Oversampled4x, true),
+    ] {
+        let initial = [0.3, 0.7, 0.35, -2.0, 1.0, 2_500.0];
+        let first = [1.7, 0.45, 0.95, 7.0, -5.0, 8_500.0];
+        let second = [0.8, 0.6, 0.5, -4.0, 4.0, 4_000.0];
+        let coefficient = |cutoff| rate as f64 / (rate as f64 + std::f64::consts::TAU * cutoff);
+        let domain = |mut values: [f64; 6]| {
+            values[5] = coefficient(values[5]);
+            values
+        };
+        let params = Arc::new(AtomicSaturationParams::new());
+        publish(&params, initial);
+        params.set_quality(quality);
+        params.set_highpass_mode(highpass);
+        let mut processor = SaturationProcessor::new(channels, Arc::clone(&params));
+        processor.set_sample_rate(rate).unwrap();
+        let mut reference = Saturation::new();
+        reference.set_channel_count(channels);
+        reference.set_sample_rate(rate as f64);
+        reference.set_quality(quality.into());
+        reference.set_highpass_mode(highpass);
+        apply(&mut reference, initial);
+
+        let mut actual = vec![0.8; channels * 64];
+        let mut expected = actual.clone();
+        processor.process(&mut actual, channels);
+        reference.process_with_channels(&mut expected, channels);
+        let mut origin = domain(initial);
+        let mut target = domain(first);
+        let mut current = origin;
+        let mut ramp_start = 0;
+        publish(&params, first);
+
+        for frame in 0..1200 {
+            if frame == 173 {
+                origin = current;
+                target = domain(second);
+                ramp_start = frame;
+                publish(&params, second);
+            } else if frame == 193 {
+                // An unrelated publication must not restart an in-flight ramp.
+                params.set_enabled(true);
+            }
+            let amount = ((frame - ramp_start + 1) as f64 / (rate as f64 * 0.01)).min(1.0);
+            current = std::array::from_fn(|index| {
+                origin[index] + (target[index] - origin[index]) * amount
+            });
+            let mut values = current;
+            values[5] = rate as f64 * (1.0 / current[5] - 1.0) / std::f64::consts::TAU;
+            apply(&mut reference, values);
+            for (channel, sample) in actual[..channels].iter_mut().enumerate() {
+                *sample = ((frame * channels + channel) as f64 * 0.217).sin() * 0.91;
+            }
+            expected[..channels].copy_from_slice(&actual[..channels]);
+            processor.process(&mut actual[..channels], channels);
+            reference.process_with_channels(&mut expected[..channels], channels);
+            for channel in 0..channels {
+                assert!(
+                    (actual[channel] - expected[channel]).abs() < 1.0e-10,
+                    "{quality:?}, {rate} Hz, frame {frame}, channel {channel}: {} != {}",
+                    actual[channel],
+                    expected[channel]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn saturation_parameter_automation_snaps_on_reset_and_sample_rate_change() {
+    let params = Arc::new(AtomicSaturationParams::new());
+    let mut proc = SaturationProcessor::new(1, Arc::clone(&params));
+    params.set_drive(1.25);
+    params.set_threshold(0.42);
+    params.set_mix(0.8);
+    params.set_gains_db(5.0, -4.0);
+    params.set_highpass_cutoff(7_500.0);
+
+    let mut first = [0.8];
+    proc.process(&mut first, 1);
+    assert!(proc.parameter_automation.drive.remaining > 0);
+
+    proc.reset().unwrap();
+    assert_eq!(proc.parameter_automation.drive.current, 1.25);
+    assert_eq!(proc.parameter_automation.threshold.current, 0.42);
+    assert_eq!(proc.parameter_automation.mix.current, 0.8);
+    assert_eq!(
+        proc.parameter_automation.input_gain.current,
+        crate::dsp::db_to_linear(5.0)
+    );
+    assert_eq!(
+        proc.parameter_automation.output_gain.current,
+        crate::dsp::db_to_linear(-4.0)
+    );
+
+    params.set_drive(0.6);
+    params.set_threshold(0.6);
+    params.set_mix(0.25);
+    params.set_gains_db(-3.0, 2.0);
+    params.set_highpass_cutoff(10_000.0);
+    let mut second = [0.8];
+    proc.process(&mut second, 1);
+    assert!(proc.parameter_automation.drive.remaining > 0);
+
+    proc.set_sample_rate(96_000).unwrap();
+    assert_eq!(proc.parameter_automation.drive.current, 0.6);
+    assert_eq!(proc.parameter_automation.threshold.current, 0.6);
+    assert_eq!(proc.parameter_automation.mix.current, 0.25);
+    assert_eq!(
+        proc.parameter_automation.input_gain.current,
+        crate::dsp::db_to_linear(-3.0)
+    );
+    assert_eq!(
+        proc.parameter_automation.output_gain.current,
+        crate::dsp::db_to_linear(2.0)
+    );
+    assert_eq!(
+        proc.parameter_automation.hpf_coef.current,
+        proc.quality_states[0].highpass_coefficient()
+    );
+}
+
+#[test]
+fn saturation_parameter_reset_matches_fresh_highpass_stream() {
+    for quality in [
+        SaturationQualityValue::Direct,
+        SaturationQualityValue::Oversampled2x,
+        SaturationQualityValue::Oversampled4x,
+    ] {
+        let params = Arc::new(AtomicSaturationParams::new());
+        params.set_quality(quality);
+        params.set_highpass_mode(true);
+        let mut processor = SaturationProcessor::new(2, Arc::clone(&params));
+        params.set_drive(1.6);
+        params.set_threshold(0.4);
+        params.set_mix(0.9);
+        params.set_gains_db(6.0, -3.0);
+        params.set_highpass_cutoff(8_000.0);
+        processor.process(&mut [0.8; 34], 2);
+        processor.reset().unwrap();
+
+        let mut fresh = SaturationProcessor::new(2, Arc::clone(&params));
+        let input: Vec<_> = (0..1024)
+            .map(|sample| (sample as f64 * 0.317).sin() * 0.9)
+            .collect();
+        let mut actual = input.clone();
+        let mut expected = input;
+        processor.process(&mut actual, 2);
+        fresh.process(&mut expected, 2);
+        for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+            assert_eq!(actual, expected, "reset at sample {index}: {quality:?}");
+        }
+    }
+}
+
+#[test]
 fn saturation_soft_disable_keeps_fixed_timeline_and_drains_delay() {
     let params = Arc::new(AtomicSaturationParams::new());
     params.set_mix(1.0);
@@ -1296,8 +1620,14 @@ fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
 #[test]
 fn saturation_event_processing_is_allocation_free_after_setup() {
     let params = Arc::new(AtomicSaturationParams::new());
-    let mut proc = SaturationProcessor::new(2, params);
-    let mut samples = vec![0.9; 128 * 2];
+    params.set_highpass_mode(true);
+    let mut proc = SaturationProcessor::new(2, Arc::clone(&params));
+    let mut samples = vec![0.9; 512 * 2];
+    params.set_drive(1.7);
+    params.set_threshold(0.4);
+    params.set_mix(0.9);
+    params.set_gains_db(6.0, -4.0);
+    params.set_highpass_cutoff(8_500.0);
     let events = [
         SaturationEvent {
             frame_offset: 7,
@@ -1307,10 +1637,17 @@ fn saturation_event_processing_is_allocation_free_after_setup() {
             frame_offset: 63,
             kind: SaturationEventKind::EffectEnabled(false),
         },
+        SaturationEvent {
+            frame_offset: 113,
+            kind: SaturationEventKind::EffectEnabled(true),
+        },
     ];
 
     assert_no_alloc::assert_no_alloc(|| {
         let _ = proc.process_with_events(&mut samples, 2, &events).unwrap();
+        let _ = proc
+            .finish(AudioBlockMut::new(&mut samples, 2).unwrap())
+            .unwrap();
     });
 }
 
