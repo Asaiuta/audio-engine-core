@@ -192,14 +192,14 @@ for up to a +34.8 dB ear-band advantage over flat TPDF dither.
 ### Parameter transition continuity
 
 Every field of every in-scope `Atomic*Params` snapshot is stepped mid-stream and
-measured for the discontinuity it introduces. 34 cases: 17 gated, 17 report-only.
+measured for the discontinuity it introduces. 34 cases: 23 gated, 11 report-only.
 
 | Metric | Result |
 | --- | ---: |
 | Worst gated excess step, EQ band gains (10 bands) | 4.81e-4 (bound 3.09e-3) |
-| Worst gated excess step, all 17 gated cases | 9.70e-4 (`volume_muted`, bound 8.37e-3) |
+| Worst gated excess step, all 23 gated cases | 1.53e-3 (`saturation_input_gain_db`, bound 1.12e-2) |
 | Tightest gated margin | `crossfeed_cutoff_hz`, 1.37x |
-| Unsmoothed continuous parameters found | 6 (all `Saturation`) |
+| Unsmoothed continuous parameters | 0 |
 | Cases whose latency shifts across the step | 3 (report-only) |
 
 Each case runs the same probe three times through one adapter: **A** holds the
@@ -217,7 +217,8 @@ post-step value from construction so it is fully settled.
   inside the carrier's own slew.
 - `bound = authority / documented_ramp_frames × 8`, derived from each
   processor's documented smoothing window (`EQ_SMOOTH_SAMPLES`,
-  `PARAMETER_RAMP_MS`, `SATURATION_TRANSITION_FRAMES`, the limiter attack ramp,
+  `PARAMETER_RAMP_MS`, `SATURATION_PARAMETER_RAMP_MS`,
+  `SATURATION_TRANSITION_FRAMES`, the limiter attack ramp,
   the volume smoother) rather than pinned to observed output.
 
 **What this does not prove.** These are synthetic single-tone probes at one
@@ -241,20 +242,26 @@ per-sample step is not the same as an inaudible transition. Specifically:
   It is probed with a burst (2048 frames over the ceiling, 6144 under) so
   release governs an observable recovery slope.
 
-**Findings, recorded not fixed.** Six `Saturation` continuous parameters reach
-the waveshaper with no ramp at all — `drive`, `threshold`, `mix`,
-`input_gain_db`, `output_gain_db`, `highpass_cutoff`. Their setters sanitize and
-assign. The largest measured step is `input_gain_db` at 0.554 for a +6 dB move.
-These are classified as findings rather than contracts; this probe measures, it
-does not redesign ramps.
+**Saturation smoothing (2026-09-06).** The realtime adapter ramps `drive`,
+`threshold`, `mix`, input/output gain, and the high-pass coefficient over 10 ms
+in source frames. Gains follow a dB trajectory; standalone core setters still
+apply immediately. The six rows now gate against 480-frame bounds at 48 kHz.
+The same probes failed all six gates against the pre-fix implementation, then
+passed after smoothing. Input gain excess fell from 0.554 to 0.00153.
 
-Separately, a runtime `armed` change is honoured when it should not be.
-`sync_params` ignores it only while `stream_started`, but `process` returns at
-the hard-bypass branch *before* setting that flag, so a processor that starts
-unarmed never marks the stream as started. Arming mid-stream then adds the
-core's 4-frame delay and the output timeline jumps. `set_hard_bypassed` refuses
-the same change with an error; the published-params path has no equivalent
-guard.
+The A/B/C endpoint envelope does not bound every intermediate nonlinear
+waveform. Threshold uses a slow 11 Hz probe; mix uses 110 Hz so the delayed
+source has a nonlinear residual at the update boundary; cutoff uses 125 Hz
+with zero threshold, drive 1, and mix 1. Faster carriers can violate the
+endpoint envelope even with correctly ramped parameters. These fixtures are
+regression probes, not general audibility bounds. An independent direct-core
+oracle separately checks the six ramp trajectories, retargeting, channel
+coherence, and 44.1/48/96 kHz operation.
+
+A mid-stream `armed` update is refused even when processing began in hard
+bypass. Its row remains report-only because the independently settled A/C
+runs straddle the zero/four-frame setup latency; the running B stream keeps
+its original timeline and measures zero excess.
 
 ### Convolution
 
