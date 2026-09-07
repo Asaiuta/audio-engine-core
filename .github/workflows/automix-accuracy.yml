@@ -1,0 +1,46 @@
+name: AutoMix Corpus Accuracy
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify provisioning behavior
+        run: python -B -m unittest discover -s benches/support/automix_accuracy -p 'test_*.py'
+      - name: Prepare the frozen public evaluation splits
+        run: python -B benches/support/automix_accuracy/prepare_public_corpus.py
+      - name: Verify the complete evaluation manifest
+        run: sha256sum --check benches/support/automix_accuracy/public_corpus.sha256
+      - name: Enforce both tempo and beat evaluation gates
+        run: >-
+          cargo bench --bench audio_automix_accuracy --
+          --corpus-manifest target/automix-corpus-data/manifest.json
+          --corpus-root target/automix-corpus-data
+          --require-corpus giantsteps-tempo
+          --require-corpus ballroom-beats
+          --enforce --out target/automix-accuracy.json
+      - name: Retain evaluation and provisioning evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automix-corpus-accuracy
+          if-no-files-found: warn
+          path: |
+            target/automix-accuracy.json
+            target/automix-corpus-data/manifest.json
+            target/automix-corpus-data/evaluation-plan.json
+            target/automix-corpus-data/provenance.json
+            target/automix-corpus-data/ballroom-archive-listing.json

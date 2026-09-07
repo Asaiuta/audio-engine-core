@@ -745,7 +745,7 @@ fn benchmark_automix(
             analyze_automix(MediaLocation::local(fixture_path), None, options.clone())
                 .map_err(|error| format!("timed AutoMix {mode_name} analysis failed: {error}"))?;
         samples.push(ns_per_work(start, 1));
-        valid &= analysis.version == 3
+        valid &= analysis.version == 4
             && analysis.mode == mode
             && analysis.duration > 0.0
             && !analysis.energy_profile.is_empty()

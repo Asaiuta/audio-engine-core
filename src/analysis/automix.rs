@@ -4,6 +4,8 @@
 //! windows off the realtime callback path and returns a stable DTO for later
 //! transition planning.
 
+mod tempo;
+
 use crate::analysis::LoudnessMeter;
 use crate::decoder::{
     DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
@@ -13,9 +15,12 @@ use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use tempo::{BeatGrid, TempoEstimate};
 use thiserror::Error;
 
-const ANALYSIS_VERSION: u32 = 3;
+// Unreleased v4: Structure's agreed semantics will join this schema before
+// release. A commit is not a schema release; cached v3 results need recomputing.
+const ANALYSIS_VERSION: u32 = 4;
 const DEFAULT_MAX_ANALYZE_TIME_SEC: f64 = 60.0;
 const MIN_ANALYZE_TIME_SEC: f64 = 5.0;
 const MAX_ANALYZE_TIME_SEC: f64 = 300.0;
@@ -33,14 +38,11 @@ const MAX_DECLARED_DURATION_SEC: f64 = 24.0 * 60.0 * 60.0;
 const ENERGY_PROFILE_RATE: f64 = 10.0;
 const WINDOW_SIZE_MS: usize = 20;
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
-const MIN_TEMPO_BPM: f64 = 55.0;
-const MAX_TEMPO_BPM: f64 = 200.0;
-// Rounded observation grids weaken a true non-integer beat period while an
-// integer multiple can align exactly. Sixty percent retains the fundamental
-// for those grids without accepting the low background autocorrelation floor.
-const HARMONIC_PEAK_RATIO: f32 = 0.6;
 const FFT_SIZE: usize = 1024;
-const SPECTRAL_HOP_SIZE: usize = FFT_SIZE / 2;
+
+fn spectral_hop_size(sample_rate: u32) -> usize {
+    (sample_rate as usize / 200).clamp(1, FFT_SIZE / 2)
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -88,12 +90,27 @@ pub struct AutomixAnalysis {
     /// realized head length; the head window is clamped to the track duration
     /// when the track is shorter than the cap.
     pub analyze_window: f64,
-    /// Estimated tempo in BPM, when the beat tracker converged.
+    /// Fitted constant tempo, rounded to 0.01 BPM only for reporting.
+    ///
+    /// A present tempo may summarize a drifting performance. Consult
+    /// [`Self::beat_grid_stability`] before using its constant grid.
     pub bpm: Option<f64>,
-    /// Confidence of the BPM estimate.
+    /// Prior-weighted autocorrelation salience times grid stability and the
+    /// fraction of tracked beats supported by observed onsets, in 0..1.
+    ///
+    /// This is an evidence score, not a calibrated probability of correctness.
+    /// Without a fitted grid it can report the available periodicity evidence;
+    /// silence/insufficient input produces `None`. v3 thresholds do not apply.
     pub bpm_confidence: Option<f64>,
-    /// Position of the first detected beat in seconds.
+    /// First fitted beat at or after the analyzed head origin, in absolute
+    /// source seconds. This is beat phase, not a downbeat or bar-start claim.
     pub first_beat_pos: Option<f64>,
+    /// Constant-grid stability in 0..1: `1 - min(1, RMS residual / (period/4))`.
+    ///
+    /// Residuals include all supported tracked beats, including robust-fit
+    /// outliers. `None` (JSON null) means no grid was fitted. Cut snapping
+    /// requires stability >=0.80 and [`Self::bpm_confidence`] >=0.35.
+    pub beat_grid_stability: Option<f64>,
     /// Integrated loudness in LUFS, when measurable.
     pub loudness: Option<f64>,
     /// True-peak level in dBTP, when measurable.
@@ -336,6 +353,7 @@ struct SpectralFluxAccumulator {
     /// coefficient is the same `f32` either way. `SpectrumAnalyzer` already
     /// stored its window this way.
     window: Vec<f32>,
+    hop_size: usize,
     pos: usize,
     fft: std::sync::Arc<dyn RealToComplex<f32>>,
 }
@@ -362,7 +380,7 @@ impl SegmentAnalyzer {
             low_filter: FirstOrderFilter::new(sample_rate, 150.0, false),
             vocal_lowpass: FirstOrderFilter::new(sample_rate, 3_000.0, false),
             vocal_highpass: FirstOrderFilter::new(sample_rate, 200.0, true),
-            spectral: SpectralFluxAccumulator::new(),
+            spectral: SpectralFluxAccumulator::new(sample_rate),
         }
     }
 
@@ -371,10 +389,14 @@ impl SegmentAnalyzer {
         samples: &[f64],
         meter: &mut LoudnessMeter,
         segment: &mut AnalysisSegment,
-    ) -> Result<(), ProcessError> {
+        cancel: Option<&DecodeCancelToken>,
+    ) -> Result<(), AutomixError> {
         meter.process(samples)?;
 
-        for frame in samples.chunks_exact(self.channels) {
+        for (index, frame) in samples.chunks_exact(self.channels).enumerate() {
+            if index % 4_096 == 0 {
+                check_cancel(cancel)?;
+            }
             let mono = (frame.iter().sum::<f64>() / self.channels as f64) as f32;
             let low = self.low_filter.process(mono);
             let vocal = self
@@ -402,13 +424,13 @@ impl SegmentAnalyzer {
     }
 }
 
-/// The periodic-denominator Hann window used by the spectral-flux accumulator.
+/// The symmetric Hann window used by the spectral-flux accumulator.
 ///
 /// The expression is kept character-for-character identical to the one this
 /// replaced (`0.5 - 0.5 * cos(2*PI*i / (FFT_SIZE - 1))`, evaluated in `f32`),
 /// so each cached coefficient is the same bit pattern the inline version
-/// produced and the flux output is unchanged. `legacy_spectral_flux` in the
-/// tests still evaluates the window inline and is the independent check on that.
+/// produced. The independent complex-transform reference in the tests still
+/// evaluates the window inline and applies the v4 log-magnitude contract.
 fn hann_window() -> Vec<f32> {
     (0..FFT_SIZE)
         .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos())
@@ -416,7 +438,7 @@ fn hann_window() -> Vec<f32> {
 }
 
 impl SpectralFluxAccumulator {
-    fn new() -> Self {
+    fn new(sample_rate: u32) -> Self {
         let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_SIZE);
         Self {
@@ -426,6 +448,7 @@ impl SpectralFluxAccumulator {
             previous_magnitudes: vec![0.0; FFT_SIZE / 2],
             scratch: vec![0.0; FFT_SIZE],
             window: hann_window(),
+            hop_size: spectral_hop_size(sample_rate),
             pos: 0,
             fft,
         }
@@ -454,13 +477,13 @@ impl SpectralFluxAccumulator {
 
         let mut flux = 0.0;
         for i in 0..FFT_SIZE / 2 {
-            let mag = self.spectrum[i].norm();
+            let mag = self.spectrum[i].norm().ln_1p();
             flux += (mag - self.previous_magnitudes[i]).max(0.0);
             self.previous_magnitudes[i] = mag;
         }
 
-        self.scratch.copy_within(SPECTRAL_HOP_SIZE..FFT_SIZE, 0);
-        self.pos = SPECTRAL_HOP_SIZE;
+        self.scratch.copy_within(self.hop_size..FFT_SIZE, 0);
+        self.pos = FFT_SIZE - self.hop_size;
         Some(flux / (FFT_SIZE / 2) as f32)
     }
 }
@@ -540,15 +563,15 @@ pub fn analyze_automix_with_cancel(
         )?;
     }
 
-    Ok(finalize_analysis(
-        options.mode,
-        options.max_analyze_time_sec,
+    finalize_analysis(
+        &options,
         duration,
         sample_rate,
         &meter,
         &head,
         &tail,
-    ))
+        cancel_token.as_ref(),
+    )
 }
 
 fn decode_segment(
@@ -584,7 +607,7 @@ fn decode_segment(
         };
         let sample_range = frame_range.start * channels..frame_range.end * channels;
         let selected_frames = (frame_range.end - frame_range.start) as u64;
-        analyzer.process(&chunk[sample_range], meter, segment)?;
+        analyzer.process(&chunk[sample_range], meter, segment, cancel_token)?;
         take_remaining -= selected_frames;
     }
 
@@ -634,14 +657,16 @@ fn check_cancel(cancel_token: Option<&DecodeCancelToken>) -> Result<(), AutomixE
 }
 
 fn finalize_analysis(
-    mode: AutomixAnalysisMode,
-    analyze_window: f64,
+    options: &AutomixAnalysisOptions,
     duration: f64,
     sample_rate: u32,
     meter: &LoudnessMeter,
     head: &AnalysisSegment,
     tail: &AnalysisSegment,
-) -> AutomixAnalysis {
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<AutomixAnalysis, AutomixError> {
+    check_cancel(cancel)?;
+    let mode = options.mode;
     let effective_duration = if duration.is_finite() && duration > 0.0 {
         duration
     } else {
@@ -656,30 +681,37 @@ fn finalize_analysis(
         ENVELOPE_RATE,
         SILENCE_THRESHOLD_DB,
     );
-    let (tempo_values, tempo_rate) = if head.spectral_flux.len() >= 100 {
+    // Spectral flux is already differentiated. Only the RMS fallback needs
+    // conversion to an onset curve, once, before local-mean removal.
+    let fallback;
+    let (tempo_values, tempo_rate, observation_offset) = if head.spectral_flux.len() >= 100 {
         (
             head.spectral_flux.as_slice(),
-            sample_rate as f64 / SPECTRAL_HOP_SIZE as f64,
+            sample_rate as f64 / spectral_hop_size(sample_rate) as f64,
+            (FFT_SIZE - 1) as f64 / (2.0 * sample_rate as f64),
         )
     } else {
-        (head.envelope.as_slice(), ENVELOPE_RATE)
+        fallback = head
+            .envelope
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).max(0.0))
+            .collect::<Vec<_>>();
+        (fallback.as_slice(), ENVELOPE_RATE, 1.0 / ENVELOPE_RATE)
     };
-    let (bpm, bpm_confidence, first_beat) = detect_bpm(tempo_values, tempo_rate);
+    let mut tempo = tempo::estimate(tempo_values, tempo_rate, observation_offset, cancel)?;
+    if let Some(grid) = &mut tempo.grid {
+        grid.first_beat_sec += head.start_time;
+    }
+    let bpm = tempo.bpm();
+    let bpm_confidence = tempo.confidence;
+    let first_beat = tempo.grid.map(|grid| grid.first_beat_sec);
     let drop_pos = detect_drop(&head.envelope, ENVELOPE_RATE);
     let (vocal_in, vocal_out, vocal_last_in) =
         detect_vocals(head, tail, ENVELOPE_RATE, fade_in, fade_out);
-    let cut_in = calculate_smart_cut_in(
-        bpm,
-        first_beat,
-        bpm_confidence,
-        vocal_in.or(drop_pos),
-        fade_in,
-    );
+    let cut_in = calculate_smart_cut_in(tempo, vocal_in.or(drop_pos), fade_in);
     let cut_out = if mode.includes_tail() {
         Some(calculate_smart_cut_out(
-            bpm,
-            first_beat,
-            bpm_confidence,
+            tempo,
             vocal_out,
             fade_out,
             effective_duration,
@@ -695,14 +727,16 @@ fn finalize_analysis(
     let loudness = finite_measurement(meter.integrated_loudness());
     let true_peak_dbtp = finite_measurement(meter.true_peak());
 
-    AutomixAnalysis {
+    check_cancel(cancel)?;
+    Ok(AutomixAnalysis {
         version: ANALYSIS_VERSION,
         mode,
         duration: effective_duration,
-        analyze_window,
+        analyze_window: options.max_analyze_time_sec,
         bpm,
         bpm_confidence,
         first_beat_pos: first_beat,
+        beat_grid_stability: tempo.grid.map(|grid| grid.stability),
         loudness,
         true_peak_dbtp,
         fade_in_pos: fade_in,
@@ -723,7 +757,7 @@ fn finalize_analysis(
         vocal_last_in_pos: tail.and(vocal_last_in),
         outro_energy_level: tail
             .and_then(|segment| calculate_outro_energy(&segment.envelope, ENVELOPE_RATE)),
-    }
+    })
 }
 
 pub fn detect_silence(
@@ -765,117 +799,6 @@ fn detect_silence_at(
     };
 
     (fade_in, fade_out)
-}
-
-pub fn detect_bpm(values: &[f32], rate: f64) -> (Option<f64>, Option<f64>, Option<f64>) {
-    if values.len() < 110 || !rate.is_finite() || rate <= 0.0 {
-        return (None, None, None);
-    }
-
-    let flux: Vec<f32> = values
-        .windows(2)
-        .map(|window| (window[1] - window[0]).max(0.0))
-        .collect();
-    let flux_energy = flux.iter().map(|value| value * value).sum::<f32>();
-    if flux_energy <= 1.0e-6 {
-        return (None, None, None);
-    }
-
-    let min_lag = (rate * 60.0 / MAX_TEMPO_BPM).floor().max(1.0) as usize;
-    let max_lag = ((rate * 60.0 / MIN_TEMPO_BPM).ceil() as usize).min(flux.len().saturating_sub(1));
-    if min_lag > max_lag {
-        return (None, None, None);
-    }
-
-    let mut correlations = Vec::with_capacity(max_lag - min_lag + 1);
-    let mut corr_sum = 0.0_f32;
-
-    for lag in min_lag..=max_lag {
-        let mut sum = 0.0;
-        let mut left_energy = 0.0;
-        let mut right_energy = 0.0;
-        for idx in 0..flux.len() - lag {
-            let left = flux[idx];
-            let right = flux[idx + lag];
-            sum += left * right;
-            left_energy += left * left;
-            right_energy += right * right;
-        }
-        let denominator = (left_energy * right_energy).sqrt();
-        let normalized = if denominator > 0.0 {
-            sum / denominator
-        } else {
-            0.0
-        };
-        corr_sum += normalized;
-        correlations.push((lag, normalized));
-    }
-
-    let strongest_corr = correlations
-        .iter()
-        .map(|(_, correlation)| *correlation)
-        .max_by(f32::total_cmp)
-        .unwrap_or(0.0);
-    if strongest_corr <= 1.0e-5 {
-        return (None, None, None);
-    }
-
-    // A periodic onset train produces equally valid autocorrelation peaks at
-    // integer multiples of its fundamental period. Prefer the shortest peak
-    // that is effectively as strong as the global maximum so 120/180 BPM are
-    // not folded to 60 BPM solely because a later multiple aligns exactly.
-    let peak_floor = strongest_corr * HARMONIC_PEAK_RATIO;
-    let (best_lag, best_corr) = correlations
-        .iter()
-        .enumerate()
-        .find(|(index, (_, correlation))| {
-            let previous = index
-                .checked_sub(1)
-                .and_then(|previous| correlations.get(previous))
-                .map_or(f32::NEG_INFINITY, |(_, value)| *value);
-            let next = correlations
-                .get(index + 1)
-                .map_or(f32::NEG_INFINITY, |(_, value)| *value);
-            *correlation >= peak_floor && *correlation >= previous && *correlation >= next
-        })
-        .map(|(_, value)| *value)
-        .unwrap_or_else(|| {
-            correlations
-                .iter()
-                .copied()
-                .max_by(|left, right| left.1.total_cmp(&right.1))
-                .unwrap_or((0, 0.0))
-        });
-
-    let average_corr = corr_sum / correlations.len() as f32;
-    let confidence = ((best_corr - average_corr).max(0.0) / best_corr.max(1.0e-6)).clamp(0.0, 1.0);
-    if confidence < 0.12 {
-        return (None, Some(confidence as f64), None);
-    }
-
-    let first_beat = (0..best_lag)
-        .max_by(|a, b| {
-            phase_energy(&flux, *a, best_lag)
-                .partial_cmp(&phase_energy(&flux, *b, best_lag))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|phase| phase as f64 / rate);
-
-    (
-        Some(60.0 / (best_lag as f64 / rate)),
-        Some(confidence as f64),
-        first_beat,
-    )
-}
-
-fn phase_energy(flux: &[f32], phase: usize, lag: usize) -> f32 {
-    let mut energy = 0.0;
-    let mut idx = phase;
-    while idx < flux.len() {
-        energy += flux[idx];
-        idx += lag;
-    }
-    energy
 }
 
 fn detect_drop(envelope: &[f32], rate: f64) -> Option<f64> {
@@ -944,22 +867,14 @@ fn detect_vocals(
     (vocal_in, vocal_out, vocal_last_in)
 }
 
-fn calculate_smart_cut_in(
-    bpm: Option<f64>,
-    first_beat: Option<f64>,
-    confidence: Option<f64>,
-    anchor: Option<f64>,
-    fade_in: f64,
-) -> f64 {
+fn calculate_smart_cut_in(tempo: TempoEstimate, anchor: Option<f64>, fade_in: f64) -> f64 {
     let anchor = anchor.unwrap_or(fade_in);
-    if let (Some(bpm), Some(first_beat)) = (bpm, first_beat) {
-        if confidence.unwrap_or(0.0) > 0.4 {
-            let sec_per_bar = 240.0 / bpm;
-            for bars in [32.0_f64, 16.0, 8.0] {
-                let time = anchor - bars * sec_per_bar;
-                if time > fade_in {
-                    return snap_time(time, bpm, first_beat, 4.0);
-                }
+    if let Some(grid) = tempo.usable_grid() {
+        // These are transition durations, not claims about bar phase.
+        for beats in [128.0, 64.0, 32.0] {
+            let time = anchor - beats * grid.period_sec;
+            if time > fade_in {
+                return snap_to_beat(time, grid).max(fade_in);
             }
         }
     }
@@ -967,35 +882,27 @@ fn calculate_smart_cut_in(
 }
 
 fn calculate_smart_cut_out(
-    bpm: Option<f64>,
-    first_beat: Option<f64>,
-    confidence: Option<f64>,
+    tempo: TempoEstimate,
     vocal_out: Option<f64>,
     fade_out: f64,
     duration: f64,
 ) -> f64 {
     let search_end = vocal_out.map_or(fade_out, |value| (value + 40.0).min(fade_out));
-    if let (Some(bpm), Some(first_beat)) = (bpm, first_beat) {
-        if confidence.unwrap_or(0.0) > 0.4 {
-            let snapped = snap_time(search_end, bpm, first_beat, 4.0);
-            if let Some(vocal_out) = vocal_out {
-                if snapped < vocal_out + 2.0 {
-                    return snap_time(vocal_out + 4.0, bpm, first_beat, 4.0).min(duration);
-                }
+    if let Some(grid) = tempo.usable_grid() {
+        let snapped = snap_to_beat(search_end, grid);
+        if let Some(vocal_out) = vocal_out {
+            if snapped < vocal_out + 2.0 {
+                return snap_to_beat(vocal_out + 4.0, grid).min(duration);
             }
-            return snapped.min(duration);
         }
+        return snapped.min(duration);
     }
     search_end
 }
 
-fn snap_time(time: f64, bpm: f64, first_beat: f64, grid: f64) -> f64 {
-    let grid_sec = 60.0 / bpm * grid;
-    if grid_sec <= 0.0 {
-        return time;
-    }
-    let units = ((time - first_beat) / grid_sec).round();
-    (first_beat + units * grid_sec).max(0.0)
+fn snap_to_beat(time: f64, grid: BeatGrid) -> f64 {
+    let units = ((time - grid.first_beat_sec) / grid.period_sec).round();
+    (grid.first_beat_sec + units * grid.period_sec).max(0.0)
 }
 
 fn build_energy_profile(
@@ -1099,7 +1006,7 @@ mod tests {
     /// formulation this module used before moving to `realfft`.
     ///
     /// Deliberately built on `rustfft` so it remains an independent oracle.
-    fn legacy_spectral_flux(samples: &[f32]) -> Vec<f32> {
+    fn reference_spectral_flux(samples: &[f32], sample_rate: u32) -> Vec<f32> {
         use rustfft::{num_complex::Complex32, FftPlanner};
 
         let mut planner = FftPlanner::<f32>::new();
@@ -1109,6 +1016,7 @@ mod tests {
         let mut scratch = vec![0.0f32; FFT_SIZE];
         let mut pos = 0usize;
         let mut out = Vec::new();
+        let hop = (sample_rate as usize / 200).clamp(1, FFT_SIZE / 2);
 
         for &sample in samples {
             scratch[pos] = sample;
@@ -1125,12 +1033,12 @@ mod tests {
 
             let mut flux = 0.0;
             for i in 0..FFT_SIZE / 2 {
-                let mag = frame[i].norm();
+                let mag = frame[i].norm().ln_1p();
                 flux += (mag - previous[i]).max(0.0);
                 previous[i] = mag;
             }
-            scratch.copy_within(SPECTRAL_HOP_SIZE..FFT_SIZE, 0);
-            pos = SPECTRAL_HOP_SIZE;
+            scratch.copy_within(hop..FFT_SIZE, 0);
+            pos = FFT_SIZE - hop;
             out.push(flux / (FFT_SIZE / 2) as f32);
         }
         out
@@ -1179,8 +1087,8 @@ mod tests {
             })
             .collect();
 
-        let expected = legacy_spectral_flux(&samples);
-        let mut accumulator = SpectralFluxAccumulator::new();
+        let expected = reference_spectral_flux(&samples, 48_000);
+        let mut accumulator = SpectralFluxAccumulator::new(48_000);
         let actual: Vec<f32> = samples
             .iter()
             .filter_map(|&sample| accumulator.process(sample))
@@ -1309,14 +1217,18 @@ mod tests {
             ..AnalysisSegment::default()
         };
         finalize_analysis(
-            AutomixAnalysisMode::Head,
-            DEFAULT_MAX_ANALYZE_TIME_SEC,
+            &AutomixAnalysisOptions {
+                mode: AutomixAnalysisMode::Head,
+                ..AutomixAnalysisOptions::default()
+            },
             12.0,
             sample_rate,
             &meter,
             &head,
             &AnalysisSegment::default(),
+            None,
         )
+        .unwrap()
     }
 
     #[test]
@@ -1392,7 +1304,7 @@ mod tests {
         let mut meter = LoudnessMeter::new(channels, sample_rate).unwrap();
         let mut segment = AnalysisSegment::default();
         SegmentAnalyzer::new(sample_rate, channels)
-            .process(selected, &mut meter, &mut segment)
+            .process(selected, &mut meter, &mut segment, None)
             .unwrap();
 
         assert_eq!(meter.frames_processed(), 1_024);
@@ -1420,14 +1332,18 @@ mod tests {
         };
 
         let analysis = finalize_analysis(
-            AutomixAnalysisMode::Full,
-            5.0,
+            &AutomixAnalysisOptions {
+                mode: AutomixAnalysisMode::Full,
+                max_analyze_time_sec: 5.0,
+            },
             20.0,
             sample_rate,
             &meter,
             &head,
             &tail,
-        );
+            None,
+        )
+        .unwrap();
 
         assert!((analysis.fade_out_pos - 14.0).abs() < 0.001);
         assert!(analysis.energy_profile[120] > 0.0);
@@ -1474,14 +1390,18 @@ mod tests {
         // `duration = 0.0` is what the caller passes once it rejects the
         // declared value, so `finalize_analysis` derives the timeline itself.
         let analysis = finalize_analysis(
-            AutomixAnalysisMode::Head,
-            5.0,
+            &AutomixAnalysisOptions {
+                mode: AutomixAnalysisMode::Head,
+                max_analyze_time_sec: 5.0,
+            },
             0.0,
             sample_rate,
             &meter,
             &head,
             &AnalysisSegment::default(),
-        );
+            None,
+        )
+        .unwrap();
 
         assert!((analysis.duration - 5.0).abs() < 0.001);
         assert_eq!(
@@ -1528,20 +1448,29 @@ mod tests {
     #[test]
     fn bpm_detection_returns_structured_low_confidence_for_flat_signal() {
         let values = vec![0.01; 160];
-        let (bpm, confidence, first_beat) = detect_bpm(&values, 50.0);
+        let estimate = tempo::estimate(&values, 50.0, 0.0, None).unwrap();
 
-        assert!(bpm.is_none());
-        assert!(confidence.is_none());
-        assert!(first_beat.is_none());
+        assert!(estimate.grid.is_none());
+        assert!(estimate.confidence.is_none());
     }
 
     #[test]
     fn bpm_detection_rejects_invalid_rate_and_short_input() {
         let values = pulse_train(50.0, 120.0, 12.0);
         for rate in [0.0, -50.0, f64::NAN, f64::INFINITY] {
-            assert_eq!(detect_bpm(&values, rate), (None, None, None));
+            assert!(tempo::estimate(&values, rate, 0.0, None)
+                .unwrap()
+                .grid
+                .is_none());
         }
-        assert_eq!(detect_bpm(&values[..109], 50.0), (None, None, None));
+        assert!(tempo::estimate(&values[..99], 50.0, 0.0, None)
+            .unwrap()
+            .grid
+            .is_none());
+        assert!(tempo::estimate(&vec![f32::NAN; 500], 50.0, 0.0, None)
+            .unwrap()
+            .grid
+            .is_none());
     }
 
     #[test]
@@ -1551,27 +1480,44 @@ mod tests {
             values[idx] = 1.0;
         }
 
-        let (bpm, confidence, first_beat) = detect_bpm(&values, 50.0);
+        let estimate = tempo::estimate(&values, 50.0, 0.0, None).unwrap();
 
-        assert!(bpm.is_some_and(|value| (value - 120.0).abs() < 0.1));
-        assert!(confidence.is_some_and(|value| value > 0.12));
-        assert!(first_beat.is_some());
+        assert!(estimate
+            .bpm()
+            .is_some_and(|value| (value - 120.0).abs() <= 0.05));
+        assert!(estimate.usable_grid().is_some());
     }
 
     #[test]
-    fn bpm_detection_uses_rate_derived_lag_bounds() {
-        for rate in [50.0, 44_100.0 / 512.0, 48_000.0 / 512.0] {
-            for bpm in [60.0, 120.0, 180.0] {
-                let values = pulse_train(rate, bpm, 12.0);
-                let (detected, _, _) = detect_bpm(&values, rate);
-                let detected = detected.unwrap_or_else(|| {
+    fn sub_frame_grid_regression_preserves_precision_and_unrounded_drift() {
+        // This is an ODF-only test. The integration suite separately drives
+        // the complete native-rate PCM -> decode -> FFT -> public DTO path.
+        for rate in [50.0, 44_100.0 / 220.0, 200.0] {
+            for bpm in [60.0, 127.3, 174.6, 200.0] {
+                let values = pulse_train(rate, bpm, 60.0);
+                let estimate = tempo::estimate(&values, rate, 0.0, None).unwrap();
+                let detected = estimate.bpm().unwrap_or_else(|| {
                     panic!("expected {bpm} BPM to be detected at observation rate {rate}")
                 });
-                let relative_error = (detected - bpm).abs() / bpm;
                 assert!(
-                    relative_error <= 0.02,
-                    "expected {bpm} BPM at {rate} Hz, got {detected} ({relative_error:.3} relative error)"
+                    (detected - bpm).abs() <= 0.05,
+                    "expected {bpm} BPM at {rate} Hz, got {detected}"
                 );
+                let grid = estimate.grid.unwrap();
+                let true_period = 60.0 / bpm;
+                let phase_error = (grid.first_beat_sec + true_period / 2.0).rem_euclid(true_period)
+                    - true_period / 2.0;
+                assert!(
+                    phase_error.abs() <= 0.010,
+                    "{rate} Hz, {bpm} BPM phase: {phase_error}"
+                );
+                let last = (60.0 / true_period).floor();
+                for period in [grid.period_sec, 60.0 / detected] {
+                    assert!(
+                        (phase_error + last * (period - true_period)).abs() <= 0.020,
+                        "{rate} Hz, {bpm} BPM drift"
+                    );
+                }
             }
         }
     }
@@ -1579,27 +1525,89 @@ mod tests {
     #[test]
     fn finalize_analysis_uses_spectral_flux_cadence() {
         let sample_rate = 44_100;
-        let flux_rate = sample_rate as f64 / 512.0;
+        let flux_rate = sample_rate as f64 / spectral_hop_size(sample_rate) as f64;
         let analysis = empty_analysis_with_flux(sample_rate, pulse_train(flux_rate, 120.0, 12.0));
 
         assert!(
             analysis
                 .bpm
-                .is_some_and(|value| (value - 120.0).abs() / 120.0 <= 0.02),
+                .is_some_and(|value| (value - 120.0).abs() <= 0.05),
             "spectral-flux BPM used the wrong cadence: {:?}",
             analysis.bpm
         );
     }
 
     #[test]
-    fn serialized_analysis_omits_unimplemented_key_placeholders() {
+    fn cuts_snap_to_individual_beats_only_with_usable_evidence() {
+        let grid = BeatGrid {
+            period_sec: 0.5,
+            first_beat_sec: 0.217,
+            stability: 0.95,
+        };
+        let tempo = TempoEstimate {
+            grid: Some(grid),
+            confidence: Some(0.9),
+        };
+        assert!((snap_to_beat(1.3, grid) - 1.217).abs() < 1e-12);
+        assert!((calculate_smart_cut_in(tempo, Some(70.1), 0.1) - 6.217).abs() < 1e-12);
+        assert!((calculate_smart_cut_out(tempo, None, 10.1, 11.0) - 10.217).abs() < 1e-12);
+        assert!(calculate_smart_cut_out(tempo, Some(10.0), 10.1, 11.0) <= 11.0);
+        for (confidence, stability) in [(0.34, 0.95), (0.9, 0.79)] {
+            let uncertain = TempoEstimate {
+                grid: Some(BeatGrid { stability, ..grid }),
+                confidence: Some(confidence),
+            };
+            assert_eq!(calculate_smart_cut_in(uncertain, Some(70.1), 0.1), 0.1);
+            assert_eq!(calculate_smart_cut_out(uncertain, None, 10.1, 11.0), 10.1);
+        }
+    }
+
+    #[test]
+    fn serialized_v4_analysis_pins_null_grid_and_omits_key_placeholders() {
         let analysis = empty_analysis_with_flux(48_000, Vec::new());
         let json = serde_json::to_value(&analysis).expect("analysis should serialize");
 
-        assert_eq!(json["version"], 3);
+        assert_eq!(json["version"], 4);
+        assert_eq!(json["mode"], "head");
+        assert!(json["beat_grid_stability"].is_null());
+        let expected_keys: std::collections::BTreeSet<_> = [
+            "version",
+            "mode",
+            "duration",
+            "analyze_window",
+            "bpm",
+            "bpm_confidence",
+            "first_beat_pos",
+            "beat_grid_stability",
+            "loudness",
+            "true_peak_dbtp",
+            "fade_in_pos",
+            "fade_out_pos",
+            "cut_in_pos",
+            "cut_out_pos",
+            "mix_center_pos",
+            "mix_start_pos",
+            "mix_end_pos",
+            "energy_profile",
+            "drop_pos",
+            "vocal_in_pos",
+            "vocal_out_pos",
+            "vocal_last_in_pos",
+            "outro_energy_level",
+        ]
+        .into_iter()
+        .collect();
+        let actual_keys: std::collections::BTreeSet<_> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(actual_keys, expected_keys);
         for field in [
             "key_status",
             "key_root",
+            "key_pitch_class",
             "key_mode",
             "key_confidence",
             "camelot_key",
@@ -1652,8 +1660,7 @@ mod tests {
         let mut meter = LoudnessMeter::new(2, 48_000).unwrap();
         let mut segment = AnalysisSegment::default();
         let error = SegmentAnalyzer::new(48_000, 2)
-            .process(&[0.25, -0.25, 0.5], &mut meter, &mut segment)
-            .map_err(AutomixError::from)
+            .process(&[0.25, -0.25, 0.5], &mut meter, &mut segment, None)
             .expect_err("incomplete interleaved frame must fail");
 
         assert!(matches!(

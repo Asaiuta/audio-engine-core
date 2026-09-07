@@ -75,6 +75,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::Wi
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::WindowFunction
 pub struct audio_engine_core::analysis::AutomixAnalysis
 pub audio_engine_core::analysis::AutomixAnalysis::analyze_window: f64
+pub audio_engine_core::analysis::AutomixAnalysis::beat_grid_stability: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::bpm: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::bpm_confidence: core::option::Option<f64>
 pub audio_engine_core::analysis::AutomixAnalysis::cut_in_pos: core::option::Option<f64>

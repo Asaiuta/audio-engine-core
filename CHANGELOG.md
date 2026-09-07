@@ -10,6 +10,18 @@ version bumps, as permitted by SemVer.
 
 ## [2.0.0] - Unreleased
 
+### Changed
+
+- AutoMix analysis schema v4 reports tempo to 0.01 BPM with a constant beat
+  grid and nullable `beat_grid_stability`. Log spectral flux, sub-frame
+  periodicity inference, dynamic-programming beats and grid regression replace
+  the integer-lag estimator. Cut snapping uses individual beats with explicit
+  confidence/stability gates. Recompute cached v3 analysis; the new field also
+  changes Rust struct-literal construction. v4 remains unreleased until the
+  coordinated Structure semantics land and corpus accuracy is accepted.
+  Synthetic precision passes, but the first complete GiantSteps/Ballroom
+  evaluation fails three of four MIR minimum bars; see `docs/automix-accuracy.md`.
+
 ### Removed
 
 **Breaking (major release).** The 1.x compatibility aliases kept during the

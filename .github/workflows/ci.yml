@@ -35,6 +35,9 @@ jobs:
       - name: rustfmt
         run: cargo fmt --all -- --check
 
+      - name: AutoMix corpus provisioning tests
+        run: python3 -B -m unittest discover -s benches/support/automix_accuracy -p 'test_*.py'
+
       - name: clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
 

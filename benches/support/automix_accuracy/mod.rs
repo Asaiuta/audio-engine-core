@@ -15,7 +15,8 @@ use serde::Serialize;
 use crate::support::{generated_unix_ms, write_json, BenchEnvironment};
 use corpus::{Annotation, Corpus, Manifest, MetricKind, Split};
 
-pub const ESTIMATOR_CONFIGURATION: &str = "automix_v3_integer_acf";
+pub const ESTIMATOR_CONFIGURATION: &str =
+    "automix_v4_logflux200_acfblur10ms_prior120_sigma1.5_subdiv4_dp100_grid_v1_dev";
 pub const ANALYSIS_CAP_SEC: f64 = 60.0;
 
 #[derive(Debug, Default)]
@@ -200,6 +201,7 @@ impl Report {
                 "analysis_mode": "head", "max_analyze_time_sec": ANALYSIS_CAP_SEC,
                 "estimator_configuration": ESTIMATOR_CONFIGURATION,
                 "estimator_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analysis/automix.rs"))),
+                "tempo_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analysis/automix/tempo.rs"))),
                 "fixture_revision": fixtures::FIXTURE_REVISION,
                 "metric_reference": "mir_eval==0.8.2",
                 "tempo_relative_tolerance": metrics::TEMPO_TOLERANCE,
@@ -308,17 +310,12 @@ pub fn analyze_file(path: &Path) -> Result<(Prediction, Interval), String> {
         },
     )
     .map_err(|error| error.to_string())?;
-    // T1 compiles against schema v3; v4 adds this optional field in T3. JSON is
-    // used only for the baseline bridge in the bench, never in the library.
-    let stability = serde_json::to_value(&result).map_err(|error| error.to_string())?
-        ["beat_grid_stability"]
-        .as_f64();
     let prediction = Prediction {
         analysis_version: result.version,
         bpm: result.bpm,
         bpm_confidence: result.bpm_confidence,
         first_beat_pos: result.first_beat_pos,
-        beat_grid_stability: stability,
+        beat_grid_stability: result.beat_grid_stability,
         key: None,
     };
     if [
@@ -654,6 +651,64 @@ pub fn evaluate_synthetic(report: &mut Report) -> Result<(), String> {
                     detail: "audio-to-public-result; missing prediction is a miss; drift uses rounded public BPM".into(),
                 });
             }
+        }
+        let (checks, comparison) = if fixture.precision_gate() {
+            (
+                vec![("grid_stability", prediction.beat_grid_stability, 0.90)],
+                ">=",
+            )
+        } else if matches!(
+            fixture.pattern,
+            fixtures::Pattern::Ramp | fixtures::Pattern::OffGrid
+        ) {
+            (
+                vec![
+                    (
+                        "unstable_grid",
+                        Some(prediction.beat_grid_stability.unwrap_or(0.0)),
+                        0.80,
+                    ),
+                    (
+                        "uncertain_tempo",
+                        Some(prediction.bpm_confidence.unwrap_or(0.0)),
+                        0.35,
+                    ),
+                ],
+                "<",
+            )
+        } else {
+            let abstains = prediction.bpm.is_none()
+                && prediction.first_beat_pos.is_none()
+                && prediction.beat_grid_stability.is_none();
+            (
+                vec![(
+                    "tempo_abstention",
+                    Some(if abstains { 1.0 } else { 0.0 }),
+                    1.0,
+                )],
+                ">=",
+            )
+        };
+        for (name, measured, threshold) in checks {
+            if let Some(value) = measured {
+                scores.insert(name.into(), value);
+            }
+            report.metrics.push(Metric {
+                name: format!("{}:{name}", fixture.id),
+                corpus_id: "synthetic".into(),
+                classification: "gate".into(),
+                comparison: comparison.into(),
+                measured,
+                threshold,
+                unit: "fraction".into(),
+                passed: Some(measured.is_some_and(|value| if comparison == "<" {
+                    value < threshold
+                } else {
+                    value >= threshold
+                })),
+                case_count: 1,
+                detail: "constant fixtures require stable grids; drifting fixtures cannot authorize snapping; noise/silence/short inputs abstain".into(),
+            });
         }
         report.cases.push(Case {
             case_key: format!("synthetic:{}", fixture.id),

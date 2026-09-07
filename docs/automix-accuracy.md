@@ -136,9 +136,126 @@ are BPM error <=0.05, phase error <=10 ms, and full-window drift <=20 ms,
 including rounding of the public BPM. Swung beats, off-grid onsets, ramps,
 silence, noise, and a short input are separately identified in each report.
 
-Freeze detector parameters on development evidence before a held-out run.
-Pin the manifest digest and required metric names in CI provisioning, then
-invoke the offline bench with both tempo and beat corpora required. Missing
-inputs or provisioning failure must fail that evaluation job. Archive reports
-on failure. A skipped local corpus is not a real-music accuracy claim, and a
-local subset is not evidence for a complete published dataset.
+## Version 4 estimator
+
+v4 is unreleased pending the coordinated Structure integration. Existing
+tempo fields retain their names; `beat_grid_stability` is the only added
+field and is JSON null when there is no fitted grid. Recompute cached v3
+analysis before applying the new confidence thresholds. The additive JSON
+change also affects Rust struct literals in the planned 2.0 release cycle.
+
+The spectral hop is `(sample_rate / 200).clamp(1, 512)` with a 1024-point
+symmetric Hann window. The first observation uses the window-center timestamp.
+Positive log-magnitude flux has its +/-100 ms local mean removed, then is
+rectified and RMS-normalized. ACF alone receives a 10 ms Gaussian blur (at
+least one observation, truncated at three sigma). This prevents narrow
+off-grid transients favoring an integer-aligned multiple. DP and fitting use
+the unblurred ODF, preserving onset precision.
+
+The prior centers on 120 BPM with 1.5-octave sigma, across 55..200 BPM. For
+normalized ACF `c` and refined period `p`, harmonic evidence is
+`h=(c(p)+.5*c(2p)+.25*c(3p))/1.75`; rank by
+`c(p)*h*prior - .60*c(p/2)^4 - .30*c(p/3)^4`. Fourth powers limit the penalty
+to strong subdivisions. Parabolic peaks and 1x/2x/3x refinement feed DP
+tracking, with transition penalty `100*ln(interval/period)^2`.
+
+At least six supported beats are needed to fit a grid. One robust refit may
+exclude timing outliers, but stability still includes every supported beat:
+`clamp(1 - RMS_residual/(period/4), 0, 1)`.
+The grid is discarded when residual reaches one quarter of a beat; zero
+stability cannot justify publishing a tempo. With `mean` equal to the mean
+prior-weighted ACF in the search range, salience is
+`clamp((c(p)*prior-mean)/max(.01,1-mean),0,1)`. Below .15 the estimator abstains
+from fitting. Confidence is salience times stability times observed-beat
+support, or the available salience without a fit; silence/short inputs use
+null. Confidence is an evidence score, not a calibrated probability.
+
+Cut snapping uses individual beats when confidence >=.35 and stability >=.80.
+The fitted period remains unrounded internally. These thresholds and all
+candidate weights were selected on deterministic development fixtures;
+held-out corpus results have not been used to tune them.
+
+## Required corpus CI
+
+`.github/workflows/automix-accuracy.yml` prepares pinned public sources through
+workflow dispatch or a reusable workflow call. No rehosting of music is needed.
+The standard-library Python adapter downloads from the authors, verifies the
+source hashes, checks archive paths/types/expanded sizes, and extracts only
+matched WAV files. GiantSteps previews remain their original MP3 bytes.
+Local preparation uses the same entrypoint (Python >=3.11, about 5 GB of disk):
+
+```sh
+python -B benches/support/automix_accuracy/prepare_public_corpus.py
+sha256sum --check benches/support/automix_accuracy/public_corpus.sha256
+python -B -m unittest discover -s benches/support/automix_accuracy -p 'test_*.py'
+```
+
+Defaults are `--source-cache target/automix-corpus-sources`,
+`--out target/automix-corpus-data`, and `--workers 4` (1..8). Existing source
+files must pass their checksums before reuse. Failed downloads never replace
+verified bytes; missing or corrupt sources fail preparation. Only the source
+download stage uses the network; the Rust evaluation runner stays offline.
+
+| Corpus | Frozen source | Evaluation scope |
+|---|---|---|
+| GiantSteps Tempo | `GiantSteps/giantsteps-tempo-dataset` at `d51ab2422e76abacfaa86616a57054bc222ec9fd`, v2 MIREX labels; authors' `cp.jku.at/datasets/giantsteps/backup/` audio mirror | 661 of 664; exclude the three author-declared no-tempo tracks |
+| Ballroom beats | `CPJKU/BallroomAnnotations` at `1db08914a8ae15edb01f104046e30bad88effe67`; UPF `ismir2004/contest/tempoContest/data1.tar.gz` audio | 685 of 698; keep the lexicographically first stem of each of the 13 author-declared replica pairs |
+
+The normalization revision is `official-tempo-beats-v1`. GiantSteps uses the
+higher-salience label, or lower BPM on an exact tie. Ballroom retains every
+native beat timestamp and bar position; bar IDs are discarded only after
+validation. All included music is evaluation data; detector parameters were
+selected only on synthetic development fixtures. Exclusions are recorded
+before running the detector, never selected by score.
+
+`evaluation-plan.json` records the source hashes, normalization-script hash,
+fixed counts and exclusions. `manifest.json` records SHA-256 for every audio
+file and normalized annotation; `provenance.json` binds both files and the
+archive inspection results. The normalization script has pinned LF endings,
+so its identity and manifest bytes agree across Windows and Linux. CI checks
+the entire manifest against the committed `public_corpus.sha256`, then runs
+both corpus IDs with `--require-corpus` and all four minimum bars with
+`--enforce`. It retains the report and provenance on failure, without uploading
+audio or annotation files. A changed split or annotation is a reviewable hash
+change, not an automatically passing replacement.
+
+Media and native/normalized annotation files stay under ignored `target/` and
+outside the published crate. GiantSteps has no standalone repository license
+and uses Beatport previews; do not redistribute them. mirdata describes
+Ballroom as CC BY-NC-SA 4.0; use it for local noncommercial evaluation and cite
+Krebs, Boeck and Widmer (ISMIR 2013). These scopes differ from some published
+leaderboards, so scores are not directly comparable without matching their
+versions, labels, exclusions and evaluation intervals.
+
+For an independently hosted frozen corpus, the generic provisioner remains
+available with `--manifest-url`, `--manifest-sha256`, `--data-url`, and `--out`.
+It verifies all downloaded SHA-256 values and both required metric sets.
+
+## First frozen corpus result
+
+The 2026-09-08 Windows/default-feature v4 run evaluated all 661 GiantSteps
+and 685 Ballroom tracks, with zero missing/invalid inputs and zero skips.
+Manifest SHA-256 is
+`dfc3ee46868e3d080b46a3a96025cdff7d49735b18505e4639170c77a6e5a729`.
+
+| Corpus metric | Measured | Minimum | Result |
+|---|---:|---:|---|
+| GiantSteps Accuracy1 | 0.2602118003 | 0.55 | Failed |
+| GiantSteps Accuracy2 | 0.4114977307 | 0.90 | Failed |
+| Ballroom F-measure | 0.6385640141 | 0.55 | Passed |
+| Ballroom AMLt | 0.6824830941 | 0.70 | Failed |
+
+The enforced command exited 1 after saving the complete report. All 135
+synthetic gates still passed, but three of the four real-music gates failed.
+GiantSteps had 112 abstentions; even among the 549 published tempo estimates,
+Accuracy2 was only 0.4954462659. Removing abstentions or changing confidence
+thresholds does not establish acceptable tempo inference.
+
+The full local report is `target/tempo-v4-corpus-validation.json`; aggregate
+evidence is retained in the task's `research/tempo-v4-corpus-summary.json`.
+Raw Git discovery was unavailable inside the Windows sandbox; compiled source
+hashes match the separately verified pre-evaluation freeze. The remote CI
+workflow has not run. These results leave the Tempo task incomplete. Further
+algorithm development needs a separate real-music development set and an
+explicit evaluation policy; this run must not be relabeled as independent
+evidence after tuning on its failures.

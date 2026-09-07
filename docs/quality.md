@@ -880,9 +880,34 @@ benchmarks and tests enforce.
 
 ### AutoMix analysis contract
 
-AutoMix analysis schema version 3 converts spectral-flux lag using the actual
-`sample_rate / 512` observation cadence and derives lag bounds from the
-supported tempo range. Musical-key detection is not implemented or claimed,
+The 2026-09-07 v4 `fixed_work_v2` quick comparison (Windows, core 2, default
+Rubato features, seven trials, 12-second PCM16 fixture, 5-second cap) measured
+Head **15.8570 ms** and Full **35.5066 ms**. The same-machine v3 baselines were
+16.4737/23.2425 ms, giving **0.963x/1.528x**, both within this task's 2x bar.
+All 18 work-validity and compatible-baseline comparisons passed. Raw reports:
+`.trellis/tasks/09-02-automix-tempo-beat-precision/research/tempo-v{3,4}-component-*.json`.
+These are whole-analysis costs, not a claim that every v4 workload is faster.
+
+AutoMix analysis schema version 4 (unreleased) uses log-compressed spectral
+flux at `sample_rate / (sample_rate / 200).clamp(1, 512)` observations per
+second. A smoothed normalized ACF with a tempo prior, sub-frame harmonic
+refinement, dynamic-programming beats and constant-grid regression replaces
+integer-lag quantization. BPM is rounded to 0.01 only at the output boundary.
+`first_beat_pos` is beat phase, not a downbeat. The new nullable
+`beat_grid_stability` measures the fitted grid's residual; cut snapping uses
+individual beats only when stability >=0.80 and confidence >=0.35. Cached v3
+analysis must be recomputed before using those semantics. v4 remains
+unreleased until the coordinated Structure changes are integrated.
+
+See [the accuracy protocol](automix-accuracy.md) for the precise confidence
+formula, development fixtures, independent metric goldens and required corpus
+evaluation. Synthetic precision and absent-corpus skips are not real-music
+accuracy evidence. The first complete frozen real-music run (2026-09-08)
+measured GiantSteps Accuracy1/2 **26.02%/41.15%** and Ballroom
+F-measure/AMLt **63.86%/68.25%**, over 661/685 verified tracks. Three of the
+four minimum bars failed; the v4 candidate is not accepted for MIR accuracy.
+The protocol links the retained aggregate evidence and full local report.
+Musical-key detection is not implemented or claimed,
 so the serialized result has no key status or reserved key payload fields. A
 future key contract requires a detector validated against an independently
 labeled music corpus rather than pre-freezing an always-empty DTO shape.

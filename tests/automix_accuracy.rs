@@ -455,3 +455,75 @@ fn absent_external_inputs_are_explicit_null_skips() {
         assert_eq!(metric.passed, None);
     }
 }
+
+#[test]
+fn public_audio_fixture_suite_meets_tempo_phase_drift_and_stability_contracts() {
+    let options = Options {
+        quick: true,
+        ..Options::default()
+    };
+    let mut report = Report::new(&options);
+    accuracy::evaluate_synthetic(&mut report).unwrap();
+    let failures: Vec<_> = report
+        .metrics
+        .iter()
+        .filter(|metric| metric.passed != Some(true))
+        .map(|metric| {
+            format!(
+                "{}: {:?} {} {}",
+                metric.name, metric.measured, metric.comparison, metric.threshold
+            )
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    for case in &report.cases {
+        let prediction = case.prediction.as_ref().unwrap();
+        assert_eq!(prediction.analysis_version, 4);
+        for value in [
+            prediction.bpm,
+            prediction.bpm_confidence,
+            prediction.first_beat_pos,
+            prediction.beat_grid_stability,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(value.is_finite(), "{}: finite DTO", case.case_key);
+        }
+        let fixture = case.fixture.as_ref().unwrap();
+        if fixture.precision_gate() {
+            assert!(
+                prediction.beat_grid_stability.unwrap() >= 0.90,
+                "{}: {:?}",
+                case.case_key,
+                prediction
+            );
+        }
+        match fixture.pattern {
+            accuracy::fixtures::Pattern::Ramp | accuracy::fixtures::Pattern::OffGrid => {
+                assert!(
+                    prediction.beat_grid_stability.unwrap_or(0.0) < 0.80,
+                    "{}: {:?}",
+                    case.case_key,
+                    prediction
+                );
+                assert!(
+                    prediction.bpm_confidence.unwrap_or(0.0) < 0.35,
+                    "{}: {:?}",
+                    case.case_key,
+                    prediction
+                );
+            }
+            accuracy::fixtures::Pattern::Silence | accuracy::fixtures::Pattern::Noise => {
+                assert!(
+                    prediction.bpm.is_none(),
+                    "{}: {:?}",
+                    case.case_key,
+                    prediction
+                );
+                assert!(prediction.beat_grid_stability.is_none());
+            }
+            _ => (),
+        }
+    }
+}
