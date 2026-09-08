@@ -38,10 +38,28 @@ const MAX_DECLARED_DURATION_SEC: f64 = 24.0 * 60.0 * 60.0;
 const ENERGY_PROFILE_RATE: f64 = 10.0;
 const WINDOW_SIZE_MS: usize = 20;
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
-const FFT_SIZE: usize = 1024;
+
+/// Keep roughly 46 ms of spectral context across common music sample rates.
+/// Bound the power-of-two plan so extreme metadata cannot size its buffers.
+fn spectral_frame_size(sample_rate: u32) -> usize {
+    let exponent = (f64::from(sample_rate.max(1)) * 1024.0 / 22_050.0)
+        .log2()
+        .round()
+        .clamp(10.0, 13.0) as u32;
+    1 << exponent
+}
 
 fn spectral_hop_size(sample_rate: u32) -> usize {
-    (sample_rate as usize / 200).clamp(1, FFT_SIZE / 2)
+    (sample_rate as usize / 200).clamp(1, 512)
+}
+
+fn spectral_observation_offset_sec(sample_rate: u32) -> f64 {
+    // Positive flux peaks as a transient crosses the Hann window's rising
+    // slope, one quarter-window before its center. A frame difference spans
+    // two starts, so reference its midpoint rather than the later start.
+    (0.75 * (spectral_frame_size(sample_rate) - 1) as f64
+        - 0.5 * spectral_hop_size(sample_rate) as f64)
+        / f64::from(sample_rate.max(1))
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -334,26 +352,63 @@ impl FirstOrderFilter {
     }
 }
 
+/// Sparse, unnormalized triangle on the linear FFT bins.
+struct OnsetBand {
+    start_bin: usize,
+    weights: Vec<f32>,
+}
+
+/// Quarter-tone spacing balances spectral evidence before log compression.
+/// Merge edges that land in the same FFT bin; empty low-frequency triangles
+/// would otherwise repeat evidence without adding frequency resolution.
+fn onset_bands(sample_rate: u32, fft_size: usize) -> Vec<OnsetBand> {
+    let highest = 16_000.0_f64.min(f64::from(sample_rate) / 2.0);
+    if highest <= 27.5 {
+        return Vec::new();
+    }
+    let steps = (24.0 * (highest / 27.5).log2()).ceil() as usize;
+    let mut edges: Vec<_> = (0..=steps)
+        .map(|step| {
+            let frequency = (27.5 * 2.0_f64.powf(step as f64 / 24.0)).min(highest);
+            ((frequency * fft_size as f64 / f64::from(sample_rate)).round() as usize)
+                .min(fft_size / 2)
+        })
+        .collect();
+    edges.dedup();
+    edges
+        .windows(3)
+        .map(|edges| {
+            let (start, center, end) = (edges[0], edges[1], edges[2]);
+            OnsetBand {
+                start_bin: start,
+                weights: (start..end)
+                    .map(|bin| {
+                        if bin < center {
+                            (bin - start) as f32 / (center - start) as f32
+                        } else {
+                            (end - bin) as f32 / (end - center) as f32
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
 struct SpectralFluxAccumulator {
     /// Windowed time-domain frame. `realfft` mutates its input, so this doubles
     /// as transform scratch.
     frame: Vec<f32>,
-    /// Half-spectrum: `FFT_SIZE / 2 + 1` bins. Only the first `FFT_SIZE / 2`
-    /// are read, matching the original bin selection.
+    /// Real half-spectrum; the Nyquist bin is omitted from onset magnitudes.
     spectrum: Vec<Complex<f32>>,
     /// Workspace for `process_with_scratch`. The plain `process` allocates on
-    /// every call, which this hop loop runs once per 512 samples of the track.
+    /// every call, which this hop loop runs at the observation cadence.
     fft_scratch: Vec<Complex<f32>>,
+    magnitudes: Vec<f32>,
+    bands: Vec<OnsetBand>,
     previous_magnitudes: Vec<f32>,
     scratch: Vec<f32>,
-    /// Precomputed Hann window.
-    ///
-    /// The window is a constant of `FFT_SIZE`, but it used to be rebuilt with
-    /// 1,024 `cos()` calls on every hop — which measured more expensive than the
-    /// transform it feeds. Caching it cut this accumulator by 72.5% per hop
-    /// (7,840 ns to 2,158 ns) while staying bit-identical, because each
-    /// coefficient is the same `f32` either way. `SpectrumAnalyzer` already
-    /// stored its window this way.
+    /// Precomputed symmetric Hann coefficients avoid per-hop trigonometry.
     window: Vec<f32>,
     hop_size: usize,
     pos: usize,
@@ -428,28 +483,28 @@ impl SegmentAnalyzer {
 
 /// The symmetric Hann window used by the spectral-flux accumulator.
 ///
-/// The expression is kept character-for-character identical to the one this
-/// replaced (`0.5 - 0.5 * cos(2*PI*i / (FFT_SIZE - 1))`, evaluated in `f32`),
-/// so each cached coefficient is the same bit pattern the inline version
-/// produced. The independent complex-transform reference in the tests still
-/// evaluates the window inline and applies the v4 log-magnitude contract.
-fn hann_window() -> Vec<f32> {
-    (0..FFT_SIZE)
-        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos())
+/// The complex-transform test oracle evaluates the same f32 expression inline.
+fn hann_window(fft_size: usize) -> Vec<f32> {
+    (0..fft_size)
+        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos())
         .collect()
 }
 
 impl SpectralFluxAccumulator {
     fn new(sample_rate: u32) -> Self {
         let mut planner = RealFftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(FFT_SIZE);
+        let fft_size = spectral_frame_size(sample_rate);
+        let fft = planner.plan_fft_forward(fft_size);
+        let bands = onset_bands(sample_rate, fft_size);
         Self {
-            frame: vec![0.0; FFT_SIZE],
+            frame: vec![0.0; fft_size],
             spectrum: vec![Complex::new(0.0, 0.0); fft.complex_len()],
             fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_scratch_len()],
-            previous_magnitudes: vec![0.0; FFT_SIZE / 2],
-            scratch: vec![0.0; FFT_SIZE],
-            window: hann_window(),
+            magnitudes: vec![0.0; fft_size / 2],
+            previous_magnitudes: vec![0.0; bands.len()],
+            bands,
+            scratch: vec![0.0; fft_size],
+            window: hann_window(fft_size),
             hop_size: spectral_hop_size(sample_rate),
             pos: 0,
             fft,
@@ -457,19 +512,20 @@ impl SpectralFluxAccumulator {
     }
 
     fn process(&mut self, sample: f32) -> Option<f32> {
+        let fft_size = self.frame.len();
         self.scratch[self.pos] = sample;
         self.pos += 1;
-        if self.pos < FFT_SIZE {
+        if self.pos < fft_size {
             return None;
         }
 
-        for i in 0..FFT_SIZE {
+        for i in 0..fft_size {
             self.frame[i] = self.scratch[i] * self.window[i];
         }
         // Lengths are fixed at construction to exactly what the plan requires,
         // so these checks cannot fail; a violated invariant would be a bug
         // here. Reuse the previous spectrum rather than panicking mid-analysis.
-        debug_assert_eq!(self.frame.len(), FFT_SIZE);
+        debug_assert_eq!(self.frame.len(), self.fft.len());
         debug_assert_eq!(self.spectrum.len(), self.fft.complex_len());
         let _ = self.fft.process_with_scratch(
             &mut self.frame,
@@ -477,16 +533,24 @@ impl SpectralFluxAccumulator {
             &mut self.fft_scratch,
         );
 
+        for (magnitude, bin) in self.magnitudes.iter_mut().zip(&self.spectrum) {
+            *magnitude = bin.norm();
+        }
         let mut flux = 0.0;
-        for i in 0..FFT_SIZE / 2 {
-            let mag = self.spectrum[i].norm().ln_1p();
-            flux += (mag - self.previous_magnitudes[i]).max(0.0);
-            self.previous_magnitudes[i] = mag;
+        for (band, previous) in self.bands.iter().zip(&mut self.previous_magnitudes) {
+            let magnitude = self.magnitudes[band.start_bin..band.start_bin + band.weights.len()]
+                .iter()
+                .zip(&band.weights)
+                .map(|(magnitude, weight)| magnitude * weight)
+                .sum::<f32>()
+                .ln_1p();
+            flux += (magnitude - *previous).max(0.0);
+            *previous = magnitude;
         }
 
-        self.scratch.copy_within(self.hop_size..FFT_SIZE, 0);
-        self.pos = FFT_SIZE - self.hop_size;
-        Some(flux / (FFT_SIZE / 2) as f32)
+        self.scratch.copy_within(self.hop_size..fft_size, 0);
+        self.pos = fft_size - self.hop_size;
+        Some(flux / self.bands.len().max(1) as f32)
     }
 }
 
@@ -690,7 +754,7 @@ fn finalize_analysis(
         (
             head.spectral_flux.as_slice(),
             sample_rate as f64 / spectral_hop_size(sample_rate) as f64,
-            (FFT_SIZE - 1) as f64 / (2.0 * sample_rate as f64),
+            spectral_observation_offset_sec(sample_rate),
         )
     } else {
         fallback = head
@@ -1004,44 +1068,116 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
+    #[test]
+    fn onset_bands_partition_resolved_bins_without_area_normalization() {
+        for sample_rate in [8_000, 22_050, 44_100, 48_000, 96_000, 192_000] {
+            let fft_size = spectral_frame_size(sample_rate);
+            let bands = onset_bands(sample_rate, fft_size);
+            assert!(bands.len() > 2);
+            let last_bin = ((16_000.0_f64.min(f64::from(sample_rate) / 2.0) * fft_size as f64
+                / f64::from(sample_rate))
+            .round() as usize)
+                .min(fft_size / 2);
+            let mut summed_weights = vec![0.0; fft_size / 2];
+            let mut centers = Vec::new();
+            for band in &bands {
+                assert!(band.start_bin + band.weights.len() <= last_bin);
+                let center = band
+                    .weights
+                    .iter()
+                    .position(|&weight| weight == 1.0)
+                    .unwrap();
+                centers.push(band.start_bin + center);
+                // The discrete integral of a unit-height triangle equals
+                // half its base width; wider bands must keep their area.
+                let area = band.weights.iter().sum::<f32>();
+                assert!((area - band.weights.len() as f32 / 2.0).abs() < 1e-5);
+                for (offset, &weight) in band.weights.iter().enumerate() {
+                    assert!((0.0..=1.0).contains(&weight));
+                    summed_weights[band.start_bin + offset] += weight;
+                }
+            }
+            for &weight in &summed_weights[centers[0]..=*centers.last().unwrap()] {
+                assert!((weight - 1.0).abs() < 1e-6, "rate={sample_rate}, {weight}");
+            }
+        }
+        assert!(onset_bands(0, spectral_frame_size(0)).is_empty());
+        assert!(onset_bands(50, spectral_frame_size(50)).is_empty());
+    }
+
+    #[test]
+    fn spectral_flux_clock_locates_an_isolated_impulse_across_sample_rates() {
+        for sample_rate in [22_050, 44_100, 48_000, 96_000, 192_000] {
+            let size = spectral_frame_size(sample_rate);
+            let hop = spectral_hop_size(sample_rate);
+            let impulse = 2 * size + hop / 3 + 37;
+            let mut accumulator = SpectralFluxAccumulator::new(sample_rate);
+            let flux: Vec<_> = (0..4 * size)
+                .filter_map(|frame| accumulator.process(if frame == impulse { 1e-6 } else { 0.0 }))
+                .collect();
+            let peak = (1..flux.len() - 1)
+                .max_by(|&left, &right| flux[left].total_cmp(&flux[right]))
+                .unwrap();
+            let (left, center, right) = (flux[peak - 1], flux[peak], flux[peak + 1]);
+            let delta = 0.5 * (left - right) / (left - 2.0 * center + right);
+            let observed = (peak as f64 + f64::from(delta)) * hop as f64 / f64::from(sample_rate)
+                + spectral_observation_offset_sec(sample_rate);
+            let expected = impulse as f64 / f64::from(sample_rate);
+            assert!(
+                (observed - expected).abs() < 0.002,
+                "rate={sample_rate}, error={}",
+                observed - expected
+            );
+        }
+        assert_eq!(spectral_frame_size(0), 1024);
+        assert_eq!(spectral_frame_size(u32::MAX), 8192);
+    }
+
     /// Reference spectral-flux implementation using a full complex FFT — the
     /// formulation this module used before moving to `realfft`.
     ///
     /// Deliberately built on `rustfft` so it remains an independent oracle.
-    fn reference_spectral_flux(samples: &[f32], sample_rate: u32) -> Vec<f32> {
+    fn reference_spectral_flux(samples: &[f32], sample_rate: u32, fft_size: usize) -> Vec<f32> {
         use rustfft::{num_complex::Complex32, FftPlanner};
 
         let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(FFT_SIZE);
-        let mut frame = vec![Complex32::new(0.0, 0.0); FFT_SIZE];
-        let mut previous = vec![0.0f32; FFT_SIZE / 2];
-        let mut scratch = vec![0.0f32; FFT_SIZE];
+        let fft = planner.plan_fft_forward(fft_size);
+        let mut frame = vec![Complex32::new(0.0, 0.0); fft_size];
+        let bands = onset_bands(sample_rate, fft_size);
+        let mut previous = vec![0.0f32; bands.len()];
+        let mut scratch = vec![0.0f32; fft_size];
         let mut pos = 0usize;
         let mut out = Vec::new();
-        let hop = (sample_rate as usize / 200).clamp(1, FFT_SIZE / 2);
+        let hop = (sample_rate as usize / 200).clamp(1, 512);
 
         for &sample in samples {
             scratch[pos] = sample;
             pos += 1;
-            if pos < FFT_SIZE {
+            if pos < fft_size {
                 continue;
             }
-            for i in 0..FFT_SIZE {
+            for i in 0..fft_size {
                 let window = 0.5
-                    - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos();
+                    - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos();
                 frame[i] = Complex32::new(scratch[i] * window, 0.0);
             }
             fft.process(&mut frame);
 
             let mut flux = 0.0;
-            for i in 0..FFT_SIZE / 2 {
-                let mag = frame[i].norm().ln_1p();
-                flux += (mag - previous[i]).max(0.0);
-                previous[i] = mag;
+            for (band, previous) in bands.iter().zip(&mut previous) {
+                let magnitude = band
+                    .weights
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, weight)| frame[band.start_bin + offset].norm() * weight)
+                    .sum::<f32>()
+                    .ln_1p();
+                flux += (magnitude - *previous).max(0.0);
+                *previous = magnitude;
             }
-            scratch.copy_within(hop..FFT_SIZE, 0);
-            pos = FFT_SIZE - hop;
-            out.push(flux / (FFT_SIZE / 2) as f32);
+            scratch.copy_within(hop..fft_size, 0);
+            pos = fft_size - hop;
+            out.push(flux / bands.len().max(1) as f32);
         }
         out
     }
@@ -1051,7 +1187,7 @@ mod tests {
     /// carries `previous_magnitudes` across hops, so a per-bin indexing mistake
     /// would accumulate rather than cancel.
     ///
-    /// `f32` with 512 accumulated bin differences per hop makes bit-exactness
+    /// Accumulating band differences in f32 makes bit-exactness
     /// unrealistic; the tolerance is relative to the largest reference flux.
     #[test]
     fn cached_hann_window_is_bit_identical_to_evaluating_it_per_hop() {
@@ -1060,16 +1196,18 @@ mod tests {
         // coefficient is the exact same `f32`, so compare bit patterns rather
         // than using a tolerance: a tolerance here would hide a real change in
         // the reported flux.
-        let cached = hann_window();
-        assert_eq!(cached.len(), FFT_SIZE);
-        for (i, &coefficient) in cached.iter().enumerate() {
-            let per_hop =
-                0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos();
-            assert_eq!(
-                coefficient.to_bits(),
-                per_hop.to_bits(),
-                "window[{i}]: cached {coefficient} vs per-hop {per_hop}"
-            );
+        for fft_size in [1024, 2048, 4096, 8192] {
+            let cached = hann_window(fft_size);
+            assert_eq!(cached.len(), fft_size);
+            for (i, &coefficient) in cached.iter().enumerate() {
+                let per_hop = 0.5
+                    - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / (fft_size - 1) as f32).cos();
+                assert_eq!(
+                    coefficient.to_bits(),
+                    per_hop.to_bits(),
+                    "size={fft_size}, window[{i}]: cached {coefficient} vs per-hop {per_hop}"
+                );
+            }
         }
     }
 
@@ -1078,38 +1216,46 @@ mod tests {
         // Level and timbre both change over time so flux is genuinely non-zero:
         // a steady tone settles to ~0 flux after the first hop and would let an
         // indexing bug pass unnoticed.
-        let samples: Vec<f32> = (0..FFT_SIZE * 12)
-            .map(|i| {
-                let t = i as f32 / 48_000.0;
-                let envelope = 0.2 + 0.8 * ((i / (FFT_SIZE * 3)) % 3) as f32 / 2.0;
-                let sweep = 220.0 + 400.0 * (i as f32 / (FFT_SIZE * 12) as f32);
-                envelope
-                    * ((2.0 * std::f32::consts::PI * sweep * t).sin() * 0.6
-                        + (2.0 * std::f32::consts::PI * 3.0 * sweep * t).sin() * 0.3)
-            })
-            .collect();
+        for (sample_rate, fft_size) in [
+            (22_050, 1024),
+            (44_100, 2048),
+            (48_000, 2048),
+            (96_000, 4096),
+            (192_000, 8192),
+        ] {
+            let samples: Vec<f32> = (0..fft_size * 12)
+                .map(|i| {
+                    let t = i as f32 / sample_rate as f32;
+                    let envelope = 0.2 + 0.8 * ((i / (fft_size * 3)) % 3) as f32 / 2.0;
+                    let sweep = 220.0 + 400.0 * (i as f32 / (fft_size * 12) as f32);
+                    envelope
+                        * ((2.0 * std::f32::consts::PI * sweep * t).sin() * 0.6
+                            + (2.0 * std::f32::consts::PI * 3.0 * sweep * t).sin() * 0.3)
+                })
+                .collect();
 
-        let expected = reference_spectral_flux(&samples, 48_000);
-        let mut accumulator = SpectralFluxAccumulator::new(48_000);
-        let actual: Vec<f32> = samples
-            .iter()
-            .filter_map(|&sample| accumulator.process(sample))
-            .collect();
+            let expected = reference_spectral_flux(&samples, sample_rate, fft_size);
+            let mut accumulator = SpectralFluxAccumulator::new(sample_rate);
+            let actual: Vec<f32> = samples
+                .iter()
+                .filter_map(|&sample| accumulator.process(sample))
+                .collect();
 
-        assert_eq!(actual.len(), expected.len());
-        assert!(expected.len() >= 8, "fixture must produce several hops");
+            assert_eq!(actual.len(), expected.len());
+            assert!(expected.len() >= 8, "fixture must produce several hops");
 
-        let peak = expected.iter().fold(0.0f32, |acc, f| acc.max(f.abs()));
-        assert!(peak > 0.0, "reference flux must not be all zeros");
-        let tolerance = peak * 1e-4;
+            let peak = expected.iter().fold(0.0f32, |acc, f| acc.max(f.abs()));
+            assert!(peak > 0.0, "reference flux must not be all zeros");
+            let tolerance = peak * 1e-4;
 
-        for (hop, (got, want)) in actual.iter().zip(&expected).enumerate() {
-            assert!(
-                (got - want).abs() <= tolerance,
-                "hop {hop}: {got} vs {want} (diff {:.3e} > tol {:.3e})",
-                (got - want).abs(),
-                tolerance
-            );
+            for (hop, (got, want)) in actual.iter().zip(&expected).enumerate() {
+                assert!(
+                    (got - want).abs() <= tolerance,
+                    "hop {hop}: {got} vs {want} (diff {:.3e} > tol {:.3e})",
+                    (got - want).abs(),
+                    tolerance
+                );
+            }
         }
     }
 

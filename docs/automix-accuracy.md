@@ -158,9 +158,20 @@ field and is JSON null when there is no fitted grid. Recompute cached v3
 analysis before applying the new confidence thresholds. The additive JSON
 change also affects Rust struct literals in the planned 2.0 release cycle.
 
-The spectral hop is `(sample_rate / 200).clamp(1, 512)` with a 1024-point
-symmetric Hann window. The first observation uses the window-center timestamp.
-Positive log-magnitude flux has its +/-100 ms local mean removed, then is
+The spectral hop is `(sample_rate / 200).clamp(1, 512)`. The symmetric Hann
+FFT size is the nearest power of two to `sample_rate * 1024 / 22050`, bounded
+to 1024..8192: 1024/2048/2048/4096/8192 at 22.05/44.1/48/96/192 kHz.
+This keeps approximately 46 ms of spectral context across common music rates.
+The first flux observation uses `(0.75*(fft_size-1) - 0.5*hop)/sample_rate`
+seconds, accounting for the positive Hann slope response and frame-difference
+midpoint. An isolated-impulse oracle and public PCM phase/drift gates constrain
+this reference; a spectrum's window-center timestamp is insufficient for flux.
+Linear magnitudes first pass through unnormalized triangular bands at
+24 bands/octave over 27.5 Hz to min(16 kHz, Nyquist), with duplicate FFT-bin
+edges merged. Log compression follows band summation. The positive one-frame
+differences are averaged across bands. This representation balances frequency
+evidence; it does not apply SuperFlux's maximum filter or delayed difference.
+Positive log-band flux has its +/-100 ms local mean removed, then is
 rectified and RMS-normalized. ACF alone receives a 10 ms Gaussian blur (at
 least one observation, truncated at three sigma). This prevents narrow
 off-grid transients favoring an integer-aligned multiple. DP and fitting use
@@ -191,9 +202,9 @@ support, or the available salience without a fit; silence/short inputs use
 null. Confidence is an evidence score, not a calibrated probability.
 
 Cut snapping uses individual beats when confidence >=.35 and stability >=.80.
-The fitted period remains unrounded internally. The subdivision and contrast
-corrections use the separate GTZAN mini development set; synthetic
-phase/jitter/noise tests constrain the timing contract. These are not
+The fitted period remains unrounded internally. The band representation,
+subdivision and contrast corrections use the separate GTZAN mini development
+set; synthetic phase/jitter/noise tests constrain the timing contract. These are not
 calibrated probability claims. Frozen evaluation per-track results have not
 been used for parameter selection.
 
@@ -392,3 +403,66 @@ and exits: `research/metrical-validation-2026-09-08.md`. The original manifest
 and both earlier reports retain their frozen hashes. This remains repeated
 evaluation, not independent validation. The task is in progress, and tempo
 accuracy is still not accepted for release.
+
+## Third repeat: log-band candidate
+
+The v7 frequency-band replacement improved native development Accuracy1/2
+to .69/.91 and F/AMLt to .7820/.8630. Its frozen original-corpus repeat
+scored all 1,346 recordings with no skips/input errors and passed all 135
+synthetic gates. Exit 1 retained two failed tempo bars: GiantSteps
+Accuracy1/2 .2950075643/.4992435703. Ballroom F/AMLt
+.6663876661/.7350014706 passed. This did not improve all evaluation metrics
+over v6. The source freeze, aggregate and validation record remain in
+`research/log-band-candidate-freeze.md`,
+`research/tempo-v7-corpus-repeat-summary.json` and
+`research/tempo-v7-validation-2026-09-08.md` under the task directory.
+
+## Development sample-rate geometry
+
+All 100 native development recordings are 22.05 kHz. A fixed 1024-sample
+FFT loses physical window duration and frequency resolution at higher rates.
+A declared development replay compared fixed and duration-scaled FFTs on
+SciPy-resampled versions of these same recordings, preserving all annotations.
+The v8 native public-entrypoint confirmation scored every recording, exactly
+matched every replay BPM (including abstentions), and passed all 135
+synthetic gates at each rate, with no skips/input errors.
+
+| Rate | Fixed-1024 replay Accuracy1/2 | Scaled-FFT native Accuracy1/2 | Native F/AMLt |
+|---|---:|---:|---:|
+| 22.05 kHz | .69/.91 | .69/.91 | .7894/.8661 |
+| 44.1 kHz | .63/.86 | .69/.91 | .7887/.8682 |
+| 48 kHz | .60/.85 | .67/.89 | .7788/.8561 |
+| 96 kHz | .57/.84 | .67/.89 | .7750/.8524 |
+
+These are four encodings of the same development data, not independent
+validation. The first scaled-FFT version kept centered timestamps and failed
+32 phase gates; the corrected physical flux reference passed the unchanged
+suite. Retain both results. The task records derivation hashes, native exits,
+replay comparisons and the pre-evaluation source/configuration freeze in
+`research/rate-geometry-research-2026-09-08.md`,
+`research/tempo-v8-development-rates-summary.json` and
+`research/rate-geometry-candidate-freeze.md`.
+
+## Fourth repeat: sample-rate geometry and flux clock
+
+The frozen v8 candidate scored all 661 GiantSteps and 685 Ballroom recordings
+with zero skips/input errors. Its source/configuration hashes match the
+development freeze, and the evaluation manifest and minimum bars are unchanged.
+
+| Corpus metric | v7 log bands | v8 geometry/clock | Minimum | Result |
+|---|---:|---:|---:|---|
+| GiantSteps Accuracy1 | .2950075643 | .3040847201 | .55 | Failed |
+| GiantSteps Accuracy2 | .4992435703 | .5234493192 | .90 | Failed |
+| Ballroom F-measure | .6663876661 | .7024426628 | .55 | Passed |
+| Ballroom AMLt | .7350014706 | .7688396035 | .70 | Passed |
+
+Exit 1: 137 gates passed (135 synthetic and both beat gates), two tempo
+gates failed. All four aggregates improve over v7; Accuracy1 remains below
+v6's .3177004539. This is repeated frozen-corpus evaluation, not fresh unseen
+validation. Tempo acceptance is still unmet, and the task remains in progress.
+No evaluation per-track diagnostics were inspected for further tuning.
+
+Complete report: `target/tempo-v8-corpus-repeat.json`, SHA-256
+`b89ce15bbb9131b9be702c0e5f6542060e7845c758de045f3341ad834c9ff176`.
+The task retains `research/tempo-v8-corpus-repeat-summary.json` and
+`research/tempo-v8-validation-2026-09-08.md`, along with all earlier failures.

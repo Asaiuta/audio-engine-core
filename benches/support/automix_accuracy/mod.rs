@@ -16,7 +16,7 @@ use crate::support::{generated_unix_ms, write_json, BenchEnvironment};
 use corpus::{Annotation, Corpus, Manifest, MetricKind, Split};
 
 pub const ESTIMATOR_CONFIGURATION: &str =
-    "automix_v4_logflux200_acfblur10ms_prior120_sigma1.5_subdiv6relative_peakcontrast_dp100_grid125ms_v6_dev";
+    "automix_v4_logband24flux200_window46ms_fluxclock_acfblur10ms_prior120_sigma1.5_subdiv6relative_peakcontrast_dp100_grid125ms_v8_dev";
 pub const ANALYSIS_CAP_SEC: f64 = 60.0;
 
 #[derive(Debug, Default)]

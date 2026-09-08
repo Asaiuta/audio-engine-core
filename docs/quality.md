@@ -880,21 +880,28 @@ benchmarks and tests enforce.
 
 ### AutoMix analysis contract
 
-The 2026-09-08 sixth-power candidate `fixed_work_v2` quick comparison
+The 2026-09-08 v8 rate-scaled log-band candidate `fixed_work_v2` quick comparison
 (Windows, core 2, default Rubato features, seven trials, 12-second PCM16
 fixture, 5-second cap) measured
-Head **15.3684 ms** and Full **29.9504 ms**. The same-machine v3 baselines were
-16.4737/23.2425 ms, giving **0.933x/1.289x**, both within this task's 2x bar.
+Head **16.0425 ms** and Full **31.4236 ms**. The same-machine v3 baselines were
+16.4737/23.2425 ms, giving **0.974x/1.352x**, both within this task's 2x bar.
 All 18 work-validity rows and comparisons passed the task's explicit 100%
 regression allowance; the repository's ordinary 10% default remains unchanged.
 No competing build/test ran during timing. Reports under the task's
 `research/` directory are `tempo-v3-component-baseline.json` and
-`tempo-v6-component.json`; both earlier v4 reports are retained too.
+`tempo-v8-component.json`; earlier v4/v6/v7 reports are retained too.
+The report records the verified base revision and dirty state explicitly.
 These are whole-analysis costs, not a claim that every v4 workload is faster.
 
-AutoMix analysis schema version 4 (unreleased) uses log-compressed spectral
-flux at `sample_rate / (sample_rate / 200).clamp(1, 512)` observations per
-second. A smoothed normalized ACF with a tempo prior, sub-frame harmonic
+AutoMix analysis schema version 4 (unreleased) sums linear FFT magnitudes into
+unnormalized triangular bands (24 bands/octave, 27.5 Hz to min(16 kHz, Nyquist))
+before log compression and positive one-frame flux. Its symmetric Hann FFT
+size scales to the nearest power of two to `sample_rate * 1024 / 22050`,
+bounded to 1024..8192, retaining approximately 46 ms of spectral context.
+Flux timestamps account for the positive Hann slope and difference midpoint:
+`(0.75*(fft_size-1) - 0.5*hop)/sample_rate`. Its observation rate is
+`sample_rate / (sample_rate / 200).clamp(1, 512)`. A smoothed normalized ACF
+with a tempo prior, sub-frame harmonic
 refinement, dynamic-programming beats and constant-grid regression replaces
 integer-lag quantization. BPM is rounded to 0.01 only at the output boundary.
 `first_beat_pos` is beat phase, not a downbeat. The new nullable
@@ -907,13 +914,15 @@ See [the accuracy protocol](automix-accuracy.md) for the precise confidence
 formula, development fixtures, independent metric goldens and required corpus
 evaluation. Synthetic precision and absent-corpus skips are not real-music
 accuracy evidence. After development on the separate 100-track GTZAN mini
-collection, the sixth-power candidate repeated all 661/685 original evaluation
+collection, the v8 rate-geometry candidate repeated all 661/685 original evaluation
 tracks with zero missing/invalid inputs (2026-09-08). GiantSteps Accuracy1/2
-rose from **26.02%/41.15%** to **31.77%/49.92%** and Ballroom F-measure/AMLt
-from **63.86%/68.25%** to **66.38%/74.42%**. Both beat bars pass, but both
+rose from the first checkpoint's **26.02%/41.15%** to **30.41%/52.34%** and
+Ballroom F-measure/AMLt from **63.86%/68.25%** to **70.24%/76.88%**.
+All four improve over v7; Accuracy1 remains below v6's **31.77%**.
+Both beat bars pass, but both
 tempo bars still fail; the candidate is not accepted for MIR accuracy.
 This repeated evaluation is not fresh unseen validation. The protocol links
-all three retained aggregate results, source freezes and full local reports.
+all retained aggregate results, source freezes and full local reports.
 Musical-key detection is not implemented or claimed,
 so the serialized result has no key status or reserved key payload fields. A
 future key contract requires a detector validated against an independently
