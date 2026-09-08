@@ -22,6 +22,13 @@ const MAX_GRID_RESIDUAL_SEC: f64 = 0.125;
 const MIN_FIT_BEATS: usize = 6;
 const CANCEL_CHUNK: usize = 2_048;
 
+#[derive(Clone, Copy)]
+struct TempoCandidate {
+    period: f64,
+    score: f64,
+    salience: f64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BeatGrid {
     /// The fitted period, never rounded to public BPM precision.
@@ -86,7 +93,8 @@ pub(super) fn estimate(
         .sum::<f64>()
         / (max_lag - min_lag + 1) as f64;
 
-    let mut best: Option<(f64, f64, f64)> = None;
+    let mut best: Option<TempoCandidate> = None;
+    let mut second: Option<TempoCandidate> = None;
     // The boundary bins participate in interpolation too; a true 200 BPM
     // period can fall between floor(min_period) and the next observation.
     for lag in min_lag..=max_lag {
@@ -115,21 +123,55 @@ pub(super) fn estimate(
         let score = base * harmonic * prior(period, rate) * (1.0 - subdivisions);
         let weighted_peak = base * prior(period, rate);
         let salience = ((weighted_peak - mean_weighted) / weighted_peak.max(0.01)).clamp(0.0, 1.0);
-        if best.is_none_or(|(_, previous, _)| score > previous) {
-            best = Some((period, score, salience));
+        let candidate = TempoCandidate {
+            period,
+            score,
+            salience,
+        };
+        if best.is_none_or(|previous| score > previous.score) {
+            second = best;
+            best = Some(candidate);
+        } else if second.is_none_or(|previous| score > previous.score) {
+            second = Some(candidate);
         }
     }
-    let Some((period, _, salience)) = best else {
+    let Some(best) = best else {
         return Ok(TempoEstimate::default());
     };
+    let primary = fit_candidate(&onsets, best, rate, observation_offset_sec, cancel)?;
+    if primary.grid.is_some() {
+        return Ok(primary);
+    }
+    // A supported second periodicity may fit even when the first does not.
+    // Existing grids keep their ACF rank; stability is not metrical evidence.
+    if let Some(second) = second {
+        let fallback = fit_candidate(&onsets, second, rate, observation_offset_sec, cancel)?;
+        if fallback.grid.is_some() {
+            return Ok(fallback);
+        }
+    }
+    Ok(primary)
+}
+
+fn fit_candidate(
+    onsets: &[f64],
+    candidate: TempoCandidate,
+    rate: f64,
+    observation_offset_sec: f64,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<TempoEstimate, AutomixError> {
+    check_cancel(cancel)?;
+    let TempoCandidate {
+        period, salience, ..
+    } = candidate;
     if salience < MIN_SALIENCE {
         return Ok(TempoEstimate {
             grid: None,
             confidence: Some(salience),
         });
     }
-    let beats = track_beats(&onsets, period, cancel)?;
-    let Some((slope, intercept, rms, support)) = fit_grid(&onsets, &beats, rate, cancel)? else {
+    let beats = track_beats(onsets, period, cancel)?;
+    let Some((slope, intercept, rms, support)) = fit_grid(onsets, &beats, rate, cancel)? else {
         return Ok(TempoEstimate {
             grid: None,
             confidence: Some(salience),
@@ -426,6 +468,26 @@ fn least_squares(points: &[(f64, f64)]) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_accented_pulses_use_the_level_with_enough_observed_beats() {
+        let rate = 200.0;
+        let period = 1.0 / 3.0;
+        let mut onsets = vec![0.0; 600];
+        for beat in 0..9 {
+            let center = (0.217 + beat as f64 * period) * rate;
+            let amplitude = if beat % 2 == 0 { 1.0 } else { 0.5 };
+            for (index, onset) in onsets.iter_mut().enumerate() {
+                *onset +=
+                    (amplitude * (-0.5 * ((index as f64 - center) / 1.6).powi(2)).exp()) as f32;
+            }
+        }
+        let result = estimate(&onsets, rate, 0.0, None).unwrap();
+        let bpm = result.bpm().expect("nine pulses can support a fitted grid");
+        assert!((bpm - 180.0).abs() <= 0.05, "{result:?}");
+        let grid = result.grid.unwrap();
+        assert!((grid.first_beat_sec - 0.217).abs() <= 0.010);
+    }
 
     #[test]
     fn strong_subdivisions_cannot_promote_a_weaker_unrelated_period() {

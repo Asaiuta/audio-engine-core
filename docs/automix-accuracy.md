@@ -108,6 +108,10 @@ estimator. Keep those rules and their revision beside the manifest.
 | `key_exact` | Exact tonic and mode | 0.45 | 0.55 |
 | `key_mirex_weighted` | Exact 1, fifth 0.5, relative 0.3, parallel 0.2, other/None 0 | 0.60 | 0.68 |
 
+Tempo Accuracy1/2 follow `tempo_eval.equal1/equal2`, not the dual-tempo
+MIREX P-score, `one_correct`, or `both_correct`. The latter are separate
+metrics even when the same 4% tolerance is used. Null predictions are misses.
+
 All corpus scores are fractions. Per-track scores are macro-averaged
 independently for each complete selected split. Report schema v2 records
 `conditions.corpus_split`, `conditions.corpus_acceptance_gates`, each case's
@@ -196,7 +200,11 @@ publishing a tempo. With `mean` equal to the mean
 prior-weighted ACF in the search range, salience is
 `clamp((c(p)*prior-mean)/max(.01,c(p)*prior),0,1)`. This is the fraction of the
 selected peak above background, not distance from an ideal correlation of 1.
-Below .15 the estimator abstains from fitting. Confidence is salience times
+Below .15 a candidate is not fitted. Keep the two highest ACF scores and try
+the second only if the first produces no valid grid. Each attempt uses the
+same salience, observed-beat, tempo-range and residual checks. A successful
+first grid is never replaced by a more stable second grid; if both fail,
+retain the first candidate's rejection confidence. Confidence is salience times
 stability times observed-beat
 support, or the available salience without a fit; silence/short inputs use
 null. Confidence is an evidence score, not a calibrated probability.
@@ -240,6 +248,23 @@ native beat timestamp and bar position; bar IDs are discarded only after
 validation. All included music is evaluation data; the initial detector's
 parameters were selected only on synthetic development fixtures. Exclusions
 are recorded before running the detector, never selected by score.
+
+The GiantSteps labels are GSNew (Schreiber and Mueller's 2018 crowdsourced
+revision), corresponding to `tempo_eval_report` reference version `2.0`,
+not GSOrig/reference `1.0`. The 2026-09-09 protocol audit checked all 661
+MIREX triples and selected primary labels against `tempo_eval` revision
+`57e3eb22d21686b649f5e828816218953f95d788`: zero differences, including the
+one equal-salience tie. Running the pinned public `equal1/equal2` and the
+actual Rust metric on the frozen v8 predictions gives identical per-track
+scores: 201/661 and 346/661. See the task's
+[protocol audit](../.trellis/tasks/09-02-automix-tempo-beat-precision/research/protocol-audit-2026-09-09.md)
+for source hashes and the public baseline table.
+
+Those public v2 scores share labels, inventory and metric definitions with
+this runner. They are not controlled 60-second comparisons: the published
+algorithms' input windows, preprocessing and configurations have not been
+reproduced locally. Non-neural methods may still use trained regressions or
+classifiers; their scores do not establish a training-free DSP upper bound.
 
 `evaluation-plan.json` records the source hashes, normalization-script hash,
 fixed counts and exclusions. `manifest.json` records SHA-256 for every audio
@@ -466,3 +491,37 @@ Complete report: `target/tempo-v8-corpus-repeat.json`, SHA-256
 `b89ce15bbb9131b9be702c0e5f6542060e7845c758de045f3341ad834c9ff176`.
 The task retains `research/tempo-v8-corpus-repeat-summary.json` and
 `research/tempo-v8-validation-2026-09-08.md`, along with all earlier failures.
+
+## Fifth repeat: fallback after an invalid first grid
+
+Development-only range expansion, fit-quality ranking, frequency-channel
+correlation and Fourier ranking did not justify production adoption. The
+bounded top-2 ACF fallback keeps a successfully fitted first grid unchanged
+and tries the second only after rejection, preserving all fit thresholds.
+On all 100 native GTZAN mini development recordings, Accuracy1/2 rose from
+.69/.91 to .70/.92: one null recovered, all other predictions unchanged,
+and exact agreement with the predeclared replay. These are development scores.
+
+The source frozen in `research/fallback-candidate-freeze.md` then scored all
+661 GiantSteps and 685 Ballroom recordings with zero skips/input errors.
+The original manifest, labels, 60-second Head cap and minimum bars remain fixed.
+
+| Corpus metric | v8 geometry/clock | v9 invalid-fit fallback | Minimum | Result |
+|---|---:|---:|---:|---|
+| GiantSteps Accuracy1 | .3040847201 | .3373676248 | .55 | Failed |
+| GiantSteps Accuracy2 | .5234493192 | .5885022693 | .90 | Failed |
+| Ballroom F-measure | .7024426628 | .7203970441 | .55 | Passed |
+| Ballroom AMLt | .7688396035 | .7919396327 | .70 | Passed |
+
+Exit 1: 137 passing gates (135 synthetic and both beat gates), two failing
+tempo gates. GiantSteps correct counts are 223/661 and 389/661, up 22 and
+43 from v8. All four aggregates improve, but tempo acceptance remains unmet.
+This is repeated frozen-corpus evaluation, not fresh unseen validation.
+Only evaluation aggregates were inspected for reporting; no tuning follows
+this run. The task remains in progress and unarchived.
+
+Complete report: `target/tempo-v9-corpus-repeat.json`, SHA-256
+`a03e1f5b90fc73056457e1cb35dc6f618319970a6b1ced237af721cdd5d8e37f`.
+The task retains `research/tempo-v9-corpus-repeat-summary.json` and
+`research/tempo-v9-validation-2026-09-09.md`, including engineering and isolated
+performance evidence. Earlier failed reports remain available.

@@ -880,18 +880,19 @@ benchmarks and tests enforce.
 
 ### AutoMix analysis contract
 
-The 2026-09-08 v8 rate-scaled log-band candidate `fixed_work_v2` quick comparison
+The 2026-09-09 v9 top-2 invalid-fit fallback `fixed_work_v2` quick comparison
 (Windows, core 2, default Rubato features, seven trials, 12-second PCM16
 fixture, 5-second cap) measured
-Head **16.0425 ms** and Full **31.4236 ms**. The same-machine v3 baselines were
-16.4737/23.2425 ms, giving **0.974x/1.352x**, both within this task's 2x bar.
+Head **17.2436 ms** and Full **31.3202 ms**. The same-machine v3 baselines were
+16.4737/23.2425 ms, giving **1.047x/1.348x**, both within this task's 2x bar.
 All 18 work-validity rows and comparisons passed the task's explicit 100%
 regression allowance; the repository's ordinary 10% default remains unchanged.
 No competing build/test ran during timing. Reports under the task's
 `research/` directory are `tempo-v3-component-baseline.json` and
-`tempo-v8-component.json`; earlier v4/v6/v7 reports are retained too.
+`tempo-v9-component.json`; earlier v4/v6/v7/v8 reports are retained too.
 The report records the verified base revision and dirty state explicitly.
-These are whole-analysis costs, not a claim that every v4 workload is faster.
+Head/Full relative MAD is 6.79%/1.21%. These are whole-analysis costs,
+not a speedup claim.
 
 AutoMix analysis schema version 4 (unreleased) sums linear FFT magnitudes into
 unnormalized triangular bands (24 bands/octave, 27.5 Hz to min(16 kHz, Nyquist))
@@ -903,7 +904,9 @@ Flux timestamps account for the positive Hann slope and difference midpoint:
 `sample_rate / (sample_rate / 200).clamp(1, 512)`. A smoothed normalized ACF
 with a tempo prior, sub-frame harmonic
 refinement, dynamic-programming beats and constant-grid regression replaces
-integer-lag quantization. BPM is rounded to 0.01 only at the output boundary.
+integer-lag quantization. The second-highest ACF candidate is tried only when
+the first cannot form a valid grid, with identical rejection rules. BPM is
+rounded to 0.01 only at the output boundary.
 `first_beat_pos` is beat phase, not a downbeat. The new nullable
 `beat_grid_stability` measures the fitted grid's residual; cut snapping uses
 individual beats only when stability >=0.80 and confidence >=0.35. Cached v3
@@ -914,15 +917,18 @@ See [the accuracy protocol](automix-accuracy.md) for the precise confidence
 formula, development fixtures, independent metric goldens and required corpus
 evaluation. Synthetic precision and absent-corpus skips are not real-music
 accuracy evidence. After development on the separate 100-track GTZAN mini
-collection, the v8 rate-geometry candidate repeated all 661/685 original evaluation
-tracks with zero missing/invalid inputs (2026-09-08). GiantSteps Accuracy1/2
-rose from the first checkpoint's **26.02%/41.15%** to **30.41%/52.34%** and
-Ballroom F-measure/AMLt from **63.86%/68.25%** to **70.24%/76.88%**.
-All four improve over v7; Accuracy1 remains below v6's **31.77%**.
+collection, the v9 fallback candidate repeated all 661/685 original evaluation
+tracks with zero missing/invalid inputs (2026-09-09). GiantSteps Accuracy1/2
+rose from v8's **30.41%/52.34%** to **33.74%/58.85%** and
+Ballroom F-measure/AMLt from **70.24%/76.88%** to **72.04%/79.19%**.
 Both beat bars pass, but both
 tempo bars still fail; the candidate is not accepted for MIR accuracy.
-This repeated evaluation is not fresh unseen validation. The protocol links
-all retained aggregate results, source freezes and full local reports.
+The audited labels are GSNew / `tempo_eval_report` reference 2.0, with 4%
+Accuracy1/2; all 661 labels and the frozen v8 scorer outputs match the public
+reference. Public baseline audio windows/configurations have not been aligned
+to this runner. This repeated evaluation is not fresh unseen validation.
+The protocol links all retained aggregate results, source freezes and full
+local reports.
 Musical-key detection is not implemented or claimed,
 so the serialized result has no key status or reserved key payload fields. A
 future key contract requires a detector validated against an independently
