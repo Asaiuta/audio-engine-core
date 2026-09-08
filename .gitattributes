@@ -19,3 +19,6 @@ tests/public-api-*.txt text eol=lf
 # The public corpus manifest pins the normalization script's exact bytes.
 benches/support/automix_accuracy/prepare_public_corpus.py text eol=lf
 benches/support/automix_accuracy/public_corpus.sha256 text eol=lf
+benches/support/automix_accuracy/prepare_development_corpus.py text eol=lf
+benches/support/automix_accuracy/gtzan_mini_sources.json text eol=lf
+benches/support/automix_accuracy/provision_corpus.py text eol=lf

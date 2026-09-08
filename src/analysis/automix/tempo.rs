@@ -1,8 +1,9 @@
 //! Constant-tempo inference from an onset-strength curve. Offline only.
 //!
 //! The prior/DP formulation follows Ellis (2007); the grid is an unrounded
-//! least-squares fit. Parameters are selected on deterministic development
-//! fixtures, not on held-out corpus scores. See docs/automix-accuracy.md.
+//! least-squares fit. Candidate/contrast corrections use separate real-music
+//! development data; synthetic fixtures constrain phase and jitter behavior.
+//! See docs/automix-accuracy.md for the evaluation policy.
 
 use super::{check_cancel, AutomixError};
 use crate::decoder::DecodeCancelToken;
@@ -15,6 +16,9 @@ const DP_TIGHTNESS: f64 = 100.0;
 const MIN_SALIENCE: f64 = 0.15;
 const MIN_GRID_CONFIDENCE: f64 = 0.35;
 const MIN_GRID_STABILITY: f64 = 0.80;
+// At the .80 usability bar this caps RMS phase error at 25 ms, including
+// half-time grids whose beat-relative residual alone understates the error.
+const MAX_GRID_RESIDUAL_SEC: f64 = 0.125;
 const MIN_FIT_BEATS: usize = 6;
 const CANCEL_CHUNK: usize = 2_048;
 
@@ -103,14 +107,14 @@ pub(super) fn estimate(
         // A slower candidate must explain strong intervening onsets. Weak
         // subdivisions do not force a doubled tempo; equally strong pulses
         // prefer the shortest supported level rather than the prior's octave.
-        // Fourth powers reserve that penalty for nearly equal subdivisions;
-        // multiplying by base prevents distant repeats certifying a weak beat.
+        // Fourth powers reserve that penalty for nearly equal subdivisions.
+        // Scale it by the candidate's own evidence: an absolute subtraction
+        // can demote a supported beat below unrelated weak periodicities.
         let subdivisions = 0.60 * interpolated(&correlations, period / 2.0).powi(4)
             + 0.30 * interpolated(&correlations, period / 3.0).powi(4);
-        let score = base * harmonic * prior(period, rate) - subdivisions;
-        let salience = ((base * prior(period, rate) - mean_weighted)
-            / (1.0 - mean_weighted).max(0.01))
-        .clamp(0.0, 1.0);
+        let score = base * harmonic * prior(period, rate) * (1.0 - subdivisions);
+        let weighted_peak = base * prior(period, rate);
+        let salience = ((weighted_peak - mean_weighted) / weighted_peak.max(0.01)).clamp(0.0, 1.0);
         if best.is_none_or(|(_, previous, _)| score > previous) {
             best = Some((period, score, salience));
         }
@@ -139,7 +143,8 @@ pub(super) fn estimate(
             confidence: Some(0.0),
         });
     }
-    let stability = (1.0 - rms / (slope / 4.0)).clamp(0.0, 1.0);
+    let residual_scale = (slope / 4.0).min(MAX_GRID_RESIDUAL_SEC * rate);
+    let stability = (1.0 - rms / residual_scale).clamp(0.0, 1.0);
     if stability == 0.0 {
         return Ok(TempoEstimate {
             grid: None,
@@ -421,6 +426,66 @@ fn least_squares(points: &[(f64, f64)]) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strong_subdivisions_cannot_promote_a_weaker_unrelated_period() {
+        let rate = 200.0;
+        let bpm = 119.18;
+        let period = 60.0 / bpm;
+        // Strong sixteenth notes accompany the beat. A weaker independent
+        // pulse train is a distractor, not an octave of the dominant rhythm.
+        let onsets: Vec<f32> = (0..6_000)
+            .map(|index| {
+                let time = index as f64 / rate;
+                let pulse = |period: f64, offset: f64| {
+                    let phase = (time - offset + period / 2.0).rem_euclid(period) - period / 2.0;
+                    (-0.5 * (phase / 0.008).powi(2)).exp()
+                };
+                (pulse(period, 0.217)
+                    + pulse(period / 4.0, 0.217)
+                    + 0.6 * pulse(period * 1.25, 0.297)) as f32
+            })
+            .collect();
+        let estimate = estimate(&onsets, rate, 0.0, None).unwrap();
+        let detected = estimate
+            .bpm()
+            .expect("dominant periodic onsets support a grid");
+        assert!(
+            (detected - bpm).abs() <= 0.05,
+            "expected {bpm}, got {detected}"
+        );
+        let grid = estimate.grid.unwrap();
+        let phase_error =
+            (grid.first_beat_sec - 0.217 + period / 2.0).rem_euclid(period) - period / 2.0;
+        assert!(phase_error.abs() <= 0.010);
+        let final_error = phase_error + (30.0 / period).floor() * (grid.period_sec - period);
+        assert!(final_error.abs() <= 0.020);
+    }
+
+    #[test]
+    fn slow_grid_cannot_hide_absolute_onset_jitter() {
+        let rate = 200.0;
+        for bpm in [60.0, 70.0, 90.0, 127.3] {
+            let period = 60.0 / bpm;
+            let mut onsets = vec![0.0; 12_000];
+            for beat in 0..(60.0 / period) as usize {
+                let time = 0.217 + beat as f64 * period + 0.065 * (beat as f64 * 1.713).sin();
+                let center = time * rate;
+                let start = (center - 8.0).max(0.0) as usize;
+                let end = ((center + 9.0) as usize).min(onsets.len());
+                for (offset, onset) in onsets[start..end].iter_mut().enumerate() {
+                    *onset += (-0.5 * ((start as f64 + offset as f64 - center) / 1.6).powi(2)).exp()
+                        as f32;
+                }
+            }
+            let result = estimate(&onsets, rate, 0.0, None).unwrap();
+            assert!(result.usable_grid().is_none(), "{bpm}: {result:?}");
+            assert!(
+                result.grid.is_none_or(|grid| grid.stability < 0.80),
+                "{bpm}: {result:?}"
+            );
+        }
+    }
 
     #[test]
     fn large_tempo_search_observes_cancellation() {

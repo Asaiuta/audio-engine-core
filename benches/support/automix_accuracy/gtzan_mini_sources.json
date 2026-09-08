@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/TempoBeatDownbeat/gtzan_mini",
+  "revision": "a61439e86c13037011fde8e0f0743ec55c50bce3",
+  "files": [
+    {
+      "path": "genres/blues/blues.00000.wav",
+      "git_blob_sha1": "0f37af7df46dfab8c4de7d61449c13959437f35e"
+    },
+    {
+      "path": "genres/blues/blues.00001.wav",
+      "git_blob_sha1": "dea788f4d41b41e6129ffd74fde85b81babbadd5"
+    },
+    {
+      "path": "genres/blues/blues.00002.wav",
+      "git_blob_sha1": "8dce1267519ab91a8165aa516f9e4973a9f5025d"
+    },
+    {
+      "path": "genres/blues/blues.00003.wav",
+      "git_blob_sha1": "1a0d2550fbd5cd3f91ba150f5a0d5881ac0bb72e"
+    },
+    {
+      "path": "genres/blues/blues.00004.wav",
+      "git_blob_sha1": "017a39b2cacef3465e026174b0b27a825e42a61e"
+    },
+    {
+      "path": "genres/blues/blues.00005.wav",
+      "git_blob_sha1": "d4bb757637cc4c3e94d13f0c654324c20acf264f"
+    },
+    {
+      "path": "genres/blues/blues.00006.wav",
+      "git_blob_sha1": "47b02f897c57c17c641a249731a1c0162998ff04"
+    },
+    {
+      "path": "genres/blues/blues.00007.wav",
+      "git_blob_sha1": "99dec984af2a42a60d998106bd8ae9124610935d"
+    },
+    {
+      "path": "genres/blues/blues.00008.wav",
+      "git_blob_sha1": "ffc8bf0c730bdada7b88ba614d40e7a6a31cfeb5"
+    },
+    {
+      "path": "genres/blues/blues.00009.wav",
+      "git_blob_sha1": "5d2fd4d79d6940b9a0420a9c2f14d431e456e43d"
+    },
+    {
+      "path": "genres/classical/classical.00000.wav",
+      "git_blob_sha1": "fc7c617ede3cba1f14b6ce86e1a6bc3e06e8e976"
+    },
+    {
+      "path": "genres/classical/classical.00001.wav",
+      "git_blob_sha1": "3d025b22878de7f092e9797c27d2d7597e353aea"
+    },
+    {
+      "path": "genres/classical/classical.00002.wav",
+      "git_blob_sha1": "ebe9ec923b87f83774d379ddc2b9cc75d0c5d3b4"
+    },
+    {
+      "path": "genres/classical/classical.00003.wav",
+      "git_blob_sha1": "c04939c1ad57e809d46c82946a754c7e85f20c94"
+    },
+    {
+      "path": "genres/classical/classical.00004.wav",
+      "git_blob_sha1": "bb17048fa8e36f07a6c42976e304ed935c8cdfd4"
+    },
+    {
+      "path": "genres/classical/classical.00005.wav",
+      "git_blob_sha1": "00bf69791186558aa1845ab79aeedb1cd03b8faf"
+    },
+    {
+      "path": "genres/classical/classical.00006.wav",
+      "git_blob_sha1": "98068ce38f0416757716148bf0ec6e16776435bf"
+    },
+    {
+      "path": "genres/classical/classical.00007.wav",
+      "git_blob_sha1": "9413159fb118e3e8c889c5c8510c40d8a40f8d10"
+    },
+    {
+      "path": "genres/classical/classical.00008.wav",
+      "git_blob_sha1": "1f08a090b289f916a162f96ec315a1415ee3d027"
+    },
+    {
+      "path": "genres/classical/classical.00009.wav",
+      "git_blob_sha1": "9291226b40a6726283b044e6b1557a296bb6e9c5"
+    },
+    {
+      "path": "genres/country/country.00000.wav",
+      "git_blob_sha1": "d4ec5905ee1a3a9a0fa242d8019f415146ff4433"
+    },
+    {
+      "path": "genres/country/country.00001.wav",
+      "git_blob_sha1": "29cda8f00fbb589b42fc6d8aefbf83884de567f4"
+    },
+    {
+      "path": "genres/country/country.00002.wav",
+      "git_blob_sha1": "8a2c28e226d6fa1547f9111b7742949172b1447d"
+    },
+    {
+      "path": "genres/country/country.00003.wav",
+      "git_blob_sha1": "0aa9846b6991984ddd401cc2091ecc4a5b00d6b2"
+    },
+    {
+      "path": "genres/country/country.00004.wav",
+      "git_blob_sha1": "4b56c8aefb40901bf32f06b92190e96b883dd4ec"
+    },
+    {
+      "path": "genres/country/country.00005.wav",
+      "git_blob_sha1": "4561fc14ccb15517584ec1e9163d62767ee0a5de"
+    },
+    {
+      "path": "genres/country/country.00006.wav",
+      "git_blob_sha1": "fde4d2a4a67552f25a6ea721152e01276134922f"
+    },
+    {
+      "path": "genres/country/country.00007.wav",
+      "git_blob_sha1": "b5f1dc3155a4aeeb0818a2708a0b7dd9873af0b2"
+    },
+    {
+      "path": "genres/country/country.00008.wav",
+      "git_blob_sha1": "e84b49a11db26b80753792aa6b96ff3b1a24f83e"
+    },
+    {
+      "path": "genres/country/country.00009.wav",
+      "git_blob_sha1": "b14a994250e3c5ad831cdb738c19641ee12ac834"
+    },
+    {
+      "path": "genres/disco/disco.00000.wav",
+      "git_blob_sha1": "1b59e3104b8c86d35a32ca3641acded04933b392"
+    },
+    {
+      "path": "genres/disco/disco.00001.wav",
+      "git_blob_sha1": "c2071bdaff39c687a1d6e077e767c0450b454430"
+    },
+    {
+      "path": "genres/disco/disco.00002.wav",
+      "git_blob_sha1": "eaf139265b26a5b44b46553c29509b5ad88343ec"
+    },
+    {
+      "path": "genres/disco/disco.00003.wav",
+      "git_blob_sha1": "c3c368ebc30efe4f7de52145a3fafe61cb8cff2c"
+    },
+    {
+      "path": "genres/disco/disco.00004.wav",
+      "git_blob_sha1": "85139c3738599bfc02fada6eac8471d71023af39"
+    },
+    {
+      "path": "genres/disco/disco.00005.wav",
+      "git_blob_sha1": "e22d44dda5884b105c08bdc54dd89f179d8b9e64"
+    },
+    {
+      "path": "genres/disco/disco.00006.wav",
+      "git_blob_sha1": "73a3903efa312a9ffec947766a9f7cf92e821a26"
+    },
+    {
+      "path": "genres/disco/disco.00007.wav",
+      "git_blob_sha1": "a477b2daf419f626c42b8de70ea1ca72470edbde"
+    },
+    {
+      "path": "genres/disco/disco.00008.wav",
+      "git_blob_sha1": "4bc8a5618ec4907780373fb0a0bb1386696a6a4f"
+    },
+    {
+      "path": "genres/disco/disco.00009.wav",
+      "git_blob_sha1": "067f69615ca72d99a047e9639620bde7af8de1f3"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00000.wav",
+      "git_blob_sha1": "11ec1058c5f9bb6ce2dfbf032dc83bfd4295488b"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00001.wav",
+      "git_blob_sha1": "e4f4780954f95f3a0a98f4caefaa0010913db388"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00002.wav",
+      "git_blob_sha1": "61f73ec08b40cb05d07efb86ecb9c09b38146776"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00003.wav",
+      "git_blob_sha1": "4336f88d281190bece4526a1bba280b18266c970"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00004.wav",
+      "git_blob_sha1": "0c04ce1124255aa8add155e93ae5b49876495a1e"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00005.wav",
+      "git_blob_sha1": "29851b5a8eae96c0c8fd81ff993e86a78b11430d"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00006.wav",
+      "git_blob_sha1": "8c074ee9563a9821d5003d4a61f7674e3bfee64a"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00007.wav",
+      "git_blob_sha1": "90595c9582193ac904b1421d4edc845c6c02e818"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00008.wav",
+      "git_blob_sha1": "e945d1d3c9225722866373ee427f4f6bcf88f2f1"
+    },
+    {
+      "path": "genres/hiphop/hiphop.00009.wav",
+      "git_blob_sha1": "11cb3d4cde9a457b4183cad58e47db7791d1b38f"
+    },
+    {
+      "path": "genres/jazz/jazz.00000.wav",
+      "git_blob_sha1": "426c2df1aef4b9805d181b967d4e0bcd6cbd52b7"
+    },
+    {
+      "path": "genres/jazz/jazz.00001.wav",
+      "git_blob_sha1": "39fd2d2cb63576edb3b2e26ae7e3978f007e4f93"
+    },
+    {
+      "path": "genres/jazz/jazz.00002.wav",
+      "git_blob_sha1": "4ebc6ccd717e6f16c0fd4283937e092563e11ed9"
+    },
+    {
+      "path": "genres/jazz/jazz.00004.wav",
+      "git_blob_sha1": "bae31eaa30e4d5ad7ec83402b4ca9f348838e4ef"
+    },
+    {
+      "path": "genres/jazz/jazz.00005.wav",
+      "git_blob_sha1": "4e87c38b663d44b2ad8b98f87d85adb475a7e364"
+    },
+    {
+      "path": "genres/jazz/jazz.00006.wav",
+      "git_blob_sha1": "7cae54311540535f3c19f71b5d5ef6e4c327d00d"
+    },
+    {
+      "path": "genres/jazz/jazz.00007.wav",
+      "git_blob_sha1": "44385787db4a9f15f9cd766ccbcde11cc9ab13e4"
+    },
+    {
+      "path": "genres/jazz/jazz.00008.wav",
+      "git_blob_sha1": "6ee3eb2f2150a10080f6549927e534eec5096a12"
+    },
+    {
+      "path": "genres/jazz/jazz.00011.wav",
+      "git_blob_sha1": "4ffdcbdf76e28ecf639ee461c67c793fddc9ee37"
+    },
+    {
+      "path": "genres/jazz/jazz.00012.wav",
+      "git_blob_sha1": "fa9c1d7624633c0be7b7bf54ff7add3bd2713a50"
+    },
+    {
+      "path": "genres/metal/metal.00000.wav",
+      "git_blob_sha1": "02ac2d6b235b624af8311e59204a1f317fea1e10"
+    },
+    {
+      "path": "genres/metal/metal.00001.wav",
+      "git_blob_sha1": "ab435acea430a9ee3536f85fd3c41baad98d5015"
+    },
+    {
+      "path": "genres/metal/metal.00002.wav",
+      "git_blob_sha1": "bb7de4ff37ecc2a236bf1588b676e99a7376e542"
+    },
+    {
+      "path": "genres/metal/metal.00003.wav",
+      "git_blob_sha1": "fd481c0b4432a4b4666bd59b52f0a7602969594b"
+    },
+    {
+      "path": "genres/metal/metal.00004.wav",
+      "git_blob_sha1": "2e71ba77465d1eecc0d611614b2c95ee34bc141b"
+    },
+    {
+      "path": "genres/metal/metal.00005.wav",
+      "git_blob_sha1": "77d89707745ef6d58da09cab0c36591d1ba1abd9"
+    },
+    {
+      "path": "genres/metal/metal.00006.wav",
+      "git_blob_sha1": "334726ad16eb07fd725712b39c116fa675889f7c"
+    },
+    {
+      "path": "genres/metal/metal.00007.wav",
+      "git_blob_sha1": "f937a1526c4ea92cb23b2b62d13a34a0a444c04c"
+    },
+    {
+      "path": "genres/metal/metal.00008.wav",
+      "git_blob_sha1": "8fb178a7a1ef26220fc1560a528db73c27561113"
+    },
+    {
+      "path": "genres/metal/metal.00009.wav",
+      "git_blob_sha1": "3915b342fe29ace11c60a8adbd4fbdc26ddf66e1"
+    },
+    {
+      "path": "genres/pop/pop.00000.wav",
+      "git_blob_sha1": "ba09a93d8832a6594485ffdb2a32ed6705a40838"
+    },
+    {
+      "path": "genres/pop/pop.00001.wav",
+      "git_blob_sha1": "814e959f6f1e7f79c53d25979a8220aa0f087460"
+    },
+    {
+      "path": "genres/pop/pop.00002.wav",
+      "git_blob_sha1": "5b3b3d9d4305838671994ca9eae95668df7f551e"
+    },
+    {
+      "path": "genres/pop/pop.00003.wav",
+      "git_blob_sha1": "4377b9b03ce85fb7ce26c47d263e540fe421c1e6"
+    },
+    {
+      "path": "genres/pop/pop.00004.wav",
+      "git_blob_sha1": "01e5f41cee43192bf260ae2236efc292d4e28a76"
+    },
+    {
+      "path": "genres/pop/pop.00005.wav",
+      "git_blob_sha1": "cb5ee5e69ba4ada0c55aa0f5cc566beb8d2f26ca"
+    },
+    {
+      "path": "genres/pop/pop.00006.wav",
+      "git_blob_sha1": "cf95071213e6142543859edc35c3b57db6d22366"
+    },
+    {
+      "path": "genres/pop/pop.00007.wav",
+      "git_blob_sha1": "dc6b8f54eda4c0c06e2d2a206d60ce0f08f5d65a"
+    },
+    {
+      "path": "genres/pop/pop.00008.wav",
+      "git_blob_sha1": "762f47ce2eaa4f4eaed6c2fd83f158a70818e338"
+    },
+    {
+      "path": "genres/pop/pop.00009.wav",
+      "git_blob_sha1": "5ccbb71cea36269d6f0430f900fe3d31f2d7f7e4"
+    },
+    {
+      "path": "genres/reggae/reggae.00000.wav",
+      "git_blob_sha1": "b8dc38c63a7a4cef0d10f60851f5d703ea52caac"
+    },
+    {
+      "path": "genres/reggae/reggae.00001.wav",
+      "git_blob_sha1": "bb15e64bfaadcb57051ce1b51d0c23d39039efe8"
+    },
+    {
+      "path": "genres/reggae/reggae.00002.wav",
+      "git_blob_sha1": "bc4f59d86c9021128f7324228f0f4bf20bc65cac"
+    },
+    {
+      "path": "genres/reggae/reggae.00003.wav",
+      "git_blob_sha1": "1a31e24a7c2fa1b9e047e48c7a0ce1ba14156097"
+    },
+    {
+      "path": "genres/reggae/reggae.00004.wav",
+      "git_blob_sha1": "d339fa587e479589374aab5233b0295d0f81eb8d"
+    },
+    {
+      "path": "genres/reggae/reggae.00005.wav",
+      "git_blob_sha1": "85b4fbb3fcca74b213e4970430f490f6fb44b2b8"
+    },
+    {
+      "path": "genres/reggae/reggae.00006.wav",
+      "git_blob_sha1": "80e13f06022134fde35554efb9f775864a4e1109"
+    },
+    {
+      "path": "genres/reggae/reggae.00007.wav",
+      "git_blob_sha1": "1914f580877e54248e65f39e2272760c6e2266b5"
+    },
+    {
+      "path": "genres/reggae/reggae.00008.wav",
+      "git_blob_sha1": "3b6ff65b7f9ef49f42e1271d86f5622dfd1a735b"
+    },
+    {
+      "path": "genres/reggae/reggae.00009.wav",
+      "git_blob_sha1": "c60c2aedc0518f9172ba24e54ca5b1559284135a"
+    },
+    {
+      "path": "genres/rock/rock.00000.wav",
+      "git_blob_sha1": "e1e186604e6d11598effb7ca40f45126dd2e1215"
+    },
+    {
+      "path": "genres/rock/rock.00001.wav",
+      "git_blob_sha1": "8ff856367519c118405ecd387fdff59db6585aa9"
+    },
+    {
+      "path": "genres/rock/rock.00002.wav",
+      "git_blob_sha1": "2be2322a7f11cb48685ecffab7a53d972f5264a5"
+    },
+    {
+      "path": "genres/rock/rock.00003.wav",
+      "git_blob_sha1": "695a8052f2ecd2a3b65436eb7750358244672ab5"
+    },
+    {
+      "path": "genres/rock/rock.00004.wav",
+      "git_blob_sha1": "ea59920e349487abdb610212585ffc0c7e653b16"
+    },
+    {
+      "path": "genres/rock/rock.00005.wav",
+      "git_blob_sha1": "9010dd5572d12a89ddcb67f84bcc070309e12d17"
+    },
+    {
+      "path": "genres/rock/rock.00006.wav",
+      "git_blob_sha1": "a8c767eb5f92777add6a4d299e6c2ddeed4003fa"
+    },
+    {
+      "path": "genres/rock/rock.00007.wav",
+      "git_blob_sha1": "2482526f881642b3b7941da6c05fbc3cf1b69cd6"
+    },
+    {
+      "path": "genres/rock/rock.00008.wav",
+      "git_blob_sha1": "f3b28a666dd1750c24796bd6eabbe3c10c47633d"
+    },
+    {
+      "path": "genres/rock/rock.00009.wav",
+      "git_blob_sha1": "05402fee66110bd6af517b66bc804851cfe9271d"
+    }
+  ]
+}

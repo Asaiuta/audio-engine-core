@@ -105,10 +105,12 @@ pub struct AutomixAnalysis {
     /// First fitted beat at or after the analyzed head origin, in absolute
     /// source seconds. This is beat phase, not a downbeat or bar-start claim.
     pub first_beat_pos: Option<f64>,
-    /// Constant-grid stability in 0..1: `1 - min(1, RMS residual / (period/4))`.
+    /// Constant-grid stability in 0..1, derived from RMS phase residual.
     ///
     /// Residuals include all supported tracked beats, including robust-fit
-    /// outliers. `None` (JSON null) means no grid was fitted. Cut snapping
+    /// outliers. The score is `1 - min(1, residual / min(period/4, 0.125))`,
+    /// with times in seconds, so slow grids cannot hide large absolute errors.
+    /// `None` (JSON null) means no grid was fitted. Cut snapping
     /// requires stability >=0.80 and [`Self::bpm_confidence`] >=0.35.
     pub beat_grid_stability: Option<f64>,
     /// Integrated loudness in LUFS, when measurable.

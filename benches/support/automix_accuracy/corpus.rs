@@ -80,11 +80,21 @@ pub struct Track {
     pub annotation: InputFile,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Split {
     Development,
+    #[default]
     Evaluation,
+}
+
+impl Split {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::Evaluation => "evaluation",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -248,14 +258,10 @@ pub fn validate_manifest(manifest: &mut Manifest) -> Result<(), String> {
             return Err(format!("{}: empty or duplicate metrics", corpus.id));
         }
         if corpus.tracks.is_empty()
-            || !corpus
-                .tracks
-                .iter()
-                .any(|track| track.split == Split::Evaluation)
             || corpus.expected_track_count != corpus.tracks.len() + corpus.exclusions.len()
         {
             return Err(format!(
-                "{}: expected count mismatch or empty evaluation split",
+                "{}: expected count mismatch or empty included tracks",
                 corpus.id
             ));
         }
@@ -352,14 +358,16 @@ fn checked_file(root: &Path, input: &InputFile) -> Result<Option<PathBuf>, Strin
     Ok(Some(path))
 }
 
-pub fn load_corpus(root: &Path, corpus: &Corpus) -> CorpusInputs {
+pub fn load_corpus(root: &Path, corpus: &Corpus, split: Split) -> CorpusInputs {
     let mut inputs = CorpusInputs {
         tracks: Vec::new(),
         missing: Vec::new(),
         integrity_errors: Vec::new(),
         missing_track_count: 0,
     };
-    for track in &corpus.tracks {
+    // Manifest identities/digests are checked across both splits, but only the
+    // selected split's media and labels may enter this run.
+    for track in corpus.tracks.iter().filter(|track| track.split == split) {
         let mut paths = Vec::with_capacity(2);
         let mut missing_track = false;
         for input in [&track.audio, &track.annotation] {

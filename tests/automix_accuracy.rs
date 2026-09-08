@@ -167,6 +167,35 @@ fn cli_rejects_conflicts_and_missing_selection() {
     assert!(valid.enforce);
 }
 
+#[test]
+fn cli_requires_an_explicit_valid_corpus_split_selection() {
+    let development = options(&["--corpus-manifest", "m.json", "--split", "development"]).unwrap();
+    assert_eq!(
+        Report::new(&development).conditions["corpus_split"],
+        "development"
+    );
+    assert_eq!(
+        Report::new(&Options::default()).conditions["corpus_split"],
+        "evaluation"
+    );
+    for args in [
+        vec!["--split"],
+        vec!["--split", "development"],
+        vec!["--quick", "--split", "development"],
+        vec!["--corpus-manifest", "m.json", "--split", "test"],
+        vec![
+            "--corpus-manifest",
+            "m.json",
+            "--split",
+            "development",
+            "--split",
+            "evaluation",
+        ],
+    ] {
+        assert!(options(&args).is_err(), "{args:?}");
+    }
+}
+
 struct Inputs {
     root: PathBuf,
     manifest: Value,
@@ -244,6 +273,117 @@ impl Drop for Inputs {
         // This unique directory was created by this test, never caller supplied.
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn development_scores_are_diagnostic_and_do_not_load_evaluation_files() {
+    let mut inputs = Inputs::new();
+    inputs.manifest["corpora"][0]["tracks"][0]["split"] = "development".into();
+    let mut withheld = inputs.manifest["corpora"][0]["tracks"][0].clone();
+    withheld["id"] = "withheld".into();
+    withheld["recording_id"] = "withheld-recording".into();
+    withheld["split"] = "evaluation".into();
+    withheld["audio"] = json!({"path": "withheld.wav", "sha256": "a".repeat(64)});
+    withheld["annotation"] = json!({"path": "withheld.json", "sha256": "b".repeat(64)});
+    inputs.manifest["corpora"][0]["tracks"]
+        .as_array_mut()
+        .unwrap()
+        .push(withheld);
+    inputs.manifest["corpora"][0]["expected_track_count"] = 2.into();
+    let selected = inputs.selected(true);
+    let mut options = Options::parse([
+        "--corpus-manifest".into(),
+        selected.manifest.unwrap().to_string_lossy().into_owned(),
+        "--split".into(),
+        "development".into(),
+        "--require-corpus".into(),
+        "local-test".into(),
+        "--enforce".into(),
+    ])
+    .unwrap();
+    options.out = selected.out;
+    let mut report = Report::new(&options);
+    evaluate_corpora(&mut report, &options);
+    report.write_then_enforce(&options).unwrap();
+    assert_eq!(report.cases.len(), 1);
+    assert_eq!(report.cases[0].track_id, "track");
+    assert_eq!(report.corpora[0].missing_track_count, 0);
+    assert_eq!(report.corpora[0].status, "evaluated");
+    for metric in &report.metrics {
+        assert_eq!(metric.classification, "report");
+        assert_eq!(metric.measured, Some(0.0));
+        assert_eq!(metric.passed, Some(false));
+    }
+    let persisted: Value =
+        serde_json::from_slice(&fs::read(options.out.unwrap()).unwrap()).unwrap();
+    assert_eq!(persisted["schema_version"], 2);
+    assert_eq!(persisted["conditions"]["corpus_split"], "development");
+    assert_eq!(persisted["conditions"]["corpus_acceptance_gates"], false);
+    assert_eq!(persisted["cases"][0]["split"], "development");
+    assert_eq!(persisted["corpora"][0]["selected_count"], 1);
+    assert_eq!(persisted["corpora"][0]["development_count"], 1);
+    assert_eq!(persisted["corpora"][0]["evaluation_count"], 1);
+}
+
+#[test]
+fn evaluation_does_not_load_development_files_or_relax_acceptance() {
+    let mut inputs = Inputs::new();
+    let mut development = inputs.manifest["corpora"][0]["tracks"][0].clone();
+    development["id"] = "unselected".into();
+    development["recording_id"] = "unselected-recording".into();
+    development["split"] = "development".into();
+    development["audio"] = json!({"path": "unselected.wav", "sha256": "a".repeat(64)});
+    development["annotation"] = json!({"path": "unselected.json", "sha256": "b".repeat(64)});
+    inputs.manifest["corpora"][0]["tracks"]
+        .as_array_mut()
+        .unwrap()
+        .push(development);
+    inputs.manifest["corpora"][0]["expected_track_count"] = 2.into();
+    let (report, _) = inputs.evaluate(true);
+    assert!(
+        report.exit_result(false).is_ok(),
+        "{:?}",
+        report.input_errors
+    );
+    assert!(report
+        .exit_result(true)
+        .unwrap_err()
+        .contains("accuracy gates failed"));
+    assert_eq!(report.cases.len(), 1);
+    assert_eq!(report.corpora[0].missing_track_count, 0);
+    assert_eq!(
+        report
+            .metrics
+            .iter()
+            .filter(|metric| metric.classification == "gate")
+            .count(),
+        4
+    );
+}
+
+#[test]
+fn empty_selected_split_is_skipped_and_cannot_satisfy_a_required_corpus() {
+    let mut inputs = Inputs::new();
+    inputs.manifest["corpora"][0]["tracks"][0]["split"] = "development".into();
+    let (report, _) = inputs.evaluate(false);
+    assert!(
+        report.exit_result(true).is_ok(),
+        "{:?}",
+        report.input_errors
+    );
+    assert!(report.cases.is_empty());
+    assert_eq!(report.corpora[0].status, "not_selected");
+    assert!(report
+        .metrics
+        .iter()
+        .all(|metric| metric.classification == "skipped"
+            && metric.measured.is_none()
+            && metric.passed.is_none()));
+    let (report, _) = inputs.evaluate(true);
+    assert!(report
+        .exit_result(false)
+        .unwrap_err()
+        .contains("required corpus"));
 }
 
 #[test]

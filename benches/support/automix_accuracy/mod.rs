@@ -16,12 +16,13 @@ use crate::support::{generated_unix_ms, write_json, BenchEnvironment};
 use corpus::{Annotation, Corpus, Manifest, MetricKind, Split};
 
 pub const ESTIMATOR_CONFIGURATION: &str =
-    "automix_v4_logflux200_acfblur10ms_prior120_sigma1.5_subdiv4_dp100_grid_v1_dev";
+    "automix_v4_logflux200_acfblur10ms_prior120_sigma1.5_subdiv4relative_peakcontrast_dp100_grid125ms_v4_dev";
 pub const ANALYSIS_CAP_SEC: f64 = 60.0;
 
 #[derive(Debug, Default)]
 pub struct Options {
     pub quick: bool,
+    pub split: Split,
     pub manifest: Option<PathBuf>,
     pub root: Option<PathBuf>,
     pub required: BTreeSet<String>,
@@ -33,6 +34,7 @@ pub struct Options {
 impl Options {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut result = Self::default();
+        let mut selected_split = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -40,6 +42,18 @@ impl Options {
                 "--enforce" => result.enforce = true,
                 "--help" | "-h" => result.help = true,
                 "--bench" => (), // Cargo's custom-harness marker.
+                "--split" => {
+                    let split = match args.next().as_deref() {
+                        Some("development") => Split::Development,
+                        Some("evaluation") => Split::Evaluation,
+                        _ => return Err("--split needs development or evaluation".into()),
+                    };
+                    if selected_split.is_some_and(|previous| previous != split) {
+                        return Err("conflicting duplicate option --split".into());
+                    }
+                    selected_split = Some(split);
+                    result.split = split;
+                }
                 "--corpus-manifest" | "--corpus-root" | "--out" => {
                     let value = args
                         .next()
@@ -67,12 +81,17 @@ impl Options {
             }
         }
         if result.quick
-            && (result.manifest.is_some() || result.root.is_some() || !result.required.is_empty())
+            && (result.manifest.is_some()
+                || result.root.is_some()
+                || !result.required.is_empty()
+                || selected_split.is_some())
         {
             return Err("--quick cannot select or require a corpus".into());
         }
-        if result.manifest.is_none() && (result.root.is_some() || !result.required.is_empty()) {
-            return Err("corpus root/requirements need --corpus-manifest".into());
+        if result.manifest.is_none()
+            && (result.root.is_some() || !result.required.is_empty() || selected_split.is_some())
+        {
+            return Err("corpus root/requirements/split need --corpus-manifest".into());
         }
         Ok(result)
     }
@@ -102,6 +121,7 @@ pub struct Case {
     pub case_key: String,
     pub corpus_id: String,
     pub track_id: String,
+    pub split: Split,
     pub reference: Option<Annotation>,
     pub prediction: Option<Prediction>,
     pub analyzed_interval: Option<Interval>,
@@ -131,6 +151,7 @@ impl Metric {
         measured: Option<f64>,
         count: usize,
         target: bool,
+        split: Split,
         detail: &str,
     ) -> Self {
         let (minimum, goal) = kind.bars();
@@ -140,7 +161,7 @@ impl Metric {
             corpus_id: corpus_id.into(),
             classification: if measured.is_none() {
                 "skipped"
-            } else if target {
+            } else if target || split == Split::Development {
                 "report"
             } else {
                 "gate"
@@ -167,7 +188,10 @@ pub struct CorpusReport {
     pub status: String,
     pub expected_count: usize,
     pub included_count: usize,
+    pub development_count: usize,
     pub evaluation_count: usize,
+    pub selected_split: Split,
+    pub selected_count: usize,
     pub evaluated_count: usize,
     pub excluded_count: usize,
     pub missing_track_count: usize,
@@ -192,7 +216,7 @@ pub struct Report {
 impl Report {
     pub fn new(options: &Options) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             probe: "audio_automix_accuracy".into(),
             generated_unix_ms: generated_unix_ms(),
             mode: if options.quick { "quick" } else { "full" }.into(),
@@ -210,7 +234,9 @@ impl Report {
                 "amlt_phase_period_tolerance_strict": metrics::CONTINUITY_TOLERANCE,
                 "beat_trim_sec_inclusive": metrics::TRIM_SEC,
                 "beat_interval": "intersection with realized [start,end), then trim both arrays at >=5 s",
-                "aggregation": "per-corpus evaluation split macro mean; no partial passing aggregate",
+                "corpus_split": options.split,
+                "corpus_acceptance_gates": options.split == Split::Evaluation,
+                "aggregation": "per-corpus selected split macro mean; development scores are diagnostic; no partial passing aggregate",
                 "coverage": "independently decode the same bounded head window and count selected frames",
                 "key_detector": "not integrated; labeled key predictions abstain",
                 "synthetic_bpm_error_max": 0.05, "synthetic_phase_error_sec_max": 0.010,
@@ -399,7 +425,10 @@ fn skipped_external(report: &mut Report) {
             status: "not_selected".into(),
             expected_count: 0,
             included_count: 0,
+            development_count: 0,
             evaluation_count: 0,
+            selected_split: Split::Evaluation,
+            selected_count: 0,
             evaluated_count: 0,
             excluded_count: 0,
             missing_track_count: 0,
@@ -413,6 +442,7 @@ fn skipped_external(report: &mut Report) {
                 None,
                 0,
                 false,
+                Split::Evaluation,
                 "no corpus selected; no real-music accuracy evidence",
             ));
         }
@@ -470,7 +500,7 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
         .canonicalize()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default().join(root));
     for corpus in manifest.corpora {
-        let inputs = corpus::load_corpus(&root, &corpus);
+        let inputs = corpus::load_corpus(&root, &corpus, options.split);
         let required = options.required.contains(&corpus.id);
         let mut summary = CorpusReport {
             id: corpus.id.clone(),
@@ -481,10 +511,21 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
             status: "evaluated".into(),
             expected_count: corpus.expected_track_count,
             included_count: corpus.tracks.len(),
+            development_count: corpus
+                .tracks
+                .iter()
+                .filter(|track| track.split == Split::Development)
+                .count(),
             evaluation_count: corpus
                 .tracks
                 .iter()
                 .filter(|track| track.split == Split::Evaluation)
+                .count(),
+            selected_split: options.split,
+            selected_count: corpus
+                .tracks
+                .iter()
+                .filter(|track| track.split == options.split)
                 .count(),
             evaluated_count: 0,
             excluded_count: corpus.exclusions.len(),
@@ -497,11 +538,7 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
             .iter()
             .map(|kind| (kind.name(), 0.0))
             .collect();
-        for loaded in inputs
-            .tracks
-            .into_iter()
-            .filter(|loaded| loaded.track.split == Split::Evaluation)
-        {
+        for loaded in inputs.tracks {
             let outcome = analyze_file(&loaded.audio_path).and_then(|(prediction, interval)| {
                 if interval.end_sec <= metrics::TRIM_SEC {
                     return Err("track too short for the fixed evaluation protocol; declare a pre-evaluation exclusion".into());
@@ -517,6 +554,7 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
                 case_key: format!("{}:{}", corpus.id, loaded.track.id),
                 corpus_id: corpus.id.clone(),
                 track_id: loaded.track.id,
+                split: loaded.track.split,
                 reference: Some(loaded.annotation),
                 prediction: None,
                 analyzed_interval: None,
@@ -548,12 +586,12 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
             }
             report.cases.push(case);
         }
-        // List every evaluation identity, including inputs that could not be
+        // List every selected identity, including inputs that could not be
         // loaded. Missing inputs cannot silently vanish from the report.
         for track in corpus
             .tracks
             .iter()
-            .filter(|track| track.split == Split::Evaluation)
+            .filter(|track| track.split == options.split)
         {
             let key = format!("{}:{}", corpus.id, track.id);
             if !report.cases.iter().any(|case| case.case_key == key) {
@@ -561,6 +599,7 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
                     case_key: key,
                     corpus_id: corpus.id.clone(),
                     track_id: track.id.clone(),
+                    split: track.split,
                     reference: None,
                     prediction: None,
                     analyzed_interval: None,
@@ -572,10 +611,13 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
                 });
             }
         }
-        let complete = summary.missing_paths.is_empty()
+        let complete = summary.selected_count > 0
+            && summary.missing_paths.is_empty()
             && summary.integrity_errors.is_empty()
-            && summary.evaluated_count == summary.evaluation_count;
-        if !summary.integrity_errors.is_empty() {
+            && summary.evaluated_count == summary.selected_count;
+        if summary.selected_count == 0 {
+            summary.status = "not_selected".into();
+        } else if !summary.integrity_errors.is_empty() {
             summary.status = "invalid".into();
             report.input_errors.push(format!(
                 "{}: {}",
@@ -587,10 +629,11 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
         }
         if required && !complete {
             report.input_errors.push(format!(
-                "required corpus {} incomplete: evaluated {}/{}, missing {} included tracks",
+                "required corpus {} incomplete: evaluated {}/{} {} tracks, missing {} selected tracks",
                 corpus.id,
                 summary.evaluated_count,
-                summary.evaluation_count,
+                summary.selected_count,
+                options.split.name(),
                 summary.missing_track_count
             ));
         }
@@ -604,8 +647,15 @@ pub fn evaluate_corpora(report: &mut Report, options: &Options) {
                     measured,
                     if complete { summary.evaluated_count } else { 0 },
                     target,
+                    options.split,
                     if complete {
-                        "frozen evaluation split; per-track macro mean"
+                        if options.split == Split::Development {
+                            "development split; diagnostic per-track macro mean, not held-out acceptance"
+                        } else {
+                            "frozen evaluation split; per-track macro mean"
+                        }
+                    } else if summary.selected_count == 0 {
+                        "no tracks in selected split; aggregate unavailable"
                     } else {
                         "incomplete/invalid input; aggregate unavailable"
                     },
@@ -714,6 +764,7 @@ pub fn evaluate_synthetic(report: &mut Report) -> Result<(), String> {
             case_key: format!("synthetic:{}", fixture.id),
             corpus_id: "synthetic".into(),
             track_id: fixture.id.clone(),
+            split: Split::Development,
             reference: Some(reference),
             prediction: Some(prediction),
             analyzed_interval: Some(interval),

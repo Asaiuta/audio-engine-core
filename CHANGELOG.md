@@ -19,8 +19,15 @@ version bumps, as permitted by SemVer.
   confidence/stability gates. Recompute cached v3 analysis; the new field also
   changes Rust struct-literal construction. v4 remains unreleased until the
   coordinated Structure semantics land and corpus accuracy is accepted.
-  Synthetic precision passes, but the first complete GiantSteps/Ballroom
-  evaluation fails three of four MIR minimum bars; see `docs/automix-accuracy.md`.
+  Separate GTZAN mini development corrected subdivision ranking and peak
+  contrast, with an absolute residual cap preventing slow grids from hiding
+  timing error. Synthetic precision and both Ballroom beat bars pass; the
+  repeated frozen evaluation still fails both GiantSteps tempo bars. See
+  `docs/automix-accuracy.md` for retained results and limits.
+- The offline AutoMix accuracy runner supports explicit development/evaluation
+  selection. Report schema v2 records selected coverage and split identity;
+  development metrics remain diagnostic. Source-pinned GTZAN mini preparation
+  preserves native annotations and checks overlap with the frozen evaluation.
 
 ### Removed
 

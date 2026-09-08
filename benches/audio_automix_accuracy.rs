@@ -5,7 +5,7 @@ pub mod support;
 fn main() -> Result<(), String> {
     let options = accuracy::Options::parse(std::env::args().skip(1))?;
     if options.help {
-        println!("audio_automix_accuracy [--quick] [--corpus-manifest PATH] [--corpus-root DIR] [--require-corpus ID ...] [--enforce] [--out PATH]\nOffline only. --quick runs synthetic audio and visibly skips external metrics.");
+        println!("audio_automix_accuracy [--quick] [--corpus-manifest PATH] [--corpus-root DIR] [--split evaluation|development] [--require-corpus ID ...] [--enforce] [--out PATH]\nOffline only. --quick runs synthetic audio and visibly skips external metrics.\nCorpus split defaults to evaluation. Development scores are diagnostic, never acceptance gates.");
         return Ok(());
     }
     let mut report = accuracy::run(&options)?;
