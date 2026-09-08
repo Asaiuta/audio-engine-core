@@ -107,11 +107,11 @@ pub(super) fn estimate(
         // A slower candidate must explain strong intervening onsets. Weak
         // subdivisions do not force a doubled tempo; equally strong pulses
         // prefer the shortest supported level rather than the prior's octave.
-        // Fourth powers reserve that penalty for nearly equal subdivisions.
+        // Sixth powers reserve that penalty for nearly equal subdivisions.
         // Scale it by the candidate's own evidence: an absolute subtraction
         // can demote a supported beat below unrelated weak periodicities.
-        let subdivisions = 0.60 * interpolated(&correlations, period / 2.0).powi(4)
-            + 0.30 * interpolated(&correlations, period / 3.0).powi(4);
+        let subdivisions = 0.60 * interpolated(&correlations, period / 2.0).powi(6)
+            + 0.30 * interpolated(&correlations, period / 3.0).powi(6);
         let score = base * harmonic * prior(period, rate) * (1.0 - subdivisions);
         let weighted_peak = base * prior(period, rate);
         let salience = ((weighted_peak - mean_weighted) / weighted_peak.max(0.01)).clamp(0.0, 1.0);

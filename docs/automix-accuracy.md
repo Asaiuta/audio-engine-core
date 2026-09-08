@@ -169,7 +169,7 @@ the unblurred ODF, preserving onset precision.
 The prior centers on 120 BPM with 1.5-octave sigma, across 55..200 BPM. For
 normalized ACF `c` and refined period `p`, harmonic evidence is
 `h=(c(p)+.5*c(2p)+.25*c(3p))/1.75`; rank by
-`c(p)*h*prior * (1 - .60*c(p/2)^4 - .30*c(p/3)^4)`. Fourth powers limit the
+`c(p)*h*prior * (1 - .60*c(p/2)^6 - .30*c(p/3)^6)`. Sixth powers limit the
 penalty to strong subdivisions; scaling by the candidate's own evidence
 prevents an absolute penalty from promoting unrelated weak periodicities.
 Parabolic peaks and 1x/2x/3x refinement feed DP tracking, with transition
@@ -323,7 +323,7 @@ not fresh unseen validation. The task's
 `research/development-evaluation-policy.md` records this policy before the
 first mini prediction.
 
-The selected candidate improved development Accuracy1/2 from .56/.83 to
+The first selected candidate improved development Accuracy1/2 from .56/.83 to
 .63/.87 and F-measure/AMLt from .6918/.7821 to .7342/.8196. These 100 tracks
 remain development diagnostics. A higher-scoring intermediate candidate was
 rejected because it violated the off-grid stability contract. The final
@@ -332,7 +332,17 @@ grid residual scale at 125 ms. The task's
 `research/development-candidate-freeze.md` retains the experiment aggregates,
 source identities, rejected-candidate reason and frozen verification sequence.
 
-## Repeated frozen corpus result
+A subsequent metrical-selection comparison retained sixth-power subdivision
+penalties. Removing the penalty failed the existing 200 BPM/50 Hz regression;
+sixth powers passed all 22 AutoMix unit tests and 135 synthetic gates. All 100
+development tracks were scored, with Accuracy1/2 .64/.88 and F-measure/AMLt
+.7413/.8294. These are small development improvements, not release acceptance.
+The task retains the failed experiment and candidate scan in
+`research/metrical-selection-investigation-2026-09-08.md`, the final development
+aggregate in `research/tempo-v6-development-summary.json`, and the exact source
+freeze in `research/metrical-candidate-freeze.md`.
+
+## First repeat: fourth-power candidate
 
 The 2026-09-08 development candidate was frozen before repeating the same
 661 GiantSteps and 685 Ballroom tracks. Both compiled production-source
@@ -360,3 +370,25 @@ task stays in progress and v4 is not accepted for release. No further
 parameter changes were made from these results. Subsequent development must
 keep this evidence intact and predeclare any new independent validation data.
 The remote corpus workflow has not run.
+
+## Second repeat: sixth-power candidate
+
+The source in `research/metrical-candidate-freeze.md` was frozen before the
+next full original-corpus run. All 1,346 tracks were scored with zero skips
+or input failures; all 135 synthetic gates passed. Exit 1 retains the two
+failed tempo gates. No parameters were changed from these evaluation results.
+
+| Corpus metric | Fourth power | Sixth power | Minimum | Result |
+|---|---:|---:|---:|---|
+| GiantSteps Accuracy1 | .2980332829 | .3177004539 | .55 | Failed |
+| GiantSteps Accuracy2 | .4508320726 | .4992435703 | .90 | Failed |
+| Ballroom F-measure | .6542758404 | .6637780327 | .55 | Passed |
+| Ballroom AMLt | .7234320970 | .7442118631 | .70 | Passed |
+
+Complete report: `target/tempo-v6-corpus-repeat.json`, SHA-256
+`739ea427b499dafc0a7b0eb1724ff5972ab82a53e33249f08862aae2914ec3bc`.
+Aggregate: `research/tempo-v6-corpus-repeat-summary.json`; validation commands
+and exits: `research/metrical-validation-2026-09-08.md`. The original manifest
+and both earlier reports retain their frozen hashes. This remains repeated
+evaluation, not independent validation. The task is in progress, and tempo
+accuracy is still not accepted for release.

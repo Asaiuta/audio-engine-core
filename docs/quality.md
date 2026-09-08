@@ -880,16 +880,16 @@ benchmarks and tests enforce.
 
 ### AutoMix analysis contract
 
-The 2026-09-08 development-candidate `fixed_work_v2` quick comparison
+The 2026-09-08 sixth-power candidate `fixed_work_v2` quick comparison
 (Windows, core 2, default Rubato features, seven trials, 12-second PCM16
 fixture, 5-second cap) measured
-Head **16.4400 ms** and Full **31.6096 ms**. The same-machine v3 baselines were
-16.4737/23.2425 ms, giving **0.998x/1.360x**, both within this task's 2x bar.
+Head **15.3684 ms** and Full **29.9504 ms**. The same-machine v3 baselines were
+16.4737/23.2425 ms, giving **0.933x/1.289x**, both within this task's 2x bar.
 All 18 work-validity rows and comparisons passed the task's explicit 100%
 regression allowance; the repository's ordinary 10% default remains unchanged.
 No competing build/test ran during timing. Reports under the task's
 `research/` directory are `tempo-v3-component-baseline.json` and
-`tempo-v4-development-component.json`; the earlier v4 report is retained too.
+`tempo-v6-component.json`; both earlier v4 reports are retained too.
 These are whole-analysis costs, not a claim that every v4 workload is faster.
 
 AutoMix analysis schema version 4 (unreleased) uses log-compressed spectral
@@ -907,13 +907,13 @@ See [the accuracy protocol](automix-accuracy.md) for the precise confidence
 formula, development fixtures, independent metric goldens and required corpus
 evaluation. Synthetic precision and absent-corpus skips are not real-music
 accuracy evidence. After development on the separate 100-track GTZAN mini
-collection, the frozen candidate repeated all 661/685 original evaluation
+collection, the sixth-power candidate repeated all 661/685 original evaluation
 tracks with zero missing/invalid inputs (2026-09-08). GiantSteps Accuracy1/2
-rose from **26.02%/41.15%** to **29.80%/45.08%** and Ballroom F-measure/AMLt
-from **63.86%/68.25%** to **65.43%/72.34%**. Both beat bars now pass, but both
+rose from **26.02%/41.15%** to **31.77%/49.92%** and Ballroom F-measure/AMLt
+from **63.86%/68.25%** to **66.38%/74.42%**. Both beat bars pass, but both
 tempo bars still fail; the candidate is not accepted for MIR accuracy.
 This repeated evaluation is not fresh unseen validation. The protocol links
-both retained aggregate results, source freezes and full local reports.
+all three retained aggregate results, source freezes and full local reports.
 Musical-key detection is not implemented or claimed,
 so the serialized result has no key status or reserved key payload fields. A
 future key contract requires a detector validated against an independently
