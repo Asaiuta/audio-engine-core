@@ -3,6 +3,8 @@
 //! The prior/DP formulation follows Ellis (2007); the grid is an unrounded
 //! least-squares fit. Candidate/contrast corrections use separate real-music
 //! development data; synthetic fixtures constrain phase and jitter behavior.
+//! When spectral channel views are available, a channel-mean ACF can replace
+//! the all-band candidate only under a conservative signal-derived gate.
 //! See docs/automix-accuracy.md for the evaluation policy.
 
 use super::{check_cancel, AutomixError};
@@ -21,12 +23,21 @@ const MIN_GRID_STABILITY: f64 = 0.80;
 const MAX_GRID_RESIDUAL_SEC: f64 = 0.125;
 const MIN_FIT_BEATS: usize = 6;
 const CANCEL_CHUNK: usize = 2_048;
+const CHANNEL_PERIOD_TOLERANCE: f64 = 0.01;
+const CHANNEL_MARGIN_ADVANTAGE: f64 = 0.05;
 
 #[derive(Clone, Copy)]
 struct TempoCandidate {
     period: f64,
     score: f64,
     salience: f64,
+}
+
+#[derive(Clone, Copy)]
+struct RankedEstimate {
+    candidate: TempoCandidate,
+    estimate: TempoEstimate,
+    margin: f64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +75,16 @@ pub(super) fn estimate(
     observation_offset_sec: f64,
     cancel: Option<&DecodeCancelToken>,
 ) -> Result<TempoEstimate, AutomixError> {
+    estimate_with_channels(values, None, rate, observation_offset_sec, cancel)
+}
+
+pub(super) fn estimate_with_channels(
+    values: &[f32],
+    channels: Option<&[Vec<f32>; 3]>,
+    rate: f64,
+    observation_offset_sec: f64,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<TempoEstimate, AutomixError> {
     check_cancel(cancel)?;
     if !rate.is_finite()
         || rate <= 0.0
@@ -88,6 +109,58 @@ pub(super) fn estimate(
         (3 * max_lag + 2).min(onsets.len() - 1),
         cancel,
     )?;
+    let candidates = rank_candidates(&correlations, rate, min_lag, max_lag, cancel)?;
+    let Some(all_band) =
+        fit_ranked_candidates(&onsets, &candidates, rate, observation_offset_sec, cancel)?
+    else {
+        return Ok(TempoEstimate::default());
+    };
+
+    let Some(channels) =
+        channels.filter(|channels| channels.iter().all(|values| values.len() == onsets.len()))
+    else {
+        return Ok(all_band.estimate);
+    };
+    let Some(channel_correlations) = channel_mean_correlations(
+        channels,
+        rate,
+        (3 * max_lag + 2).min(onsets.len() - 1),
+        cancel,
+    )?
+    else {
+        return Ok(all_band.estimate);
+    };
+    let channel_candidates =
+        rank_candidates(&channel_correlations, rate, min_lag, max_lag, cancel)?;
+    let Some(channel_mean) = fit_ranked_candidates(
+        &onsets,
+        &channel_candidates,
+        rate,
+        observation_offset_sec,
+        cancel,
+    )?
+    else {
+        return Ok(all_band.estimate);
+    };
+    if should_use_channel_mean(all_band, channel_mean) {
+        Ok(channel_mean.estimate)
+    } else {
+        Ok(all_band.estimate)
+    }
+}
+
+fn rank_candidates(
+    correlations: &[f64],
+    rate: f64,
+    min_lag: usize,
+    max_lag: usize,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<Vec<TempoCandidate>, AutomixError> {
+    let min_period = rate * 60.0 / MAX_BPM;
+    let max_period = rate * 60.0 / MIN_BPM;
+    if min_lag > max_lag {
+        return Ok(Vec::new());
+    }
     let mean_weighted = (min_lag..=max_lag)
         .map(|lag| correlations[lag] * prior(lag as f64, rate))
         .sum::<f64>()
@@ -102,15 +175,15 @@ pub(super) fn estimate(
         if correlations[lag] < correlations[lag - 1] || correlations[lag] < correlations[lag + 1] {
             continue;
         }
-        let period = lag as f64 + parabola(&correlations, lag);
+        let period = lag as f64 + parabola(correlations, lag);
         if period < min_period - 0.75 || period > max_period + 0.75 {
             continue;
         }
-        let period = harmonic_period(&correlations, period);
-        let base = interpolated(&correlations, period);
+        let period = harmonic_period(correlations, period);
+        let base = interpolated(correlations, period);
         let harmonic = (base
-            + 0.5 * interpolated(&correlations, period * 2.0)
-            + 0.25 * interpolated(&correlations, period * 3.0))
+            + 0.5 * interpolated(correlations, period * 2.0)
+            + 0.25 * interpolated(correlations, period * 3.0))
             / 1.75;
         // A slower candidate must explain strong intervening onsets. Weak
         // subdivisions do not force a doubled tempo; equally strong pulses
@@ -118,8 +191,8 @@ pub(super) fn estimate(
         // Sixth powers reserve that penalty for nearly equal subdivisions.
         // Scale it by the candidate's own evidence: an absolute subtraction
         // can demote a supported beat below unrelated weak periodicities.
-        let subdivisions = 0.60 * interpolated(&correlations, period / 2.0).powi(6)
-            + 0.30 * interpolated(&correlations, period / 3.0).powi(6);
+        let subdivisions = 0.60 * interpolated(correlations, period / 2.0).powi(6)
+            + 0.30 * interpolated(correlations, period / 3.0).powi(6);
         let score = base * harmonic * prior(period, rate) * (1.0 - subdivisions);
         let weighted_peak = base * prior(period, rate);
         let salience = ((weighted_peak - mean_weighted) / weighted_peak.max(0.01)).clamp(0.0, 1.0);
@@ -135,22 +208,92 @@ pub(super) fn estimate(
             second = Some(candidate);
         }
     }
-    let Some(best) = best else {
-        return Ok(TempoEstimate::default());
-    };
-    let primary = fit_candidate(&onsets, best, rate, observation_offset_sec, cancel)?;
-    if primary.grid.is_some() {
-        return Ok(primary);
-    }
-    // A supported second periodicity may fit even when the first does not.
-    // Existing grids keep their ACF rank; stability is not metrical evidence.
-    if let Some(second) = second {
-        let fallback = fit_candidate(&onsets, second, rate, observation_offset_sec, cancel)?;
-        if fallback.grid.is_some() {
-            return Ok(fallback);
+    Ok([best, second].into_iter().flatten().collect())
+}
+
+fn fit_ranked_candidates(
+    onsets: &[f64],
+    candidates: &[TempoCandidate],
+    rate: f64,
+    observation_offset_sec: f64,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<Option<RankedEstimate>, AutomixError> {
+    let margin = candidate_margin(candidates);
+    let mut first_rejection = None;
+    for &candidate in candidates.iter().take(2) {
+        let estimate = fit_candidate(onsets, candidate, rate, observation_offset_sec, cancel)?;
+        if estimate.grid.is_some() {
+            return Ok(Some(RankedEstimate {
+                candidate,
+                estimate,
+                margin,
+            }));
+        }
+        if first_rejection.is_none() {
+            first_rejection = Some(RankedEstimate {
+                candidate,
+                estimate,
+                margin,
+            });
         }
     }
-    Ok(primary)
+    Ok(first_rejection)
+}
+
+fn channel_mean_correlations(
+    channels: &[Vec<f32>; 3],
+    rate: f64,
+    max_lag: usize,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<Option<Vec<f64>>, AutomixError> {
+    let mut mean = vec![0.0; max_lag + 1];
+    let mut count = 0usize;
+    for values in channels {
+        check_cancel(cancel)?;
+        let Some(onsets) = whiten(values, rate, cancel)? else {
+            continue;
+        };
+        let periodicity = smooth_periodicity(&onsets, rate, cancel)?;
+        let correlations = autocorrelation(&periodicity, max_lag, cancel)?;
+        for (sum, value) in mean.iter_mut().zip(correlations) {
+            *sum += value;
+        }
+        count += 1;
+    }
+    if count == 0 {
+        return Ok(None);
+    }
+    for value in &mut mean {
+        *value /= count as f64;
+    }
+    Ok(Some(mean))
+}
+
+fn candidate_margin(candidates: &[TempoCandidate]) -> f64 {
+    match candidates {
+        [best, second, ..] if best.score > 0.0 => {
+            ((best.score - second.score) / best.score).max(0.0)
+        }
+        _ => 0.0,
+    }
+}
+
+fn should_use_channel_mean(all_band: RankedEstimate, channel_mean: RankedEstimate) -> bool {
+    if all_band.estimate.grid.is_none() || channel_mean.estimate.grid.is_none() {
+        return false;
+    }
+    channel_mean.margin >= all_band.margin + CHANNEL_MARGIN_ADVANTAGE
+        && compatible_periods(
+            all_band.candidate.period,
+            channel_mean.candidate.period,
+            CHANNEL_PERIOD_TOLERANCE,
+        )
+}
+
+fn compatible_periods(left: f64, right: f64, tolerance: f64) -> bool {
+    [0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 3.0]
+        .into_iter()
+        .any(|ratio| (left - right * ratio).abs() <= tolerance * right * ratio)
 }
 
 fn fit_candidate(
@@ -522,6 +665,74 @@ mod tests {
         assert!(phase_error.abs() <= 0.010);
         let final_error = phase_error + (30.0 / period).floor() * (grid.period_sec - period);
         assert!(final_error.abs() <= 0.020);
+    }
+
+    #[test]
+    fn channel_fusion_keeps_identical_views_equivalent() {
+        let rate = 200.0;
+        let period = 60.0 / 120.0;
+        let values: Vec<f32> = (0..6_000)
+            .map(|index| {
+                let time = index as f64 / rate;
+                let phase = (time - 0.137 + period / 2.0).rem_euclid(period) - period / 2.0;
+                (-0.5 * (phase / 0.008).powi(2)).exp() as f32
+            })
+            .collect();
+        let channels = [values.clone(), values.clone(), values];
+        let control = estimate(&channels[0], rate, 0.0, None).unwrap();
+        let fused = estimate_with_channels(&channels[0], Some(&channels), rate, 0.0, None).unwrap();
+        assert_eq!(fused.bpm(), control.bpm());
+        assert_eq!(fused.confidence, control.confidence);
+        assert_eq!(
+            fused.grid.map(|grid| grid.period_sec),
+            control.grid.map(|grid| grid.period_sec)
+        );
+    }
+
+    #[test]
+    fn channel_fusion_requires_margin_advantage_and_period_agreement() {
+        let estimate = TempoEstimate {
+            grid: Some(BeatGrid {
+                period_sec: 100.0,
+                first_beat_sec: 0.0,
+                stability: 0.9,
+            }),
+            confidence: Some(0.9),
+        };
+        let all_band = RankedEstimate {
+            candidate: TempoCandidate {
+                period: 100.0,
+                score: 0.5,
+                salience: 0.8,
+            },
+            estimate,
+            margin: 0.10,
+        };
+        let compatible = RankedEstimate {
+            candidate: TempoCandidate {
+                period: 200.5,
+                score: 0.5,
+                salience: 0.8,
+            },
+            estimate,
+            margin: 0.16,
+        };
+        assert!(should_use_channel_mean(all_band, compatible));
+
+        let weak_margin = RankedEstimate {
+            margin: 0.14,
+            ..compatible
+        };
+        assert!(!should_use_channel_mean(all_band, weak_margin));
+
+        let incompatible = RankedEstimate {
+            candidate: TempoCandidate {
+                period: 130.0,
+                ..compatible.candidate
+            },
+            ..compatible
+        };
+        assert!(!should_use_channel_mean(all_band, incompatible));
     }
 
     #[test]

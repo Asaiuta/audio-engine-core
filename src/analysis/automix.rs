@@ -276,6 +276,7 @@ struct AnalysisSegment {
     low_envelope: Vec<f32>,
     vocal_ratio: Vec<f32>,
     spectral_flux: Vec<f32>,
+    spectral_flux_channels: [Vec<f32>; 3],
 }
 
 impl AnalysisSegment {
@@ -356,6 +357,7 @@ impl FirstOrderFilter {
 struct OnsetBand {
     start_bin: usize,
     weights: Vec<f32>,
+    channel: usize,
 }
 
 /// Quarter-tone spacing balances spectral evidence before log compression.
@@ -390,6 +392,13 @@ fn onset_bands(sample_rate: u32, fft_size: usize) -> Vec<OnsetBand> {
                         }
                     })
                     .collect(),
+                channel: if center as f64 * f64::from(sample_rate) / (fft_size as f64) < 250.0 {
+                    0
+                } else if center as f64 * f64::from(sample_rate) / (fft_size as f64) < 2_000.0 {
+                    1
+                } else {
+                    2
+                },
             }
         })
         .collect()
@@ -407,6 +416,8 @@ struct SpectralFluxAccumulator {
     magnitudes: Vec<f32>,
     bands: Vec<OnsetBand>,
     previous_magnitudes: Vec<f32>,
+    channel_band_counts: [usize; 3],
+    last_channel_flux: [f32; 3],
     scratch: Vec<f32>,
     /// Precomputed symmetric Hann coefficients avoid per-hop trigonometry.
     window: Vec<f32>,
@@ -474,6 +485,13 @@ impl SegmentAnalyzer {
             }
             if let Some(flux) = self.spectral.process(mono) {
                 segment.spectral_flux.push(flux);
+                if let Some(channel_flux) = self.spectral.channel_flux() {
+                    for (values, flux) in
+                        segment.spectral_flux_channels.iter_mut().zip(channel_flux)
+                    {
+                        values.push(flux);
+                    }
+                }
             }
             segment.frames_analyzed += 1;
         }
@@ -496,12 +514,18 @@ impl SpectralFluxAccumulator {
         let fft_size = spectral_frame_size(sample_rate);
         let fft = planner.plan_fft_forward(fft_size);
         let bands = onset_bands(sample_rate, fft_size);
+        let mut channel_band_counts = [0; 3];
+        for band in &bands {
+            channel_band_counts[band.channel] += 1;
+        }
         Self {
             frame: vec![0.0; fft_size],
             spectrum: vec![Complex::new(0.0, 0.0); fft.complex_len()],
             fft_scratch: vec![Complex::new(0.0, 0.0); fft.get_scratch_len()],
             magnitudes: vec![0.0; fft_size / 2],
             previous_magnitudes: vec![0.0; bands.len()],
+            channel_band_counts,
+            last_channel_flux: [0.0; 3],
             bands,
             scratch: vec![0.0; fft_size],
             window: hann_window(fft_size),
@@ -537,6 +561,7 @@ impl SpectralFluxAccumulator {
             *magnitude = bin.norm();
         }
         let mut flux = 0.0;
+        let mut channel_flux = [0.0; 3];
         for (band, previous) in self.bands.iter().zip(&mut self.previous_magnitudes) {
             let magnitude = self.magnitudes[band.start_bin..band.start_bin + band.weights.len()]
                 .iter()
@@ -544,13 +569,26 @@ impl SpectralFluxAccumulator {
                 .map(|(magnitude, weight)| magnitude * weight)
                 .sum::<f32>()
                 .ln_1p();
-            flux += (magnitude - *previous).max(0.0);
+            let difference = (magnitude - *previous).max(0.0);
+            flux += difference;
+            channel_flux[band.channel] += difference;
             *previous = magnitude;
         }
+        for (flux, count) in channel_flux.iter_mut().zip(self.channel_band_counts) {
+            *flux /= count.max(1) as f32;
+        }
+        self.last_channel_flux = channel_flux;
 
         self.scratch.copy_within(self.hop_size..fft_size, 0);
         self.pos = fft_size - self.hop_size;
         Some(flux / self.bands.len().max(1) as f32)
+    }
+
+    fn channel_flux(&self) -> Option<[f32; 3]> {
+        self.channel_band_counts
+            .iter()
+            .all(|&count| count > 0)
+            .then_some(self.last_channel_flux)
     }
 }
 
@@ -764,7 +802,20 @@ fn finalize_analysis(
             .collect::<Vec<_>>();
         (fallback.as_slice(), ENVELOPE_RATE, 1.0 / ENVELOPE_RATE)
     };
-    let mut tempo = tempo::estimate(tempo_values, tempo_rate, observation_offset, cancel)?;
+    let channel_values = (head.spectral_flux_channels[0].len() == head.spectral_flux.len()
+        && head.spectral_flux_channels[1].len() == head.spectral_flux.len()
+        && head.spectral_flux_channels[2].len() == head.spectral_flux.len())
+    .then_some(&head.spectral_flux_channels);
+    let mut tempo = match channel_values {
+        Some(channels) => tempo::estimate_with_channels(
+            tempo_values,
+            Some(channels),
+            tempo_rate,
+            observation_offset,
+            cancel,
+        )?,
+        None => tempo::estimate(tempo_values, tempo_rate, observation_offset, cancel)?,
+    };
     if let Some(grid) = &mut tempo.grid {
         grid.first_beat_sec += head.start_time;
     }
