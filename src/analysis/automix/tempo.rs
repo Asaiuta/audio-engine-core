@@ -9,6 +9,8 @@
 
 use super::{check_cancel, AutomixError};
 use crate::decoder::DecodeCancelToken;
+use realfft::{num_complex::Complex, ComplexToReal, RealFftPlanner, RealToComplex};
+use std::sync::Arc;
 
 const MIN_BPM: f64 = 55.0;
 const MAX_BPM: f64 = 200.0;
@@ -103,35 +105,39 @@ pub(super) fn estimate_with_channels(
     if min_lag > max_lag {
         return Ok(TempoEstimate::default());
     }
+    let correlation_lags = (3 * max_lag + 2).min(onsets.len() - 1);
+    let mut correlation = Autocorrelation::new(onsets.len(), correlation_lags);
     let periodicity = smooth_periodicity(&onsets, rate, cancel)?;
-    let correlations = autocorrelation(
-        &periodicity,
-        (3 * max_lag + 2).min(onsets.len() - 1),
-        cancel,
-    )?;
+    let correlations = correlation.compute(&periodicity, correlation_lags, cancel)?;
     let candidates = rank_candidates(&correlations, rate, min_lag, max_lag, cancel)?;
     let Some(all_band) =
         fit_ranked_candidates(&onsets, &candidates, rate, observation_offset_sec, cancel)?
     else {
         return Ok(TempoEstimate::default());
     };
+    // Channel fusion cannot replace an invalid all-band grid, or improve a
+    // margin already within the required advantage of its upper bound (1).
+    if all_band.estimate.grid.is_none() || all_band.margin + CHANNEL_MARGIN_ADVANTAGE > 1.0 {
+        return Ok(all_band.estimate);
+    }
 
     let Some(channels) =
         channels.filter(|channels| channels.iter().all(|values| values.len() == onsets.len()))
     else {
         return Ok(all_band.estimate);
     };
-    let Some(channel_correlations) = channel_mean_correlations(
-        channels,
-        rate,
-        (3 * max_lag + 2).min(onsets.len() - 1),
-        cancel,
-    )?
+    let Some(channel_correlations) =
+        channel_mean_correlations(channels, rate, correlation_lags, &mut correlation, cancel)?
     else {
         return Ok(all_band.estimate);
     };
     let channel_candidates =
         rank_candidates(&channel_correlations, rate, min_lag, max_lag, cancel)?;
+    // The margin is independent of which of the first two fits succeeds.
+    // Check it before spending time on a DP fit that cannot be selected.
+    if candidate_margin(&channel_candidates) < all_band.margin + CHANNEL_MARGIN_ADVANTAGE {
+        return Ok(all_band.estimate);
+    }
     let Some(channel_mean) = fit_ranked_candidates(
         &onsets,
         &channel_candidates,
@@ -244,6 +250,7 @@ fn channel_mean_correlations(
     channels: &[Vec<f32>; 3],
     rate: f64,
     max_lag: usize,
+    correlation: &mut Autocorrelation,
     cancel: Option<&DecodeCancelToken>,
 ) -> Result<Option<Vec<f64>>, AutomixError> {
     let mut mean = vec![0.0; max_lag + 1];
@@ -254,7 +261,7 @@ fn channel_mean_correlations(
             continue;
         };
         let periodicity = smooth_periodicity(&onsets, rate, cancel)?;
-        let correlations = autocorrelation(&periodicity, max_lag, cancel)?;
+        let correlations = correlation.compute(&periodicity, max_lag, cancel)?;
         for (sum, value) in mean.iter_mut().zip(correlations) {
             *sum += value;
         }
@@ -422,33 +429,142 @@ fn smooth_periodicity(
     Ok(smoothed)
 }
 
-fn autocorrelation(
+/// One plan/buffer owner for all onset views in a single offline estimate.
+struct Autocorrelation {
+    forward: Arc<dyn RealToComplex<f64>>,
+    inverse: Arc<dyn ComplexToReal<f64>>,
+    buffer: Vec<f64>,
+    spectrum: Vec<Complex<f64>>,
+    scratch: Vec<Complex<f64>>,
+    prefix_energy: Vec<f64>,
+    suffix_energy: Vec<f64>,
+}
+
+impl Autocorrelation {
+    fn new(length: usize, max_lag: usize) -> Self {
+        // Padding by max_lag is sufficient: wraparound cannot contribute to
+        // any requested lag. There is no need to compute all 2*N-1 lags.
+        let size = (length + max_lag).next_power_of_two();
+        let mut planner = RealFftPlanner::new();
+        let forward = planner.plan_fft_forward(size);
+        let inverse = planner.plan_fft_inverse(size);
+        let scratch_len = forward.get_scratch_len().max(inverse.get_scratch_len());
+        Self {
+            buffer: forward.make_input_vec(),
+            spectrum: forward.make_output_vec(),
+            scratch: vec![Complex::default(); scratch_len],
+            prefix_energy: vec![0.0; length + 1],
+            suffix_energy: vec![0.0; length + 1],
+            forward,
+            inverse,
+        }
+    }
+
+    fn compute(
+        &mut self,
+        onsets: &[f64],
+        max_lag: usize,
+        cancel: Option<&DecodeCancelToken>,
+    ) -> Result<Vec<f64>, AutomixError> {
+        check_cancel(cancel)?;
+        self.buffer.fill(0.0);
+        self.buffer[..onsets.len()].copy_from_slice(onsets);
+        for (index, &value) in onsets.iter().enumerate() {
+            if index % CANCEL_CHUNK == 0 {
+                check_cancel(cancel)?;
+            }
+            self.prefix_energy[index + 1] = self.prefix_energy[index] + value * value;
+        }
+        // A suffix sum avoids subtracting nearly equal totals for a quiet
+        // tail following a large transient.
+        for index in (0..onsets.len()).rev() {
+            if index % CANCEL_CHUNK == 0 {
+                check_cancel(cancel)?;
+            }
+            self.suffix_energy[index] =
+                self.suffix_energy[index + 1] + onsets[index] * onsets[index];
+        }
+        if self
+            .forward
+            .process_with_scratch(&mut self.buffer, &mut self.spectrum, &mut self.scratch)
+            .is_err()
+        {
+            return direct_autocorrelation(onsets, max_lag, cancel);
+        }
+        check_cancel(cancel)?;
+        for chunk in self.spectrum.chunks_mut(CANCEL_CHUNK) {
+            check_cancel(cancel)?;
+            for bin in chunk {
+                *bin = Complex::new(bin.norm_sqr(), 0.0);
+            }
+        }
+        if self
+            .inverse
+            .process_with_scratch(&mut self.spectrum, &mut self.buffer, &mut self.scratch)
+            .is_err()
+        {
+            return direct_autocorrelation(onsets, max_lag, cancel);
+        }
+        check_cancel(cancel)?;
+        let normalization = self.buffer.len() as f64;
+        let total_energy = self.prefix_energy[onsets.len()];
+        let mut result = Vec::with_capacity(max_lag + 1);
+        result.push(1.0);
+        for lag in 1..=max_lag {
+            check_cancel(cancel)?;
+            let denominator =
+                (self.prefix_energy[onsets.len() - lag] * self.suffix_energy[lag]).sqrt();
+            // FFT absolute roundoff can overwhelm very quiet overlap pairs.
+            // Preserve the direct calculation for ill-conditioned lags; this
+            // cutoff depends on numeric conditioning, never music labels.
+            let value = if denominator < 1e-4 * total_energy {
+                direct_correlation(onsets, lag, cancel)?
+            } else if denominator > 0.0 {
+                (self.buffer[lag] / normalization / denominator).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            result.push(value);
+        }
+        Ok(result)
+    }
+}
+
+fn direct_autocorrelation(
     onsets: &[f64],
     max_lag: usize,
     cancel: Option<&DecodeCancelToken>,
 ) -> Result<Vec<f64>, AutomixError> {
     let mut result = vec![1.0];
     for lag in 1..=max_lag {
-        let (mut dot, mut left_energy, mut right_energy) = (0.0, 0.0, 0.0);
-        for (left, right) in onsets[..onsets.len() - lag]
-            .chunks(CANCEL_CHUNK)
-            .zip(onsets[lag..].chunks(CANCEL_CHUNK))
-        {
-            check_cancel(cancel)?;
-            for (&a, &b) in left.iter().zip(right) {
-                dot += a * b;
-                left_energy += a * a;
-                right_energy += b * b;
-            }
-        }
-        let denominator = (left_energy * right_energy).sqrt();
-        result.push(if denominator > 0.0 {
-            (dot / denominator).clamp(0.0, 1.0)
-        } else {
-            0.0
-        });
+        result.push(direct_correlation(onsets, lag, cancel)?);
     }
     Ok(result)
+}
+
+fn direct_correlation(
+    onsets: &[f64],
+    lag: usize,
+    cancel: Option<&DecodeCancelToken>,
+) -> Result<f64, AutomixError> {
+    let (mut dot, mut left_energy, mut right_energy) = (0.0, 0.0, 0.0);
+    for (left, right) in onsets[..onsets.len() - lag]
+        .chunks(CANCEL_CHUNK)
+        .zip(onsets[lag..].chunks(CANCEL_CHUNK))
+    {
+        check_cancel(cancel)?;
+        for (&a, &b) in left.iter().zip(right) {
+            dot += a * b;
+            left_energy += a * a;
+            right_energy += b * b;
+        }
+    }
+    let denominator = (left_energy * right_energy).sqrt();
+    Ok(if denominator > 0.0 {
+        (dot / denominator).clamp(0.0, 1.0)
+    } else {
+        0.0
+    })
 }
 
 fn prior(period: f64, rate: f64) -> f64 {
@@ -613,6 +729,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fft_correlations_match_direct_overlap_normalization_and_reuse() {
+        for length in [73, 401, 6_013] {
+            let max_lag = 659.min(length - 1);
+            let mut workspace = Autocorrelation::new(length, max_lag);
+            for shape in 0..4 {
+                let values: Vec<_> = (0..length)
+                    .map(|i| match shape {
+                        0 => 0.0,
+                        1 => 1.0 + 0.7 * (i as f64 * 0.127).sin(),
+                        2 => {
+                            if i == 0 {
+                                1e6
+                            } else {
+                                1e-4 * (1.0 + (i as f64).sin())
+                            }
+                        }
+                        _ => {
+                            let phase = (i as f64 % 91.37) - 45.0;
+                            (-0.5 * (phase / 2.3).powi(2)).exp()
+                                + 0.13 * (i as f64 * 1.713).sin().max(0.0)
+                        }
+                    })
+                    .collect();
+                let expected = direct_autocorrelation(&values, max_lag, None).unwrap();
+                let actual = workspace.compute(&values, max_lag, None).unwrap();
+                for (lag, (&expected, &actual)) in expected.iter().zip(&actual).enumerate() {
+                    assert!(
+                        (actual - expected).abs() < 3e-10,
+                        "length={length}, shape={shape}, lag={lag}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn short_accented_pulses_use_the_level_with_enough_observed_beats() {
         let rate = 200.0;
         let period = 1.0 / 3.0;
@@ -770,7 +922,7 @@ mod tests {
                 token.cancel();
             });
             assert!(matches!(
-                autocorrelation(&onsets, 1_000, Some(&token)),
+                Autocorrelation::new(onsets.len(), 1_000).compute(&onsets, 1_000, Some(&token)),
                 Err(AutomixError::Canceled)
             ));
         });
