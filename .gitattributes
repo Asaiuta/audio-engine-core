@@ -22,3 +22,10 @@ benches/support/automix_accuracy/public_corpus.sha256 text eol=lf
 benches/support/automix_accuracy/prepare_development_corpus.py text eol=lf
 benches/support/automix_accuracy/gtzan_mini_sources.json text eol=lf
 benches/support/automix_accuracy/provision_corpus.py text eol=lf
+
+# Retained measurement evidence is hashed as captured. Its tools emit both LF
+# and CRLF, so preserve the original JSON bytes rather than normalize them.
+# Keep ordinary whitespace checks, treating a terminal CR as part of CRLF.
+# The neural research reports also pin their runner and declaration bytes.
+benches/support/automix_accuracy/prepare_edm_development_corpus.py text eol=lf
+benches/support/automix_accuracy/test_prepare_edm_development_corpus.py text eol=lf

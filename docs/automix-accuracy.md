@@ -378,6 +378,47 @@ The task retains the failed experiment and candidate scan in
 aggregate in `research/tempo-v6-development-summary.json`, and the exact source
 freeze in `research/metrical-candidate-freeze.md`.
 
+## EDM development corpus
+
+GTZAN mini does not reproduce the frozen GiantSteps loss profile: its v10
+errors are mostly metrical-level errors, while the frozen set fails mostly on
+non-octave periodicity families (2/3, 4/5, 4/3) and half-tempo picks. The
+GiantSteps MTG Key previews with the tapped tempi published by Schreiber and
+Müller (ISMIR 2018) supply 1159 Beatport EDM recordings that are disjoint from
+the frozen 664 by Beatport ID and by the authors' MD5 lists:
+
+```sh
+python -B benches/support/automix_accuracy/prepare_edm_development_corpus.py
+cargo bench --bench audio_automix_accuracy -- --corpus-manifest target/automix-edm-development-data/manifest.json --split development --require-corpus giantsteps-mtg-tempo-development-fit --require-corpus giantsteps-mtg-tempo-development-validation --enforce --out target/accuracy-edm-development.json
+```
+
+Defaults are `--out target/automix-edm-development-data`,
+`--source-cache target/automix-edm-development-sources`,
+`--evaluation-sources target/automix-corpus-sources` (the frozen GiantSteps
+source ZIP is required for the MD5 disjointness proof) and `--workers 4`.
+The annotation ZIP is pinned at `fd7b8c584f7bd6d720d170c325a6d42c9bf75a6b`
+and the label ZIP by SHA-256; audio is verified against the authors' MD5
+before any byte is published, then hashed with SHA-256 in the manifest.
+
+The corpus is split once, before any prediction, into a `fit` half and a
+`validation` half by SHA-256 parity of the recording ID. Fitted constants may
+be selected on the fit half only; reported development scores come from the
+validation half. Pre-declared exclusions are the two rows with label BPM 0 and
+the lexicographically later member of each exact-MD5 pair. No genre or tempo
+filtering is applied; per-genre aggregates are diagnostics only. The labels
+are single-annotator integer BPM values that tempo_eval marks as unverified,
+and there are no beat annotations, so GTZAN mini remains the beat-metric
+guard. Beatport metadata BPM is retained as an unscored field. All MTG music
+is development data; its scores cannot satisfy the frozen acceptance bars and
+must not be redistributed.
+
+The v10 control on all 1149 tracks (fit 561, validation 588) scores
+Accuracy1/2 .5788/.7929 with 222 family errors, 246 level errors (180 at half
+tempo) and 16 abstentions, reproducing the frozen loss structure. The GTZAN
+rerun at the same source hash is prediction-identical to the pinned v10
+control. The sweep task's `research/d0-results-2026-09-11.md` retains the
+identities and per-genre taxonomy.
+
 ## First repeat: fourth-power candidate
 
 The 2026-09-08 development candidate was frozen before repeating the same
