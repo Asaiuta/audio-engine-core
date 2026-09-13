@@ -1804,6 +1804,44 @@ mod tests {
     }
 
     #[test]
+    fn boundary_beat_reporting_preserves_origin_and_requires_both_energy_windows() {
+        let silence = 10.0_f32.powf(SILENCE_THRESHOLD_DB / 20.0);
+        for origin in [0.0, 17.25] {
+            let grid = BeatGrid {
+                period_sec: 0.5,
+                first_beat_sec: origin + 0.495,
+                stability: 0.95,
+            };
+            for envelope in [
+                vec![],
+                vec![0.1],
+                vec![0.0, 0.0],
+                vec![silence, 0.0],
+                vec![0.1, 0.1],
+            ] {
+                let head = AnalysisSegment {
+                    envelope,
+                    ..AnalysisSegment::at(origin)
+                };
+                assert_eq!(reported_first_beat(grid, &head), grid.first_beat_sec);
+            }
+            let head = AnalysisSegment {
+                envelope: vec![0.1, silence],
+                ..AnalysisSegment::at(origin)
+            };
+            assert_eq!(reported_first_beat(grid, &head), origin);
+            let outside_boundary = BeatGrid {
+                first_beat_sec: origin + 0.48,
+                ..grid
+            };
+            assert_eq!(
+                reported_first_beat(outside_boundary, &head),
+                outside_boundary.first_beat_sec
+            );
+        }
+    }
+
+    #[test]
     fn serialized_v4_analysis_pins_null_grid_and_omits_key_placeholders() {
         let analysis = empty_analysis_with_flux(48_000, Vec::new());
         let json = serde_json::to_value(&analysis).expect("analysis should serialize");

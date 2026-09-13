@@ -667,3 +667,51 @@ fn public_audio_fixture_suite_meets_tempo_phase_drift_and_stability_contracts() 
         }
     }
 }
+
+#[test]
+fn public_head_reports_the_absolute_first_beat_across_sample_rates() {
+    use audio_engine_core::analysis::{
+        analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions,
+    };
+    use audio_engine_core::decoder::MediaLocation;
+
+    let inputs = Inputs::new();
+    let path = inputs.root.join("boundary.wav");
+    for sample_rate in [22_050, 44_100, 48_000, 96_000, 192_000] {
+        for bpm in [70.0, 140.0] {
+            let phases: &[f64] = if sample_rate == 192_000 && bpm == 140.0 {
+                &[0.0, 0.005]
+            } else {
+                &[0.0]
+            };
+            for &phase in phases {
+                let mut fixture = accuracy::fixtures::Fixture::constant(sample_rate, bpm);
+                fixture.phase_sec = phase;
+                let (pcm, annotation) = fixture.render();
+                let expected_first = annotation.beats_sec.unwrap()[0];
+                fs::write(&path, pcm).unwrap();
+                let report = analyze_automix(
+                    MediaLocation::Local(path.clone()),
+                    None,
+                    AutomixAnalysisOptions {
+                        mode: AutomixAnalysisMode::Head,
+                        max_analyze_time_sec: fixture.duration_sec,
+                    },
+                )
+                .unwrap();
+                let first = report.first_beat_pos.expect("percussive input has a grid");
+                let period = 60.0 / bpm;
+                let error = first - expected_first;
+                // A modulo-phase assertion would also accept a whole-beat skip.
+                assert_eq!(
+                    (error / period).round(),
+                    0.0,
+                    "{sample_rate} Hz / {bpm} BPM / {phase} s: {report:?}"
+                );
+                assert!(error.abs() <= 0.010, "{sample_rate} Hz: {error} s");
+                assert!((report.bpm.unwrap() - bpm).abs() <= 0.05);
+                assert!(report.beat_grid_stability.unwrap() >= 0.90);
+            }
+        }
+    }
+}
