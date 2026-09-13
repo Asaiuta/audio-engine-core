@@ -38,6 +38,7 @@ const MAX_DECLARED_DURATION_SEC: f64 = 24.0 * 60.0 * 60.0;
 const ENERGY_PROFILE_RATE: f64 = 10.0;
 const WINDOW_SIZE_MS: usize = 20;
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
+const HEAD_BEAT_TOLERANCE_SEC: f64 = 0.010;
 
 /// Keep roughly 46 ms of spectral context across common music sample rates.
 /// Bound the power-of-two plan so extreme metadata cannot size its buffers.
@@ -120,8 +121,11 @@ pub struct AutomixAnalysis {
     /// Without a fitted grid it can report the available periodicity evidence;
     /// silence/insufficient input produces `None`. v3 thresholds do not apply.
     pub bpm_confidence: Option<f64>,
-    /// First fitted beat at or after the analyzed head origin, in absolute
-    /// source seconds. This is beat phase, not a downbeat or bar-start claim.
+    /// First reported beat at or after the analyzed head origin, in absolute
+    /// source seconds. A short isolated head transient can include a fitted
+    /// beat up to 10 ms before the origin; that event is reported at the origin.
+    /// Internal cut snapping and stability retain the unrounded fitted grid.
+    /// This is not a downbeat or bar-start claim.
     pub first_beat_pos: Option<f64>,
     /// Constant-grid stability in 0..1, derived from RMS phase residual.
     ///
@@ -821,7 +825,7 @@ fn finalize_analysis(
     }
     let bpm = tempo.bpm();
     let bpm_confidence = tempo.confidence;
-    let first_beat = tempo.grid.map(|grid| grid.first_beat_sec);
+    let first_beat = tempo.grid.map(|grid| reported_first_beat(grid, head));
     let drop_pos = detect_drop(&head.envelope, ENVELOPE_RATE);
     let (vocal_in, vocal_out, vocal_last_in) =
         detect_vocals(head, tail, ENVELOPE_RATE, fade_in, fade_out);
@@ -886,6 +890,24 @@ pub fn detect_silence(
 ) -> (f64, f64) {
     let tail_start = (!tail.is_empty()).then(|| (duration - tail.len() as f64 / rate).max(0.0));
     detect_silence_at(head, tail, tail_start, duration, rate, db_thresh)
+}
+
+fn reported_first_beat(grid: BeatGrid, head: &AnalysisSegment) -> f64 {
+    let Some(initial_energy) = head.envelope.get(..2) else {
+        return grid.first_beat_sec;
+    };
+    let silence = 10.0_f32.powf(SILENCE_THRESHOLD_DB / 20.0);
+    // The first FFT has no predecessor. Use actual PCM energy to recognize
+    // a short head transient followed by silence, without moving the fitted
+    // grid used by cut snapping and residual statistics.
+    if grid.first_beat_sec >= head.start_time + grid.period_sec - HEAD_BEAT_TOLERANCE_SEC
+        && initial_energy[0] > silence
+        && initial_energy[1] <= silence
+    {
+        head.start_time
+    } else {
+        grid.first_beat_sec
+    }
 }
 
 fn detect_silence_at(
@@ -1759,6 +1781,26 @@ mod tests {
             assert_eq!(calculate_smart_cut_in(uncertain, Some(70.1), 0.1), 0.1);
             assert_eq!(calculate_smart_cut_out(uncertain, None, 10.1, 11.0), 10.1);
         }
+    }
+
+    #[test]
+    fn boundary_beat_reporting_requires_isolated_pcm_energy_and_keeps_the_grid() {
+        let grid = BeatGrid {
+            period_sec: 0.5,
+            first_beat_sec: 0.495,
+            stability: 0.95,
+        };
+        let head = AnalysisSegment {
+            envelope: vec![0.1, 0.0],
+            ..AnalysisSegment::at(0.0)
+        };
+        assert_eq!(reported_first_beat(grid, &head), 0.0);
+        let sustained = AnalysisSegment {
+            envelope: vec![0.1, 0.1],
+            ..AnalysisSegment::at(0.0)
+        };
+        assert_eq!(reported_first_beat(grid, &sustained), grid.first_beat_sec);
+        assert_eq!(snap_to_beat(0.27, grid), 0.495);
     }
 
     #[test]
