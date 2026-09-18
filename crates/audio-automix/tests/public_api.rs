@@ -1,5 +1,5 @@
 //! Package-specific public API snapshots using the shared workspace test helper.
-#[path = "support/public_api.rs"]
+#[path = "../../../tests/support/public_api.rs"]
 mod public_api;
 use public_api::{assert_matrix_matches_baseline, Matrix};
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ const ALL_FEATURES: Matrix = Matrix {
     all_features: true,
     no_default_features: false,
     features: &[],
-    target_dir: "target/public-api/all-features",
+    target_dir: "../../target/public-api/automix-all-features",
 };
 
 const RUBATO_ONLY: Matrix = Matrix {
@@ -19,24 +19,17 @@ const RUBATO_ONLY: Matrix = Matrix {
     all_features: false,
     no_default_features: true,
     features: &["rubato"],
-    target_dir: "target/public-api/rubato",
+    target_dir: "../../target/public-api/automix-rubato",
 };
 
-/// The surface downstream crates get from a plain dependency line.
-///
-/// This is not redundant with the other two. `ALL_FEATURES` enables `soxr`,
-/// which wins the backend priority and therefore never renders the rubato
-/// backend's auto traits, and `RUBATO_ONLY` omits `http` and `loudness-db` and
-/// therefore never renders `NetworkError` or `LoudnessDatabaseError`. Neither
-/// one covers the combination an ordinary `cargo add` produces, which is the
-/// surface most downstream builds actually see.
+// Default enables HTTP + Rubato; SQLite is never selected by this package.
 const DEFAULT_FEATURES: Matrix = Matrix {
     label: "default features",
     snapshot: "tests/public-api-default.txt",
     all_features: false,
     no_default_features: false,
     features: &[],
-    target_dir: "target/public-api/default",
+    target_dir: "../../target/public-api/automix-default",
 };
 
 fn crate_root() -> PathBuf {
@@ -45,15 +38,15 @@ fn crate_root() -> PathBuf {
 
 #[test]
 fn all_features_surface_matches_the_committed_baseline() {
-    assert_matrix_matches_baseline(&crate_root(), "audio-engine-core", &ALL_FEATURES);
+    assert_matrix_matches_baseline(&crate_root(), "audio-automix", &ALL_FEATURES);
 }
 
 #[test]
 fn rubato_only_surface_matches_the_committed_baseline() {
-    assert_matrix_matches_baseline(&crate_root(), "audio-engine-core", &RUBATO_ONLY);
+    assert_matrix_matches_baseline(&crate_root(), "audio-automix", &RUBATO_ONLY);
 }
 
 #[test]
 fn default_feature_surface_matches_the_committed_baseline() {
-    assert_matrix_matches_baseline(&crate_root(), "audio-engine-core", &DEFAULT_FEATURES);
+    assert_matrix_matches_baseline(&crate_root(), "audio-automix", &DEFAULT_FEATURES);
 }

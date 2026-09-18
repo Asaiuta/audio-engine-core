@@ -14,7 +14,7 @@ not a newly published crate release or deployed service.
 
 ## Production API
 
-The public exports in `src/analysis/mod.rs` lead to these synchronous functions:
+The public exports in `crates/audio-automix/src/lib.rs` lead to these synchronous functions:
 
 ```rust
 pub fn analyze_automix(
@@ -49,8 +49,8 @@ pub fn analyze_automix_with_cancel(
   P3 conservatively reports a short isolated head event at the origin while
   retaining the internal fitted grid used for stability and cut snapping.
 
-No API rename or compatibility wrapper was needed for this consolidation.
-Consumers should use these existing contracts and preserve abstentions.
+The package extraction changes imports to `audio_automix::*` without legacy wrappers.
+Consumers retain these function/data contracts and preserve abstentions.
 
 ## Native research package
 
@@ -130,5 +130,5 @@ boundary, and its independent-corpus protocol specifies the missing source work.
    an integration that has not been implemented.
 
 Production v10/P3 remains available through the existing API while this work
-proceeds. See `docs/automix-accuracy.md` for the scoring contract and the dated
+proceeds. See `crates/audio-automix/docs/automix-accuracy.md` for the scoring contract and the dated
 task report for the evidence inventory and actual validation performed.

@@ -12,6 +12,15 @@ version bumps, as permitted by SemVer.
 
 ### Changed
 
+- Extract AutoMix to the same-workspace `audio-automix 0.1.0` package. Import
+  its two analysis functions and four types from `audio_automix::*`; the former
+  `audio_engine_core::analysis` exports are removed without a compatibility facade.
+  Decoder and measurement types remain core-owned. Algorithms, schema 4,
+  bounded windows, cancellation and absolute timing are unchanged.
+- Core component benchmark schema 2 excludes AutoMix; its accuracy and cost
+  harnesses now live in the AutoMix package. Historical component reports must
+  not be compared across this schema/ownership change.
+
 - AutoMix analysis schema v4 reports tempo to 0.01 BPM with a constant beat
   grid and nullable `beat_grid_stability`. Log spectral flux, sub-frame
   periodicity inference, dynamic-programming beats and grid regression replace
@@ -23,7 +32,7 @@ version bumps, as permitted by SemVer.
   contrast, with an absolute residual cap preventing slow grids from hiding
   timing error. Synthetic precision and both Ballroom beat bars pass; the
   repeated frozen evaluation still fails both GiantSteps tempo bars. See
-  `docs/automix-accuracy.md` for retained results and limits.
+  `crates/audio-automix/docs/automix-accuracy.md` for retained results and limits.
 - The offline AutoMix accuracy runner supports explicit development/evaluation
   selection. Report schema v2 records selected coverage and split identity;
   development metrics remain diagnostic. Source-pinned GTZAN mini preparation

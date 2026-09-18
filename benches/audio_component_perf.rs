@@ -2,27 +2,23 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use audio_engine_core::analysis::{
-    analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions, LoudnessMeter, SpectrumAnalyzer,
-    SpectrumConfig, TruePeakDetector,
+    LoudnessMeter, SpectrumAnalyzer, SpectrumConfig, TruePeakDetector,
 };
-use audio_engine_core::{ChannelLayout, DownmixCoefficients, Downmixer, MediaLocation, RingBuffer};
+use audio_engine_core::{ChannelLayout, DownmixCoefficients, Downmixer, RingBuffer};
 #[cfg(feature = "loudness-db")]
-use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, TrackLoudness};
+use audio_engine_core::{LoudnessDatabase, LoudnessDatabaseError, MediaLocation, TrackLoudness};
 use serde::{Deserialize, Serialize};
 
 pub mod support;
 
-use support::audio_fixture::{
-    ensure_deterministic_pcm_fixture, fixture_path_display, DeterministicPcmFixture,
-    DeterministicPcmFixtureMetadata,
-};
 use support::{
     compare_case_medians, environment_json, generated_unix_ms, parse_pinned_probe_args,
     pin_current_thread, read_json, regression_gate_error, summarize_trials, validate_case_key_set,
     validate_performance_baseline, write_json_round_trip, BenchEnvironment, BenchMode, PerfArgs,
     PerformanceReportIdentity, PinnedSchedulingState, RegressionComparison, TrialDistribution,
-    REPORT_SCHEMA_VERSION,
 };
+
+const REPORT_SCHEMA_VERSION: u32 = 2;
 
 const PROBE: &str = "audio_public_component_perf";
 const SAMPLE_RATE_HZ: u32 = 48_000;
@@ -43,12 +39,7 @@ struct ComponentSampling {
 struct ComponentConditions {
     trials: usize,
     iteration_scale: usize,
-    automix_trials: usize,
     case_keys: Vec<String>,
-    automix_fixture_path: String,
-    automix_fixture_hash: String,
-    automix_fixture: DeterministicPcmFixtureMetadata,
-    automix_window_seconds: f64,
     loudness_database_scope: String,
     timer_scope: String,
     network_scope: String,
@@ -118,7 +109,6 @@ struct ComponentReport {
 struct ComponentWorkload {
     trials: usize,
     iteration_scale: usize,
-    automix_trials: usize,
     database_open_iterations: usize,
     database_repetitions: usize,
     database_upsert_iterations: usize,
@@ -154,9 +144,7 @@ fn main() -> Result<(), String> {
     };
     let environment = BenchEnvironment::capture();
     let workload = workload(args.mode);
-    let fixture = ensure_deterministic_pcm_fixture()?;
-    let fixture_path = fixture.path.to_string_lossy().into_owned();
-    let conditions = component_conditions(workload, &fixture, scheduling);
+    let conditions = component_conditions(workload, scheduling);
     let baseline: Option<ComponentReport> = args
         .baseline
         .as_deref()
@@ -224,12 +212,6 @@ fn main() -> Result<(), String> {
         measure_component(workload.trials, |trials| {
             benchmark_true_peak_strided(4_096, 96 * workload.iteration_scale, trials)
         })?,
-        measure_component(workload.automix_trials, |trials| {
-            benchmark_automix(&fixture_path, AutomixAnalysisMode::Head, trials)
-        })?,
-        measure_component(workload.automix_trials, |trials| {
-            benchmark_automix(&fixture_path, AutomixAnalysisMode::Full, trials)
-        })?,
         measure_component(workload.trials, |trials| {
             benchmark_ring_buffer(512, 4_096 * workload.iteration_scale, trials)
         })?,
@@ -286,7 +268,6 @@ fn main() -> Result<(), String> {
 
 fn component_conditions(
     workload: ComponentWorkload,
-    fixture: &DeterministicPcmFixture,
     scheduling: Option<PinnedSchedulingState>,
 ) -> ComponentConditions {
     let mut case_keys = expected_component_case_keys();
@@ -294,16 +275,11 @@ fn component_conditions(
     ComponentConditions {
         trials: workload.trials,
         iteration_scale: workload.iteration_scale,
-        automix_trials: workload.automix_trials,
         case_keys,
-        automix_fixture_path: fixture_path_display(&fixture.path),
-        automix_fixture_hash: fixture.metadata.content_fnv1a64.clone(),
-        automix_fixture: fixture.metadata.clone(),
-        automix_window_seconds: 5.0,
         loudness_database_scope: loudness_database_scope(),
         timer_scope: "construction, input generation, warmup, validation, per-trial fixture destruction, report construction, and JSON I/O excluded unless the named operation is setup/open; each open trial retains all databases until timing ends"
             .to_string(),
-        network_scope: "all cases are deterministic and local; AutoMix uses the generated PCM WAV and performs no HTTP request"
+        network_scope: "all cases are deterministic and local; no HTTP requests"
             .to_string(),
         sampling: Some(ComponentSampling {
             protocol: "fixed_work_v2".to_string(),
@@ -347,7 +323,6 @@ fn workload(mode: BenchMode) -> ComponentWorkload {
         BenchMode::Quick => ComponentWorkload {
             trials: 11,
             iteration_scale: 32,
-            automix_trials: 7,
             database_open_iterations: 128,
             database_repetitions: 16,
             database_upsert_iterations: 128,
@@ -355,7 +330,6 @@ fn workload(mode: BenchMode) -> ComponentWorkload {
         BenchMode::Full => ComponentWorkload {
             trials: 21,
             iteration_scale: 64,
-            automix_trials: 11,
             database_open_iterations: 256,
             database_repetitions: 32,
             database_upsert_iterations: 512,
@@ -363,7 +337,6 @@ fn workload(mode: BenchMode) -> ComponentWorkload {
         BenchMode::Heavy => ComponentWorkload {
             trials: 41,
             iteration_scale: 128,
-            automix_trials: 21,
             database_open_iterations: 512,
             database_repetitions: 64,
             database_upsert_iterations: 2_048,
@@ -374,7 +347,7 @@ fn workload(mode: BenchMode) -> ComponentWorkload {
 fn print_help() {
     println!(
         "Usage: cargo bench --bench audio_component_perf -- [--quick|--heavy] [--enforce] [--pinned] [--pin-core <logical-core>] [--out <json>] [--baseline <json>] [--max-median-regression-pct <pct>]\n\
-         Measures SpectrumAnalyzer, Downmixer, LoudnessMeter, TruePeakDetector, AutoMix, RingBuffer, and feature-gated in-memory LoudnessDatabase operations.\n\
+         Measures SpectrumAnalyzer, Downmixer, LoudnessMeter, TruePeakDetector, RingBuffer, and feature-gated in-memory LoudnessDatabase operations.\n\
          Shared-runner timing is report-only without a compatible same-machine baseline."
     );
 }
@@ -719,57 +692,6 @@ fn benchmark_true_peak_strided(
         expected_work_items: trials * iterations * frames,
         all_output_finite: checksum.is_finite(),
         output_nontrivial: checksum > 0.0,
-        checksum,
-    })
-}
-
-fn benchmark_automix(
-    fixture_path: &str,
-    mode: AutomixAnalysisMode,
-    trials: usize,
-) -> Result<ComponentCase, String> {
-    let mode_name = match mode {
-        AutomixAnalysisMode::Head => "head",
-        AutomixAnalysisMode::Full => "full",
-    };
-    let options = AutomixAnalysisOptions {
-        mode,
-        max_analyze_time_sec: 5.0,
-    };
-    let mut samples = Vec::with_capacity(trials);
-    let mut checksum = 0.0;
-    let mut valid = true;
-    for _ in 0..trials {
-        let start = Instant::now();
-        let analysis =
-            analyze_automix(MediaLocation::local(fixture_path), None, options.clone())
-                .map_err(|error| format!("timed AutoMix {mode_name} analysis failed: {error}"))?;
-        samples.push(ns_per_work(start, 1));
-        valid &= analysis.version == 4
-            && analysis.mode == mode
-            && analysis.duration > 0.0
-            && !analysis.energy_profile.is_empty()
-            && analysis.mix_center_pos.is_finite();
-        checksum += analysis.duration
-            + analysis.energy_profile.iter().sum::<f64>()
-            + analysis.bpm.unwrap_or(0.0)
-            + analysis.loudness.unwrap_or(-70.0);
-        black_box(analysis);
-    }
-    component_case(ComponentCaseInput {
-        case_key: format!(
-            "component=automix;operation=analyze;mode={mode_name};window_seconds=5;fixture=pcm16_48k_stereo"
-        ),
-        component: "AutoMix",
-        operation: "analyze_automix",
-        primary_unit: "ns/analysis",
-        work_items_per_iteration: 1,
-        iterations_per_trial: 1,
-        samples,
-        expected_operations: trials,
-        expected_work_items: trials,
-        all_output_finite: checksum.is_finite(),
-        output_nontrivial: valid,
         checksum,
     })
 }
@@ -1183,8 +1105,6 @@ fn expected_component_case_keys() -> Vec<String> {
         "component=loudness_meter;operation=process;channels=2;frames=4096;true_peak=4x_fir".to_string(),
         "component=true_peak;operation=process_contiguous;samples=4096;oversample=4x".to_string(),
         "component=true_peak;operation=process_strided;channels=2;frames=4096;oversample=4x".to_string(),
-        "component=automix;operation=analyze;mode=head;window_seconds=5;fixture=pcm16_48k_stereo".to_string(),
-        "component=automix;operation=analyze;mode=full;window_seconds=5;fixture=pcm16_48k_stereo".to_string(),
         "component=ring_buffer;operation=write_read_advance;channels=2;frames=512;capacity_frames=8192".to_string(),
     ];
     #[cfg(feature = "loudness-db")]

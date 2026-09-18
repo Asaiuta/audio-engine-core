@@ -1,5 +1,6 @@
 # Build artifacts
 /target/
+/crates/*/target/
 
 # This crate is published from a workspace; the lockfile is tracked at the
 # workspace root, not here.

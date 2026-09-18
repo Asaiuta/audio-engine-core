@@ -670,9 +670,7 @@ fn public_audio_fixture_suite_meets_tempo_phase_drift_and_stability_contracts() 
 
 #[test]
 fn public_head_reports_the_absolute_first_beat_across_sample_rates() {
-    use audio_engine_core::analysis::{
-        analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions,
-    };
+    use audio_automix::{analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions};
     use audio_engine_core::decoder::MediaLocation;
 
     let inputs = Inputs::new();

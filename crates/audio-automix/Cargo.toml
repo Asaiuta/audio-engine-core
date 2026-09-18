@@ -1,0 +1,39 @@
+[package]
+name = "audio-automix"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+description = "Bounded offline music analysis and AutoMix placement evidence"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Asaiuta/audio-engine-core"
+readme = "README.md"
+keywords = ["audio", "tempo", "beat", "automix"]
+categories = ["multimedia::audio", "algorithms"]
+include = ["/src/**", "/benches/**", "!**/__pycache__/**", "!**/*.pyc", "/docs/**", "/README.md", "/LICENSE-*", "/NOTICE"]
+
+[dependencies]
+audio-engine-core = { path = "../..", version = "2.0.0", default-features = false }
+realfft = "3.5"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[features]
+default = ["http", "rubato"]
+http = ["audio-engine-core/http"]
+rubato = ["audio-engine-core/rubato"]
+soxr = ["audio-engine-core/soxr"]
+
+[dev-dependencies]
+rustfft = "6.2"
+serde_json = "1"
+sha2 = "0.10"
+public-api = "0.52.1"
+rustdoc-json = "0.9.10"
+
+[[bench]]
+name = "audio_automix_accuracy"
+harness = false
+
+[[bench]]
+name = "audio_automix_perf"
+harness = false

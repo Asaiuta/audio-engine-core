@@ -1,3 +1,8 @@
+> Workspace migration: AutoMix now belongs to `audio-automix`. Current commands
+> and validation live in [its accuracy guide](../crates/audio-automix/docs/automix-accuracy.md).
+> Core component schema 2 omits AutoMix; its dated timing tables below are historical
+> evidence from the combined crate. The new package's cost protocol has a separate baseline.
+
 # Audio Quality & Performance Evidence
 
 > `audio-engine-core` treats audio quality and realtime behavior as measurable
@@ -755,7 +760,7 @@ backend priority.
 
 #### AutoMix cost breakdown
 
-AutoMix is the most expensive single operation in this crate — four orders of
+Historically, AutoMix was the most expensive single operation in the combined crate — four orders of
 magnitude above any realtime row — so its composition is worth recording. It is
 offline, bounded, and never runs on the audio thread.
 
@@ -913,7 +918,7 @@ individual beats only when stability >=0.80 and confidence >=0.35. Cached v3
 analysis must be recomputed before using those semantics. v4 remains
 unreleased until the coordinated Structure changes are integrated.
 
-See [the accuracy protocol](automix-accuracy.md) for the precise confidence
+See [the accuracy protocol](../crates/audio-automix/docs/automix-accuracy.md) for the precise confidence
 formula, development fixtures, independent metric goldens and required corpus
 evaluation. Synthetic precision and absent-corpus skips are not real-music
 accuracy evidence. After development on the separate 100-track GTZAN mini

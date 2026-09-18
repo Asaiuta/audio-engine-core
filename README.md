@@ -16,9 +16,16 @@ The core deliberately does **not** own your UI, audio device, playback runtime, 
 
 > **Production origin:** `audio-engine-core` was extracted from the Lyne audio engine as its application-agnostic core layer.
 
-> **Status:** `1.0.0` — stable public API, documented and SemVer-guarded against breaking changes. Requires Rust 1.87+.
+> **Status:** `2.0.0` unreleased — breaking API migration; see CHANGELOG and the AutoMix migration guide. Requires Rust 1.87+.
 
 ---
+
+## Workspace packages
+
+- `audio-engine-core`: decoder, measurement, DSP and streaming pipeline.
+- [`audio-automix`](crates/audio-automix/README.md): bounded offline music analysis and placement evidence, depending one-way on the core.
+
+AutoMix imports move from `audio_engine_core::analysis::*` to `audio_automix::*`; no legacy re-export is retained. See [migration](crates/audio-automix/docs/migration.md).
 
 ## Why audio-engine-core?
 
@@ -115,7 +122,6 @@ The project combines decoding, resampling, loudness processing, DSP, analysis, a
 ┌──────────────┐
 │   Analysis   │
 │ Spectrum /   │
-│ AutoMix /    │
 │ Measurements │
 └──────┬───────┘
        │
@@ -204,7 +210,7 @@ That makes it possible to reuse the same processing layer across different playe
 | **Noise**             | Noise shaping / dithering support                                                                          |
 | **Realtime control**  | Generation-based lock-free atomic parameter snapshots                                                      |
 | **Streaming**         | Ring-buffer and pipeline primitives                                                                        |
-| **Analysis**          | Spectrum analysis, AutoMix analysis, and objective measurement benches                                     |
+| **Analysis**          | Spectrum analysis and objective measurement benches; AutoMix is in the separate `audio-automix` package                                     |
 | **Offline rendering** | Latency-compensated rendering and configurable effect-tail policies                                        |
 
 ---
@@ -470,7 +476,7 @@ for the full methodology, configurations, raw measurements, and reproducible com
 
 ```toml
 [dependencies]
-audio-engine-core = "1"
+audio-engine-core = "2" # unreleased; use a local path until 2.0 is published
 ```
 
 For a minimal pure-Rust DSP-oriented build (no native dependency):
@@ -478,7 +484,7 @@ For a minimal pure-Rust DSP-oriented build (no native dependency):
 ```toml
 [dependencies]
 audio-engine-core = {
-    version = "1",
+    version = "2",
     default-features = false,
     features = ["rubato"]
 }

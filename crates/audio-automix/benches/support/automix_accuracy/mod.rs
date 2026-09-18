@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use audio_engine_core::analysis::{analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions};
+use audio_automix::{analyze_automix, AutomixAnalysisMode, AutomixAnalysisOptions};
 use audio_engine_core::decoder::{MediaLocation, StreamingDecoder};
 use serde::Serialize;
 
@@ -224,8 +224,11 @@ impl Report {
             conditions: serde_json::json!({
                 "analysis_mode": "head", "max_analyze_time_sec": ANALYSIS_CAP_SEC,
                 "estimator_configuration": ESTIMATOR_CONFIGURATION,
-                "estimator_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analysis/automix.rs"))),
-                "tempo_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analysis/automix/tempo.rs"))),
+                "estimator_source_sha256": corpus::sha256_bytes(&[include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs")).as_slice(),include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/decode.rs")).as_slice(),include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/features.rs")).as_slice(),include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tempo.rs")).as_slice(),include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/placement.rs")).as_slice()].concat()),
+                "decode_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/decode.rs"))),
+                "features_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/features.rs"))),
+                "placement_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/placement.rs"))),
+                "tempo_source_sha256": corpus::sha256_bytes(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tempo.rs"))),
                 "fixture_revision": fixtures::FIXTURE_REVISION,
                 "metric_reference": "mir_eval==0.8.2",
                 "tempo_relative_tolerance": metrics::TEMPO_TOLERANCE,

@@ -1,0 +1,111 @@
+pub mod audio_automix
+pub enum audio_automix::AutomixAnalysisMode
+pub audio_automix::AutomixAnalysisMode::Full
+pub audio_automix::AutomixAnalysisMode::Head
+impl audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::includes_tail(self) -> bool
+impl core::clone::Clone for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::clone(&self) -> audio_automix::AutomixAnalysisMode
+impl core::cmp::Eq for audio_automix::AutomixAnalysisMode
+impl core::cmp::PartialEq for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::eq(&self, &audio_automix::AutomixAnalysisMode) -> bool
+impl core::default::Default for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::default() -> audio_automix::AutomixAnalysisMode
+impl core::fmt::Debug for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_automix::AutomixAnalysisMode
+impl core::marker::StructuralPartialEq for audio_automix::AutomixAnalysisMode
+impl serde_core::ser::Serialize for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for audio_automix::AutomixAnalysisMode
+pub fn audio_automix::AutomixAnalysisMode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for audio_automix::AutomixAnalysisMode
+impl core::marker::Send for audio_automix::AutomixAnalysisMode
+impl core::marker::Sync for audio_automix::AutomixAnalysisMode
+impl core::marker::Unpin for audio_automix::AutomixAnalysisMode
+impl core::marker::UnsafeUnpin for audio_automix::AutomixAnalysisMode
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixAnalysisMode
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixAnalysisMode
+#[non_exhaustive] pub enum audio_automix::AutomixError
+pub audio_automix::AutomixError::Canceled
+pub audio_automix::AutomixError::Decoder(audio_engine_core::decoder::error::DecoderError)
+pub audio_automix::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
+pub audio_automix::AutomixError::TailSeekPastStart
+pub audio_automix::AutomixError::TailSeekPastStart::planned_frame: u64
+pub audio_automix::AutomixError::TailSeekPastStart::realized_frame: u64
+impl core::convert::From<audio_engine_core::decoder::error::DecoderError> for audio_automix::AutomixError
+pub fn audio_automix::AutomixError::from(audio_engine_core::decoder::error::DecoderError) -> Self
+impl core::convert::From<audio_engine_core::processor::traits::ProcessError> for audio_automix::AutomixError
+pub fn audio_automix::AutomixError::from(audio_engine_core::processor::traits::ProcessError) -> Self
+impl core::error::Error for audio_automix::AutomixError
+pub fn audio_automix::AutomixError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for audio_automix::AutomixError
+pub fn audio_automix::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for audio_automix::AutomixError
+pub fn audio_automix::AutomixError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_automix::AutomixError
+impl core::marker::Send for audio_automix::AutomixError
+impl core::marker::Sync for audio_automix::AutomixError
+impl core::marker::Unpin for audio_automix::AutomixError
+impl core::marker::UnsafeUnpin for audio_automix::AutomixError
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixError
+impl !core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixError
+pub struct audio_automix::AutomixAnalysis
+pub audio_automix::AutomixAnalysis::analyze_window: f64
+pub audio_automix::AutomixAnalysis::beat_grid_stability: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::bpm: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::bpm_confidence: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::cut_in_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::cut_out_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::drop_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::duration: f64
+pub audio_automix::AutomixAnalysis::energy_profile: alloc::vec::Vec<f64>
+pub audio_automix::AutomixAnalysis::fade_in_pos: f64
+pub audio_automix::AutomixAnalysis::fade_out_pos: f64
+pub audio_automix::AutomixAnalysis::first_beat_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::loudness: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::mix_center_pos: f64
+pub audio_automix::AutomixAnalysis::mix_end_pos: f64
+pub audio_automix::AutomixAnalysis::mix_start_pos: f64
+pub audio_automix::AutomixAnalysis::mode: audio_automix::AutomixAnalysisMode
+pub audio_automix::AutomixAnalysis::outro_energy_level: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::true_peak_dbtp: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::version: u32
+pub audio_automix::AutomixAnalysis::vocal_in_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::vocal_last_in_pos: core::option::Option<f64>
+pub audio_automix::AutomixAnalysis::vocal_out_pos: core::option::Option<f64>
+impl core::clone::Clone for audio_automix::AutomixAnalysis
+pub fn audio_automix::AutomixAnalysis::clone(&self) -> audio_automix::AutomixAnalysis
+impl core::fmt::Debug for audio_automix::AutomixAnalysis
+pub fn audio_automix::AutomixAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_automix::AutomixAnalysis
+pub fn audio_automix::AutomixAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::AutomixAnalysis
+impl core::marker::Send for audio_automix::AutomixAnalysis
+impl core::marker::Sync for audio_automix::AutomixAnalysis
+impl core::marker::Unpin for audio_automix::AutomixAnalysis
+impl core::marker::UnsafeUnpin for audio_automix::AutomixAnalysis
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixAnalysis
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixAnalysis
+pub struct audio_automix::AutomixAnalysisOptions
+pub audio_automix::AutomixAnalysisOptions::max_analyze_time_sec: f64
+pub audio_automix::AutomixAnalysisOptions::mode: audio_automix::AutomixAnalysisMode
+impl audio_automix::AutomixAnalysisOptions
+pub fn audio_automix::AutomixAnalysisOptions::normalized(self) -> Self
+impl core::clone::Clone for audio_automix::AutomixAnalysisOptions
+pub fn audio_automix::AutomixAnalysisOptions::clone(&self) -> audio_automix::AutomixAnalysisOptions
+impl core::default::Default for audio_automix::AutomixAnalysisOptions
+pub fn audio_automix::AutomixAnalysisOptions::default() -> Self
+impl core::fmt::Debug for audio_automix::AutomixAnalysisOptions
+pub fn audio_automix::AutomixAnalysisOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_automix::AutomixAnalysisOptions
+impl core::marker::Send for audio_automix::AutomixAnalysisOptions
+impl core::marker::Sync for audio_automix::AutomixAnalysisOptions
+impl core::marker::Unpin for audio_automix::AutomixAnalysisOptions
+impl core::marker::UnsafeUnpin for audio_automix::AutomixAnalysisOptions
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixAnalysisOptions
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixAnalysisOptions
+pub fn audio_automix::analyze_automix(audio_engine_core::decoder::source::MediaLocation, core::option::Option<audio_engine_core::decoder::source::HttpCredentials>, audio_automix::AutomixAnalysisOptions) -> core::result::Result<audio_automix::AutomixAnalysis, audio_automix::AutomixError>
+pub fn audio_automix::analyze_automix_with_cancel(audio_engine_core::decoder::source::MediaLocation, core::option::Option<audio_engine_core::decoder::source::HttpCredentials>, audio_automix::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::error::DecodeCancelToken>) -> core::result::Result<audio_automix::AutomixAnalysis, audio_automix::AutomixError>

@@ -1,6 +1,6 @@
 [package]
 name = "audio-engine-core"
-version = "1.1.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.87"
 description = "Reusable decoder, DSP, loudness, resampling, and streaming pipeline primitives"
@@ -21,6 +21,8 @@ include = [
     "/build.rs",
     "/build/**",
     "/benches/**",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
     "/examples/**",
     "/docs/**",
     "/README.md",
@@ -30,6 +32,11 @@ include = [
     "/LICENSE-MIT",
     "/NOTICE",
 ]
+
+[workspace]
+members = ["crates/audio-automix"]
+default-members = [".", "crates/audio-automix"]
+resolver = "2"
 
 [lib]
 name = "audio_engine_core"
@@ -139,10 +146,6 @@ harness = false
 
 [[bench]]
 name = "audio_component_perf"
-harness = false
-
-[[bench]]
-name = "audio_automix_accuracy"
 harness = false
 
 [[bench]]

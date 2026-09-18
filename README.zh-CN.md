@@ -1,5 +1,7 @@
 # audio-engine-core
 
+当前工作区：`audio-engine-core 2.0.0`（尚未发布）负责通用音频基础设施；[`audio-automix`](crates/audio-automix/README.md) 负责离线音乐分析与位置建议。AutoMix 入口直接迁移到 `audio_automix::*`，不保留旧路径兼容层。
+
 [English](README.md) | **简体中文**
 
 [![CI](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Asaiuta/audio-engine-core/actions/workflows/ci.yml)
@@ -16,7 +18,7 @@
 
 > **生产来源:** `audio-engine-core` 从 Lyne 音频引擎中提取,作为其与应用无关的核心层。
 
-> **状态:** `1.0.0` — 公共 API 稳定,已文档化并受 SemVer 门禁保护,防止破坏性变更。要求 Rust 1.87+。
+> **状态:** `2.0.0`（尚未发布）— 本次包含破坏性 API 迁移，详见 CHANGELOG 和 [AutoMix 迁移说明](crates/audio-automix/docs/migration.md)。要求 Rust 1.87+。
 
 ---
 
@@ -112,7 +114,6 @@
 ┌──────────────┐
 │    分析      │
 │ 频谱 /       │
-│ AutoMix /    │
 │ 测量         │
 └──────┬───────┘
        │
@@ -201,7 +202,7 @@
 | **噪声**             | 噪声整形 / 抖动(dithering)支持                                                                          |
 | **实时控制**  | 基于代际的无锁原子参数快照                                                                      |
 | **流式**         | 环形缓冲与流水线原语                                                                        |
-| **分析**          | 频谱分析、AutoMix 分析与客观测量基准                                                                     |
+| **分析**          | 频谱分析与客观测量基准；AutoMix 由独立 `audio-automix` 包提供                                                                     |
 | **离线渲染** | 延迟补偿渲染与可配置的效果尾部策略                                                                        |
 
 ---
@@ -467,7 +468,7 @@ Rubato v17(同几何构建)
 
 ```toml
 [dependencies]
-audio-engine-core = "1"
+audio-engine-core = "2" # 尚未发布；当前请使用本地 path 依赖
 ```
 
 最小的纯 Rust、纯 DSP 构建(无原生依赖):
@@ -475,7 +476,7 @@ audio-engine-core = "1"
 ```toml
 [dependencies]
 audio-engine-core = {
-    version = "1",
+    version = "2",
     default-features = false,
     features = ["rubato"]
 }

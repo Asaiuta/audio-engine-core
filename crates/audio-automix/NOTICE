@@ -1,0 +1,9 @@
+audio-automix
+Copyright (c) 2026 Asaiuta and the Lyne audio-engine-core contributors
+
+Licensed under either MIT or Apache-2.0, at your option; see LICENSE-MIT
+and LICENSE-APACHE. AutoMix was extracted from audio-engine-core.
+
+The optional soxr feature forwards to audio-engine-core and links the separate
+LGPL-2.1 libsoxr library. The default Rubato backend does not link libsoxr.
+For native dependency distribution details, see audio-engine-core's NOTICE.

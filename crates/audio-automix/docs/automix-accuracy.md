@@ -6,9 +6,9 @@ sample rate and channel count. Synthetic audio tests detector precision;
 separately supplied, checksum-verified evaluation corpora test MIR accuracy.
 
 ```sh
-cargo bench --bench audio_automix_accuracy -- --quick --enforce --out target/accuracy-quick.json
-cargo bench --bench audio_automix_accuracy -- --corpus-manifest /data/manifest.json --corpus-root /data --require-corpus giantsteps-tempo --require-corpus ballroom-beats --enforce --out target/accuracy-full.json
-cargo bench --bench audio_automix_accuracy -- --corpus-manifest target/automix-development-data/manifest.json --split development --require-corpus gtzan-mini-development --enforce --out target/accuracy-development.json
+cargo bench -p audio-automix --bench audio_automix_accuracy -- --quick --enforce --out target/accuracy-quick.json
+cargo bench -p audio-automix --bench audio_automix_accuracy -- --corpus-manifest /data/manifest.json --corpus-root /data --require-corpus giantsteps-tempo --require-corpus ballroom-beats --enforce --out target/accuracy-full.json
+cargo bench -p audio-automix --bench audio_automix_accuracy -- --corpus-manifest target/automix-development-data/manifest.json --split development --require-corpus gtzan-mini-development --enforce --out target/accuracy-development.json
 ```
 
 `--quick` permits synthetic fixtures only. Omitting the manifest also runs
@@ -32,7 +32,7 @@ passing aggregate. A detector's abstention on valid audio is a scored miss.
 ## Input format
 
 Manifest schema version 1 is defined by the typed records in
-`benches/support/automix_accuracy/corpus.rs`. The following illustrates one
+`crates/audio-automix/benches/support/automix_accuracy/corpus.rs`. The following illustrates one
 track; replace digest placeholders with SHA-256 of the exact local bytes.
 
 ```json
@@ -141,7 +141,7 @@ and no predictions. Regeneration needs Python, NumPy, SciPy and that pinned
 reference version; Rust tests and the bench do not:
 
 ```sh
-python benches/support/automix_accuracy/generate_metric_goldens.py --reference-root .tmp/automix-metric-reference
+python crates/audio-automix/benches/support/automix_accuracy/generate_metric_goldens.py --reference-root .tmp/automix-metric-reference
 cargo test --test automix_accuracy
 ```
 
@@ -226,9 +226,9 @@ matched WAV files. GiantSteps previews remain their original MP3 bytes.
 Local preparation uses the same entrypoint (Python >=3.11, about 5 GB of disk):
 
 ```sh
-python -B benches/support/automix_accuracy/prepare_public_corpus.py
-sha256sum --check benches/support/automix_accuracy/public_corpus.sha256
-python -B -m unittest discover -s benches/support/automix_accuracy -p 'test_*.py'
+python -B crates/audio-automix/benches/support/automix_accuracy/prepare_public_corpus.py
+sha256sum --check crates/audio-automix/benches/support/automix_accuracy/public_corpus.sha256
+python -B -m unittest discover -s crates/audio-automix/benches/support/automix_accuracy -p 'test_*.py'
 ```
 
 Defaults are `--source-cache target/automix-corpus-sources`,
@@ -257,7 +257,7 @@ MIREX triples and selected primary labels against `tempo_eval` revision
 one equal-salience tie. Running the pinned public `equal1/equal2` and the
 actual Rust metric on the frozen v8 predictions gives identical per-track
 scores: 201/661 and 346/661. See the task's
-[protocol audit](../.trellis/tasks/09-02-automix-tempo-beat-precision/research/protocol-audit-2026-09-09.md)
+[protocol audit](../../../.trellis/tasks/09-02-automix-tempo-beat-precision/research/protocol-audit-2026-09-09.md)
 for source hashes and the public baseline table.
 
 Those public v2 scores share labels, inventory and metric definitions with
@@ -324,8 +324,8 @@ recordings from ten genres. Preparation is source-pinned and requires the
 original GiantSteps/Ballroom manifest as an overlap guard:
 
 ```sh
-python -B benches/support/automix_accuracy/prepare_development_corpus.py
-cargo bench --bench audio_automix_accuracy -- --corpus-manifest target/automix-development-data/manifest.json --split development --require-corpus gtzan-mini-development --enforce --out target/accuracy-development.json
+python -B crates/audio-automix/benches/support/automix_accuracy/prepare_development_corpus.py
+cargo bench -p audio-automix --bench audio_automix_accuracy -- --corpus-manifest target/automix-development-data/manifest.json --split development --require-corpus gtzan-mini-development --enforce --out target/accuracy-development.json
 ```
 
 Defaults are `--out target/automix-development-data`,
@@ -388,8 +388,8 @@ Müller (ISMIR 2018) supply 1159 Beatport EDM recordings that are disjoint from
 the frozen 664 by Beatport ID and by the authors' MD5 lists:
 
 ```sh
-python -B benches/support/automix_accuracy/prepare_edm_development_corpus.py
-cargo bench --bench audio_automix_accuracy -- --corpus-manifest target/automix-edm-development-data/manifest.json --split development --require-corpus giantsteps-mtg-tempo-development-fit --require-corpus giantsteps-mtg-tempo-development-validation --enforce --out target/accuracy-edm-development.json
+python -B crates/audio-automix/benches/support/automix_accuracy/prepare_edm_development_corpus.py
+cargo bench -p audio-automix --bench audio_automix_accuracy -- --corpus-manifest target/automix-edm-development-data/manifest.json --split development --require-corpus giantsteps-mtg-tempo-development-fit --require-corpus giantsteps-mtg-tempo-development-validation --enforce --out target/accuracy-edm-development.json
 ```
 
 Defaults are `--out target/automix-edm-development-data`,

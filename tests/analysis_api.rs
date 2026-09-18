@@ -11,12 +11,6 @@ use audio_engine_core::{analysis, audio_block, processor, LoudnessInfo};
 
 #[test]
 fn canonical_analysis_surface_resolves() {
-    let mode: analysis::AutomixAnalysisMode = analysis::AutomixAnalysisMode::Head;
-    assert_eq!(mode, analysis::AutomixAnalysisMode::Head);
-
-    let _: Option<analysis::AutomixAnalysis> = None;
-    let _: Option<analysis::AutomixAnalysisOptions> = None;
-    let _: Option<analysis::AutomixError> = None;
     let _: Option<analysis::SpectrumAnalyzer> = None;
     let _: Option<analysis::SpectrumConfig> = None;
     let _: Option<analysis::WindowFunction> = None;
@@ -24,9 +18,6 @@ fn canonical_analysis_surface_resolves() {
     let _: Option<processor::LoudnessInfo> = None;
     let _: Option<analysis::LoudnessMeter> = None;
     let _: Option<analysis::TruePeakDetector> = None;
-
-    let _analyze = analysis::analyze_automix;
-    let _analyze_with_cancel = analysis::analyze_automix_with_cancel;
 }
 
 #[test]

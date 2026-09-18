@@ -66,7 +66,6 @@ fn dispersion_retains_outliers_and_scales_the_actual_timing_window() {
 }
 
 fn example_report() -> ComponentReport {
-    let fixture = ensure_deterministic_pcm_fixture().unwrap();
     ComponentReport {
         schema_version: REPORT_SCHEMA_VERSION,
         probe: PROBE.to_string(),
@@ -83,7 +82,7 @@ fn example_report() -> ComponentReport {
             profile: "release".to_string(),
             features: vec!["test".to_string()],
         },
-        conditions: component_conditions(workload(BenchMode::Quick), &fixture, None),
+        conditions: component_conditions(workload(BenchMode::Quick), None),
         cases: vec![example_case(vec![4.0; 3])],
         baseline: None,
         comparisons: Vec::new(),

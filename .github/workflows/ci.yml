@@ -1,6 +1,6 @@
 name: CI
 
-# Continuous integration for the standalone `audio-engine-core` crate.
+# Continuous integration for the audio-engine-core / audio-automix workspace.
 # Runs format/lint/doc checks plus a cross-platform test matrix that exercises
 # the native libsoxr dependency on each OS.
 
@@ -36,16 +36,16 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: AutoMix corpus provisioning tests
-        run: python3 -B -m unittest discover -s benches/support/automix_accuracy -p 'test_*.py'
+        run: python3 -B -m unittest discover -s crates/audio-automix/benches/support/automix_accuracy -p 'test_*.py'
 
       - name: clippy (all features)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: clippy (default features)
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: clippy (pure-Rust rubato backend)
-        run: cargo clippy --all-targets --no-default-features --features rubato -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features --features rubato -- -D warnings
 
       # Mirror the docs.rs build. libsoxr-sys skips its pkg-config probe when
       # DOCS_RS is set and ships pregenerated FFI bindings, so doc builds need
@@ -54,7 +54,7 @@ jobs:
         env:
           DOCS_RS: "1"
           RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --workspace --no-deps --all-features
 
   # Prove the MSRV declared in Cargo.toml, which is a SemVer-relevant promise.
   # This checks the library only, not --all-targets: dev-dependencies (notably
@@ -87,13 +87,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check (all features)
-        run: cargo check --all-features
+        run: cargo check --workspace --all-features
 
       - name: Check (default features)
-        run: cargo check
+        run: cargo check --workspace
 
       - name: Check (pure Rust backend)
-        run: cargo check --no-default-features --features rubato
+        run: cargo check --workspace --no-default-features --features rubato
 
   # Compare the public surface of both supported feature matrices against the
   # snapshots committed under tests/. Rustdoc JSON is nightly-only and its
@@ -124,13 +124,16 @@ jobs:
         run: rustup run nightly-2026-07-09 rustdoc --version
 
       - name: Public API surface matches the committed baseline
-        run: cargo test --test public_api
+        run: cargo test --workspace --test public_api -- --test-threads=1
 
       - name: Install cargo-semver-checks
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-semver-checks@0.50.0
 
+      # The reviewed 2.0 baseline includes the intentional AutoMix removal.
+      # Keep a real minor-release compatibility check; --release-type major
+      # skips all checks. See tests/semver-baseline/README.md for provenance.
       - name: SemVer compatibility (all features)
         run: >-
           cargo semver-checks
@@ -203,19 +206,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --all-features
+        run: cargo build --workspace --all-features
 
       - name: Test (all features)
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features
 
       # The feature set a plain `cargo add` selects: the pure-Rust rubato backend
       # plus http/loudness-db, which is neither `--all-features` (soxr wins
       # there) nor the bare rubato matrix.
       - name: Test (default features)
-        run: cargo test
+        run: cargo test --workspace
+
+      - name: AutoMix builds without sibling feature unification
+        run: cargo check -p audio-automix --no-default-features --features rubato --all-targets
 
       - name: Test (no default features, rubato backend)
-        run: cargo test --no-default-features --features rubato
+        run: cargo test --workspace --no-default-features --features rubato
 
   # Prove the pure-Rust build path on a runner with no libsoxr installed:
   # the default feature set, and `default-features = false` plus `rubato`, must
@@ -234,16 +240,16 @@ jobs:
       # The default feature set links no native library, so this must
       # succeed on a runner that has never seen libsoxr.
       - name: Build (default features, no native dependencies)
-        run: cargo build
+        run: cargo build --workspace
 
       - name: Test (default features, no native dependencies)
-        run: cargo test
+        run: cargo test --workspace
 
       - name: Build (no native dependencies)
-        run: cargo build --no-default-features --features rubato
+        run: cargo build --workspace --no-default-features --features rubato
 
       - name: Test (no native dependencies)
-        run: cargo test --no-default-features --features rubato
+        run: cargo test --workspace --no-default-features --features rubato
 
       - name: Decoder quick report gate (pure Rust feature set)
         run: >-
@@ -302,6 +308,12 @@ jobs:
           cargo bench --bench audio_quality_measurements --
           --quick --enforce
           --out target/bench-reports/audio-quality-quick.json
+
+      - name: AutoMix synthetic accuracy gate
+        run: cargo bench -p audio-automix --bench audio_automix_accuracy -- --quick --enforce --out target/bench-reports/automix-accuracy.json
+
+      - name: AutoMix cost report
+        run: cargo bench -p audio-automix --bench audio_automix_perf -- --quick --out target/bench-reports/automix-perf.json
 
       - name: Callback-chain quick report gate
         if: always()
@@ -383,5 +395,5 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo package
-        run: cargo package --all-features
+      - name: cargo package --workspace
+        run: cargo package --workspace --all-features

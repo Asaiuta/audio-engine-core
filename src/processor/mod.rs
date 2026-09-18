@@ -27,7 +27,8 @@
 //! - [`DspChain`] - composable DSP processing chain
 //!
 //! Offline/read-only analysis types live in [`crate::analysis`], the semantic
-//! namespace for AutoMix, spectrum, and loudness measurement.
+//! namespace for spectrum and loudness measurement. AutoMix lives in the
+//! separate `audio-automix` package.
 
 mod atomic_f64;
 mod convolver;
