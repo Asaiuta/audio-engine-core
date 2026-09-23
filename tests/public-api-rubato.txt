@@ -20,6 +20,41 @@ impl core::marker::Unpin for audio_engine_core::analysis::WindowFunction
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::WindowFunction
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::WindowFunction
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::WindowFunction
+pub struct audio_engine_core::analysis::DescriptorAnalyzer
+impl audio_engine_core::analysis::DescriptorAnalyzer
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::new(&audio_engine_core::analysis::DescriptorConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::reset(&mut self)
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::signal(&self) -> &audio_engine_core::analysis::SignalMeasurements
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::spectral(&self) -> core::option::Option<&audio_engine_core::analysis::SpectralDescriptors>
+impl core::marker::Freeze for audio_engine_core::analysis::DescriptorAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::DescriptorAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::DescriptorAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::DescriptorAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::DescriptorAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::DescriptorAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::DescriptorAnalyzer
+pub struct audio_engine_core::analysis::DescriptorConfig
+pub audio_engine_core::analysis::DescriptorConfig::clipping_threshold: f64
+pub audio_engine_core::analysis::DescriptorConfig::contrast_band_edges_hz: alloc::vec::Vec<f64>
+pub audio_engine_core::analysis::DescriptorConfig::fft_size: usize
+pub audio_engine_core::analysis::DescriptorConfig::flatness_floor: f64
+pub audio_engine_core::analysis::DescriptorConfig::hop_size: usize
+pub audio_engine_core::analysis::DescriptorConfig::rolloff_fraction: f64
+pub audio_engine_core::analysis::DescriptorConfig::window: audio_engine_core::analysis::WindowFunction
+impl core::clone::Clone for audio_engine_core::analysis::DescriptorConfig
+pub fn audio_engine_core::analysis::DescriptorConfig::clone(&self) -> audio_engine_core::analysis::DescriptorConfig
+impl core::default::Default for audio_engine_core::analysis::DescriptorConfig
+pub fn audio_engine_core::analysis::DescriptorConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::DescriptorConfig
+pub fn audio_engine_core::analysis::DescriptorConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::DescriptorConfig
+impl core::marker::Send for audio_engine_core::analysis::DescriptorConfig
+impl core::marker::Sync for audio_engine_core::analysis::DescriptorConfig
+impl core::marker::Unpin for audio_engine_core::analysis::DescriptorConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::DescriptorConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::DescriptorConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::DescriptorConfig
 pub struct audio_engine_core::analysis::LoudnessMeter
 impl audio_engine_core::analysis::LoudnessMeter
 pub fn audio_engine_core::analysis::LoudnessMeter::frames_processed(&self) -> u64
@@ -40,6 +75,53 @@ impl core::marker::Unpin for audio_engine_core::analysis::LoudnessMeter
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::LoudnessMeter
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::LoudnessMeter
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::LoudnessMeter
+pub struct audio_engine_core::analysis::SignalMeasurements
+pub audio_engine_core::analysis::SignalMeasurements::clipping_count: core::option::Option<u64>
+pub audio_engine_core::analysis::SignalMeasurements::clipping_ratio: core::option::Option<f64>
+pub audio_engine_core::analysis::SignalMeasurements::crest_factor: core::option::Option<f64>
+pub audio_engine_core::analysis::SignalMeasurements::dc_offset: core::option::Option<f64>
+pub audio_engine_core::analysis::SignalMeasurements::rms: core::option::Option<f64>
+pub audio_engine_core::analysis::SignalMeasurements::sample_count: u64
+pub audio_engine_core::analysis::SignalMeasurements::sample_peak: core::option::Option<f64>
+pub audio_engine_core::analysis::SignalMeasurements::zero_crossing_rate: core::option::Option<f64>
+impl core::clone::Clone for audio_engine_core::analysis::SignalMeasurements
+pub fn audio_engine_core::analysis::SignalMeasurements::clone(&self) -> audio_engine_core::analysis::SignalMeasurements
+impl core::cmp::PartialEq for audio_engine_core::analysis::SignalMeasurements
+pub fn audio_engine_core::analysis::SignalMeasurements::eq(&self, &audio_engine_core::analysis::SignalMeasurements) -> bool
+impl core::default::Default for audio_engine_core::analysis::SignalMeasurements
+pub fn audio_engine_core::analysis::SignalMeasurements::default() -> audio_engine_core::analysis::SignalMeasurements
+impl core::fmt::Debug for audio_engine_core::analysis::SignalMeasurements
+pub fn audio_engine_core::analysis::SignalMeasurements::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::Freeze for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::Send for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::Sync for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::Unpin for audio_engine_core::analysis::SignalMeasurements
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::SignalMeasurements
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::SignalMeasurements
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::SignalMeasurements
+pub struct audio_engine_core::analysis::SpectralDescriptors
+pub audio_engine_core::analysis::SpectralDescriptors::bandwidth_hz: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectralDescriptors::centroid_hz: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectralDescriptors::contrast_db: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::SpectralDescriptors::end_sample: u64
+pub audio_engine_core::analysis::SpectralDescriptors::flatness: core::option::Option<f64>
+pub audio_engine_core::analysis::SpectralDescriptors::rolloff_hz: core::option::Option<f64>
+impl core::clone::Clone for audio_engine_core::analysis::SpectralDescriptors
+pub fn audio_engine_core::analysis::SpectralDescriptors::clone(&self) -> audio_engine_core::analysis::SpectralDescriptors
+impl core::cmp::PartialEq for audio_engine_core::analysis::SpectralDescriptors
+pub fn audio_engine_core::analysis::SpectralDescriptors::eq(&self, &audio_engine_core::analysis::SpectralDescriptors) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::SpectralDescriptors
+pub fn audio_engine_core::analysis::SpectralDescriptors::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::SpectralDescriptors
+impl core::marker::Freeze for audio_engine_core::analysis::SpectralDescriptors
+impl core::marker::Send for audio_engine_core::analysis::SpectralDescriptors
+impl core::marker::Sync for audio_engine_core::analysis::SpectralDescriptors
+impl core::marker::Unpin for audio_engine_core::analysis::SpectralDescriptors
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::SpectralDescriptors
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::SpectralDescriptors
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::SpectralDescriptors
 pub struct audio_engine_core::analysis::SpectrumAnalyzer
 impl audio_engine_core::analysis::SpectrumAnalyzer
 pub fn audio_engine_core::analysis::SpectrumAnalyzer::analyze(&mut self, &[f64], u32) -> core::result::Result<&[f32], audio_engine_core::processor::traits::ProcessError>

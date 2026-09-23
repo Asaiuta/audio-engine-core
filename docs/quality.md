@@ -1223,3 +1223,49 @@ are not trimmed or hidden.
 Equal-rate resampler setup/finish (112.0/4.1 μs on the final SoXR quick run)
 and timer-quantized Convolver ownership operations remain report-only; only
 the seven stable timing cases gate against a baseline.
+## L1 descriptor evidence (2026-09-23)
+
+`analysis::DescriptorAnalyzer` provides deterministic measurements of supplied
+mono PCM. It is independent of the display analyzer: no log rebanding, tilt,
+dB clamp, 0..1 normalization, temporal smoothing or peak hold. It reuses the
+original window definition and owns a separate real FFT. These descriptors
+make no claim about musical key, timbre class, structure, tempo accuracy or
+AutoMix readiness, and do not change the AutoMix schema.
+
+The first spectral frame ends after N input samples and subsequent frames
+after each configured hop. Incomplete tails are not padded. Subtract the
+unwindowed frame mean before windowing; use power `|FFT/N|^2` on bins
+1 through N/2 inclusive (DC excluded, Nyquist included, no bin doubling).
+Centroid and bandwidth are power-weighted mean and standard deviation in Hz.
+Rolloff is the smallest cumulative-power quantile bin, so a uniform brickwall
+band has 85% rolloff near 85% of its extent, not at the cutoff.
+
+Flatness is geometric/arithmetic mean of floored power; the configurable
+absolute power floor defaults to `1e-20` and affects both means. A rectangular
+window single-periodogram white-noise estimator converges near 0.561, not 1.
+An equal-power spectrum gives 1. Contrast is `10*log10(top_mean/bottom_mean)`
+over the largest/smallest `ceil(0.2 * bins)` powers in each documented band.
+There is no contrast floor: insufficient bins or a zero valley are undefined.
+
+Signal output covers all samples since reset, including the spectral tail:
+sample peak, RMS, linear peak/RMS crest, mean DC, absolute-threshold clipping
+count/fraction (inclusive, default threshold 1), and strict opposite-sign
+adjacent pairs divided by N-1. Exact zeros cross neither neighbour. Multiply
+ZCR by sample rate for crossings/second. Silent spectral descriptors and
+silent crest are absent; zero RMS/peak/DC/clipping/ZCR are defined. Before
+any input all signal measurements are absent; ZCR needs at least two samples.
+Non-finite input invalidates containing spectral windows and cumulative signal
+measurements; spectral frames recover after it leaves the ring, cumulative
+measurements require reset. Finite extreme samples are scaled before squaring.
+
+Evidence: `src/analysis/descriptors/tests.rs` uses tone, synthetic brickwall,
+brown/pink/white tilt, equal-power impulse, seeded white noise, explicit
+contrast powers, sine/square/impulse/DC forms, direct DFT, and frozen original
+window formulas. Tolerances are one FFT bin for tone centroid/rolloff,
+`0.025` around `0.56146` for the mean of 32 white-noise frames, and floating-
+point tolerances stated in each closed-form test. Chunk sizes 1/7/64/1000
+are compared by bits; first/primed pushes, accessors and reset are guarded by
+`assert_no_alloc`. The error matrix is rejected before allocation. No corpus
+was downloaded or scored. Allocation freedom is not a callback latency claim;
+use an analysis worker. A manual ignored cost sample records local throughput
+in the task research report rather than establishing a performance gate.

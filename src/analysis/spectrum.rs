@@ -12,7 +12,7 @@ use decimation::DecimationChain;
 const MIN_FREQUENCY_HZ: f64 = 20.0;
 const TILT_PIVOT_HZ: f64 = 1_000.0;
 const PEAK_DECAY_DB_PER_SECOND: f64 = 20.0;
-const MAX_KAISER_BETA: f64 = 50.0;
+pub(crate) const MAX_KAISER_BETA: f64 = 50.0;
 const MAX_MULTI_RES_SAMPLE_RATE_HZ: u32 = 384_000;
 const PUSH_STEP_SAMPLES: usize = 4096;
 const DECIMATED_PASSBAND_FRACTION: f64 = 0.8;
@@ -385,7 +385,7 @@ impl SpectrumAnalyzer {
             .collect()
     }
 
-    fn window_values(window: WindowFunction, fft_size: usize) -> Vec<f64> {
+    pub(crate) fn window_values(window: WindowFunction, fft_size: usize) -> Vec<f64> {
         match window {
             WindowFunction::Hann => (0..fft_size)
                 .map(|i| {

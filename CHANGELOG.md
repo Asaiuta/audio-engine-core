@@ -10,6 +10,16 @@ version bumps, as permitted by SemVer.
 
 ## [2.0.0] - Unreleased
 
+### Added
+
+- `analysis::{DescriptorAnalyzer, DescriptorConfig, SpectralDescriptors,
+  SignalMeasurements}`: linear-power centroid, bandwidth, rolloff, flatness,
+  band contrast, plus cumulative peak, RMS, crest, DC, clipping and ZCR.
+  Construction preallocates; mono pushes and borrowed accessors allocate
+  nothing and are chunk-invariant. Undefined measurements are `None`.
+  These analytically tested descriptors have no AutoMix schema integration
+  or musical-accuracy claim; see `docs/quality.md` for numerical conventions.
+
 ### Changed
 
 - Extract AutoMix to the same-workspace `audio-automix 0.1.0` package. Import

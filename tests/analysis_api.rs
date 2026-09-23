@@ -11,6 +11,10 @@ use audio_engine_core::{analysis, audio_block, processor, LoudnessInfo};
 
 #[test]
 fn canonical_analysis_surface_resolves() {
+    let _: Option<analysis::DescriptorAnalyzer> = None;
+    let _: Option<analysis::DescriptorConfig> = None;
+    let _: Option<analysis::SpectralDescriptors> = None;
+    let _: Option<analysis::SignalMeasurements> = None;
     let _: Option<analysis::SpectrumAnalyzer> = None;
     let _: Option<analysis::SpectrumConfig> = None;
     let _: Option<analysis::WindowFunction> = None;
@@ -18,6 +22,22 @@ fn canonical_analysis_surface_resolves() {
     let _: Option<processor::LoudnessInfo> = None;
     let _: Option<analysis::LoudnessMeter> = None;
     let _: Option<analysis::TruePeakDetector> = None;
+}
+
+#[test]
+fn descriptor_api_reports_borrowed_spectral_and_signal_measurements() {
+    let config = analysis::DescriptorConfig {
+        fft_size: 16,
+        hop_size: 7,
+        ..Default::default()
+    };
+    let mut analyzer = analysis::DescriptorAnalyzer::new(&config, 48_000).unwrap();
+    assert_eq!(analyzer.push(&[0.0; 16]), 1);
+    let spectral: &analysis::SpectralDescriptors = analyzer.spectral().unwrap();
+    assert_eq!(spectral.flatness, None);
+    let signal: &analysis::SignalMeasurements = analyzer.signal();
+    assert_eq!(signal.sample_count, 16);
+    assert_eq!(signal.rms, Some(0.0));
 }
 
 #[test]
