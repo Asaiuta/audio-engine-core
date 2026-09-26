@@ -14,6 +14,16 @@ fn canonical_analysis_surface_resolves() {
     let _: Option<analysis::DescriptorAnalyzer> = None;
     let _: Option<analysis::DescriptorConfig> = None;
     let _: Option<analysis::SpectralDescriptors> = None;
+    let _: Option<analysis::BandMeasurements> = None;
+    let _: Option<analysis::MelAnalyzer> = None;
+    let _: Option<analysis::MelConfig> = None;
+    let _: Option<analysis::MelFrame> = None;
+    let _: Option<analysis::MfccAnalyzer> = None;
+    let _: Option<analysis::MfccConfig> = None;
+    let _: Option<analysis::MfccFrame> = None;
+    let _: Option<analysis::HpssAnalyzer> = None;
+    let _: Option<analysis::HpssConfig> = None;
+    let _: Option<analysis::HpssFrame> = None;
     let _: Option<analysis::SignalMeasurements> = None;
     let _: Option<analysis::SpectrumAnalyzer> = None;
     let _: Option<analysis::SpectrumConfig> = None;

@@ -425,7 +425,23 @@ fn invalid_configuration_is_rejected_before_allocating() {
             48_000,
             "clipping_threshold",
         );
+        reject(
+            &DescriptorConfig {
+                band_rise_floor: value,
+                ..config(16)
+            },
+            48_000,
+            "band_rise_floor",
+        );
     }
+    reject(
+        &DescriptorConfig {
+            band_edges_hz: vec![3000.0],
+            ..config(16)
+        },
+        48_000,
+        "band_edges_hz",
+    );
     reject(
         &DescriptorConfig {
             rolloff_fraction: 1.01,
@@ -638,6 +654,61 @@ fn independent_dft_oracle_excludes_display_and_removes_dc() {
         spectral_bits(analyzer.spectral().unwrap()),
         spectral_bits(bypassed.spectral().unwrap())
     );
+}
+
+#[test]
+fn raw_power_and_band_measurements_follow_absolute_oracles() {
+    let n = 64;
+    let amplitude = 0.5;
+    let samples: Vec<_> = (0..n)
+        .map(|i| amplitude * (2.0 * PI * 8.0 * i as f64 / n as f64 + 0.17).sin())
+        .collect();
+    let settings = DescriptorConfig {
+        fft_size: n,
+        hop_size: n,
+        window: WindowFunction::Hann,
+        ..DescriptorConfig::default()
+    };
+    let mut analyzer = DescriptorAnalyzer::new(&settings, 48_000).unwrap();
+    assert!(analyzer.power_spectrum().is_none());
+    assert_eq!(analyzer.push(&samples), 1);
+    let power = analyzer.power_spectrum().unwrap();
+    assert_eq!(power.len(), n / 2);
+    assert!((power[7] - amplitude * amplitude / 16.0).abs() < 1e-14);
+    assert!((power[6] - amplitude * amplitude / 64.0).abs() < 1e-14);
+    assert!((power[8] - amplitude * amplitude / 64.0).abs() < 1e-14);
+    let bands = analyzer.bands().unwrap();
+    assert!(bands.power.iter().all(Option::is_some));
+    let summed: f64 = bands.power.iter().map(|value| value.unwrap()).sum();
+    let total: f64 = power.iter().sum();
+    assert!((summed - total).abs() <= total * 1e-13);
+    assert!(bands.rise_db.iter().all(Option::is_none));
+}
+
+#[test]
+fn raw_and_bands_have_explicit_silence_and_invalid_states() {
+    let settings = DescriptorConfig {
+        fft_size: 16,
+        hop_size: 16,
+        ..DescriptorConfig::default()
+    };
+    let mut analyzer = DescriptorAnalyzer::new(&settings, 48_000).unwrap();
+    analyzer.push(&[0.0; 16]);
+    assert_eq!(analyzer.power_spectrum().unwrap(), &[0.0; 8]);
+    let bands = analyzer.bands().unwrap();
+    assert!(bands.power.iter().all(|value| *value == Some(0.0)));
+    assert!(bands.level_db.iter().all(Option::is_none));
+    assert!(bands.rise_db.iter().all(Option::is_none));
+    analyzer.push(&[0.0; 16]);
+    assert!(analyzer
+        .bands()
+        .unwrap()
+        .rise_db
+        .iter()
+        .all(|value| *value == Some(0.0)));
+    analyzer.push(&[f64::NAN; 16]);
+    assert!(analyzer.power_spectrum().is_none());
+    assert!(analyzer.bands().unwrap().power.iter().all(Option::is_none));
 }
 
 #[test]

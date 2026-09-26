@@ -29,6 +29,15 @@ Results on this page are representative measurements from specific machines,
 builds, and configurations. They are evidence of the measured workload, not
 universal hardware guarantees.
 
+## Analysis L1 evidence
+
+The linear descriptor, mel/MFCC and HPSS APIs are deterministic analysis-worker
+measurements. Their acceptance evidence is analytic: direct DFT/filterbank/DCT
+oracles, explicit silence and non-finite handling, irregular chunk equivalence,
+and steady-state `assert_no_alloc` checks. They do not imply labelled musical
+accuracy, AutoMix schema integration or production promotion. HPSS publishes
+soft spectral masks with fixed look-ahead rather than separated audio.
+
 ---
 
 ## Evidence Model

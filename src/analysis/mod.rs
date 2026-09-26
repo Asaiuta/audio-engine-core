@@ -7,12 +7,21 @@
 //! processor lifecycle/error protocol is not duplicated in this module.
 
 mod descriptors;
+mod hpss;
 mod measurement;
+mod mel;
 mod signal;
 mod spectrum;
 
-pub use descriptors::{DescriptorAnalyzer, DescriptorConfig, SpectralDescriptors};
+pub use descriptors::{
+    BandMeasurements, DescriptorAnalyzer, DescriptorConfig, SpectralDescriptors,
+};
+pub use hpss::{HpssAnalyzer, HpssConfig, HpssFrame};
 pub(crate) use measurement::{true_peak_fir, true_peak_reconstruction_l1_bound, TRUE_PEAK_DELAY};
 pub use measurement::{LoudnessMeter, TruePeakDetector};
+pub use mel::{
+    MelAnalyzer, MelConfig, MelFrame, MelLogCompression, MelNormalization, MelSpectrumScale,
+    MfccAnalyzer, MfccConfig, MfccFrame,
+};
 pub use signal::SignalMeasurements;
 pub use spectrum::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};

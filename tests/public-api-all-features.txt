@@ -1,5 +1,62 @@
 pub mod audio_engine_core
 pub mod audio_engine_core::analysis
+pub enum audio_engine_core::analysis::MelLogCompression
+pub audio_engine_core::analysis::MelLogCompression::Log1pThousand
+pub audio_engine_core::analysis::MelLogCompression::None
+impl core::clone::Clone for audio_engine_core::analysis::MelLogCompression
+pub fn audio_engine_core::analysis::MelLogCompression::clone(&self) -> audio_engine_core::analysis::MelLogCompression
+impl core::cmp::Eq for audio_engine_core::analysis::MelLogCompression
+impl core::cmp::PartialEq for audio_engine_core::analysis::MelLogCompression
+pub fn audio_engine_core::analysis::MelLogCompression::eq(&self, &audio_engine_core::analysis::MelLogCompression) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::MelLogCompression
+pub fn audio_engine_core::analysis::MelLogCompression::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::analysis::MelLogCompression
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::MelLogCompression
+impl core::marker::Freeze for audio_engine_core::analysis::MelLogCompression
+impl core::marker::Send for audio_engine_core::analysis::MelLogCompression
+impl core::marker::Sync for audio_engine_core::analysis::MelLogCompression
+impl core::marker::Unpin for audio_engine_core::analysis::MelLogCompression
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelLogCompression
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelLogCompression
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelLogCompression
+pub enum audio_engine_core::analysis::MelNormalization
+pub audio_engine_core::analysis::MelNormalization::Area
+pub audio_engine_core::analysis::MelNormalization::None
+impl core::clone::Clone for audio_engine_core::analysis::MelNormalization
+pub fn audio_engine_core::analysis::MelNormalization::clone(&self) -> audio_engine_core::analysis::MelNormalization
+impl core::cmp::Eq for audio_engine_core::analysis::MelNormalization
+impl core::cmp::PartialEq for audio_engine_core::analysis::MelNormalization
+pub fn audio_engine_core::analysis::MelNormalization::eq(&self, &audio_engine_core::analysis::MelNormalization) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::MelNormalization
+pub fn audio_engine_core::analysis::MelNormalization::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::analysis::MelNormalization
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::MelNormalization
+impl core::marker::Freeze for audio_engine_core::analysis::MelNormalization
+impl core::marker::Send for audio_engine_core::analysis::MelNormalization
+impl core::marker::Sync for audio_engine_core::analysis::MelNormalization
+impl core::marker::Unpin for audio_engine_core::analysis::MelNormalization
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelNormalization
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelNormalization
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelNormalization
+pub enum audio_engine_core::analysis::MelSpectrumScale
+pub audio_engine_core::analysis::MelSpectrumScale::RawMagnitude
+pub audio_engine_core::analysis::MelSpectrumScale::SqrtFftSize
+impl core::clone::Clone for audio_engine_core::analysis::MelSpectrumScale
+pub fn audio_engine_core::analysis::MelSpectrumScale::clone(&self) -> audio_engine_core::analysis::MelSpectrumScale
+impl core::cmp::Eq for audio_engine_core::analysis::MelSpectrumScale
+impl core::cmp::PartialEq for audio_engine_core::analysis::MelSpectrumScale
+pub fn audio_engine_core::analysis::MelSpectrumScale::eq(&self, &audio_engine_core::analysis::MelSpectrumScale) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::MelSpectrumScale
+pub fn audio_engine_core::analysis::MelSpectrumScale::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::Freeze for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::Send for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::Sync for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::Unpin for audio_engine_core::analysis::MelSpectrumScale
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelSpectrumScale
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelSpectrumScale
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelSpectrumScale
 pub enum audio_engine_core::analysis::WindowFunction
 pub audio_engine_core::analysis::WindowFunction::BlackmanHarris4
 pub audio_engine_core::analysis::WindowFunction::Hann
@@ -20,9 +77,32 @@ impl core::marker::Unpin for audio_engine_core::analysis::WindowFunction
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::WindowFunction
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::WindowFunction
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::WindowFunction
+pub struct audio_engine_core::analysis::BandMeasurements
+pub audio_engine_core::analysis::BandMeasurements::end_sample: u64
+pub audio_engine_core::analysis::BandMeasurements::level_db: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::BandMeasurements::power: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::BandMeasurements::rise_db: alloc::vec::Vec<core::option::Option<f64>>
+impl core::clone::Clone for audio_engine_core::analysis::BandMeasurements
+pub fn audio_engine_core::analysis::BandMeasurements::clone(&self) -> audio_engine_core::analysis::BandMeasurements
+impl core::cmp::PartialEq for audio_engine_core::analysis::BandMeasurements
+pub fn audio_engine_core::analysis::BandMeasurements::eq(&self, &audio_engine_core::analysis::BandMeasurements) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::BandMeasurements
+pub fn audio_engine_core::analysis::BandMeasurements::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::BandMeasurements
+impl core::marker::Freeze for audio_engine_core::analysis::BandMeasurements
+impl core::marker::Send for audio_engine_core::analysis::BandMeasurements
+impl core::marker::Sync for audio_engine_core::analysis::BandMeasurements
+impl core::marker::Unpin for audio_engine_core::analysis::BandMeasurements
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::BandMeasurements
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::BandMeasurements
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::BandMeasurements
 pub struct audio_engine_core::analysis::DescriptorAnalyzer
 impl audio_engine_core::analysis::DescriptorAnalyzer
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::band_bins(&self) -> &[core::ops::range::Range<usize>]
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::bands(&self) -> core::option::Option<&audio_engine_core::analysis::BandMeasurements>
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::bin_width_hz(&self) -> f64
 pub fn audio_engine_core::analysis::DescriptorAnalyzer::new(&audio_engine_core::analysis::DescriptorConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::DescriptorAnalyzer::power_spectrum(&self) -> core::option::Option<&[f64]>
 pub fn audio_engine_core::analysis::DescriptorAnalyzer::push(&mut self, &[f64]) -> usize
 pub fn audio_engine_core::analysis::DescriptorAnalyzer::reset(&mut self)
 pub fn audio_engine_core::analysis::DescriptorAnalyzer::signal(&self) -> &audio_engine_core::analysis::SignalMeasurements
@@ -35,6 +115,8 @@ impl core::marker::UnsafeUnpin for audio_engine_core::analysis::DescriptorAnalyz
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::DescriptorAnalyzer
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::DescriptorAnalyzer
 pub struct audio_engine_core::analysis::DescriptorConfig
+pub audio_engine_core::analysis::DescriptorConfig::band_edges_hz: alloc::vec::Vec<f64>
+pub audio_engine_core::analysis::DescriptorConfig::band_rise_floor: f64
 pub audio_engine_core::analysis::DescriptorConfig::clipping_threshold: f64
 pub audio_engine_core::analysis::DescriptorConfig::contrast_band_edges_hz: alloc::vec::Vec<f64>
 pub audio_engine_core::analysis::DescriptorConfig::fft_size: usize
@@ -55,6 +137,66 @@ impl core::marker::Unpin for audio_engine_core::analysis::DescriptorConfig
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::DescriptorConfig
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::DescriptorConfig
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::DescriptorConfig
+pub struct audio_engine_core::analysis::HpssAnalyzer
+impl audio_engine_core::analysis::HpssAnalyzer
+pub fn audio_engine_core::analysis::HpssAnalyzer::frame(&self) -> core::option::Option<&audio_engine_core::analysis::HpssFrame>
+pub fn audio_engine_core::analysis::HpssAnalyzer::lookahead_samples(&self) -> usize
+pub fn audio_engine_core::analysis::HpssAnalyzer::new(&audio_engine_core::analysis::HpssConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::HpssAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::HpssAnalyzer::reset(&mut self)
+pub fn audio_engine_core::analysis::HpssAnalyzer::sample_rate_hz(&self) -> u32
+impl core::marker::Freeze for audio_engine_core::analysis::HpssAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::HpssAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::HpssAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::HpssAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::HpssAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::HpssAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::HpssAnalyzer
+pub struct audio_engine_core::analysis::HpssConfig
+pub audio_engine_core::analysis::HpssConfig::fft_size: usize
+pub audio_engine_core::analysis::HpssConfig::harmonic_median_frames: usize
+pub audio_engine_core::analysis::HpssConfig::hop_size: usize
+pub audio_engine_core::analysis::HpssConfig::margin: f64
+pub audio_engine_core::analysis::HpssConfig::mask_exponent: f64
+pub audio_engine_core::analysis::HpssConfig::percussive_median_bins: usize
+pub audio_engine_core::analysis::HpssConfig::window: audio_engine_core::analysis::WindowFunction
+impl core::clone::Clone for audio_engine_core::analysis::HpssConfig
+pub fn audio_engine_core::analysis::HpssConfig::clone(&self) -> audio_engine_core::analysis::HpssConfig
+impl core::default::Default for audio_engine_core::analysis::HpssConfig
+pub fn audio_engine_core::analysis::HpssConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::HpssConfig
+pub fn audio_engine_core::analysis::HpssConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::HpssConfig
+impl core::marker::Send for audio_engine_core::analysis::HpssConfig
+impl core::marker::Sync for audio_engine_core::analysis::HpssConfig
+impl core::marker::Unpin for audio_engine_core::analysis::HpssConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::HpssConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::HpssConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::HpssConfig
+pub struct audio_engine_core::analysis::HpssFrame
+pub audio_engine_core::analysis::HpssFrame::end_sample: u64
+pub audio_engine_core::analysis::HpssFrame::harmonic_fraction: core::option::Option<f64>
+pub audio_engine_core::analysis::HpssFrame::harmonic_mask: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::HpssFrame::percussive_fraction: core::option::Option<f64>
+pub audio_engine_core::analysis::HpssFrame::percussive_mask: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::HpssFrame::power: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::HpssFrame::residual_fraction: core::option::Option<f64>
+pub audio_engine_core::analysis::HpssFrame::residual_mask: alloc::vec::Vec<core::option::Option<f64>>
+pub audio_engine_core::analysis::HpssFrame::unassigned_fraction: core::option::Option<f64>
+impl core::clone::Clone for audio_engine_core::analysis::HpssFrame
+pub fn audio_engine_core::analysis::HpssFrame::clone(&self) -> audio_engine_core::analysis::HpssFrame
+impl core::cmp::PartialEq for audio_engine_core::analysis::HpssFrame
+pub fn audio_engine_core::analysis::HpssFrame::eq(&self, &audio_engine_core::analysis::HpssFrame) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::HpssFrame
+pub fn audio_engine_core::analysis::HpssFrame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::HpssFrame
+impl core::marker::Freeze for audio_engine_core::analysis::HpssFrame
+impl core::marker::Send for audio_engine_core::analysis::HpssFrame
+impl core::marker::Sync for audio_engine_core::analysis::HpssFrame
+impl core::marker::Unpin for audio_engine_core::analysis::HpssFrame
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::HpssFrame
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::HpssFrame
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::HpssFrame
 pub struct audio_engine_core::analysis::LoudnessMeter
 impl audio_engine_core::analysis::LoudnessMeter
 pub fn audio_engine_core::analysis::LoudnessMeter::frames_processed(&self) -> u64
@@ -75,6 +217,119 @@ impl core::marker::Unpin for audio_engine_core::analysis::LoudnessMeter
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::LoudnessMeter
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::LoudnessMeter
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::LoudnessMeter
+pub struct audio_engine_core::analysis::MelAnalyzer
+impl audio_engine_core::analysis::MelAnalyzer
+pub fn audio_engine_core::analysis::MelAnalyzer::bin_width_hz(&self) -> f64
+pub fn audio_engine_core::analysis::MelAnalyzer::filters(&self) -> &[f64]
+pub fn audio_engine_core::analysis::MelAnalyzer::frame(&self) -> core::option::Option<&audio_engine_core::analysis::MelFrame>
+pub fn audio_engine_core::analysis::MelAnalyzer::mel(&self) -> core::option::Option<&[f64]>
+pub fn audio_engine_core::analysis::MelAnalyzer::new(&audio_engine_core::analysis::MelConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::MelAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::MelAnalyzer::reset(&mut self)
+pub fn audio_engine_core::analysis::MelAnalyzer::sample_rate_hz(&self) -> u32
+impl core::marker::Freeze for audio_engine_core::analysis::MelAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::MelAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::MelAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::MelAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelAnalyzer
+pub struct audio_engine_core::analysis::MelConfig
+pub audio_engine_core::analysis::MelConfig::bands: usize
+pub audio_engine_core::analysis::MelConfig::expected_sample_rate_hz: core::option::Option<u32>
+pub audio_engine_core::analysis::MelConfig::fft_size: usize
+pub audio_engine_core::analysis::MelConfig::fmax_hz: f64
+pub audio_engine_core::analysis::MelConfig::fmin_hz: f64
+pub audio_engine_core::analysis::MelConfig::hop_size: usize
+pub audio_engine_core::analysis::MelConfig::log_compression: audio_engine_core::analysis::MelLogCompression
+pub audio_engine_core::analysis::MelConfig::normalization: audio_engine_core::analysis::MelNormalization
+pub audio_engine_core::analysis::MelConfig::spectrum_scale: audio_engine_core::analysis::MelSpectrumScale
+pub audio_engine_core::analysis::MelConfig::window: audio_engine_core::analysis::WindowFunction
+impl audio_engine_core::analysis::MelConfig
+pub fn audio_engine_core::analysis::MelConfig::domain_128() -> Self
+pub fn audio_engine_core::analysis::MelConfig::neural_frontend() -> Self
+impl core::clone::Clone for audio_engine_core::analysis::MelConfig
+pub fn audio_engine_core::analysis::MelConfig::clone(&self) -> audio_engine_core::analysis::MelConfig
+impl core::default::Default for audio_engine_core::analysis::MelConfig
+pub fn audio_engine_core::analysis::MelConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::MelConfig
+pub fn audio_engine_core::analysis::MelConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::MelConfig
+impl core::marker::Send for audio_engine_core::analysis::MelConfig
+impl core::marker::Sync for audio_engine_core::analysis::MelConfig
+impl core::marker::Unpin for audio_engine_core::analysis::MelConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelConfig
+pub struct audio_engine_core::analysis::MelFrame
+pub audio_engine_core::analysis::MelFrame::end_sample: u64
+pub audio_engine_core::analysis::MelFrame::valid: bool
+pub audio_engine_core::analysis::MelFrame::values: alloc::vec::Vec<f64>
+impl core::clone::Clone for audio_engine_core::analysis::MelFrame
+pub fn audio_engine_core::analysis::MelFrame::clone(&self) -> audio_engine_core::analysis::MelFrame
+impl core::cmp::PartialEq for audio_engine_core::analysis::MelFrame
+pub fn audio_engine_core::analysis::MelFrame::eq(&self, &audio_engine_core::analysis::MelFrame) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::MelFrame
+pub fn audio_engine_core::analysis::MelFrame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::MelFrame
+impl core::marker::Freeze for audio_engine_core::analysis::MelFrame
+impl core::marker::Send for audio_engine_core::analysis::MelFrame
+impl core::marker::Sync for audio_engine_core::analysis::MelFrame
+impl core::marker::Unpin for audio_engine_core::analysis::MelFrame
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MelFrame
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MelFrame
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MelFrame
+pub struct audio_engine_core::analysis::MfccAnalyzer
+impl audio_engine_core::analysis::MfccAnalyzer
+pub fn audio_engine_core::analysis::MfccAnalyzer::coefficients(&self) -> core::option::Option<&[f64]>
+pub fn audio_engine_core::analysis::MfccAnalyzer::frame(&self) -> core::option::Option<&audio_engine_core::analysis::MfccFrame>
+pub fn audio_engine_core::analysis::MfccAnalyzer::mel(&self) -> core::option::Option<&audio_engine_core::analysis::MelFrame>
+pub fn audio_engine_core::analysis::MfccAnalyzer::new(&audio_engine_core::analysis::MfccConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::MfccAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::MfccAnalyzer::reset(&mut self)
+impl core::marker::Freeze for audio_engine_core::analysis::MfccAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::MfccAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::MfccAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::MfccAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MfccAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MfccAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MfccAnalyzer
+pub struct audio_engine_core::analysis::MfccConfig
+pub audio_engine_core::analysis::MfccConfig::apply_log: bool
+pub audio_engine_core::analysis::MfccConfig::coefficients: usize
+pub audio_engine_core::analysis::MfccConfig::log_floor: f64
+pub audio_engine_core::analysis::MfccConfig::mel: audio_engine_core::analysis::MelConfig
+impl audio_engine_core::analysis::MfccConfig
+pub fn audio_engine_core::analysis::MfccConfig::from_mel(audio_engine_core::analysis::MelConfig, usize) -> Self
+impl core::clone::Clone for audio_engine_core::analysis::MfccConfig
+pub fn audio_engine_core::analysis::MfccConfig::clone(&self) -> audio_engine_core::analysis::MfccConfig
+impl core::fmt::Debug for audio_engine_core::analysis::MfccConfig
+pub fn audio_engine_core::analysis::MfccConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::MfccConfig
+impl core::marker::Send for audio_engine_core::analysis::MfccConfig
+impl core::marker::Sync for audio_engine_core::analysis::MfccConfig
+impl core::marker::Unpin for audio_engine_core::analysis::MfccConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MfccConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MfccConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MfccConfig
+pub struct audio_engine_core::analysis::MfccFrame
+pub audio_engine_core::analysis::MfccFrame::coefficients: alloc::vec::Vec<f64>
+pub audio_engine_core::analysis::MfccFrame::end_sample: u64
+pub audio_engine_core::analysis::MfccFrame::valid: bool
+impl core::clone::Clone for audio_engine_core::analysis::MfccFrame
+pub fn audio_engine_core::analysis::MfccFrame::clone(&self) -> audio_engine_core::analysis::MfccFrame
+impl core::cmp::PartialEq for audio_engine_core::analysis::MfccFrame
+pub fn audio_engine_core::analysis::MfccFrame::eq(&self, &audio_engine_core::analysis::MfccFrame) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::MfccFrame
+pub fn audio_engine_core::analysis::MfccFrame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::MfccFrame
+impl core::marker::Freeze for audio_engine_core::analysis::MfccFrame
+impl core::marker::Send for audio_engine_core::analysis::MfccFrame
+impl core::marker::Sync for audio_engine_core::analysis::MfccFrame
+impl core::marker::Unpin for audio_engine_core::analysis::MfccFrame
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MfccFrame
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MfccFrame
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MfccFrame
 pub struct audio_engine_core::analysis::SignalMeasurements
 pub audio_engine_core::analysis::SignalMeasurements::clipping_count: core::option::Option<u64>
 pub audio_engine_core::analysis::SignalMeasurements::clipping_ratio: core::option::Option<f64>

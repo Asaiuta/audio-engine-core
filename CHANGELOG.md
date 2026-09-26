@@ -19,6 +19,12 @@ version bumps, as permitted by SemVer.
   nothing and are chunk-invariant. Undefined measurements are `None`.
   These analytically tested descriptors have no AutoMix schema integration
   or musical-accuracy claim; see `docs/quality.md` for numerical conventions.
+- Completed the remaining deterministic L1 analysis surfaces: absolute raw
+  power bins and band energy/rise on `DescriptorAnalyzer`, named frozen
+  Slaney mel frontends with orthonormal MFCCs, and a streaming spectral HPSS
+  mask analyzer. All are analysis-worker APIs with preallocated state,
+  chunk-invariant tests and no AutoMix schema integration or musical-accuracy
+  claim.
 
 ### Changed
 

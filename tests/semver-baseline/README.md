@@ -18,3 +18,15 @@ API and auto traits after normalizing the owner and external type defining paths
 The extraction task retains baseline hashes and diagnostic logs under its
 `research/` directory. Future refreshes require the same explicit API review;
 do not replace baselines merely to make a failing check green.
+
+## 2026-09-26 refresh (L1 completion)
+
+Refreshed all three baselines to the L1 completion surface: absolute raw power
+bins and band energy/rise on `DescriptorAnalyzer` (`power_spectrum`, `bands`,
+`band_bins`, `BandMeasurements`), the named frozen Slaney mel frontends with
+orthonormal MFCCs (`Mel*`, `Mfcc*`), and the streaming spectral HPSS mask
+analyzer (`Hpss*`). The review confirmed the change is purely additive — no
+removals, no signature changes — and `cargo semver-checks` against the
+previous baselines passed all 196 checks per matrix under minor rules before
+the refresh. Baselines were regenerated with the same pinned
+`nightly-2026-07-09` (rustdoc JSON `format_version` 60 in both old and new).

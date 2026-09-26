@@ -34,6 +34,11 @@ pub struct DescriptorConfig {
     /// and exclude their upper edge, except the last includes its upper edge.
     /// Bands containing fewer than two bins have undefined contrast.
     pub contrast_band_edges_hz: Vec<f64>,
+    /// Optional power/rise band edges in Hz. Empty reuses the documented
+    /// Nyquist-relative default used by `contrast_band_edges_hz`.
+    pub band_edges_hz: Vec<f64>,
+    /// Additive power floor used by band `rise_db`, in squared input units.
+    pub band_rise_floor: f64,
     /// Positive finite clipping threshold in absolute input units; default 1.
     pub clipping_threshold: f64,
 }
@@ -47,6 +52,8 @@ impl Default for DescriptorConfig {
             rolloff_fraction: 0.85,
             flatness_floor: 1e-20,
             contrast_band_edges_hz: Vec::new(),
+            band_edges_hz: Vec::new(),
+            band_rise_floor: 1e-10,
             clipping_threshold: 1.0,
         }
     }
@@ -82,6 +89,40 @@ pub struct SpectralDescriptors {
     /// No floor is applied. Fewer than two bins or a zero valley mean yields
     /// `None`; equal nonzero powers give 0 dB. Region means are arithmetic.
     pub contrast_db: Vec<Option<f64>>,
+}
+
+/// Latest linear power and dB-rise measurements for the configured frequency
+/// bands. Power is the ascending sum of the absolute raw-bin powers; it is not
+/// a PSD and has no window or equivalent-noise-bandwidth compensation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BandMeasurements {
+    /// Exclusive frame end in input samples since reset.
+    pub end_sample: u64,
+    /// Sum of raw power bins in each band. `None` means the frame was invalid
+    /// or the sum was not representable in `f64`.
+    pub power: Vec<Option<f64>>,
+    /// `10*log10(power)` for positive power, otherwise `None`.
+    pub level_db: Vec<Option<f64>>,
+    /// Positive frame-to-frame rise using the configured additive floor. The
+    /// first frame has no predecessor and therefore reports `None`.
+    pub rise_db: Vec<Option<f64>>,
+}
+
+impl BandMeasurements {
+    fn new(count: usize) -> Self {
+        Self {
+            end_sample: 0,
+            power: vec![None; count],
+            level_db: vec![None; count],
+            rise_db: vec![None; count],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.power.fill(None);
+        self.level_db.fill(None);
+        self.rise_db.fill(None);
+    }
 }
 
 impl SpectralDescriptors {
@@ -120,8 +161,16 @@ pub struct DescriptorAnalyzer {
     spectrum: Vec<Complex<f64>>,
     scratch: Vec<Complex<f64>>,
     power: Vec<f64>,
+    raw_power: Vec<f64>,
+    raw_power_valid: bool,
     sorted: Vec<f64>,
     bands: Vec<Range<usize>>,
+    band_ranges: Vec<Range<usize>>,
+    band_measurements: BandMeasurements,
+    previous_band_power: Vec<f64>,
+    current_band_power: Vec<f64>,
+    previous_band_valid: bool,
+    bands_published: bool,
     result: SpectralDescriptors,
     published: bool,
     signal: SignalAccumulator,
@@ -134,6 +183,52 @@ fn invalid_parameter(parameter: &'static str, message: &'static str) -> ProcessE
         parameter,
         message,
     }
+}
+
+fn valid_edges(edges: &[f64], bin_hz: f64, nyquist: f64) -> bool {
+    (edges.is_empty() || edges.len() >= 2)
+        && edges
+            .iter()
+            .all(|edge| edge.is_finite() && *edge >= bin_hz && *edge <= nyquist)
+        && edges.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+fn resolve_edges(edges: &[f64], bin_hz: f64, nyquist: f64) -> Vec<f64> {
+    if !edges.is_empty() {
+        return edges.to_vec();
+    }
+    let mut resolved = vec![bin_hz];
+    for divisor in [32.0, 16.0, 8.0, 4.0, 2.0, 1.0] {
+        let edge = nyquist / divisor;
+        if edge > bin_hz {
+            resolved.push(edge);
+        }
+    }
+    resolved
+}
+
+fn ranges_from_edges(edges: &[f64], bin_hz: f64, bins: usize) -> Vec<Range<usize>> {
+    edges
+        .windows(2)
+        .enumerate()
+        .map(|(index, pair)| {
+            // Compare bin centres directly so exact edge inclusion does not
+            // depend on rounding a division back to an integer.
+            let start = (1..bins)
+                .find(|&k| k as f64 * bin_hz >= pair[0])
+                .unwrap_or(bins);
+            let end = (start..bins)
+                .find(|&k| {
+                    if index + 2 == edges.len() {
+                        k as f64 * bin_hz > pair[1]
+                    } else {
+                        k as f64 * bin_hz >= pair[1]
+                    }
+                })
+                .unwrap_or(bins);
+            start.saturating_sub(1)..end.saturating_sub(1)
+        })
+        .collect()
 }
 
 impl DescriptorAnalyzer {
@@ -150,40 +245,11 @@ impl DescriptorAnalyzer {
         Self::validate(config, sample_rate)?;
         let bin_hz = sample_rate as f64 / config.fft_size as f64;
         let nyquist = sample_rate as f64 / 2.0;
-        let edges = if config.contrast_band_edges_hz.is_empty() {
-            let mut edges = vec![bin_hz];
-            for divisor in [32.0, 16.0, 8.0, 4.0, 2.0, 1.0] {
-                let edge = nyquist / divisor;
-                if edge > bin_hz {
-                    edges.push(edge);
-                }
-            }
-            edges
-        } else {
-            config.contrast_band_edges_hz.clone()
-        };
+        let contrast_edges = resolve_edges(&config.contrast_band_edges_hz, bin_hz, nyquist);
+        let band_edges = resolve_edges(&config.band_edges_hz, bin_hz, nyquist);
         let bins = config.fft_size / 2 + 1;
-        let bands: Vec<_> = edges
-            .windows(2)
-            .enumerate()
-            .map(|(index, pair)| {
-                // Compare bin centres directly so exact edge inclusion does
-                // not depend on rounding a division back to an integer.
-                let start = (1..bins)
-                    .find(|&k| k as f64 * bin_hz >= pair[0])
-                    .unwrap_or(bins);
-                let end = (start..bins)
-                    .find(|&k| {
-                        if index + 2 == edges.len() {
-                            k as f64 * bin_hz > pair[1]
-                        } else {
-                            k as f64 * bin_hz >= pair[1]
-                        }
-                    })
-                    .unwrap_or(bins);
-                start..end
-            })
-            .collect();
+        let bands = ranges_from_edges(&contrast_edges, bin_hz, bins);
+        let band_ranges = ranges_from_edges(&band_edges, bin_hz, bins);
         let fft = RealFftPlanner::<f64>::new().plan_fft_forward(config.fft_size);
         let result = SpectralDescriptors {
             end_sample: 0,
@@ -205,8 +271,16 @@ impl DescriptorAnalyzer {
             spectrum: fft.make_output_vec(),
             scratch: fft.make_scratch_vec(),
             power: vec![0.0; bins],
+            raw_power: vec![0.0; bins - 1],
+            raw_power_valid: false,
             sorted: vec![0.0; bins],
             bands,
+            band_ranges: band_ranges.clone(),
+            band_measurements: BandMeasurements::new(band_ranges.len()),
+            previous_band_power: vec![0.0; band_ranges.len()],
+            current_band_power: vec![0.0; band_ranges.len()],
+            previous_band_valid: false,
+            bands_published: false,
             fft,
             result,
             published: false,
@@ -257,15 +331,22 @@ impl DescriptorAnalyzer {
         }
         let edges = &config.contrast_band_edges_hz;
         let bin_hz = sample_rate as f64 / config.fft_size as f64;
-        if edges.len() == 1
-            || edges
-                .iter()
-                .any(|edge| !edge.is_finite() || *edge < bin_hz || *edge > sample_rate as f64 / 2.0)
-            || edges.windows(2).any(|pair| pair[0] >= pair[1])
-        {
+        if !valid_edges(edges, bin_hz, sample_rate as f64 / 2.0) {
             return Err(invalid_parameter(
                 "contrast_band_edges_hz",
                 "need increasing edges between first bin and Nyquist",
+            ));
+        }
+        if !valid_edges(&config.band_edges_hz, bin_hz, sample_rate as f64 / 2.0) {
+            return Err(invalid_parameter(
+                "band_edges_hz",
+                "need increasing edges between first bin and Nyquist",
+            ));
+        }
+        if !config.band_rise_floor.is_finite() || config.band_rise_floor <= 0.0 {
+            return Err(invalid_parameter(
+                "band_rise_floor",
+                "must be finite and positive",
             ));
         }
         Ok(())
@@ -313,6 +394,32 @@ impl DescriptorAnalyzer {
         &self.measurements
     }
 
+    /// Borrow the latest absolute linear power bins, indexed as `k = i + 1`.
+    /// The values use the same frame, window and DC removal as `spectral()`;
+    /// they are in squared input units, are not a PSD, and are not doubled at
+    /// interior frequencies. The slice is absent during warm-up, for invalid
+    /// frames, and when a non-zero bin cannot be represented in `f64`.
+    pub fn power_spectrum(&self) -> Option<&[f64]> {
+        self.raw_power_valid.then_some(self.raw_power.as_slice())
+    }
+
+    /// Frequency spacing of `power_spectrum()` bins in Hz.
+    pub fn bin_width_hz(&self) -> f64 {
+        self.bin_hz
+    }
+
+    /// Borrow the latest configured band measurements, or `None` before the
+    /// first complete frame. `band_bins()` gives the corresponding bin ranges.
+    pub fn bands(&self) -> Option<&BandMeasurements> {
+        self.bands_published.then_some(&self.band_measurements)
+    }
+
+    /// Raw-bin ranges for each configured band. Ranges index
+    /// `power_spectrum()` and therefore start at slice index zero (`k = 1`).
+    pub fn band_bins(&self) -> &[Range<usize>] {
+        &self.band_ranges
+    }
+
     /// Forget stream history without reallocating; the next frame needs a full window.
     pub fn reset(&mut self) {
         self.ring_pos = 0;
@@ -322,20 +429,35 @@ impl DescriptorAnalyzer {
         self.result.clear();
         self.result.end_sample = 0;
         self.published = false;
+        self.raw_power.fill(0.0);
+        self.raw_power_valid = false;
+        self.band_measurements.clear();
+        self.band_measurements.end_sample = 0;
+        self.previous_band_power.fill(0.0);
+        self.current_band_power.fill(0.0);
+        self.previous_band_valid = false;
+        self.bands_published = false;
         self.signal = SignalAccumulator::default();
         self.measurements = SignalMeasurements::default();
     }
 
     fn compute_frame(&mut self) {
         self.result.clear();
+        self.raw_power.fill(0.0);
+        self.raw_power_valid = false;
+        self.band_measurements.clear();
+        self.band_measurements.end_sample = self.result.end_sample;
         let mut scale: f64 = 0.0;
         for &sample in &self.ring {
             if !sample.is_finite() {
+                self.previous_band_valid = false;
                 return;
             }
             scale = scale.max(sample.abs());
         }
         if scale == 0.0 {
+            self.raw_power_valid = true;
+            self.publish_bands();
             return;
         }
         let n = self.config.fft_size;
@@ -353,19 +475,31 @@ impl DescriptorAnalyzer {
             .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
             .is_err()
         {
+            self.previous_band_valid = false;
             return;
         }
         let mut total = 0.0;
         let mut weighted = 0.0;
+        let mut absolute_valid = true;
         for k in 1..self.power.len() {
             let power = (self.spectrum[k] / n as f64).norm_sqr();
             self.power[k] = power;
+            let scaled = power * scale;
+            let absolute = scaled * scale;
+            if !absolute.is_finite() || (power > 0.0 && absolute == 0.0) {
+                absolute_valid = false;
+            } else {
+                self.raw_power[k - 1] = absolute;
+            }
             total += power;
             weighted += k as f64 * self.bin_hz * power;
         }
+        self.raw_power_valid = absolute_valid;
         if total <= 0.0 || !total.is_finite() {
+            self.publish_bands();
             return;
         }
+        self.publish_bands();
         let centroid = weighted / total;
         self.result.centroid_hz = Some(centroid);
         let mut variance = 0.0;
@@ -402,7 +536,8 @@ impl DescriptorAnalyzer {
                 continue;
             }
             let sorted = &mut self.sorted[..range.len()];
-            sorted.copy_from_slice(&self.power[range.clone()]);
+            let power_range = (range.start + 1)..(range.end + 1);
+            sorted.copy_from_slice(&self.power[power_range]);
             sorted.sort_unstable_by(f64::total_cmp);
             let region = sorted.len().div_ceil(5);
             let bottom: f64 = sorted[..region].iter().sum();
@@ -411,6 +546,47 @@ impl DescriptorAnalyzer {
                 *contrast = Some(10.0 * (top.log10() - bottom.log10()));
             }
         }
+    }
+
+    fn publish_bands(&mut self) {
+        self.band_measurements.end_sample = self.result.end_sample;
+        self.current_band_power.fill(0.0);
+        let mut current_valid = true;
+        for (index, range) in self.band_ranges.iter().enumerate() {
+            let mut sum = 0.0;
+            if !self.raw_power_valid {
+                current_valid = false;
+                continue;
+            }
+            for &value in &self.raw_power[range.clone()] {
+                sum += value;
+                if !sum.is_finite() {
+                    current_valid = false;
+                    break;
+                }
+            }
+            self.current_band_power[index] = sum;
+            if current_valid {
+                self.band_measurements.power[index] = Some(sum);
+                self.band_measurements.level_db[index] = (sum > 0.0).then(|| 10.0 * sum.log10());
+            }
+        }
+        if current_valid {
+            for (index, &power) in self.current_band_power.iter().enumerate() {
+                if self.previous_band_valid {
+                    let ratio = (power + self.config.band_rise_floor)
+                        / (self.previous_band_power[index] + self.config.band_rise_floor);
+                    self.band_measurements.rise_db[index] =
+                        ratio.is_finite().then(|| (10.0 * ratio.log10()).max(0.0));
+                }
+            }
+            self.previous_band_power
+                .copy_from_slice(&self.current_band_power);
+            self.previous_band_valid = true;
+        } else {
+            self.previous_band_valid = false;
+        }
+        self.bands_published = true;
     }
 }
 
