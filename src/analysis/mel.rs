@@ -40,6 +40,10 @@ pub enum MelLogCompression {
 }
 
 /// A fully specified Slaney mel frontend geometry.
+///
+/// There is deliberately no `Default`: callers choose
+/// [`MelConfig::neural_frontend`] or [`MelConfig::domain_128`], or spell out a
+/// custom geometry, so a frozen frontend is never selected implicitly.
 #[derive(Debug, Clone)]
 pub struct MelConfig {
     /// FFT size, a power of two at least four samples.
@@ -98,12 +102,6 @@ impl MelConfig {
             log_compression: MelLogCompression::Log1pThousand,
             expected_sample_rate_hz: Some(22_050),
         }
-    }
-}
-
-impl Default for MelConfig {
-    fn default() -> Self {
-        Self::neural_frontend()
     }
 }
 
@@ -381,13 +379,24 @@ impl MelAnalyzer {
 }
 
 /// MFCC configuration over an explicitly selected [`MelConfig`].
+///
+/// The coefficients are exactly the DCT-II with `norm = ortho`,
+/// `c[j] = s_j * sum_n x[n] * cos(pi / M * (n + 0.5) * j)` with
+/// `s_0 = sqrt(1 / M)`, `s_j = sqrt(2 / M)` for `j > 0` and `M = mel.bands`.
+/// With `apply_log`, `x[n] = ln(max(mel[n], log_floor))` of the selected
+/// geometry's magnitude mel; without it, `x[n]` is the geometry's own value,
+/// which is the intended input only when the geometry log-compresses itself
+/// (for example [`MelLogCompression::Log1pThousand`]). This is not librosa's
+/// `power_to_db` MFCC and claims no numerical parity with it.
 #[derive(Debug, Clone)]
 pub struct MfccConfig {
     /// Mel frontend to analyze.
     pub mel: MelConfig,
     /// Number of DCT-II orthonormal coefficients, including coefficient zero.
     pub coefficients: usize,
-    /// Apply `ln(max(mel, log_floor))` before DCT-II.
+    /// Apply `ln(max(mel, log_floor))` before DCT-II. Must be false when
+    /// `mel.log_compression` is not [`MelLogCompression::None`];
+    /// [`MfccConfig::from_mel`] derives it from the geometry.
     pub apply_log: bool,
     /// Positive floor used when `apply_log` is enabled.
     pub log_floor: f64,
@@ -395,11 +404,14 @@ pub struct MfccConfig {
 
 impl MfccConfig {
     /// Construct an MFCC configuration over a selected mel geometry.
+    /// `apply_log` is true exactly when the geometry has no log compression of
+    /// its own; `log_floor` is `1e-12`.
     pub fn from_mel(mel: MelConfig, coefficients: usize) -> Self {
+        let apply_log = mel.log_compression == MelLogCompression::None;
         Self {
             mel,
             coefficients,
-            apply_log: true,
+            apply_log,
             log_floor: 1e-12,
         }
     }
@@ -416,7 +428,12 @@ pub struct MfccFrame {
     pub coefficients: Vec<f64>,
 }
 
-/// Streaming DCT-II MFCC analyzer.
+/// Streaming DCT-II (`norm = ortho`) MFCC analyzer.
+///
+/// Every published frame applies the transform defined on [`MfccConfig`] to
+/// the latest mel frame: `ln(max(mel, log_floor))` of a magnitude mel
+/// geometry, or directly the geometry's own log-compressed values. It is not
+/// librosa's `power_to_db` MFCC and claims no parity with it.
 pub struct MfccAnalyzer {
     config: MfccConfig,
     mel: MelAnalyzer,
@@ -425,8 +442,31 @@ pub struct MfccAnalyzer {
     published: bool,
 }
 
+/// Orthonormal DCT-II of `input` into `output` without allocating:
+/// `output[j] = s_j * sum_n input[n] * cos(pi / M * (n + 0.5) * j)` with
+/// `M = input.len()`, `s_0 = sqrt(1 / M)` and `s_j = sqrt(2 / M)` for `j > 0`.
+/// `output.len()` selects how many leading coefficients are computed.
+fn dct2_ortho(input: &[f64], output: &mut [f64]) {
+    let m = input.len() as f64;
+    for (coefficient, out) in output.iter_mut().enumerate() {
+        let mut sum = 0.0;
+        for (index, &value) in input.iter().enumerate() {
+            sum += value
+                * (std::f64::consts::PI / m * (index as f64 + 0.5) * coefficient as f64).cos();
+        }
+        let scale = if coefficient == 0 {
+            (1.0 / m).sqrt()
+        } else {
+            (2.0 / m).sqrt()
+        };
+        *out = sum * scale;
+    }
+}
+
 impl MfccAnalyzer {
     /// Validate the mel geometry and coefficient policy, then allocate state.
+    /// `apply_log` must be false when the mel geometry already log-compresses;
+    /// every configuration error is reported before any allocation.
     pub fn new(config: &MfccConfig, sample_rate_hz: u32) -> Result<Self, ProcessError> {
         if config.coefficients == 0 || config.coefficients > config.mel.bands {
             return Err(ProcessError::InvalidParameter {
@@ -440,6 +480,13 @@ impl MfccAnalyzer {
                 processor: "MfccAnalyzer",
                 parameter: "log_floor",
                 message: "must be finite and positive",
+            });
+        }
+        if config.apply_log && config.mel.log_compression != MelLogCompression::None {
+            return Err(ProcessError::InvalidParameter {
+                processor: "MfccAnalyzer",
+                parameter: "apply_log",
+                message: "must be false when the mel geometry is already log-compressed",
             });
         }
         let mel = MelAnalyzer::new(&config.mel, sample_rate_hz)?;
@@ -479,20 +526,7 @@ impl MfccAnalyzer {
                 *value
             };
         }
-        let m = self.config.mel.bands as f64;
-        for coefficient in 0..self.config.coefficients {
-            let mut sum = 0.0;
-            for (index, &value) in self.scratch.iter().enumerate() {
-                sum += value
-                    * (std::f64::consts::PI / m * (index as f64 + 0.5) * coefficient as f64).cos();
-            }
-            let scale = if coefficient == 0 {
-                (1.0 / m).sqrt()
-            } else {
-                (2.0 / m).sqrt()
-            };
-            self.frame.coefficients[coefficient] = sum * scale;
-        }
+        dct2_ortho(&self.scratch, &mut self.frame.coefficients);
         self.frame.valid = self
             .frame
             .coefficients
@@ -530,104 +564,4 @@ impl MfccAnalyzer {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f64::consts::PI;
-
-    #[test]
-    fn named_frontends_publish_finite_chunk_invariant_frames() {
-        let mut config = MelConfig::neural_frontend();
-        config.expected_sample_rate_hz = None;
-        config.fft_size = 64;
-        config.hop_size = 16;
-        config.bands = 8;
-        config.fmax_hz = 8_000.0;
-        let samples: Vec<_> = (0..257)
-            .map(|i| (2.0 * PI * 5.0 * i as f64 / 64.0).sin())
-            .collect();
-        let mut whole = MelAnalyzer::new(&config, 16_000).unwrap();
-        let whole_count = whole.push(&samples);
-        let whole_bits: Vec<_> = whole
-            .frame()
-            .unwrap()
-            .values
-            .iter()
-            .map(|value| value.to_bits())
-            .collect();
-        let mut chunked = MelAnalyzer::new(&config, 16_000).unwrap();
-        let mut count = 0;
-        for chunk in samples.chunks(7) {
-            count += chunked.push(chunk);
-        }
-        assert_eq!(count, whole_count);
-        assert!(chunked.frame().unwrap().valid);
-        assert_eq!(
-            chunked
-                .frame()
-                .unwrap()
-                .values
-                .iter()
-                .map(|value| value.to_bits())
-                .collect::<Vec<_>>(),
-            whole_bits
-        );
-    }
-
-    #[test]
-    fn mfcc_matches_orthonormal_dct_shape_and_invalidates_nonfinite_frames() {
-        let mut mel = MelConfig::neural_frontend();
-        mel.expected_sample_rate_hz = None;
-        mel.fft_size = 32;
-        mel.hop_size = 16;
-        mel.bands = 4;
-        mel.fmax_hz = 8_000.0;
-        let config = MfccConfig {
-            mel,
-            coefficients: 4,
-            apply_log: false,
-            log_floor: 1e-12,
-        };
-        let mut analyzer = MfccAnalyzer::new(&config, 16_000).unwrap();
-        assert_eq!(analyzer.push(&[0.25; 32]), 1);
-        let frame = analyzer.frame().unwrap();
-        assert!(frame.valid);
-        assert_eq!(frame.coefficients.len(), 4);
-        assert!(frame.coefficients.iter().all(|value| value.is_finite()));
-        analyzer.push(&[f64::NAN; 16]);
-        assert!(!analyzer.frame().unwrap().valid);
-        assert!(analyzer.coefficients().is_none());
-    }
-
-    #[test]
-    fn named_geometry_rates_are_checked() {
-        assert!(matches!(
-            MelAnalyzer::new(&MelConfig::neural_frontend(), 22_050),
-            Err(ProcessError::SampleRateMismatch { .. })
-        ));
-        assert!(matches!(
-            MfccAnalyzer::new(&MfccConfig::from_mel(MelConfig::domain_128(), 13), 11_025),
-            Err(ProcessError::SampleRateMismatch { .. })
-        ));
-    }
-
-    #[test]
-    fn mel_and_mfcc_steady_pushes_do_not_allocate() {
-        let mut mel_config = MelConfig::neural_frontend();
-        mel_config.expected_sample_rate_hz = None;
-        mel_config.fft_size = 64;
-        mel_config.hop_size = 16;
-        mel_config.bands = 8;
-        mel_config.fmax_hz = 8_000.0;
-        let samples = vec![0.1; 512];
-        let mut mel = MelAnalyzer::new(&mel_config, 16_000).unwrap();
-        assert_no_alloc::assert_no_alloc(|| {
-            mel.push(&samples);
-            std::hint::black_box(mel.frame());
-        });
-        let mut mfcc = MfccAnalyzer::new(&MfccConfig::from_mel(mel_config, 4), 16_000).unwrap();
-        assert_no_alloc::assert_no_alloc(|| {
-            mfcc.push(&samples);
-            std::hint::black_box(mfcc.frame());
-        });
-    }
-}
+mod tests;

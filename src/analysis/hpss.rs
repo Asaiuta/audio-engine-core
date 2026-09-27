@@ -3,6 +3,9 @@
 //! [`HpssAnalyzer`] is intentionally a measurement API. It publishes soft
 //! masks and energy fractions with a fixed centred-context look-ahead; it does
 //! not emit separated audio and makes no musical-accuracy claim.
+//!
+//! Any rhythm use of the masks or fractions (onset, beat, or tempo evidence)
+//! needs its own screen before it is relied on; nothing here validates it.
 
 use super::{SpectrumAnalyzer, WindowFunction};
 use crate::processor::traits::{validate_sample_rate_hz, ProcessError};
@@ -18,9 +21,13 @@ pub struct HpssConfig {
     pub hop_size: usize,
     /// Shared analysis window.
     pub window: WindowFunction,
-    /// Odd temporal median length in frames; default 17.
+    /// Odd temporal median length in frames; default 17. The median spans
+    /// `harmonic_median_frames * hop_size` input samples: with the defaults,
+    /// 17 x 1024 samples, about 395 ms at 44.1 kHz.
     pub harmonic_median_frames: usize,
-    /// Odd frequency median length in bins; default 17.
+    /// Odd frequency median length in bins; default 17. The median spans
+    /// `percussive_median_bins * sample_rate / fft_size` Hz: with the defaults,
+    /// 17 x 10.77 Hz, about 183 Hz at 44.1 kHz with FFT size 4096.
     pub percussive_median_bins: usize,
     /// Positive exponent applied to median magnitudes; default 2.
     pub mask_exponent: f64,
@@ -44,26 +51,43 @@ impl Default for HpssConfig {
 
 /// Latest masked spectral frame. Bin vectors are indexed as `k = i + 1` and
 /// use `None` when the frame/context is invalid or a mask is undefined.
+///
+/// Per bin, `H` is the median of `power` over the `harmonic_median_frames`
+/// frames centred on this one and `V` the median over the
+/// `percussive_median_bins` bins centred on `k` (edges reflected). With
+/// `p = mask_exponent` and `b = margin^p`:
+/// `harmonic = H^(p/2) / (H^(p/2) + b V^(p/2))`,
+/// `percussive = V^(p/2) / (V^(p/2) + b H^(p/2))` and
+/// `residual = 1 - harmonic - percussive`. Masks and fractions are
+/// dimensionless; the sample rate enters only through `end_sample` and the
+/// physical spans of the two medians.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HpssFrame {
     /// Exclusive end of the masked centre frame in input samples.
     pub end_sample: u64,
-    /// Absolute raw power of the centre frame.
+    /// Absolute power `|FFT/N|^2` of the centre frame in squared input units,
+    /// bit-identical to `DescriptorAnalyzer::power_spectrum` for that frame.
+    /// Every bin is `None` when any frame of the temporal context is invalid.
     pub power: Vec<Option<f64>>,
-    /// Harmonic soft mask in `[0, 1]` where defined.
+    /// Harmonic soft mask in `[0, 1]`; `None` where `H = V = 0`, exactly
+    /// `1.0` where `V = 0 < H`.
     pub harmonic_mask: Vec<Option<f64>>,
-    /// Percussive soft mask in `[0, 1]` where defined.
+    /// Percussive soft mask in `[0, 1]`; `None` where `H = V = 0`, exactly
+    /// `1.0` where `H = 0 < V`.
     pub percussive_mask: Vec<Option<f64>>,
-    /// Residual mask. With margin one this is exactly `Some(0.0)` where masks
-    /// are defined.
+    /// Residual mask `1 - harmonic - percussive` in `[0, 1]`, computed without
+    /// cancellation. With margin one it is exactly `Some(0.0)` and
+    /// `harmonic + percussive == 1.0` holds bitwise where masks are defined.
     pub residual_mask: Vec<Option<f64>>,
-    /// Energy fractions of the centre frame.
+    /// `sum(harmonic[k] * power[k]) / sum(power[k])` over the centre frame;
+    /// `None` when the frame is invalid or has zero power.
     pub harmonic_fraction: Option<f64>,
-    /// Energy fractions of the centre frame.
+    /// As `harmonic_fraction`, weighted by the percussive mask.
     pub percussive_fraction: Option<f64>,
-    /// Energy fractions of the centre frame.
+    /// As `harmonic_fraction`, weighted by the residual mask.
     pub residual_fraction: Option<f64>,
-    /// Energy in bins whose masks are undefined.
+    /// Share of the centre-frame power in bins whose masks are undefined; the
+    /// four fractions sum to one within rounding.
     pub unassigned_fraction: Option<f64>,
 }
 
@@ -330,8 +354,10 @@ impl HpssAnalyzer {
                 return;
             }
             self.time_powers[start + k - 1] = absolute;
+            // Absolute log power: frames carry different peak scales, so the
+            // temporal median must not compare per-frame normalised powers.
             self.time_logs[start + k - 1] = if power > 0.0 {
-                power.ln()
+                power.ln() + 2.0 * scale.ln()
             } else {
                 f64::NEG_INFINITY
             };
@@ -394,35 +420,52 @@ impl HpssAnalyzer {
         if percussive_log_power == f64::NEG_INFINITY {
             return (Some(1.0), Some(0.0), Some(0.0));
         }
-        let exponent = self.config.mask_exponent * 0.5;
-        let h = exponent * harmonic_log_power;
-        let p = exponent * percussive_log_power;
-        let max = h.max(p);
-        let h_scaled = (h - max).exp();
-        let p_scaled = (p - max).exp();
-        let margin_power = self.config.margin.powf(self.config.mask_exponent);
-        if self.config.margin == 1.0 {
-            let harmonic = h_scaled / (h_scaled + p_scaled);
-            let percussive = 1.0 - harmonic;
-            (Some(harmonic), Some(percussive), Some(0.0))
-        } else if margin_power.is_infinite() {
-            (Some(0.0), Some(0.0), Some(1.0))
+        // `z = q (ln H - ln V)` with `q = p / 2`. `ratio = exp(-|z|)` in
+        // [0, 1] is the minority-to-majority ratio of the powered medians, so
+        // the smaller mask keeps its relative precision at extreme ratios.
+        let z = self.config.mask_exponent * 0.5 * (harmonic_log_power - percussive_log_power);
+        let ratio = (-z.abs()).exp();
+        let (majority, minority, residual) = if self.config.margin == 1.0 {
+            // Minority `sigma(-|z|)`; the majority `1 - s` partitions exactly.
+            let minority = ratio / (1.0 + ratio);
+            (1.0 - minority, minority, 0.0)
         } else {
-            let harmonic = h_scaled / (h_scaled + margin_power * p_scaled);
-            let percussive = p_scaled / (p_scaled + margin_power * h_scaled);
-            let residual = (1.0 - harmonic - percussive).max(0.0);
-            (Some(harmonic), Some(percussive), Some(residual))
+            let margin_power = self.config.margin.powf(self.config.mask_exponent);
+            if margin_power.is_infinite() {
+                return (Some(0.0), Some(0.0), Some(1.0));
+            }
+            // Cancellation-free `R = r (b^2 - 1) / ((1 + b r)(r + b))` with
+            // `b = beta^p`, factored so that `b^2` cannot overflow.
+            let residual = ratio * (margin_power - 1.0) / (ratio + margin_power)
+                * ((margin_power + 1.0) / (1.0 + margin_power * ratio));
+            (
+                1.0 / (1.0 + margin_power * ratio),
+                ratio / (ratio + margin_power),
+                residual,
+            )
+        };
+        if z >= 0.0 {
+            (Some(majority), Some(minority), Some(residual))
+        } else {
+            (Some(minority), Some(majority), Some(residual))
         }
     }
 
     fn compute_fractions(&mut self, centre_slot: usize) {
+        let row = &self.time_powers[centre_slot * self.bins..(centre_slot + 1) * self.bins];
+        // Sum powers relative to the row peak: the absolute total of a valid
+        // frame can overflow even though every fraction lies in [0, 1].
+        let peak = row.iter().fold(0.0_f64, |peak, &power| peak.max(power));
+        if peak <= 0.0 {
+            return;
+        }
         let mut total = 0.0;
         let mut harmonic = 0.0;
         let mut percussive = 0.0;
         let mut residual = 0.0;
         let mut unassigned = 0.0;
-        for bin in 0..self.bins {
-            let power = self.time_powers[centre_slot * self.bins + bin];
+        for (bin, &power) in row.iter().enumerate() {
+            let power = power / peak;
             total += power;
             match (
                 self.frame.harmonic_mask[bin],
@@ -437,68 +480,12 @@ impl HpssAnalyzer {
                 _ => unassigned += power,
             }
         }
-        if total > 0.0 && total.is_finite() {
-            self.frame.harmonic_fraction = Some(harmonic / total);
-            self.frame.percussive_fraction = Some(percussive / total);
-            self.frame.residual_fraction = Some(residual / total);
-            self.frame.unassigned_fraction = Some(unassigned / total);
-        }
+        self.frame.harmonic_fraction = Some(harmonic / total);
+        self.frame.percussive_fraction = Some(percussive / total);
+        self.frame.residual_fraction = Some(residual / total);
+        self.frame.unassigned_fraction = Some(unassigned / total);
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f64::consts::PI;
-
-    fn small_config() -> HpssConfig {
-        HpssConfig {
-            fft_size: 32,
-            hop_size: 8,
-            harmonic_median_frames: 3,
-            percussive_median_bins: 3,
-            ..HpssConfig::default()
-        }
-    }
-
-    #[test]
-    fn hpss_has_fixed_context_latency_and_complementary_masks() {
-        let config = small_config();
-        let mut analyzer = HpssAnalyzer::new(&config, 8_000).unwrap();
-        let samples: Vec<_> = (0..96)
-            .map(|i| (2.0 * PI * 4.0 * i as f64 / 32.0).sin())
-            .collect();
-        assert_eq!(analyzer.push(&samples[..31]), 0);
-        assert!(analyzer.frame().is_none());
-        assert_eq!(analyzer.push(&samples[31..48]), 1);
-        let frame = analyzer.frame().unwrap();
-        assert_eq!(analyzer.lookahead_samples(), 8);
-        assert_eq!(frame.end_sample, 40);
-        for (harmonic, percussive) in frame.harmonic_mask.iter().zip(&frame.percussive_mask) {
-            if let (Some(harmonic), Some(percussive)) = (harmonic, percussive) {
-                assert!((harmonic + percussive - 1.0).abs() <= 1e-12);
-            }
-        }
-        assert!(frame.unassigned_fraction.unwrap_or(0.0) >= 0.0);
-    }
-
-    #[test]
-    fn hpss_silence_has_undefined_masks_and_no_fraction() {
-        let mut analyzer = HpssAnalyzer::new(&small_config(), 8_000).unwrap();
-        analyzer.push(&[0.0; 64]);
-        let frame = analyzer.frame().unwrap();
-        assert!(frame.power.iter().all(|value| *value == Some(0.0)));
-        assert!(frame.harmonic_mask.iter().all(Option::is_none));
-        assert_eq!(frame.harmonic_fraction, None);
-    }
-
-    #[test]
-    fn hpss_steady_pushes_do_not_allocate() {
-        let mut analyzer = HpssAnalyzer::new(&small_config(), 8_000).unwrap();
-        let samples = vec![0.1; 128];
-        assert_no_alloc::assert_no_alloc(|| {
-            analyzer.push(&samples);
-            std::hint::black_box(analyzer.frame());
-        });
-    }
-}
+mod tests;

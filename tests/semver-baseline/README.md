@@ -30,3 +30,18 @@ removals, no signature changes — and `cargo semver-checks` against the
 previous baselines passed all 196 checks per matrix under minor rules before
 the refresh. Baselines were regenerated with the same pinned
 `nightly-2026-07-09` (rustdoc JSON `format_version` 60 in both old and new).
+
+## 2026-09-27 refresh (MelConfig default removal)
+
+Refreshed all three baselines after removing `impl Default for MelConfig`. The
+removal is deliberate per the L1 completion ADR (2026-09-26): callers choose
+`MelConfig::neural_frontend()` or `MelConfig::domain_128()` explicitly, so a
+frozen frontend is never selected implicitly. The surface is still the
+unreleased 2.0 contract. Each text snapshot lost exactly two rows (the
+`Default` impl and `MelConfig::default`) and nothing else changed. Before the
+refresh, `cargo semver-checks` 0.50.0 against the 2026-09-26 baselines under
+minor rules passed all 196 checks per matrix (58 skipped) and reported no lint
+for the removal, which was a hand-written rather than derived impl; the snapshot
+review is therefore the record of this intentional change. Baselines were
+regenerated with the same pinned `nightly-2026-07-09` (rustdoc JSON
+`format_version` 60 in both old and new).

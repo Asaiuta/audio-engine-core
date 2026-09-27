@@ -98,13 +98,19 @@ pub struct SpectralDescriptors {
 pub struct BandMeasurements {
     /// Exclusive frame end in input samples since reset.
     pub end_sample: u64,
-    /// Sum of raw power bins in each band. `None` means the frame was invalid
-    /// or the sum was not representable in `f64`.
+    /// Sum of raw power bins in each band. Every band is `None` when the frame
+    /// was invalid or any band sum was not representable in `f64`; a band
+    /// without bins is always `None` in all three fields.
     pub power: Vec<Option<f64>>,
     /// `10*log10(power)` for positive power, otherwise `None`.
     pub level_db: Vec<Option<f64>>,
-    /// Positive frame-to-frame rise using the configured additive floor. The
-    /// first frame has no predecessor and therefore reports `None`.
+    /// Positive frame-to-frame rise in dB,
+    /// `max(0, 10*log10(power + floor) - 10*log10(previous + floor))` with the
+    /// configured `band_rise_floor`; a band that did not rise reports `+0.0`.
+    /// The first frame after construction, reset or an invalid frame has no
+    /// predecessor and therefore reports `None`, as does a band whose
+    /// `power + floor` is not representable in `f64` in either frame. This is
+    /// a band-energy measurement, not AutoMix's tempo onset function.
     pub rise_db: Vec<Option<f64>>,
 }
 
@@ -403,7 +409,8 @@ impl DescriptorAnalyzer {
         self.raw_power_valid.then_some(self.raw_power.as_slice())
     }
 
-    /// Frequency spacing of `power_spectrum()` bins in Hz.
+    /// Frequency spacing of `power_spectrum()` bins in Hz,
+    /// `sample_rate_hz / fft_size`.
     pub fn bin_width_hz(&self) -> f64 {
         self.bin_hz
     }
@@ -445,8 +452,11 @@ impl DescriptorAnalyzer {
         self.result.clear();
         self.raw_power.fill(0.0);
         self.raw_power_valid = false;
+        // Every completed frame publishes band state, like `spectral()`: the
+        // early returns below leave all band fields `None` for this frame.
         self.band_measurements.clear();
         self.band_measurements.end_sample = self.result.end_sample;
+        self.bands_published = true;
         let mut scale: f64 = 0.0;
         for &sample in &self.ring {
             if !sample.is_finite() {
@@ -549,44 +559,49 @@ impl DescriptorAnalyzer {
     }
 
     fn publish_bands(&mut self) {
-        self.band_measurements.end_sample = self.result.end_sample;
-        self.current_band_power.fill(0.0);
-        let mut current_valid = true;
+        // Frame-level strict representability: if the raw bins or any band
+        // sum are not representable, every band field of this frame stays
+        // `None` (cleared by `compute_frame`) and the rise chain restarts.
+        let mut current_valid = self.raw_power_valid;
+        for (range, current) in self.band_ranges.iter().zip(&mut self.current_band_power) {
+            if !current_valid {
+                break;
+            }
+            // Ascending-bin order is part of the contract.
+            let sum = self.raw_power[range.clone()]
+                .iter()
+                .fold(0.0, |sum, &value| sum + value);
+            current_valid = sum.is_finite();
+            *current = sum;
+        }
+        if !current_valid {
+            self.previous_band_valid = false;
+            return;
+        }
+        let floor = self.config.band_rise_floor;
         for (index, range) in self.band_ranges.iter().enumerate() {
-            let mut sum = 0.0;
-            if !self.raw_power_valid {
-                current_valid = false;
+            // A band without bins has no power, level or rise.
+            if range.is_empty() {
                 continue;
             }
-            for &value in &self.raw_power[range.clone()] {
-                sum += value;
-                if !sum.is_finite() {
-                    current_valid = false;
-                    break;
-                }
-            }
-            self.current_band_power[index] = sum;
-            if current_valid {
-                self.band_measurements.power[index] = Some(sum);
-                self.band_measurements.level_db[index] = (sum > 0.0).then(|| 10.0 * sum.log10());
+            let power = self.current_band_power[index];
+            self.band_measurements.power[index] = Some(power);
+            self.band_measurements.level_db[index] = (power > 0.0).then(|| 10.0 * power.log10());
+            if self.previous_band_valid {
+                // A difference of logs, not a ratio: `(E + eps) / (E_prev + eps)`
+                // overflows for a loud frame after a silent one. Only an
+                // unrepresentable `E + eps` leaves the rise non-finite.
+                let previous = self.previous_band_power[index];
+                let rise = 10.0 * ((power + floor).log10() - (previous + floor).log10());
+                // Explicit comparison so a zero rise is always `+0.0`.
+                self.band_measurements.rise_db[index] =
+                    rise.is_finite()
+                        .then_some(if rise > 0.0 { rise } else { 0.0 });
             }
         }
-        if current_valid {
-            for (index, &power) in self.current_band_power.iter().enumerate() {
-                if self.previous_band_valid {
-                    let ratio = (power + self.config.band_rise_floor)
-                        / (self.previous_band_power[index] + self.config.band_rise_floor);
-                    self.band_measurements.rise_db[index] =
-                        ratio.is_finite().then(|| (10.0 * ratio.log10()).max(0.0));
-                }
-            }
-            self.previous_band_power
-                .copy_from_slice(&self.current_band_power);
-            self.previous_band_valid = true;
-        } else {
-            self.previous_band_valid = false;
-        }
-        self.bands_published = true;
+        self.previous_band_power
+            .copy_from_slice(&self.current_band_power);
+        self.previous_band_valid = true;
     }
 }
 

@@ -250,8 +250,6 @@ pub fn audio_engine_core::analysis::MelConfig::domain_128() -> Self
 pub fn audio_engine_core::analysis::MelConfig::neural_frontend() -> Self
 impl core::clone::Clone for audio_engine_core::analysis::MelConfig
 pub fn audio_engine_core::analysis::MelConfig::clone(&self) -> audio_engine_core::analysis::MelConfig
-impl core::default::Default for audio_engine_core::analysis::MelConfig
-pub fn audio_engine_core::analysis::MelConfig::default() -> Self
 impl core::fmt::Debug for audio_engine_core::analysis::MelConfig
 pub fn audio_engine_core::analysis::MelConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Freeze for audio_engine_core::analysis::MelConfig
