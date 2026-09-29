@@ -260,12 +260,8 @@ impl NoiseShaper {
         self.active_taps = curve.active_taps();
 
         // MUST clear history when switching curves
-        for h in &mut self.error_history {
-            *h = [0.0; 9];
-        }
-        for h in &mut self.error_history_9tap {
-            *h = [0.0; 18];
-        }
+        self.error_history.fill([0.0; 9]);
+        self.error_history_9tap.fill([0.0; 18]);
         self.error_history_9tap_heads.fill(0);
     }
 
@@ -521,12 +517,8 @@ impl NoiseShaper {
 
     /// Reset error history (useful when starting new track)
     pub fn reset(&mut self) {
-        for h in &mut self.error_history {
-            *h = [0.0; 9];
-        }
-        for h in &mut self.error_history_9tap {
-            *h = [0.0; 18];
-        }
+        self.error_history.fill([0.0; 9]);
+        self.error_history_9tap.fill([0.0; 18]);
         self.error_history_9tap_heads.fill(0);
         // Reset each channel's RNG stream to its seed for reproducibility
         for (ch, state) in self.rng_state.iter_mut().enumerate() {
