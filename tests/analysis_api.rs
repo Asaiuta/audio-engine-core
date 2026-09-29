@@ -24,6 +24,10 @@ fn canonical_analysis_surface_resolves() {
     let _: Option<analysis::HpssAnalyzer> = None;
     let _: Option<analysis::HpssConfig> = None;
     let _: Option<analysis::HpssFrame> = None;
+    let _: Option<analysis::PitchAnalyzer> = None;
+    let _: Option<analysis::PitchConfig> = None;
+    let _: Option<analysis::PitchFrame> = None;
+    let _: Option<analysis::PitchCandidate> = None;
     let _: Option<analysis::SignalMeasurements> = None;
     let _: Option<analysis::SpectrumAnalyzer> = None;
     let _: Option<analysis::SpectrumConfig> = None;
@@ -32,6 +36,22 @@ fn canonical_analysis_surface_resolves() {
     let _: Option<processor::LoudnessInfo> = None;
     let _: Option<analysis::LoudnessMeter> = None;
     let _: Option<analysis::TruePeakDetector> = None;
+}
+
+#[test]
+fn pitch_api_reports_raw_level_and_a_borrowed_frame() {
+    let mut analyzer =
+        analysis::PitchAnalyzer::new(&analysis::PitchConfig::default(), 44_100).unwrap();
+    assert_eq!(analyzer.buffer_samples(), 1605);
+    assert_eq!(analyzer.integration_samples(), 802);
+    assert_eq!(analyzer.push(&[0.0; 1605]), 1);
+    let frame: &analysis::PitchFrame = analyzer.frame().unwrap();
+    let _: &[analysis::PitchCandidate] = &frame.candidates;
+    assert_eq!(frame.rms, Some(0.0));
+    assert_eq!(frame.voicing_probability, None);
+    assert_eq!(analyzer.reference_sample(), None);
+    analyzer.reset();
+    assert!(analyzer.frame().is_none());
 }
 
 #[test]

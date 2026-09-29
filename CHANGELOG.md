@@ -12,6 +12,12 @@ version bumps, as permitted by SemVer.
 
 ### Added
 
+- `analysis::{PitchAnalyzer, PitchConfig, PitchFrame, PitchCandidate}`: causal
+  single-source YIN F0/voicing and pYIN stage-1 threshold candidates, raw
+  integration-window RMS and an explicit sample reference position. Streaming
+  state is preallocated; undefined pitch stays absent. Synthetic analytic
+  validation only; no real-recording accuracy, calibrated confidence or
+  HMM/Viterbi tracking is claimed.
 - `analysis::{DescriptorAnalyzer, DescriptorConfig, SpectralDescriptors,
   SignalMeasurements}`: linear-power centroid, bandwidth, rolloff, flatness,
   band contrast, plus cumulative peak, RMS, crest, DC, clipping and ZCR.

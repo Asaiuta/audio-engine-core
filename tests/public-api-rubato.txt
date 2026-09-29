@@ -328,6 +328,86 @@ impl core::marker::Unpin for audio_engine_core::analysis::MfccFrame
 impl core::marker::UnsafeUnpin for audio_engine_core::analysis::MfccFrame
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::MfccFrame
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::MfccFrame
+pub struct audio_engine_core::analysis::PitchAnalyzer
+impl audio_engine_core::analysis::PitchAnalyzer
+pub fn audio_engine_core::analysis::PitchAnalyzer::buffer_samples(&self) -> usize
+pub fn audio_engine_core::analysis::PitchAnalyzer::frame(&self) -> core::option::Option<&audio_engine_core::analysis::PitchFrame>
+pub fn audio_engine_core::analysis::PitchAnalyzer::integration_samples(&self) -> usize
+pub fn audio_engine_core::analysis::PitchAnalyzer::new(&audio_engine_core::analysis::PitchConfig, u32) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::analysis::PitchAnalyzer::push(&mut self, &[f64]) -> usize
+pub fn audio_engine_core::analysis::PitchAnalyzer::reference_sample(&self) -> core::option::Option<f64>
+pub fn audio_engine_core::analysis::PitchAnalyzer::reset(&mut self)
+pub fn audio_engine_core::analysis::PitchAnalyzer::sample_rate_hz(&self) -> u32
+impl core::marker::Freeze for audio_engine_core::analysis::PitchAnalyzer
+impl core::marker::Send for audio_engine_core::analysis::PitchAnalyzer
+impl core::marker::Sync for audio_engine_core::analysis::PitchAnalyzer
+impl core::marker::Unpin for audio_engine_core::analysis::PitchAnalyzer
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::PitchAnalyzer
+impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::PitchAnalyzer
+impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::PitchAnalyzer
+#[non_exhaustive] pub struct audio_engine_core::analysis::PitchCandidate
+pub audio_engine_core::analysis::PitchCandidate::aperiodicity: f64
+pub audio_engine_core::analysis::PitchCandidate::f0_hz: f64
+pub audio_engine_core::analysis::PitchCandidate::period_samples: f64
+pub audio_engine_core::analysis::PitchCandidate::probability: f64
+impl core::clone::Clone for audio_engine_core::analysis::PitchCandidate
+pub fn audio_engine_core::analysis::PitchCandidate::clone(&self) -> audio_engine_core::analysis::PitchCandidate
+impl core::cmp::PartialEq for audio_engine_core::analysis::PitchCandidate
+pub fn audio_engine_core::analysis::PitchCandidate::eq(&self, &audio_engine_core::analysis::PitchCandidate) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::PitchCandidate
+pub fn audio_engine_core::analysis::PitchCandidate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::PitchCandidate
+impl core::marker::Freeze for audio_engine_core::analysis::PitchCandidate
+impl core::marker::Send for audio_engine_core::analysis::PitchCandidate
+impl core::marker::Sync for audio_engine_core::analysis::PitchCandidate
+impl core::marker::Unpin for audio_engine_core::analysis::PitchCandidate
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::PitchCandidate
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::PitchCandidate
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::PitchCandidate
+pub struct audio_engine_core::analysis::PitchConfig
+pub audio_engine_core::analysis::PitchConfig::absolute_min_weight: f64
+pub audio_engine_core::analysis::PitchConfig::fmax_hz: f64
+pub audio_engine_core::analysis::PitchConfig::fmin_hz: f64
+pub audio_engine_core::analysis::PitchConfig::hop_size: usize
+pub audio_engine_core::analysis::PitchConfig::prior_alpha: f64
+pub audio_engine_core::analysis::PitchConfig::prior_beta: f64
+pub audio_engine_core::analysis::PitchConfig::threshold: f64
+impl core::clone::Clone for audio_engine_core::analysis::PitchConfig
+pub fn audio_engine_core::analysis::PitchConfig::clone(&self) -> audio_engine_core::analysis::PitchConfig
+impl core::default::Default for audio_engine_core::analysis::PitchConfig
+pub fn audio_engine_core::analysis::PitchConfig::default() -> Self
+impl core::fmt::Debug for audio_engine_core::analysis::PitchConfig
+pub fn audio_engine_core::analysis::PitchConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for audio_engine_core::analysis::PitchConfig
+impl core::marker::Send for audio_engine_core::analysis::PitchConfig
+impl core::marker::Sync for audio_engine_core::analysis::PitchConfig
+impl core::marker::Unpin for audio_engine_core::analysis::PitchConfig
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::PitchConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::PitchConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::PitchConfig
+#[non_exhaustive] pub struct audio_engine_core::analysis::PitchFrame
+pub audio_engine_core::analysis::PitchFrame::aperiodicity: core::option::Option<f64>
+pub audio_engine_core::analysis::PitchFrame::candidates: alloc::vec::Vec<audio_engine_core::analysis::PitchCandidate>
+pub audio_engine_core::analysis::PitchFrame::end_sample: u64
+pub audio_engine_core::analysis::PitchFrame::f0_hz: core::option::Option<f64>
+pub audio_engine_core::analysis::PitchFrame::period_samples: core::option::Option<f64>
+pub audio_engine_core::analysis::PitchFrame::rms: core::option::Option<f64>
+pub audio_engine_core::analysis::PitchFrame::voiced: bool
+pub audio_engine_core::analysis::PitchFrame::voicing_probability: core::option::Option<f64>
+impl core::clone::Clone for audio_engine_core::analysis::PitchFrame
+pub fn audio_engine_core::analysis::PitchFrame::clone(&self) -> audio_engine_core::analysis::PitchFrame
+impl core::cmp::PartialEq for audio_engine_core::analysis::PitchFrame
+pub fn audio_engine_core::analysis::PitchFrame::eq(&self, &audio_engine_core::analysis::PitchFrame) -> bool
+impl core::fmt::Debug for audio_engine_core::analysis::PitchFrame
+pub fn audio_engine_core::analysis::PitchFrame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_engine_core::analysis::PitchFrame
+impl core::marker::Freeze for audio_engine_core::analysis::PitchFrame
+impl core::marker::Send for audio_engine_core::analysis::PitchFrame
+impl core::marker::Sync for audio_engine_core::analysis::PitchFrame
+impl core::marker::Unpin for audio_engine_core::analysis::PitchFrame
+impl core::marker::UnsafeUnpin for audio_engine_core::analysis::PitchFrame
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::analysis::PitchFrame
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::analysis::PitchFrame
 pub struct audio_engine_core::analysis::SignalMeasurements
 pub audio_engine_core::analysis::SignalMeasurements::clipping_count: core::option::Option<u64>
 pub audio_engine_core::analysis::SignalMeasurements::clipping_ratio: core::option::Option<f64>

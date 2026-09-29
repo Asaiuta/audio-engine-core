@@ -38,6 +38,22 @@ and steady-state `assert_no_alloc` checks. They do not imply labelled musical
 accuracy, AutoMix schema integration or production promotion. HPSS publishes
 soft spectral masks with fixed look-ahead rather than separated audio.
 
+## Single-source pitch evidence
+
+`analysis::PitchAnalyzer` implements end-anchored YIN steps 1–5 and pYIN's
+first-dip threshold-prior rule. The O1–O19 synthetic suite checks raw
+difference values against a direct oracle, pitch/voicing, Beta masses and
+hand-built candidate distributions, RMS, sample clocks, reset, input errors,
+gain and chunk invariance, and allocation-free first/steady pushes.
+
+On the recorded Windows build, the 50-frequency × 3-phase × 2-rate sweep
+measured maximum errors of 0.064 cents (sine), 0.810 cents (harmonics below
+fs/4) and 2.690 cents (below fs/2), within 0.25/1.5/5-cent bounds. All 600
+seeded white-noise frames were unvoiced. These are synthetic measurements,
+not real-recording accuracy. The threshold probability is uncalibrated;
+there is no level gate, predominant-melody extraction or HMM/Viterbi tracker.
+The approximate reference is `end_sample-(W+period_samples)/2`, not frame end.
+
 ---
 
 ## Evidence Model

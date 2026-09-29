@@ -45,3 +45,13 @@ for the removal, which was a hand-written rather than derived impl; the snapshot
 review is therefore the record of this intentional change. Baselines were
 regenerated with the same pinned `nightly-2026-07-09` (rustdoc JSON
 `format_version` 60 in both old and new).
+
+## 2026-09-29 refresh (single-source pitch)
+
+Added `analysis::{PitchAnalyzer, PitchConfig, PitchFrame, PitchCandidate}`:
+YIN and pYIN stage-1 candidates, raw-window RMS and sample reference positions.
+Each text snapshot gains exactly 80 Pitch rows with no removals or other
+changes. All three prior baselines passed 196 minor-policy checks (58 skipped)
+before this refresh. The same pinned `nightly-2026-07-09` produces JSON format
+60. Generation uses `DOCS_RS=1`; the all-features result is API metadata only,
+not a native SoXR runtime validation. Runtime acceptance uses default/rubato.

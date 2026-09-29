@@ -10,6 +10,7 @@ mod descriptors;
 mod hpss;
 mod measurement;
 mod mel;
+mod pitch;
 mod signal;
 mod spectrum;
 
@@ -23,5 +24,6 @@ pub use mel::{
     MelAnalyzer, MelConfig, MelFrame, MelLogCompression, MelNormalization, MelSpectrumScale,
     MfccAnalyzer, MfccConfig, MfccFrame,
 };
+pub use pitch::{PitchAnalyzer, PitchCandidate, PitchConfig, PitchFrame};
 pub use signal::SignalMeasurements;
 pub use spectrum::{SpectrumAnalyzer, SpectrumConfig, WindowFunction};
