@@ -25,3 +25,9 @@ AGENTS.md
 # discovers this checkout at libebur128/test, but the corpus is not distributed
 # with this crate.
 /libebur128/
+
+# Local research workspace. The Trellis task tree and the agent memory notes
+# live on this machine only: they are deliberately neither tracked nor
+# published, and deleting them does not affect the crate.
+.trellis/
+.workbuddy/
