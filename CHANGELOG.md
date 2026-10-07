@@ -12,6 +12,15 @@ version bumps, as permitted by SemVer.
 
 ### Added
 
+- `audio_automix::analyze_automix_with_descriptors` returns the existing v4
+  analysis and a separate schema 1 / `native-mono-l1-v1` report from the same
+  bounded decode. Fixed native-rate f64 mono measurements expose actual
+  head/tail coverage, peak/RMS/crest/DC/clipping, centroid/flatness means,
+  explicit nulls and valid-frame denominators. Descriptor failures preserve a
+  typed `AutomixError::Descriptor(ProcessError)` source. Existing entry points
+  and options stay unchanged and create no descriptor FFT. AudioPlayer
+  request/cache/UI integration remains separate pending work; this addition
+  makes no automatic-mixing benefit claim. Measured costs are in `docs/quality.md`.
 - `analysis::{PitchAnalyzer, PitchConfig, PitchFrame, PitchCandidate}`: causal
   single-source YIN F0/voicing and pYIN stage-1 threshold candidates, raw
   integration-window RMS and an explicit sample reference position. Streaming
@@ -23,8 +32,9 @@ version bumps, as permitted by SemVer.
   band contrast, plus cumulative peak, RMS, crest, DC, clipping and ZCR.
   Construction preallocates; mono pushes and borrowed accessors allocate
   nothing and are chunk-invariant. Undefined measurements are `None`.
-  These analytically tested descriptors have no AutoMix schema integration
-  or musical-accuracy claim; see `docs/quality.md` for numerical conventions.
+  These analytically tested descriptors do not alter the existing AutoMix DTO
+  or musical decisions; see `docs/quality.md` for numerical conventions and the
+  separately versioned opt-in diagnostic report.
 - Completed the remaining deterministic L1 analysis surfaces: absolute raw
   power bins and band energy/rise on `DescriptorAnalyzer`, named frozen
   Slaney mel frontends with orthonormal MFCCs, and a streaming spectral HPSS

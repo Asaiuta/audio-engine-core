@@ -35,8 +35,85 @@ The linear descriptor, mel/MFCC and HPSS APIs are deterministic analysis-worker
 measurements. Their acceptance evidence is analytic: direct DFT/filterbank/DCT
 oracles, explicit silence and non-finite handling, irregular chunk equivalence,
 and steady-state `assert_no_alloc` checks. They do not imply labelled musical
-accuracy, AutoMix schema integration or production promotion. HPSS publishes
+accuracy or production promotion. HPSS publishes
 soft spectral masks with fixed look-ahead rather than separated audio.
+
+### AutoMix opt-in descriptor integration
+
+`audio_automix::analyze_automix_with_descriptors` reuses bounded decoding and
+adds a separate schema 1 / `native-mono-l1-v1` diagnostic report. The existing
+`analysis.version = 4`, its fields and musical decisions remain unchanged.
+Original entry points construct no descriptor analyzer. The fixed profile is
+native-rate f64 arithmetic-mean mono, periodic Hann, FFT/hop 4096/1024,
+flatness power floor `1e-20` and inclusive clipping threshold `1.0`.
+
+The companion reports actual absolute head/tail frame intervals, signal peak/
+RMS/crest/DC/clipping and ordered equal-weight centroid/flatness means. All
+complete spectral publications count, including silent or polluted windows;
+each metric exposes its valid denominator. Undefined values are null. Signal
+includes the incomplete FFT tail, with no padding or state carried across
+segments. The added loop polls cancellation at most 4096 source frames and
+one descriptor FFT apart; this is not a measured latency or callback guarantee.
+See the [wire and migration contract](../crates/audio-automix/docs/migration.md#opt-in-descriptor-companion).
+
+The 2026-10-07 integration run passed per-window core oracles, independent
+signal statistics, publication/nonfinite boundaries, irregular chunks and
+seek/EOF/cancellation tests. Default/Rubato-only/all-features workspace runs
+passed 914/880/862 tests, with two pre-existing ignored tests each. Six API
+snapshots, six actual minor-policy SemVer comparisons against preserved
+baselines, strict Clippy/docs, Rust 1.87, isolated package checks and both package
+verifications passed. The synthetic quick suite passed 135 gates, with four
+optional skips and no input errors.
+
+All 2,595 selected recordings (MTG fit 561, MTG validation 588, GTZAN 100,
+GiantSteps 661, Ballroom 685; 26 predeclared exclusions) were hash-verified and
+analyzed in Head/native-rate/60-second mode. Pre-change, candidate off and
+candidate on produced identical complete legacy fields, nulls, arrays and f64
+bits: 2,595 equal, zero differing/error rows. All three complete output files
+also had identical SHA-256. This label-free parity run proves preservation in
+that population and condition; it does not establish musical improvement.
+
+Release costs used Rust 1.93.1, Windows 11 and an Intel Core i5-12500H, with
+identical dependencies/default features including core SQLite. Ten fixed PCM16
+tone/pulse conditions covered 48 kHz stereo Head/Full at 5/60/300-second caps
+and 44.1/96 kHz mono Head60/stereo Full60. Each identity had two warmups and
+21 measured trials. CPU/wall and allocation memory used separate binaries;
+memory used a fresh process for each call. All 690 timing, 690 memory and 138
+cancellation records passed, and an independent collector recomputed every
+saved statistic from the retained raw records.
+
+| Measured property | Result |
+| --- | --- |
+| Off versus pre-change median wall time | -5.17% to +2.93%; all ten conditions within the 10% regression guideline |
+| On versus off median wall time | 2.25–2.96 times; opt-in worker cost |
+| 48 kHz stereo Head60 CPU / wall medians, off → on | 0.21875 / 0.22948 s → 0.53125 / 0.55191 s |
+| 48 kHz stereo Full300 wall median, off → on | 2.37606 s → 5.50697 s, covering 600 seconds of PCM |
+| Extra retained-result Rust allocation | 448 bytes in all ten conditions; zero additional residual after result drop |
+| Difference in total Rust peak allocation, on minus off | 448–213,688 bytes across the ten conditions |
+| Delayed cancellation, on, 21 measured trials | 0.2373 ms median / 0.3094 ms p95 / 0.4963 ms max from token-set start to return |
+
+Peak differences depend on allocation lifetimes: long-window legacy tempo work
+can dominate the total peak after descriptor state is dropped. They are not
+the descriptor state's size. Fixed FFT/scratch geometry and bounded segment
+storage provide the memory bound; requested Rust allocation sizes exclude
+native heaps and allocator overhead. Separate OS working-set peaks include
+process startup. All three identities retained the same 8,928-byte process
+residual after result drop; no additional descriptor residual was observed.
+
+CPU uses Windows process kernel+user time, observed in 15.625 ms increments,
+so short-case percentages have coarse resolution. The median guideline is
+not a tail-latency guarantee: 96 kHz stereo Full60 off p95 wall time rose from
+0.96885 to 1.09959 s. Trials are synthetic local files, not a music/codec/network
+population or a realtime guarantee; small off speedups are not claimed as an
+optimization. Cancellation used a fixed 10 ms delayed request with confirmed
+token-set completion before return; pre-open and delayed cases stayed separate.
+All 126 measured cancellations returned the outer typed cancellation; forced
+driver tests separately cover the preserved nested decoder cancellation path.
+Historical descriptor/AutoMix timing tables below do not measure this integration.
+
+AudioPlayer request/cache/runtime validation and diagnostic display remain a
+separate pending integration. This report establishes no automatic transition
+benefit, multichannel peak guarantee or real-music detector improvement.
 
 ## Single-source pitch evidence
 

@@ -31,6 +31,7 @@ impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixAnalysisMode
 #[non_exhaustive] pub enum audio_automix::AutomixError
 pub audio_automix::AutomixError::Canceled
 pub audio_automix::AutomixError::Decoder(audio_engine_core::decoder::error::DecoderError)
+pub audio_automix::AutomixError::Descriptor(audio_engine_core::processor::traits::ProcessError)
 pub audio_automix::AutomixError::Loudness(audio_engine_core::processor::traits::ProcessError)
 pub audio_automix::AutomixError::TailSeekPastStart
 pub audio_automix::AutomixError::TailSeekPastStart::planned_frame: u64
@@ -52,6 +53,48 @@ impl core::marker::Unpin for audio_automix::AutomixError
 impl core::marker::UnsafeUnpin for audio_automix::AutomixError
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixError
 impl !core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixError
+pub enum audio_automix::DescriptorCoverageStatus
+pub audio_automix::DescriptorCoverageStatus::Complete
+pub audio_automix::DescriptorCoverageStatus::ShortEof
+impl core::clone::Clone for audio_automix::DescriptorCoverageStatus
+pub fn audio_automix::DescriptorCoverageStatus::clone(&self) -> audio_automix::DescriptorCoverageStatus
+impl core::cmp::Eq for audio_automix::DescriptorCoverageStatus
+impl core::cmp::PartialEq for audio_automix::DescriptorCoverageStatus
+pub fn audio_automix::DescriptorCoverageStatus::eq(&self, &audio_automix::DescriptorCoverageStatus) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorCoverageStatus
+pub fn audio_automix::DescriptorCoverageStatus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_automix::DescriptorCoverageStatus
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorCoverageStatus
+impl serde_core::ser::Serialize for audio_automix::DescriptorCoverageStatus
+pub fn audio_automix::DescriptorCoverageStatus::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorCoverageStatus
+impl core::marker::Send for audio_automix::DescriptorCoverageStatus
+impl core::marker::Sync for audio_automix::DescriptorCoverageStatus
+impl core::marker::Unpin for audio_automix::DescriptorCoverageStatus
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorCoverageStatus
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorCoverageStatus
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorCoverageStatus
+pub enum audio_automix::DescriptorSegmentRole
+pub audio_automix::DescriptorSegmentRole::Head
+pub audio_automix::DescriptorSegmentRole::Tail
+impl core::clone::Clone for audio_automix::DescriptorSegmentRole
+pub fn audio_automix::DescriptorSegmentRole::clone(&self) -> audio_automix::DescriptorSegmentRole
+impl core::cmp::Eq for audio_automix::DescriptorSegmentRole
+impl core::cmp::PartialEq for audio_automix::DescriptorSegmentRole
+pub fn audio_automix::DescriptorSegmentRole::eq(&self, &audio_automix::DescriptorSegmentRole) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorSegmentRole
+pub fn audio_automix::DescriptorSegmentRole::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_automix::DescriptorSegmentRole
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorSegmentRole
+impl serde_core::ser::Serialize for audio_automix::DescriptorSegmentRole
+pub fn audio_automix::DescriptorSegmentRole::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorSegmentRole
+impl core::marker::Send for audio_automix::DescriptorSegmentRole
+impl core::marker::Sync for audio_automix::DescriptorSegmentRole
+impl core::marker::Unpin for audio_automix::DescriptorSegmentRole
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorSegmentRole
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorSegmentRole
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorSegmentRole
 pub struct audio_automix::AutomixAnalysis
 pub audio_automix::AutomixAnalysis::analyze_window: f64
 pub audio_automix::AutomixAnalysis::beat_grid_stability: core::option::Option<f64>
@@ -107,5 +150,158 @@ impl core::marker::Unpin for audio_automix::AutomixAnalysisOptions
 impl core::marker::UnsafeUnpin for audio_automix::AutomixAnalysisOptions
 impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixAnalysisOptions
 impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixAnalysisOptions
+pub struct audio_automix::AutomixDescriptorAnalysis
+pub audio_automix::AutomixDescriptorAnalysis::analysis: audio_automix::AutomixAnalysis
+pub audio_automix::AutomixDescriptorAnalysis::descriptors: audio_automix::DescriptorReport
+impl core::clone::Clone for audio_automix::AutomixDescriptorAnalysis
+pub fn audio_automix::AutomixDescriptorAnalysis::clone(&self) -> audio_automix::AutomixDescriptorAnalysis
+impl core::fmt::Debug for audio_automix::AutomixDescriptorAnalysis
+pub fn audio_automix::AutomixDescriptorAnalysis::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for audio_automix::AutomixDescriptorAnalysis
+pub fn audio_automix::AutomixDescriptorAnalysis::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::AutomixDescriptorAnalysis
+impl core::marker::Send for audio_automix::AutomixDescriptorAnalysis
+impl core::marker::Sync for audio_automix::AutomixDescriptorAnalysis
+impl core::marker::Unpin for audio_automix::AutomixDescriptorAnalysis
+impl core::marker::UnsafeUnpin for audio_automix::AutomixDescriptorAnalysis
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::AutomixDescriptorAnalysis
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::AutomixDescriptorAnalysis
+pub struct audio_automix::DescriptorMetricSummary
+pub audio_automix::DescriptorMetricSummary::mean: core::option::Option<f64>
+pub audio_automix::DescriptorMetricSummary::valid_frame_count: u64
+impl core::clone::Clone for audio_automix::DescriptorMetricSummary
+pub fn audio_automix::DescriptorMetricSummary::clone(&self) -> audio_automix::DescriptorMetricSummary
+impl core::cmp::PartialEq for audio_automix::DescriptorMetricSummary
+pub fn audio_automix::DescriptorMetricSummary::eq(&self, &audio_automix::DescriptorMetricSummary) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorMetricSummary
+pub fn audio_automix::DescriptorMetricSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorMetricSummary
+impl serde_core::ser::Serialize for audio_automix::DescriptorMetricSummary
+pub fn audio_automix::DescriptorMetricSummary::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorMetricSummary
+impl core::marker::Send for audio_automix::DescriptorMetricSummary
+impl core::marker::Sync for audio_automix::DescriptorMetricSummary
+impl core::marker::Unpin for audio_automix::DescriptorMetricSummary
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorMetricSummary
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorMetricSummary
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorMetricSummary
+pub struct audio_automix::DescriptorReport
+pub audio_automix::DescriptorReport::config: audio_automix::DescriptorReportConfig
+pub audio_automix::DescriptorReport::extractor_profile: &'static str
+pub audio_automix::DescriptorReport::sample_rate_hz: u32
+pub audio_automix::DescriptorReport::schema_version: u32
+pub audio_automix::DescriptorReport::segments: alloc::vec::Vec<audio_automix::DescriptorSegment>
+pub audio_automix::DescriptorReport::source_channels: usize
+impl core::clone::Clone for audio_automix::DescriptorReport
+pub fn audio_automix::DescriptorReport::clone(&self) -> audio_automix::DescriptorReport
+impl core::cmp::PartialEq for audio_automix::DescriptorReport
+pub fn audio_automix::DescriptorReport::eq(&self, &audio_automix::DescriptorReport) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorReport
+pub fn audio_automix::DescriptorReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorReport
+impl serde_core::ser::Serialize for audio_automix::DescriptorReport
+pub fn audio_automix::DescriptorReport::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorReport
+impl core::marker::Send for audio_automix::DescriptorReport
+impl core::marker::Sync for audio_automix::DescriptorReport
+impl core::marker::Unpin for audio_automix::DescriptorReport
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorReport
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorReport
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorReport
+pub struct audio_automix::DescriptorReportConfig
+pub audio_automix::DescriptorReportConfig::channel_policy: &'static str
+pub audio_automix::DescriptorReportConfig::clipping_threshold: f64
+pub audio_automix::DescriptorReportConfig::fft_size: usize
+pub audio_automix::DescriptorReportConfig::flatness_power_floor: f64
+pub audio_automix::DescriptorReportConfig::hop_size: usize
+pub audio_automix::DescriptorReportConfig::window: &'static str
+impl core::clone::Clone for audio_automix::DescriptorReportConfig
+pub fn audio_automix::DescriptorReportConfig::clone(&self) -> audio_automix::DescriptorReportConfig
+impl core::cmp::PartialEq for audio_automix::DescriptorReportConfig
+pub fn audio_automix::DescriptorReportConfig::eq(&self, &audio_automix::DescriptorReportConfig) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorReportConfig
+pub fn audio_automix::DescriptorReportConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorReportConfig
+impl serde_core::ser::Serialize for audio_automix::DescriptorReportConfig
+pub fn audio_automix::DescriptorReportConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorReportConfig
+impl core::marker::Send for audio_automix::DescriptorReportConfig
+impl core::marker::Sync for audio_automix::DescriptorReportConfig
+impl core::marker::Unpin for audio_automix::DescriptorReportConfig
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorReportConfig
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorReportConfig
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorReportConfig
+pub struct audio_automix::DescriptorSegment
+pub audio_automix::DescriptorSegment::coverage_status: audio_automix::DescriptorCoverageStatus
+pub audio_automix::DescriptorSegment::end_frame: u64
+pub audio_automix::DescriptorSegment::mono_signal: audio_automix::DescriptorSignal
+pub audio_automix::DescriptorSegment::nonfinite_input_frame_count: u64
+pub audio_automix::DescriptorSegment::planned_end_frame: u64
+pub audio_automix::DescriptorSegment::role: audio_automix::DescriptorSegmentRole
+pub audio_automix::DescriptorSegment::spectral: audio_automix::DescriptorSpectralSummary
+pub audio_automix::DescriptorSegment::start_frame: u64
+impl core::clone::Clone for audio_automix::DescriptorSegment
+pub fn audio_automix::DescriptorSegment::clone(&self) -> audio_automix::DescriptorSegment
+impl core::cmp::PartialEq for audio_automix::DescriptorSegment
+pub fn audio_automix::DescriptorSegment::eq(&self, &audio_automix::DescriptorSegment) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorSegment
+pub fn audio_automix::DescriptorSegment::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorSegment
+impl serde_core::ser::Serialize for audio_automix::DescriptorSegment
+pub fn audio_automix::DescriptorSegment::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorSegment
+impl core::marker::Send for audio_automix::DescriptorSegment
+impl core::marker::Sync for audio_automix::DescriptorSegment
+impl core::marker::Unpin for audio_automix::DescriptorSegment
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorSegment
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorSegment
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorSegment
+pub struct audio_automix::DescriptorSignal
+pub audio_automix::DescriptorSignal::clipping_count: core::option::Option<u64>
+pub audio_automix::DescriptorSignal::clipping_ratio: core::option::Option<f64>
+pub audio_automix::DescriptorSignal::crest_factor: core::option::Option<f64>
+pub audio_automix::DescriptorSignal::dc_offset: core::option::Option<f64>
+pub audio_automix::DescriptorSignal::rms: core::option::Option<f64>
+pub audio_automix::DescriptorSignal::sample_count: u64
+pub audio_automix::DescriptorSignal::sample_peak: core::option::Option<f64>
+impl core::clone::Clone for audio_automix::DescriptorSignal
+pub fn audio_automix::DescriptorSignal::clone(&self) -> audio_automix::DescriptorSignal
+impl core::cmp::PartialEq for audio_automix::DescriptorSignal
+pub fn audio_automix::DescriptorSignal::eq(&self, &audio_automix::DescriptorSignal) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorSignal
+pub fn audio_automix::DescriptorSignal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorSignal
+impl serde_core::ser::Serialize for audio_automix::DescriptorSignal
+pub fn audio_automix::DescriptorSignal::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorSignal
+impl core::marker::Send for audio_automix::DescriptorSignal
+impl core::marker::Sync for audio_automix::DescriptorSignal
+impl core::marker::Unpin for audio_automix::DescriptorSignal
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorSignal
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorSignal
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorSignal
+pub struct audio_automix::DescriptorSpectralSummary
+pub audio_automix::DescriptorSpectralSummary::centroid_hz: audio_automix::DescriptorMetricSummary
+pub audio_automix::DescriptorSpectralSummary::flatness: audio_automix::DescriptorMetricSummary
+pub audio_automix::DescriptorSpectralSummary::frame_count: u64
+pub audio_automix::DescriptorSpectralSummary::last_end_frame: core::option::Option<u64>
+pub audio_automix::DescriptorSpectralSummary::nonfinite_frame_count: u64
+impl core::clone::Clone for audio_automix::DescriptorSpectralSummary
+pub fn audio_automix::DescriptorSpectralSummary::clone(&self) -> audio_automix::DescriptorSpectralSummary
+impl core::cmp::PartialEq for audio_automix::DescriptorSpectralSummary
+pub fn audio_automix::DescriptorSpectralSummary::eq(&self, &audio_automix::DescriptorSpectralSummary) -> bool
+impl core::fmt::Debug for audio_automix::DescriptorSpectralSummary
+pub fn audio_automix::DescriptorSpectralSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for audio_automix::DescriptorSpectralSummary
+impl serde_core::ser::Serialize for audio_automix::DescriptorSpectralSummary
+pub fn audio_automix::DescriptorSpectralSummary::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl core::marker::Freeze for audio_automix::DescriptorSpectralSummary
+impl core::marker::Send for audio_automix::DescriptorSpectralSummary
+impl core::marker::Sync for audio_automix::DescriptorSpectralSummary
+impl core::marker::Unpin for audio_automix::DescriptorSpectralSummary
+impl core::marker::UnsafeUnpin for audio_automix::DescriptorSpectralSummary
+impl core::panic::unwind_safe::RefUnwindSafe for audio_automix::DescriptorSpectralSummary
+impl core::panic::unwind_safe::UnwindSafe for audio_automix::DescriptorSpectralSummary
 pub fn audio_automix::analyze_automix(audio_engine_core::decoder::source::MediaLocation, core::option::Option<audio_engine_core::decoder::source::HttpCredentials>, audio_automix::AutomixAnalysisOptions) -> core::result::Result<audio_automix::AutomixAnalysis, audio_automix::AutomixError>
 pub fn audio_automix::analyze_automix_with_cancel(audio_engine_core::decoder::source::MediaLocation, core::option::Option<audio_engine_core::decoder::source::HttpCredentials>, audio_automix::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::error::DecodeCancelToken>) -> core::result::Result<audio_automix::AutomixAnalysis, audio_automix::AutomixError>
+pub fn audio_automix::analyze_automix_with_descriptors(audio_engine_core::decoder::source::MediaLocation, core::option::Option<audio_engine_core::decoder::source::HttpCredentials>, audio_automix::AutomixAnalysisOptions, core::option::Option<audio_engine_core::decoder::error::DecodeCancelToken>) -> core::result::Result<audio_automix::AutomixDescriptorAnalysis, audio_automix::AutomixError>

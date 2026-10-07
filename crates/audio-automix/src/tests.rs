@@ -569,7 +569,7 @@ fn decoder_end_of_stream_marks_the_window_as_input_end() {
         .unwrap();
         let mut meter = LoudnessMeter::new(1, SPAN_RATE).unwrap();
         let mut segment = AnalysisSegment::default();
-        decode_segment(&mut decoder, &mut meter, &mut segment, 0, take, None).unwrap();
+        decode_segment(&mut decoder, &mut meter, &mut segment, 0, take, None, None).unwrap();
         assert_eq!(segment.reaches_input_end, expected, "take {take}");
         assert_eq!(segment.frames_analyzed, take.min(8_000), "take {take}");
     }

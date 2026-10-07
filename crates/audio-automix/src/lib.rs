@@ -17,6 +17,7 @@
 //! ```
 
 mod decode;
+mod descriptors;
 mod features;
 mod placement;
 mod silence;
@@ -24,7 +25,12 @@ mod tempo;
 
 use audio_engine_core::decoder::DecoderError;
 use audio_engine_core::processor::ProcessError;
-pub use decode::{analyze_automix, analyze_automix_with_cancel};
+pub use decode::{analyze_automix, analyze_automix_with_cancel, analyze_automix_with_descriptors};
+pub use descriptors::{
+    AutomixDescriptorAnalysis, DescriptorCoverageStatus, DescriptorMetricSummary, DescriptorReport,
+    DescriptorReportConfig, DescriptorSegment, DescriptorSegmentRole, DescriptorSignal,
+    DescriptorSpectralSummary,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -213,6 +219,9 @@ pub enum AutomixError {
     /// EBU R128 construction or ingestion failed during analysis.
     #[error("AutoMix loudness analysis failed")]
     Loudness(#[from] ProcessError),
+    /// Opt-in descriptor construction or input validation failed.
+    #[error("AutoMix descriptor analysis failed")]
+    Descriptor(#[source] ProcessError),
     /// A coarse decoder seek landed after the requested tail boundary.
     #[error(
         "AutoMix tail seek landed after planned frame {planned_frame}: realized frame {realized_frame}"

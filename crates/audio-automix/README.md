@@ -1,8 +1,8 @@
 # audio-automix
 
 Bounded offline music analysis and AutoMix placement evidence. This package
-depends on `audio-engine-core` for decoding and loudness/true-peak measurement;
-the core has no dependency on AutoMix.
+depends on `audio-engine-core` for decoding, loudness/true-peak measurement and
+opt-in mono descriptors. The core has no dependency on AutoMix.
 
 ```rust,no_run
 use audio_automix::{analyze_automix, AutomixAnalysisOptions};
@@ -39,6 +39,53 @@ complete head evidence, and snaps only to individual usable beats. Vocal
 positions are always JSON null and never influence cuts; no validated vocal
 detector is currently exposed. These rules have synthetic fixture contracts,
 not a real-music accuracy claim.
+
+## Opt-in mono diagnostics
+
+```rust,no_run
+use audio_automix::{analyze_automix_with_descriptors, AutomixAnalysisOptions};
+use audio_engine_core::decoder::MediaLocation;
+
+# fn main() -> Result<(), audio_automix::AutomixError> {
+let result = analyze_automix_with_descriptors(
+    MediaLocation::local("track.flac"),
+    None,
+    AutomixAnalysisOptions::default(),
+    None, // optional DecodeCancelToken
+)?;
+println!("Analysis version: {}", result.analysis.version);
+for segment in &result.descriptors.segments {
+    println!("{:?}: {}..{}, centroid {:?} Hz ({}/{} frames)",
+        segment.role, segment.start_frame, segment.end_frame,
+        segment.spectral.centroid_hz.mean,
+        segment.spectral.centroid_hz.valid_frame_count,
+        segment.spectral.frame_count);
+}
+# Ok(())
+```
+
+This entry point reuses the same bounded decode and returns
+`AutomixDescriptorAnalysis { analysis, descriptors }`. Existing entry points,
+options and schema 4 fields are unchanged and create no descriptor FFT. The
+companion uses schema 1 / `native-mono-l1-v1`: native sample rate, ordered f64
+channel averaging, periodic Hann, FFT 4096, hop 1024, flatness power floor
+`1e-20` and clipping threshold `1.0`. It reports mono peak/RMS/crest/DC/clipping
+and equal-weight centroid/flatness means; RMS does not replace LUFS, and mono
+phase cancellation can hide channel peaks.
+
+Every segment exposes planned and actual exclusive frame ends, complete/short
+EOF status, nonfinite-input counts and valid spectral denominators. Undefined
+measurements are explicit JSON nulls. Head and tail have independent state;
+partial FFT tails are not padded. The added loop polls cancellation at most
+4096 source frames apart, with at most one descriptor FFT between polls; this
+is a work bound, not a wall-clock deadline. Any error fails the whole request.
+
+Compare spectral values only when schema, extractor profile, sample rate,
+source channels and configuration all match, with coverage visible. See the
+[descriptor migration contract](docs/migration.md#opt-in-descriptor-companion)
+for exact fields, null rules and cache requirements. AudioPlayer request/cache/
+diagnostic UI integration remains separate pending work; this library entry
+does not establish an application consumer or automatic mixing benefit.
 
 From the repository root:
 

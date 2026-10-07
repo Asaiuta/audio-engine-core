@@ -1,4 +1,8 @@
 //! Media-source adaptation and bounded head/tail decoding.
+use crate::descriptors::{
+    AutomixDescriptorAnalysis, DescriptorReport, DescriptorSegmentAccumulator,
+    DescriptorSegmentRole,
+};
 use crate::features::{envelope_window_size, AnalysisSegment, SegmentAnalyzer};
 use crate::placement::finalize_analysis;
 use crate::{
@@ -7,9 +11,36 @@ use crate::{
 };
 use audio_engine_core::analysis::LoudnessMeter;
 use audio_engine_core::decoder::{
-    DecodeCancelToken, HttpCredentials, MediaLocation, StreamingDecoder,
+    AudioInfo, DecodeCancelToken, DecoderError, HttpCredentials, MediaLocation, StreamingDecoder,
 };
 use std::ops::Range;
+
+// The same bounded driver serves the public decoder and deterministic packet /
+// metadata tests. This is private; it does not add a second media abstraction.
+pub(super) trait AnalysisDecoder {
+    fn info(&self) -> &AudioInfo;
+    fn decode_next_into(&mut self, buffer: &mut Vec<f64>) -> Result<Option<usize>, DecoderError>;
+    fn seek(&mut self, seconds: f64) -> Result<(), DecoderError>;
+    fn current_frame(&self) -> u64;
+}
+
+impl AnalysisDecoder for StreamingDecoder {
+    fn info(&self) -> &AudioInfo {
+        self.info()
+    }
+
+    fn decode_next_into(&mut self, buffer: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
+        self.decode_next_into(buffer)
+    }
+
+    fn seek(&mut self, seconds: f64) -> Result<(), DecoderError> {
+        self.seek(seconds)
+    }
+
+    fn current_frame(&self) -> u64 {
+        self.current_frame()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FrameWindow {
@@ -77,19 +108,78 @@ pub fn analyze_automix_with_cancel(
     options: AutomixAnalysisOptions,
     cancel_token: Option<DecodeCancelToken>,
 ) -> Result<AutomixAnalysis, AutomixError> {
-    let options = options.normalized();
+    let mut decoder = open_decoder(location, credentials.as_ref(), cancel_token.clone())?;
     let canceled = || {
         cancel_token
             .as_ref()
             .is_some_and(DecodeCancelToken::is_cancelled)
     };
-    check_cancel(Some(&canceled))?;
-    let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
-        location,
-        credentials.as_ref(),
-        cancel_token.clone(),
-    )?;
+    analyze_decoder(&mut decoder, options, Some(&canceled), None)
+}
 
+/// Analyze the same bounded source windows and return an opt-in L1 report.
+///
+/// The companion has its own schema and uses native-rate f64 arithmetic-mean
+/// mono, complete 4096-sample periodic Hann windows and a 1024-sample hop.
+/// It records actual source-frame coverage, signal measurements and per-frame
+/// centroid/flatness means with valid denominators. Head and tail stay separate.
+/// These measurements do not influence the existing analysis or cut decisions.
+///
+/// Run on a worker. This explicitly adds a descriptor FFT; the original entry
+/// points create no descriptor state. Any failure or cancellation returns an
+/// error for the whole request. A pre-canceled token is checked before opening
+/// the source. This report does not imply whole-track or musical quality.
+pub fn analyze_automix_with_descriptors(
+    location: MediaLocation,
+    credentials: Option<HttpCredentials>,
+    options: AutomixAnalysisOptions,
+    cancel_token: Option<DecodeCancelToken>,
+) -> Result<AutomixDescriptorAnalysis, AutomixError> {
+    let mut decoder = open_decoder(location, credentials.as_ref(), cancel_token.clone())?;
+    let canceled = || {
+        cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+    };
+    let mut descriptors =
+        DescriptorReport::new(decoder.info().sample_rate, decoder.info().channels.max(1));
+    let analysis = analyze_decoder(
+        &mut decoder,
+        options,
+        Some(&canceled),
+        Some(&mut descriptors),
+    )?;
+    Ok(AutomixDescriptorAnalysis {
+        analysis,
+        descriptors,
+    })
+}
+
+fn open_decoder(
+    location: MediaLocation,
+    credentials: Option<&HttpCredentials>,
+    cancel_token: Option<DecodeCancelToken>,
+) -> Result<StreamingDecoder, AutomixError> {
+    if cancel_token
+        .as_ref()
+        .is_some_and(DecodeCancelToken::is_cancelled)
+    {
+        return Err(AutomixError::Canceled);
+    }
+    Ok(StreamingDecoder::open_with_credentials_and_cancel(
+        location,
+        credentials,
+        cancel_token,
+    )?)
+}
+
+pub(super) fn analyze_decoder<D: AnalysisDecoder>(
+    decoder: &mut D,
+    options: AutomixAnalysisOptions,
+    cancel: Option<&dyn Fn() -> bool>,
+    mut descriptors: Option<&mut DescriptorReport>,
+) -> Result<AutomixAnalysis, AutomixError> {
+    let options = options.normalized();
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels.max(1);
     let declared_duration = decoder.info().duration_secs.filter(is_plausible_duration);
@@ -110,19 +200,31 @@ pub fn analyze_automix_with_cancel(
     let mut meter = LoudnessMeter::new(channels, sample_rate)?;
     let mut head = AnalysisSegment::at(plan.head.start_time(sample_rate));
     let mut tail = AnalysisSegment::default();
+    let mut head_descriptors = descriptors
+        .as_ref()
+        .map(|_| DescriptorSegmentAccumulator::new(sample_rate, channels))
+        .transpose()?;
 
     decode_segment(
-        &mut decoder,
+        decoder,
         &mut meter,
         &mut head,
         0,
         plan.head.len(),
-        Some(&canceled),
+        cancel,
+        head_descriptors.as_mut(),
     )?;
     head.reaches_input_end = head.reaches_input_end || plan.head.ends_at_track_end(track_frames);
+    if let (Some(report), Some(accumulator)) = (descriptors.as_deref_mut(), head_descriptors) {
+        report.segments.push(accumulator.finish(
+            DescriptorSegmentRole::Head,
+            plan.head.start,
+            plan.head.end,
+        ));
+    }
 
     if let Some(tail_window) = plan.tail {
-        check_cancel(Some(&canceled))?;
+        check_cancel(cancel)?;
         decoder.seek(tail_window.start_time(sample_rate))?;
         let realized_start = decoder.current_frame();
         let skip_frames = tail_window.start.checked_sub(realized_start).ok_or(
@@ -132,16 +234,28 @@ pub fn analyze_automix_with_cancel(
             },
         )?;
         tail = AnalysisSegment::at(tail_window.start_time(sample_rate));
+        let mut tail_descriptors = descriptors
+            .as_ref()
+            .map(|_| DescriptorSegmentAccumulator::new(sample_rate, channels))
+            .transpose()?;
         decode_segment(
-            &mut decoder,
+            decoder,
             &mut meter,
             &mut tail,
             skip_frames,
             tail_window.len(),
-            Some(&canceled),
+            cancel,
+            tail_descriptors.as_mut(),
         )?;
         tail.reaches_input_end =
             tail.reaches_input_end || tail_window.ends_at_track_end(track_frames);
+        if let (Some(report), Some(accumulator)) = (descriptors, tail_descriptors) {
+            report.segments.push(accumulator.finish(
+                DescriptorSegmentRole::Tail,
+                tail_window.start,
+                tail_window.end,
+            ));
+        }
     }
 
     finalize_analysis(
@@ -151,17 +265,18 @@ pub fn analyze_automix_with_cancel(
         &meter,
         &head,
         &tail,
-        Some(&canceled),
+        cancel,
     )
 }
 
-pub(super) fn decode_segment(
-    decoder: &mut StreamingDecoder,
+pub(super) fn decode_segment<D: AnalysisDecoder>(
+    decoder: &mut D,
     meter: &mut LoudnessMeter,
     segment: &mut AnalysisSegment,
     skip_frames: u64,
     take_frames: u64,
     cancel_token: Option<&dyn Fn() -> bool>,
+    mut descriptors: Option<&mut DescriptorSegmentAccumulator>,
 ) -> Result<(), AutomixError> {
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels.max(1);
@@ -191,7 +306,11 @@ pub(super) fn decode_segment(
         };
         let sample_range = frame_range.start * channels..frame_range.end * channels;
         let selected_frames = (frame_range.end - frame_range.start) as u64;
-        analyzer.process(&chunk[sample_range], meter, segment, cancel_token)?;
+        let selected = &chunk[sample_range];
+        analyzer.process(selected, meter, segment, cancel_token)?;
+        if let Some(descriptors) = descriptors.as_deref_mut() {
+            descriptors.process(selected, cancel_token)?;
+        }
         take_remaining -= selected_frames;
     }
 
@@ -231,3 +350,6 @@ fn frames_to_seconds(frames: u64, sample_rate: u32) -> f64 {
 pub(super) fn is_plausible_duration(duration: &f64) -> bool {
     duration.is_finite() && *duration > 0.0 && *duration <= MAX_DECLARED_DURATION_SEC
 }
+
+#[cfg(test)]
+mod tests;
