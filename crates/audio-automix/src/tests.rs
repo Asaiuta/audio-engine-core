@@ -1,16 +1,20 @@
 use super::*;
-use crate::decode::{is_plausible_duration, select_packet_frames, AnalysisWindowPlan, FrameWindow};
+use crate::decode::{
+    decode_segment, is_plausible_duration, select_packet_frames, AnalysisWindowPlan, FrameWindow,
+};
 use crate::features::{spectral_hop_size, AnalysisSegment, SegmentAnalyzer};
 use crate::placement::{
-    build_energy_profile, calculate_smart_cut_in, calculate_smart_cut_out, detect_silence,
-    finalize_analysis, reported_first_beat, snap_to_beat,
+    build_energy_profile, calculate_smart_cut_in, calculate_smart_cut_out, finalize_analysis,
+    reported_first_beat, snap_to_beat,
 };
 use crate::tempo::{self, BeatGrid, TempoEstimate};
 use audio_engine_core::analysis::LoudnessMeter;
-use audio_engine_core::decoder::{DecodeCancelToken, MediaLocation};
+use audio_engine_core::decoder::{DecodeCancelToken, MediaLocation, StreamingDecoder};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
+
+mod structure_drop;
 
 static TEMP_AUDIO_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -211,7 +215,8 @@ fn packet_selection_slices_once_before_all_metric_consumers() {
     assert_eq!(segment.frames_analyzed, 1_024);
     assert_eq!(segment.envelope.len(), 6);
     assert_eq!(segment.low_envelope.len(), 6);
-    assert_eq!(segment.vocal_ratio.len(), 6);
+    assert_eq!(segment.sample_rate, 8_000);
+    assert!(segment.partial_envelope.is_some());
     assert_eq!(segment.spectral_flux.len(), 1);
 }
 
@@ -334,15 +339,254 @@ fn full_analysis_uses_absolute_tail_positions_at_window_boundaries() {
 
 #[test]
 fn silence_detection_uses_head_and_tail_windows() {
-    let mut head = vec![0.0; 50];
-    head.extend(vec![0.02; 100]);
-    let mut tail = vec![0.02; 100];
-    tail.extend(vec![0.0; 50]);
+    let sample_rate = 8_000;
+    let meter = LoudnessMeter::new(1, sample_rate).unwrap();
+    let mut head_envelope = vec![0.0; 50];
+    head_envelope.extend(vec![0.02; 100]);
+    let mut tail_envelope = vec![0.02; 100];
+    tail_envelope.extend(vec![0.0; 50]);
+    let head = AnalysisSegment {
+        frames_analyzed: 3 * u64::from(sample_rate),
+        envelope: head_envelope,
+        ..AnalysisSegment::default()
+    };
+    // The tail origin comes from its segment, never from duration minus length.
+    let tail = AnalysisSegment {
+        start_time: 17.0,
+        frames_analyzed: 3 * u64::from(sample_rate),
+        reaches_input_end: true,
+        envelope: tail_envelope,
+        ..AnalysisSegment::default()
+    };
 
-    let (fade_in, fade_out) = detect_silence(&head, &tail, 20.0, 50.0, -48.0);
+    let analysis = finalize_analysis(
+        &AutomixAnalysisOptions {
+            mode: AutomixAnalysisMode::Full,
+            max_analyze_time_sec: 5.0,
+        },
+        20.0,
+        sample_rate,
+        &meter,
+        &head,
+        &tail,
+        None,
+    )
+    .unwrap();
 
-    assert!((fade_in - 1.0).abs() < 0.001);
-    assert!((fade_out - 19.0).abs() < 0.001);
+    assert!((analysis.fade_in_pos - 1.0).abs() < 1e-9);
+    assert!((analysis.fade_out_pos - 19.0).abs() < 1e-9);
+    let outro = analysis.outro_energy_level.expect("tail outro evidence");
+    assert!((outro - 20.0 * 0.02_f64.log10()).abs() < 1e-4, "{outro}");
+}
+
+/// Fixture rate: 160 PCM frames per 20 ms envelope bin.
+const SPAN_RATE: u32 = 8_000;
+
+fn dbfs(db: f64) -> f64 {
+    10.0_f64.powf(db / 20.0)
+}
+
+/// Mono PCM16 made of constant `(start_sec, end_sec, amplitude)` spans over
+/// digital silence. Later spans override earlier ones; bounds are exact frames.
+fn span_wav(duration_sec: f64, spans: &[(f64, f64, f64)]) -> Vec<u8> {
+    let to_frame = |seconds: f64| (seconds * f64::from(SPAN_RATE)).round() as u64;
+    let spans: Vec<_> = spans
+        .iter()
+        .map(|&(start, end, amplitude)| (to_frame(start), to_frame(end), amplitude))
+        .collect();
+    synth_wav(SPAN_RATE, to_frame(duration_sec), |frame| {
+        spans
+            .iter()
+            .rev()
+            .find(|(start, end, _)| (*start..*end).contains(&frame))
+            .map_or(0.0, |span| span.2)
+    })
+}
+
+fn analyze_wav_bytes(wav: &[u8], mode: AutomixAnalysisMode) -> AutomixAnalysis {
+    let fixture = TempAudio::wav(wav);
+    analyze_automix(
+        MediaLocation::local(fixture.path_string()),
+        None,
+        AutomixAnalysisOptions {
+            mode,
+            max_analyze_time_sec: MIN_ANALYZE_TIME_SEC,
+        },
+    )
+    .expect("analyze span fixture")
+}
+
+fn analyze_spans(
+    duration_sec: f64,
+    spans: &[(f64, f64, f64)],
+    mode: AutomixAnalysisMode,
+) -> AutomixAnalysis {
+    let analysis = analyze_wav_bytes(&span_wav(duration_sec, spans), mode);
+    assert_eq!(
+        analysis.bpm, None,
+        "span fixtures must not exercise snapping"
+    );
+    analysis
+}
+
+fn assert_at(name: &str, actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() < 1e-9,
+        "{name}: expected {expected}, got {actual}"
+    );
+}
+
+#[test]
+fn a_click_three_seconds_before_the_music_does_not_move_fade_in() {
+    let music = dbfs(-20.0);
+    // 10 ms at -20 dBFS starting exactly 3 s before the music.
+    let analysis = analyze_spans(
+        12.0,
+        &[(1.0, 1.01, music), (4.0, 10.0, music)],
+        AutomixAnalysisMode::Full,
+    );
+    assert_at("fade_in", analysis.fade_in_pos, 4.0);
+    assert_at("cut_in", analysis.cut_in_pos.unwrap(), 4.0);
+    assert_at("fade_out", analysis.fade_out_pos, 10.0);
+    assert_at("cut_out", analysis.cut_out_pos.unwrap(), 10.0);
+    assert_at("mix_center", analysis.mix_center_pos, 10.0);
+    // The outro ends at the same boundary: 3 s of -20 dBFS tail evidence.
+    let outro = analysis.outro_energy_level.unwrap();
+    assert!((outro + 20.0).abs() < 0.01, "{outro}");
+}
+
+#[test]
+fn count_in_ticks_do_not_create_a_sound_boundary() {
+    let music = dbfs(-20.0);
+    // 70 ms ticks start 10 ms into a bin, so each touches exactly four bins.
+    let mut spans: Vec<_> = [1.01, 1.51, 2.01, 2.51]
+        .into_iter()
+        .map(|start| (start, start + 0.07, music))
+        .collect();
+    spans.push((3.0, 10.0, music));
+    let analysis = analyze_spans(12.0, &spans, AutomixAnalysisMode::Full);
+    assert_at("fade_in", analysis.fade_in_pos, 3.0);
+    assert_at("cut_in", analysis.cut_in_pos.unwrap(), 3.0);
+}
+
+#[test]
+fn sound_confirmation_counts_complete_pcm_bins() {
+    let music = dbfs(-20.0);
+    // Aligned 80 ms = 4 bins: not sound. Aligned 100 ms = 5 bins: sound.
+    for (burst, expected) in [(0.08, 3.0), (0.10, 1.0)] {
+        let analysis = analyze_spans(
+            12.0,
+            &[(1.0, 1.0 + burst, music), (3.0, 10.0, music)],
+            AutomixAnalysisMode::Full,
+        );
+        assert_at("fade_in", analysis.fade_in_pos, expected);
+    }
+}
+
+#[test]
+fn a_short_mid_track_dip_does_not_trigger_fade_out() {
+    let music = dbfs(-20.0);
+    // 60 ms inside the Full-mode tail, into the dead band and to silence.
+    for dip in [dbfs(-50.0), 0.0] {
+        let analysis = analyze_spans(
+            12.0,
+            &[(0.5, 11.0, music), (8.5, 8.56, dip)],
+            AutomixAnalysisMode::Full,
+        );
+        assert_at("fade_out", analysis.fade_out_pos, 11.0);
+        assert_at("cut_out", analysis.cut_out_pos.unwrap(), 11.0);
+        assert_at("mix_center", analysis.mix_center_pos, 11.0);
+    }
+}
+
+#[test]
+fn silence_confirmation_counts_complete_pcm_bins() {
+    let music = dbfs(-20.0);
+    let hum = dbfs(-51.0);
+    // 99 silent bins, then dead band to the end: the sound stays latched.
+    let ninety_nine = analyze_spans(
+        12.0,
+        &[(0.5, 9.0, music), (10.98, 12.0, hum)],
+        AutomixAnalysisMode::Full,
+    );
+    assert_at("99-bin fade_out", ninety_nine.fade_out_pos, 12.0);
+    // 100 silent bins latch silence at the start of the run.
+    let hundred = analyze_spans(
+        12.0,
+        &[(0.5, 9.0, music), (11.0, 12.0, hum)],
+        AutomixAnalysisMode::Full,
+    );
+    assert_at("100-bin fade_out", hundred.fade_out_pos, 9.0);
+    assert_at("100-bin cut_out", hundred.cut_out_pos.unwrap(), 9.0);
+    let outro = hundred.outro_energy_level.unwrap();
+    assert!((outro + 20.0).abs() < 0.01, "{outro}");
+}
+
+#[test]
+fn a_tail_shorter_than_a_silence_run_uses_the_end_of_input_rule() {
+    let music = dbfs(-20.0);
+    // 5.5 s track, 5 s windows: the tail is [5.0, 5.5) = 25 bins.
+    let latched = analyze_spans(5.5, &[(0.5, 5.2, music)], AutomixAnalysisMode::Full);
+    assert_at("fade_out", latched.fade_out_pos, 5.2);
+    assert_at("cut_out", latched.cut_out_pos.unwrap(), 5.2);
+    // Three tail bins cannot latch sound, and the head is not joined to it.
+    let unlatched = analyze_spans(5.5, &[(0.5, 5.06, music)], AutomixAnalysisMode::Full);
+    assert_at("unlatched fade_out", unlatched.fade_out_pos, 5.5);
+    assert!(unlatched.outro_energy_level.is_some());
+}
+
+#[test]
+fn a_head_window_at_the_analysis_cap_is_not_end_of_input() {
+    let music = dbfs(-20.0);
+    let spans = [(0.5, 4.0, music)];
+    // Head [0, 5) ends in 1 s of unconfirmed silence before the track end.
+    let head = analyze_spans(12.0, &spans, AutomixAnalysisMode::Head);
+    assert_at("head fade_in", head.fade_in_pos, 0.5);
+    assert_at("head fade_out", head.fade_out_pos, 12.0);
+    assert_at("head mix_center", head.mix_center_pos, 5.0);
+    // The same content ending the input confirms the trailing silence.
+    let whole = analyze_spans(4.5, &spans, AutomixAnalysisMode::Full);
+    assert_at("whole fade_out", whole.fade_out_pos, 4.0);
+    assert_at("whole mix_center", whole.mix_center_pos, 4.0);
+    assert_eq!(whole.outro_energy_level, None, "no tail window");
+    // An all-silent tail has no sound end; nothing is bridged from the head.
+    let full = analyze_spans(12.0, &spans, AutomixAnalysisMode::Full);
+    assert_at("full fade_out", full.fade_out_pos, 12.0);
+    assert_eq!(full.outro_energy_level, Some(-70.0));
+}
+
+#[test]
+fn decoder_end_of_stream_marks_the_window_as_input_end() {
+    // 8,000 frames. Only a take that the stream cannot fill observes end of
+    // stream; an exactly filled take relies on the planner's track-end check.
+    let fixture = TempAudio::wav(&span_wav(1.0, &[(0.0, 1.0, dbfs(-20.0))]));
+    for (take, expected) in [(4_000, false), (8_000, false), (12_000, true)] {
+        let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
+            MediaLocation::local(fixture.path_string()),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut meter = LoudnessMeter::new(1, SPAN_RATE).unwrap();
+        let mut segment = AnalysisSegment::default();
+        decode_segment(&mut decoder, &mut meter, &mut segment, 0, take, None).unwrap();
+        assert_eq!(segment.reaches_input_end, expected, "take {take}");
+        assert_eq!(segment.frames_analyzed, take.min(8_000), "take {take}");
+    }
+    assert!(!FrameWindow { start: 0, end: 40 }.ends_at_track_end(None));
+    assert!(!FrameWindow { start: 0, end: 40 }.ends_at_track_end(Some(41)));
+    assert!(FrameWindow { start: 0, end: 40 }.ends_at_track_end(Some(40)));
+}
+
+#[test]
+fn all_silent_input_keeps_the_default_boundaries() {
+    let analysis = analyze_spans(12.0, &[], AutomixAnalysisMode::Full);
+    assert_at("fade_in", analysis.fade_in_pos, 0.0);
+    assert_at("fade_out", analysis.fade_out_pos, 12.0);
+    assert_at("cut_in", analysis.cut_in_pos.unwrap(), 0.0);
+    assert_at("cut_out", analysis.cut_out_pos.unwrap(), 12.0);
+    assert_at("mix_center", analysis.mix_center_pos, 12.0);
+    assert_eq!(analysis.outro_energy_level, Some(-70.0));
 }
 
 #[test]
@@ -450,15 +694,15 @@ fn cuts_snap_to_individual_beats_only_with_usable_evidence() {
     };
     assert!((snap_to_beat(1.3, grid) - 1.217).abs() < 1e-12);
     assert!((calculate_smart_cut_in(tempo, Some(70.1), 0.1) - 6.217).abs() < 1e-12);
-    assert!((calculate_smart_cut_out(tempo, None, 10.1, 11.0) - 10.217).abs() < 1e-12);
-    assert!(calculate_smart_cut_out(tempo, Some(10.0), 10.1, 11.0) <= 11.0);
+    assert!((calculate_smart_cut_out(tempo, 10.1, 11.0) - 10.217).abs() < 1e-12);
+    assert!(calculate_smart_cut_out(tempo, 11.0, 11.0) <= 11.0);
     for (confidence, stability) in [(0.34, 0.95), (0.9, 0.79)] {
         let uncertain = TempoEstimate {
             grid: Some(BeatGrid { stability, ..grid }),
             confidence: Some(confidence),
         };
         assert_eq!(calculate_smart_cut_in(uncertain, Some(70.1), 0.1), 0.1);
-        assert_eq!(calculate_smart_cut_out(uncertain, None, 10.1, 11.0), 10.1);
+        assert_eq!(calculate_smart_cut_out(uncertain, 10.1, 11.0), 10.1);
     }
 }
 
@@ -528,6 +772,9 @@ fn serialized_v4_analysis_pins_null_grid_and_omits_key_placeholders() {
     assert_eq!(json["version"], 4);
     assert_eq!(json["mode"], "head");
     assert!(json["beat_grid_stability"].is_null());
+    for field in ["vocal_in_pos", "vocal_out_pos", "vocal_last_in_pos"] {
+        assert!(json.get(field).is_some_and(serde_json::Value::is_null));
+    }
     let expected_keys: std::collections::BTreeSet<_> = [
         "version",
         "mode",
@@ -633,3 +880,5 @@ fn analysis_preserves_loudness_process_error_source() {
     assert_eq!(meter.frames_processed(), 0);
     assert_eq!(segment.frames_analyzed, 0);
 }
+
+mod structure_edges;

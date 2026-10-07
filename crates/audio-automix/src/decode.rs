@@ -1,9 +1,9 @@
 //! Media-source adaptation and bounded head/tail decoding.
-use crate::features::{AnalysisSegment, SegmentAnalyzer};
+use crate::features::{envelope_window_size, AnalysisSegment, SegmentAnalyzer};
 use crate::placement::finalize_analysis;
 use crate::{
     check_cancel, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions, AutomixError,
-    MAX_DECLARED_DURATION_SEC, WINDOW_SIZE_MS,
+    MAX_DECLARED_DURATION_SEC,
 };
 use audio_engine_core::analysis::LoudnessMeter;
 use audio_engine_core::decoder::{
@@ -24,6 +24,11 @@ impl FrameWindow {
 
     pub(super) fn start_time(self, sample_rate: u32) -> f64 {
         self.start as f64 / sample_rate.max(1) as f64
+    }
+
+    /// Whether this window's last planned frame is the known track end.
+    pub(super) fn ends_at_track_end(self, track_frames: Option<u64>) -> bool {
+        track_frames.is_some_and(|frames| self.end >= frames)
     }
 }
 
@@ -114,6 +119,7 @@ pub fn analyze_automix_with_cancel(
         plan.head.len(),
         Some(&canceled),
     )?;
+    head.reaches_input_end = head.reaches_input_end || plan.head.ends_at_track_end(track_frames);
 
     if let Some(tail_window) = plan.tail {
         check_cancel(Some(&canceled))?;
@@ -134,6 +140,8 @@ pub fn analyze_automix_with_cancel(
             tail_window.len(),
             Some(&canceled),
         )?;
+        tail.reaches_input_end =
+            tail.reaches_input_end || tail_window.ends_at_track_end(track_frames);
     }
 
     finalize_analysis(
@@ -147,7 +155,7 @@ pub fn analyze_automix_with_cancel(
     )
 }
 
-fn decode_segment(
+pub(super) fn decode_segment(
     decoder: &mut StreamingDecoder,
     meter: &mut LoudnessMeter,
     segment: &mut AnalysisSegment,
@@ -157,7 +165,7 @@ fn decode_segment(
 ) -> Result<(), AutomixError> {
     let sample_rate = decoder.info().sample_rate;
     let channels = decoder.info().channels.max(1);
-    let window_size = (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1);
+    let window_size = envelope_window_size(sample_rate);
     let mut chunk = Vec::with_capacity(window_size * channels);
     let mut analyzer = SegmentAnalyzer::new(sample_rate, channels);
     let mut skip_remaining = skip_frames;
@@ -167,6 +175,9 @@ fn decode_segment(
         check_cancel(cancel_token)?;
         chunk.clear();
         let Some(sample_count) = decoder.decode_next_into(&mut chunk)? else {
+            // End of stream before the window filled: its last selected frame
+            // is the end of the input.
+            segment.reaches_input_end = true;
             break;
         };
         if sample_count == 0 {

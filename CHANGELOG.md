@@ -34,6 +34,12 @@ version bumps, as permitted by SemVer.
 
 ### Changed
 
+- AutoMix's unreleased schema v4 now uses sustained sound/silence boundaries
+  with actual PCM timing and partial-EOF handling. Drop evidence requires a
+  bass breakdown/re-entry supported by full-band energy and snaps only to a
+  usable individual beat. The three vocal-position keys remain JSON null and
+  no longer influence cuts; unused vocal-band filtering has been removed.
+  These deterministic fixture contracts do not establish real-music accuracy.
 - Extract AutoMix to the same-workspace `audio-automix 0.1.0` package. Import
   its two analysis functions and four types from `audio_automix::*`; the former
   `audio_engine_core::analysis` exports are removed without a compatibility facade.
@@ -48,8 +54,9 @@ version bumps, as permitted by SemVer.
   periodicity inference, dynamic-programming beats and grid regression replace
   the integer-lag estimator. Cut snapping uses individual beats with explicit
   confidence/stability gates. Recompute cached v3 analysis; the new field also
-  changes Rust struct-literal construction. v4 remains unreleased until the
-  coordinated Structure semantics land and corpus accuracy is accepted.
+  changes Rust struct-literal construction. The coordinated Structure
+  semantics are included above; v4 remains unreleased pending corpus accuracy
+  acceptance.
   Separate GTZAN mini development corrected subdivision ranking and peak
   contrast, with an absolute residual cap preventing slow grids from hiding
   timing error. Synthetic precision and both Ballroom beat bars pass; the

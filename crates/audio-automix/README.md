@@ -33,6 +33,13 @@ The production detector remains v10/P3 with DTO schema 4. Missing tempo/grid
 evidence remains absent; confidence is not a calibrated probability. Existing
 research models/DLLs are not production dependencies.
 
+Schema 4 also uses sustained sound/silence boundaries and a conservative
+bass breakdown/re-entry rule. Drop detection needs at least eight seconds of
+complete head evidence, and snaps only to individual usable beats. Vocal
+positions are always JSON null and never influence cuts; no validated vocal
+detector is currently exposed. These rules have synthetic fixture contracts,
+not a real-music accuracy claim.
+
 From the repository root:
 
 ```sh

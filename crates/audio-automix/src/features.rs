@@ -1,5 +1,5 @@
 //! Per-segment envelopes and spectral onset features.
-use crate::{check_cancel, AutomixError, WINDOW_SIZE_MS};
+use crate::{check_cancel, AutomixError, ENVELOPE_RATE, WINDOW_SIZE_MS};
 use audio_engine_core::analysis::LoudnessMeter;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
@@ -26,13 +26,26 @@ pub(super) fn spectral_observation_offset_sec(sample_rate: u32) -> f64 {
         - 0.5 * spectral_hop_size(sample_rate) as f64)
         / f64::from(sample_rate.max(1))
 }
+
+pub(super) fn envelope_window_size(sample_rate: u32) -> usize {
+    (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1)
+}
+
 #[derive(Default)]
 pub(super) struct AnalysisSegment {
     pub(super) start_time: f64,
     pub(super) frames_analyzed: u64,
+    /// The last selected frame is the end of the input: the window ends at the
+    /// known track end, or the decoder reached end of stream before filling it.
+    /// A window that stops at the analysis cap leaves this false.
+    pub(super) reaches_input_end: bool,
+    /// Physical clock of the selected PCM; zero only for envelope-only fixtures.
+    pub(super) sample_rate: u32,
     pub(super) envelope: Vec<f32>,
+    /// RMS of the unfinished envelope bin. It never counts as a complete bin,
+    /// but must be considered before confirming silence at end of input.
+    pub(super) partial_envelope: Option<f32>,
     pub(super) low_envelope: Vec<f32>,
-    pub(super) vocal_ratio: Vec<f32>,
     pub(super) spectral_flux: Vec<f32>,
     pub(super) spectral_flux_channels: [Vec<f32>; 3],
 }
@@ -43,6 +56,23 @@ impl AnalysisSegment {
             start_time,
             ..Self::default()
         }
+    }
+
+    pub(super) fn envelope_rate(&self) -> f64 {
+        if self.sample_rate == 0 {
+            ENVELOPE_RATE
+        } else {
+            f64::from(self.sample_rate) / envelope_window_size(self.sample_rate) as f64
+        }
+    }
+
+    pub(super) fn end_time(&self) -> f64 {
+        self.start_time
+            + if self.sample_rate == 0 {
+                self.envelope.len() as f64 / ENVELOPE_RATE
+            } else {
+                self.frames_analyzed as f64 / f64::from(self.sample_rate)
+            }
     }
 }
 
@@ -73,39 +103,27 @@ impl EnvelopeAccumulator {
             None
         }
     }
+
+    fn partial_rms(&self) -> Option<f32> {
+        (self.count > 0).then(|| (self.sum_sq / self.count as f32).sqrt())
+    }
 }
 
 struct FirstOrderFilter {
-    prev_x: f32,
     prev_y: f32,
     alpha: f32,
-    high_pass: bool,
 }
 
 impl FirstOrderFilter {
-    fn new(sample_rate: u32, cutoff_hz: f32, high_pass: bool) -> Self {
+    fn new(sample_rate: u32, cutoff_hz: f32) -> Self {
         let dt = 1.0 / sample_rate.max(1) as f32;
         let rc = 1.0 / (2.0 * std::f32::consts::PI * cutoff_hz);
-        let alpha = if high_pass {
-            rc / (rc + dt)
-        } else {
-            dt / (rc + dt)
-        };
-        Self {
-            prev_x: 0.0,
-            prev_y: 0.0,
-            alpha,
-            high_pass,
-        }
+        let alpha = dt / (rc + dt);
+        Self { prev_y: 0.0, alpha }
     }
 
     fn process(&mut self, x: f32) -> f32 {
-        let y = if self.high_pass {
-            self.alpha * (self.prev_y + x - self.prev_x)
-        } else {
-            self.prev_y + self.alpha * (x - self.prev_y)
-        };
-        self.prev_x = x;
+        let y = self.prev_y + self.alpha * (x - self.prev_y);
         self.prev_y = y;
         y
     }
@@ -185,27 +203,23 @@ struct SpectralFluxAccumulator {
 }
 
 pub(super) struct SegmentAnalyzer {
+    sample_rate: u32,
     channels: usize,
     env_acc: EnvelopeAccumulator,
     low_acc: EnvelopeAccumulator,
-    vocal_acc: EnvelopeAccumulator,
     low_filter: FirstOrderFilter,
-    vocal_lowpass: FirstOrderFilter,
-    vocal_highpass: FirstOrderFilter,
     spectral: SpectralFluxAccumulator,
 }
 
 impl SegmentAnalyzer {
     pub(super) fn new(sample_rate: u32, channels: usize) -> Self {
-        let window_size = (sample_rate as usize * WINDOW_SIZE_MS / 1000).max(1);
+        let window_size = envelope_window_size(sample_rate);
         Self {
+            sample_rate,
             channels,
             env_acc: EnvelopeAccumulator::new(window_size),
             low_acc: EnvelopeAccumulator::new(window_size),
-            vocal_acc: EnvelopeAccumulator::new(window_size),
-            low_filter: FirstOrderFilter::new(sample_rate, 150.0, false),
-            vocal_lowpass: FirstOrderFilter::new(sample_rate, 3_000.0, false),
-            vocal_highpass: FirstOrderFilter::new(sample_rate, 200.0, true),
+            low_filter: FirstOrderFilter::new(sample_rate, 150.0),
             spectral: SpectralFluxAccumulator::new(sample_rate),
         }
     }
@@ -218,6 +232,7 @@ impl SegmentAnalyzer {
         cancel: Option<&dyn Fn() -> bool>,
     ) -> Result<(), AutomixError> {
         meter.process(samples)?;
+        segment.sample_rate = self.sample_rate;
 
         for (index, frame) in samples.chunks_exact(self.channels).enumerate() {
             if index % 4_096 == 0 {
@@ -225,21 +240,12 @@ impl SegmentAnalyzer {
             }
             let mono = (frame.iter().sum::<f64>() / self.channels as f64) as f32;
             let low = self.low_filter.process(mono);
-            let vocal = self
-                .vocal_lowpass
-                .process(self.vocal_highpass.process(mono));
 
             if let Some(rms) = self.env_acc.process(mono) {
                 segment.envelope.push(rms);
             }
             if let Some(rms) = self.low_acc.process(low) {
                 segment.low_envelope.push(rms);
-            }
-            if let Some(rms) = self.vocal_acc.process(vocal) {
-                let base = segment.envelope.last().copied().unwrap_or(1.0);
-                segment
-                    .vocal_ratio
-                    .push(if base > 0.0001 { rms / base } else { 0.0 });
             }
             if let Some(flux) = self.spectral.process(mono) {
                 segment.spectral_flux.push(flux);
@@ -253,6 +259,7 @@ impl SegmentAnalyzer {
             }
             segment.frames_analyzed += 1;
         }
+        segment.partial_envelope = self.env_acc.partial_rms();
         Ok(())
     }
 }

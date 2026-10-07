@@ -940,8 +940,73 @@ rounded to 0.01 only at the output boundary.
 `first_beat_pos` is beat phase, not a downbeat. The new nullable
 `beat_grid_stability` measures the fitted grid's residual; cut snapping uses
 individual beats only when stability >=0.80 and confidence >=0.35. Cached v3
-analysis must be recomputed before using those semantics. v4 remains
-unreleased until the coordinated Structure changes are integrated.
+analysis must be recomputed before using those semantics. The coordinated
+S1/S2 Structure implementation is now integrated in this checkout; v4 remains
+unreleased and the music-accuracy acceptance below remains unmet.
+
+The 2026-10-07 S1/S2 contract uses sustained RMS evidence: sound latches after
+at least 100 ms at/above -48 dBFS, silence after at least 2 s at/below -54 dBFS.
+The dead band retains the current state and interrupts an unconfirmed run.
+Fades and outro share the same boundary result, and head/tail windows never
+bridge unanalyzed audio. Counts round up using the actual PCM/bin cadence,
+including 11025 Hz with 220-frame bins. A partial final bin cannot complete a
+duration threshold; its RMS can prevent false EOF silence. Continuous sound
+ending at 4.005 s retains that physical end instead of truncating to 4.000 s.
+At actual EOF, a shorter trailing silent run can end already-latched sound
+when the partial bin is absent or silent; a silent partial alone can also
+establish that final boundary, but cannot establish a new sound run.
+
+Drop evidence requires complete 2 s reference, 4 s breakdown and 2 s re-entry
+windows, with a sustained final 1 s bass dip. Low-band rise, full-band
+retention and bass-share change must agree. Therefore a five-second analysis
+window returns no drop. Alignment uses individual beats only with a usable
+grid, never bars or downbeats. All three vocal-position keys remain present
+as JSON null; the unvalidated vocal filter and its cut-planning subtraction
+have been removed.
+
+The package's 81 library tests include 20 silence state/boundary cases, 15
+drop evidence cases, four physical PCM edge cases and three public
+drop/vocal fixture cases. They cover the 10 ms isolated click, 60 ms dead-band
+dip, threshold inclusivity, complete support windows, every one of the 159
+possible partial-bin lengths at 8 kHz, irregular chunking, cancellation and
+absolute timing. Real frontend fixtures distinguish equal-total-RMS bass
+re-entry from broadband gain recovery; pink noise and vocal-band tones at
+amplitudes 0.01/0.1/0.6 retain null vocal keys. These establish the specified
+synthetic behavior, not musical drop precision/recall or vocal classification.
+Arithmetic stereo-to-mono downmix can still cancel opposite-phase channels;
+an RMS-bin duration rule does not assert uninterrupted activity at every PCM
+sample.
+
+The 12-case whole-result contract retains its fixtures and schema. Relative
+to the pre-task Git version, 24 sound-boundary/derived values change under S1
+and 18 vocal values become null under S2; no other fields change. Relative
+to the resumed S1 draft, only those 18 vocal values change. API snapshots are
+not a substitute for this serialized-semantic check. Detailed before-state,
+field-diff audit and validation receipts are retained in the S1/S2 task's
+`research/resume-2026-10-07/` directory.
+
+The final Windows correctness matrices passed 888 tests with default features,
+854 with Rubato-only, and 836 with all features (SoXR). Each retains the same
+two explicitly ignored core tests: a manual descriptor cost sample and the
+optional native resampler shim fixture. All six pinned-nightly public API
+snapshots ran unchanged. Strict Clippy passed for all three configurations,
+warning-denied rustdoc passed for all-features and Rubato-only, and the
+declared Rust 1.87 workspace checks passed for all three configurations.
+Core's separate minor-policy SemVer checks each reported 196 pass / 58 skip;
+they do not validate AutoMix serialized semantics or musical accuracy.
+The package accuracy quick runner enforced 135 passing gates, with four
+external-corpus metrics explicitly skipped and zero input errors.
+
+The continuation's package performance probe observed Head/Full medians of
+37.8146/75.9546 ms before and 22.8251/44.9733 ms after, using seven trials and
+two warmups per mode, a byte-identical 12 s stereo 48 kHz fixture, and five-second
+windows. Runs were serial and unpinned. The before tree already included S1;
+its direct launch left compiler/target/CPU metadata unknown (CPU is also unknown
+in the after report). A separate later receipt records the original executable
+hash and local toolchain. These are local observations, not a fully matched
+speedup claim or an enforced performance gate. Five-second windows also do not
+measure the full S2 scan. Raw samples and limitations are retained in the
+task's `perf-before.json`, `perf-after.json` and `perf-comparison.json`.
 
 See [the accuracy protocol](../crates/audio-automix/docs/automix-accuracy.md) for the precise confidence
 formula, development fixtures, independent metric goldens and required corpus

@@ -1,12 +1,15 @@
 //! Music evidence, cut placement, and stable result assembly.
 use crate::features::{spectral_hop_size, spectral_observation_offset_sec, AnalysisSegment};
+use crate::silence::{sound_boundaries, SoundBoundaries};
 use crate::tempo::{self, BeatGrid, TempoEstimate};
 use crate::{
     check_cancel, AutomixAnalysis, AutomixAnalysisOptions, AutomixError, ANALYSIS_VERSION,
-    ENERGY_PROFILE_RATE, ENVELOPE_RATE, HEAD_BEAT_TOLERANCE_SEC, MAX_DECLARED_DURATION_SEC,
-    SILENCE_THRESHOLD_DB,
+    ENERGY_PROFILE_RATE, HEAD_BEAT_TOLERANCE_SEC, MAX_DECLARED_DURATION_SEC, SILENCE_THRESHOLD_DB,
 };
 use audio_engine_core::analysis::LoudnessMeter;
+
+#[path = "drop.rs"]
+mod drop;
 
 pub(super) fn finalize_analysis(
     options: &AutomixAnalysisOptions,
@@ -25,14 +28,11 @@ pub(super) fn finalize_analysis(
         head.start_time + head.frames_analyzed as f64 / sample_rate.max(1) as f64
     };
     let tail = (mode.includes_tail() && tail.frames_analyzed > 0).then_some(tail);
-    let (fade_in, fade_out) = detect_silence_at(
-        &head.envelope,
-        tail.map_or(&[], |segment| segment.envelope.as_slice()),
-        tail.map(|segment| segment.start_time),
-        effective_duration,
-        ENVELOPE_RATE,
-        SILENCE_THRESHOLD_DB,
-    );
+    // Silence v2: every fade/cut/mix/outro consumer below reads this one result.
+    let boundaries = sound_boundaries(head, tail, effective_duration, cancel)?;
+    let SoundBoundaries {
+        fade_in, fade_out, ..
+    } = boundaries;
     // Spectral flux is already differentiated. Only the RMS fallback needs
     // conversion to an onset curve, once, before local-mean removal.
     let fallback;
@@ -48,7 +48,8 @@ pub(super) fn finalize_analysis(
             .windows(2)
             .map(|pair| (pair[1] - pair[0]).max(0.0))
             .collect::<Vec<_>>();
-        (fallback.as_slice(), ENVELOPE_RATE, 1.0 / ENVELOPE_RATE)
+        let rate = head.envelope_rate();
+        (fallback.as_slice(), rate, 1.0 / rate)
     };
     let channel_values = (head.spectral_flux_channels[0].len() == head.spectral_flux.len()
         && head.spectral_flux_channels[1].len() == head.spectral_flux.len()
@@ -70,17 +71,10 @@ pub(super) fn finalize_analysis(
     let bpm = tempo.bpm();
     let bpm_confidence = tempo.confidence;
     let first_beat = tempo.grid.map(|grid| reported_first_beat(grid, head));
-    let drop_pos = detect_drop(&head.envelope, ENVELOPE_RATE);
-    let (vocal_in, vocal_out, vocal_last_in) =
-        detect_vocals(head, tail, ENVELOPE_RATE, fade_in, fade_out);
-    let cut_in = calculate_smart_cut_in(tempo, vocal_in.or(drop_pos), fade_in);
+    let drop_pos = drop::detect_drop(head, head.envelope_rate(), tempo, cancel)?;
+    let cut_in = calculate_smart_cut_in(tempo, drop_pos, fade_in);
     let cut_out = if mode.includes_tail() {
-        Some(calculate_smart_cut_out(
-            tempo,
-            vocal_out,
-            fade_out,
-            effective_duration,
-        ))
+        Some(calculate_smart_cut_out(tempo, fade_out, effective_duration))
     } else {
         None
     };
@@ -117,23 +111,16 @@ pub(super) fn finalize_analysis(
         mix_end_pos: mix_end,
         energy_profile,
         drop_pos,
-        vocal_in_pos: vocal_in,
-        vocal_out_pos: tail.and(vocal_out),
-        vocal_last_in_pos: tail.and(vocal_last_in),
+        // No independently validated vocal detector is exposed in schema v4.
+        vocal_in_pos: None,
+        vocal_out_pos: None,
+        vocal_last_in_pos: None,
         outro_energy_level: tail
-            .and_then(|segment| calculate_outro_energy(&segment.envelope, ENVELOPE_RATE)),
+            .zip(boundaries.outro_end_bin)
+            .and_then(|(segment, end)| {
+                outro_energy(&segment.envelope, end, segment.envelope_rate())
+            }),
     })
-}
-
-pub(super) fn detect_silence(
-    head: &[f32],
-    tail: &[f32],
-    duration: f64,
-    rate: f64,
-    db_thresh: f32,
-) -> (f64, f64) {
-    let tail_start = (!tail.is_empty()).then(|| (duration - tail.len() as f64 / rate).max(0.0));
-    detect_silence_at(head, tail, tail_start, duration, rate, db_thresh)
 }
 
 pub(super) fn reported_first_beat(grid: BeatGrid, head: &AnalysisSegment) -> f64 {
@@ -154,102 +141,6 @@ pub(super) fn reported_first_beat(grid: BeatGrid, head: &AnalysisSegment) -> f64
     }
 }
 
-fn detect_silence_at(
-    head: &[f32],
-    tail: &[f32],
-    tail_start: Option<f64>,
-    duration: f64,
-    rate: f64,
-    db_thresh: f32,
-) -> (f64, f64) {
-    let threshold = 10.0_f32.powf(db_thresh / 20.0);
-    let fade_in = head
-        .iter()
-        .position(|value| *value > threshold)
-        .map_or(0.0, |idx| idx as f64 / rate);
-
-    let fade_out = if tail.is_empty() {
-        head.iter()
-            .rposition(|value| *value > threshold)
-            .map_or(duration, |idx| (idx + 1) as f64 / rate)
-            .min(duration)
-    } else {
-        let tail_start = tail_start.unwrap_or(0.0);
-        tail.iter()
-            .rposition(|value| *value > threshold)
-            .map_or(duration, |idx| tail_start + (idx + 1) as f64 / rate)
-            .min(duration)
-    };
-
-    (fade_in, fade_out)
-}
-
-fn detect_drop(envelope: &[f32], rate: f64) -> Option<f64> {
-    let window_len = (2.0 * rate) as usize;
-    let prev_len = (4.0 * rate) as usize;
-    if envelope.len() < window_len + prev_len {
-        return None;
-    }
-
-    let mut best_ratio = 0.0;
-    let mut best_idx = 0usize;
-    for idx in prev_len..envelope.len().saturating_sub(window_len) {
-        let prev_avg = mean(&envelope[idx - prev_len..idx]);
-        let next_avg = mean(&envelope[idx..idx + window_len]);
-        if prev_avg > 0.001 {
-            let ratio = next_avg / prev_avg;
-            if ratio > best_ratio {
-                best_ratio = ratio;
-                best_idx = idx;
-            }
-        }
-    }
-
-    (best_ratio > 1.5).then_some(best_idx as f64 / rate)
-}
-
-fn detect_vocals(
-    head: &AnalysisSegment,
-    tail: Option<&AnalysisSegment>,
-    rate: f64,
-    fade_in: f64,
-    fade_out: f64,
-) -> (Option<f64>, Option<f64>, Option<f64>) {
-    let is_vocal = |ratio: f32, env: f32| ratio > 0.4 && env > 0.02;
-    let vocal_in = head
-        .vocal_ratio
-        .iter()
-        .zip(head.envelope.iter())
-        .enumerate()
-        .skip((fade_in * rate) as usize)
-        .find(|(_, (ratio, env))| is_vocal(**ratio, **env))
-        .map(|(idx, _)| idx as f64 / rate);
-
-    let (scan_env, scan_ratio, base_time) = tail
-        .filter(|segment| !segment.envelope.is_empty())
-        .map_or_else(
-            || (head.envelope.as_slice(), head.vocal_ratio.as_slice(), 0.0),
-            |segment| {
-                (
-                    segment.envelope.as_slice(),
-                    segment.vocal_ratio.as_slice(),
-                    segment.start_time,
-                )
-            },
-        );
-    let limit = ((fade_out - base_time) * rate).max(0.0) as usize;
-    let vocal_out = scan_ratio
-        .iter()
-        .zip(scan_env.iter())
-        .take(limit.min(scan_env.len()))
-        .enumerate()
-        .rfind(|(_, (ratio, env))| is_vocal(**ratio, **env))
-        .map(|(idx, _)| base_time + idx as f64 / rate);
-
-    let vocal_last_in = vocal_out.map(|value| (value - 5.0).max(fade_in));
-    (vocal_in, vocal_out, vocal_last_in)
-}
-
 pub(super) fn calculate_smart_cut_in(
     tempo: TempoEstimate,
     anchor: Option<f64>,
@@ -268,23 +159,11 @@ pub(super) fn calculate_smart_cut_in(
     fade_in
 }
 
-pub(super) fn calculate_smart_cut_out(
-    tempo: TempoEstimate,
-    vocal_out: Option<f64>,
-    fade_out: f64,
-    duration: f64,
-) -> f64 {
-    let search_end = vocal_out.map_or(fade_out, |value| (value + 40.0).min(fade_out));
+pub(super) fn calculate_smart_cut_out(tempo: TempoEstimate, fade_out: f64, duration: f64) -> f64 {
     if let Some(grid) = tempo.usable_grid() {
-        let snapped = snap_to_beat(search_end, grid);
-        if let Some(vocal_out) = vocal_out {
-            if snapped < vocal_out + 2.0 {
-                return snap_to_beat(vocal_out + 4.0, grid).min(duration);
-            }
-        }
-        return snapped.min(duration);
+        return snap_to_beat(fade_out, grid).min(duration);
     }
-    search_end
+    fade_out
 }
 
 pub(super) fn snap_to_beat(time: f64, grid: BeatGrid) -> f64 {
@@ -308,7 +187,7 @@ pub(super) fn build_energy_profile(
         &mut profile,
         &head.envelope,
         head.start_time,
-        ENVELOPE_RATE,
+        head.envelope_rate(),
         profile_rate,
     );
     if let Some(tail) = tail {
@@ -316,7 +195,7 @@ pub(super) fn build_energy_profile(
             &mut profile,
             &tail.envelope,
             tail.start_time,
-            ENVELOPE_RATE,
+            tail.envelope_rate(),
             profile_rate,
         );
     }
@@ -338,18 +217,9 @@ fn fill_energy_profile(
     }
 }
 
-fn calculate_outro_energy(tail: &[f32], rate: f64) -> Option<f64> {
-    if tail.is_empty() {
-        return None;
-    }
-    let (_, local_out) = detect_silence(
-        tail,
-        &[],
-        tail.len() as f64 / rate,
-        rate,
-        SILENCE_THRESHOLD_DB,
-    );
-    let end = (local_out * rate) as usize;
+/// RMS level of the up-to-10 s of tail envelope that ends at the shared
+/// Silence v2 boundary bin `end` (exclusive), in dBFS; -70 for digital silence.
+pub(super) fn outro_energy(tail: &[f32], end: usize, rate: f64) -> Option<f64> {
     let start = end.saturating_sub((10.0 * rate) as usize);
     if end <= start || end > tail.len() {
         return None;
@@ -364,14 +234,6 @@ fn calculate_outro_energy(tail: &[f32], rate: f64) -> Option<f64> {
 
 fn finite_measurement(value: f64) -> Option<f64> {
     value.is_finite().then_some(value)
-}
-
-fn mean(values: &[f32]) -> f32 {
-    if values.is_empty() {
-        0.0
-    } else {
-        values.iter().sum::<f32>() / values.len() as f32
-    }
 }
 
 fn mean_square(values: &[f32]) -> f32 {

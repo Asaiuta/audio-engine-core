@@ -1,5 +1,9 @@
-//! Whole-result migration oracle captured from d2816f2 before package extraction.
+//! Whole-result contract first captured from d2816f2 before package extraction.
 //! Numeric tolerance admits platform floating-point noise, never missing fields or null changes.
+//! Structure S1/S2 intentionally re-baselines boundary/cut values and unavailable vocals; the
+//! `source_revision` key still names the fixture/contract origin. Regenerate only for a
+//! reviewed semantic change: `UPDATE_AUTOMIX_CONTRACT=1 cargo test -p audio-automix --test
+//! automix_contract`, then review every changed value in the diff.
 
 #[path = "../benches/support/automix_accuracy/corpus.rs"]
 pub mod corpus;
@@ -78,6 +82,12 @@ fn complete_results_match_the_pre_extraction_contract() {
     let actual =
         json!({"source_revision": "d2816f271d03f2464f01e5a308360f3d02b1ead2", "cases": cases});
     let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/automix-contract.json");
+    if std::env::var_os("UPDATE_AUTOMIX_CONTRACT").is_some() {
+        let mut text = serde_json::to_string_pretty(&actual).unwrap();
+        text.push('\n');
+        fs::write(&golden, text).unwrap();
+        return;
+    }
     let expected: Value = serde_json::from_slice(&fs::read(golden).unwrap()).unwrap();
     compare(&actual, &expected, "contract");
 }

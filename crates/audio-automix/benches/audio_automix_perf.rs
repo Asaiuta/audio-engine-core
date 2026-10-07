@@ -14,6 +14,7 @@ fn main() -> Result<(), String> {
     let mut out = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--bench" => {} // Cargo supplies this even for harness=false.
             "--quick" => trials = 7,
             "--out" => out = Some(PathBuf::from(args.next().ok_or("--out needs a path")?)),
             "--help" => {

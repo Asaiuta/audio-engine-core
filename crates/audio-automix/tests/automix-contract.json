@@ -66,14 +66,14 @@
         "fade_out_pos": 4.0,
         "first_beat_pos": 0.009698467173465737,
         "loudness": -33.65682163555251,
-        "mix_center_pos": 3.78,
+        "mix_center_pos": 4.0,
         "mix_end_pos": 4.0,
         "mix_start_pos": 0.0,
         "mode": "head",
         "outro_energy_level": null,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.0,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -141,7 +141,7 @@
           0.0
         ],
         "fade_in_pos": 0.0,
-        "fade_out_pos": 3.78,
+        "fade_out_pos": 4.0,
         "first_beat_pos": 0.009698467173465737,
         "loudness": -33.65682163555251,
         "mix_center_pos": 4.0,
@@ -151,7 +151,7 @@
         "outro_energy_level": null,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.0,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -172,7 +172,7 @@
         "beat_grid_stability": 0.9967358078067519,
         "bpm": 127.3,
         "bpm_confidence": 0.9051406553390087,
-        "cut_in_pos": 0.2,
+        "cut_in_pos": 0.0,
         "cut_out_pos": null,
         "drop_pos": null,
         "duration": 10.0,
@@ -278,18 +278,18 @@
           0.0,
           0.0
         ],
-        "fade_in_pos": 0.2,
+        "fade_in_pos": 0.0,
         "fade_out_pos": 10.0,
         "first_beat_pos": 0.213071841235786,
         "loudness": -31.09873678357073,
-        "mix_center_pos": 4.94,
+        "mix_center_pos": 10.0,
         "mix_end_pos": 10.0,
-        "mix_start_pos": 0.0,
+        "mix_start_pos": 2.4587588373919873,
         "mode": "head",
         "outro_energy_level": null,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.2,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -310,7 +310,7 @@
         "beat_grid_stability": 0.9967358078067519,
         "bpm": 127.3,
         "bpm_confidence": 0.9051406553390087,
-        "cut_in_pos": 0.2,
+        "cut_in_pos": 0.0,
         "cut_out_pos": 10.0,
         "drop_pos": null,
         "duration": 10.0,
@@ -416,20 +416,20 @@
           0.0,
           0.0
         ],
-        "fade_in_pos": 0.2,
-        "fade_out_pos": 9.66,
+        "fade_in_pos": 0.0,
+        "fade_out_pos": 10.0,
         "first_beat_pos": 0.213071841235786,
         "loudness": -31.325605328121444,
         "mix_center_pos": 10.0,
         "mix_end_pos": 10.0,
         "mix_start_pos": 2.4587588373919873,
         "mode": "full",
-        "outro_energy_level": -37.6435432434082,
+        "outro_energy_level": -37.94938278198242,
         "true_peak_dbtp": -1.3978335039203726,
         "version": 4,
-        "vocal_in_pos": 0.2,
-        "vocal_last_in_pos": 4.640000000000001,
-        "vocal_out_pos": 9.64
+        "vocal_in_pos": null,
+        "vocal_last_in_pos": null,
+        "vocal_out_pos": null
       }
     },
     {
@@ -588,14 +588,14 @@
         "fade_out_pos": 13.0,
         "first_beat_pos": 0.01092717625884023,
         "loudness": -31.17305575031598,
-        "mix_center_pos": 4.96,
-        "mix_end_pos": 12.47820816038844,
-        "mix_start_pos": 0.0,
+        "mix_center_pos": 13.0,
+        "mix_end_pos": 13.0,
+        "mix_start_pos": 5.481791839611559,
         "mode": "head",
         "outro_energy_level": null,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.0,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -753,19 +753,19 @@
           0.010401483625173569
         ],
         "fade_in_pos": 0.0,
-        "fade_out_pos": 12.98,
+        "fade_out_pos": 13.0,
         "first_beat_pos": 0.01092717625884023,
         "loudness": -31.112372420420165,
         "mix_center_pos": 13.0,
         "mix_end_pos": 13.0,
         "mix_start_pos": 5.481791839611559,
         "mode": "full",
-        "outro_energy_level": -37.04893493652344,
+        "outro_energy_level": -37.066341400146484,
         "true_peak_dbtp": -1.8675347918052256,
         "version": 4,
-        "vocal_in_pos": 0.0,
-        "vocal_last_in_pos": 7.719999999999999,
-        "vocal_out_pos": 12.719999999999999
+        "vocal_in_pos": null,
+        "vocal_last_in_pos": null,
+        "vocal_out_pos": null
       }
     },
     {
@@ -1267,7 +1267,7 @@
         "outro_energy_level": null,
         "true_peak_dbtp": -7.845594288980646,
         "version": 4,
-        "vocal_in_pos": 0.0,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -1435,9 +1435,9 @@
         "outro_energy_level": -17.498523712158203,
         "true_peak_dbtp": -7.845594288980646,
         "version": 4,
-        "vocal_in_pos": 0.0,
-        "vocal_last_in_pos": 7.98,
-        "vocal_out_pos": 12.98
+        "vocal_in_pos": null,
+        "vocal_last_in_pos": null,
+        "vocal_out_pos": null
       }
     },
     {
@@ -1456,7 +1456,7 @@
         "beat_grid_stability": 0.8862107363075745,
         "bpm": 131.51,
         "bpm_confidence": 0.7923212952666302,
-        "cut_in_pos": 0.2,
+        "cut_in_pos": 0.0,
         "cut_out_pos": null,
         "drop_pos": null,
         "duration": 13.0,
@@ -1592,18 +1592,18 @@
           0.0,
           0.0
         ],
-        "fade_in_pos": 0.2,
+        "fade_in_pos": 0.0,
         "fade_out_pos": 13.0,
         "first_beat_pos": 0.23543079670495107,
         "loudness": -31.105821574165876,
-        "mix_center_pos": 4.8,
-        "mix_end_pos": 12.3,
-        "mix_start_pos": 0.0,
+        "mix_center_pos": 13.0,
+        "mix_end_pos": 13.0,
+        "mix_start_pos": 5.5,
         "mode": "head",
         "outro_energy_level": null,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.2,
+        "vocal_in_pos": null,
         "vocal_last_in_pos": null,
         "vocal_out_pos": null
       }
@@ -1624,7 +1624,7 @@
         "beat_grid_stability": 0.8862107363075745,
         "bpm": 131.51,
         "bpm_confidence": 0.7923212952666302,
-        "cut_in_pos": 0.2,
+        "cut_in_pos": 0.0,
         "cut_out_pos": 13.0,
         "drop_pos": null,
         "duration": 13.0,
@@ -1760,20 +1760,20 @@
           0.0,
           0.0
         ],
-        "fade_in_pos": 0.2,
-        "fade_out_pos": 12.76,
+        "fade_in_pos": 0.0,
+        "fade_out_pos": 13.0,
         "first_beat_pos": 0.23543079670495107,
         "loudness": -31.33687759742984,
         "mix_center_pos": 13.0,
         "mix_end_pos": 13.0,
         "mix_start_pos": 5.5,
         "mode": "full",
-        "outro_energy_level": -36.758872985839844,
+        "outro_energy_level": -36.97249984741211,
         "true_peak_dbtp": -2.1711821713824353,
         "version": 4,
-        "vocal_in_pos": 0.2,
-        "vocal_last_in_pos": 7.74,
-        "vocal_out_pos": 12.74
+        "vocal_in_pos": null,
+        "vocal_last_in_pos": null,
+        "vocal_out_pos": null
       }
     }
   ],

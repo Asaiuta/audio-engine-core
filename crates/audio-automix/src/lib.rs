@@ -19,6 +19,7 @@
 mod decode;
 mod features;
 mod placement;
+mod silence;
 mod tempo;
 
 use audio_engine_core::decoder::DecoderError;
@@ -27,8 +28,9 @@ pub use decode::{analyze_automix, analyze_automix_with_cancel};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-// Unreleased v4: Structure's agreed semantics will join this schema before
-// release. A commit is not a schema release; cached v3 results need recomputing.
+// Unreleased v4 includes sustained silence, corroborated drop evidence and
+// unavailable vocal positions. A commit is not a schema release;
+// cached v3 results need recomputing.
 const ANALYSIS_VERSION: u32 = 4;
 const DEFAULT_MAX_ANALYZE_TIME_SEC: f64 = 60.0;
 const MIN_ANALYZE_TIME_SEC: f64 = 5.0;
@@ -46,6 +48,8 @@ const MAX_DECLARED_DURATION_SEC: f64 = 24.0 * 60.0 * 60.0;
 /// Slots per second in the whole-track energy profile.
 const ENERGY_PROFILE_RATE: f64 = 10.0;
 const WINDOW_SIZE_MS: usize = 20;
+// Single-window energy test for the head-boundary first-beat report only.
+// Fade/cut/mix/outro boundaries use the Silence v2 latch levels in `silence`.
 const SILENCE_THRESHOLD_DB: f32 = -48.0;
 const HEAD_BEAT_TOLERANCE_SEC: f64 = 0.010;
 
@@ -125,13 +129,39 @@ pub struct AutomixAnalysis {
     pub loudness: Option<f64>,
     /// True-peak level in dBTP, when measurable.
     pub true_peak_dbtp: Option<f64>,
-    /// Recommended fade-in position in seconds.
+    /// Start of the first sustained sound in the head window, in absolute
+    /// source seconds.
+    ///
+    /// Sustained sound means the nominal 20 ms RMS envelope stays at or above -48 dBFS
+    /// for at least 100 ms of complete bins (5 bins at exactly 50 Hz). Counts
+    /// and times use the actual integer PCM window length. A brief click or count-in tick
+    /// does not qualify. The value is the start of that qualifying run, not
+    /// the later time at which it was confirmed. Without sustained sound in the
+    /// head, this is the head origin (0).
     pub fade_in_pos: f64,
-    /// Recommended fade-out position in seconds.
+    /// End of the last sustained sound, in absolute source seconds, capped at
+    /// [`Self::duration`].
+    ///
+    /// [`AutomixAnalysisMode::Full`] measures the tail window, or the head
+    /// when the whole track fits in it. Once sound is latched, silence means
+    /// the envelope stays at or below -54 dBFS for at least 2 s of complete bins
+    /// (100 bins at exactly 50 Hz).
+    /// The value is the start of that silent run. Shorter dips, and levels in
+    /// the dead band between -54 and -48 dBFS, do not end the sound. At the
+    /// end of the input, a shorter trailing silent run is accepted only if the
+    /// remaining partial bin is also silent. Partial bins never complete a
+    /// duration threshold. With sound
+    /// still latched at the window end, this is the window end. A window
+    /// without sustained sound reports [`Self::duration`]. The tail is never
+    /// joined to the head, so a sound end inside the unanalyzed middle
+    /// interval is not located. [`AutomixAnalysisMode::Head`] reports
+    /// [`Self::duration`].
     pub fade_out_pos: f64,
-    /// Beat-aligned cut-in position in seconds, when found.
+    /// Beat-aligned cut-in position in seconds, when found. It is seeded by
+    /// [`Self::fade_in_pos`] and is never earlier than it.
     pub cut_in_pos: Option<f64>,
-    /// Beat-aligned cut-out position in seconds, when found.
+    /// Beat-aligned cut-out position in seconds, when found. It is seeded by
+    /// the same boundary as [`Self::fade_out_pos`].
     pub cut_out_pos: Option<f64>,
     /// Center of the mixable section in seconds.
     pub mix_center_pos: f64,
@@ -144,15 +174,29 @@ pub struct AutomixAnalysis {
     /// 24-hour `MAX_DECLARED_DURATION_SEC` cap, so a file declaring an absurd
     /// duration cannot size this vector.
     pub energy_profile: Vec<f64>,
-    /// Drop (beat-matched break) position in seconds, when found.
+    /// Corroborated bass breakdown/re-entry candidate in absolute source seconds.
+    ///
+    /// Requires complete head-envelope support: 2 s of earlier bass, a 4 s
+    /// breakdown with a sustained final 1 s bass dip, and 2 s of re-entry.
+    /// Low-band energy must recover with full-band retention and increased
+    /// bass share; equal full-band RMS can qualify, uniform gain changes cannot.
+    /// Insufficient or disagreeing evidence returns `None`, including windows
+    /// shorter than 8 s. A usable grid snaps to an individual beat, never a bar.
+    /// This is a coarse synthetic-tested rule, not validated musical accuracy.
     pub drop_pos: Option<f64>,
-    /// First vocal entry position in seconds, when detected.
+    /// Unavailable: no independently validated vocal detector is exposed.
+    /// Retained as JSON null; never used to plan cuts.
     pub vocal_in_pos: Option<f64>,
-    /// Final vocal exit position in seconds, when detected.
+    /// Unavailable, serialized as JSON null and never used to plan cuts.
     pub vocal_out_pos: Option<f64>,
-    /// Last vocal entry position before the outro in seconds, when detected.
+    /// Unavailable, serialized as JSON null. No constant-offset estimate is made.
     pub vocal_last_in_pos: Option<f64>,
-    /// RMS energy of the outro window, when measured.
+    /// RMS level in dBFS of up to 10 s of complete tail-envelope bins ending
+    /// at or before the fade-out boundary (the tail end when it has no sustained sound).
+    /// An unfinished final bin is excluded from this measurement. Digital
+    /// silence reports -70. `None` when no tail window was analyzed.
+    ///
+    /// It uses the same sustained-silence boundary as [`Self::fade_out_pos`].
     pub outro_energy_level: Option<f64>,
 }
 
