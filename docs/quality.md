@@ -1287,19 +1287,70 @@ comparisons, and offline-render measurements.
 
 ### Resampler performance & Pareto updates
 
-#### 2026-10-10 comparison repair
+#### 2026-10-10 fused FFT and CPU/memory results
+
+The owned Rust backend now fuses filter multiplication with inverse-real-FFT
+preparation, retaining coefficients, FFT sizes, frequency mapping, normalization
+and stream scheduling. On the Intel Core i5-12500H Windows host, paired
+512-frame measurements reduced wall time by **11.8% / 13.5% / 3.2% / 5.1%**
+for stereo 44.1→48 / 48→44.1 / 44.1→96 / 96→44.1 kHz, and **5.4%** for
+six-channel 44.1→48 kHz. These gains use a paired before/after schedule, not the
+older v7 timing baseline.
+
+An independent RealFFT comparison covered 15 geometries and 151,812 scalar
+outputs with maximum absolute error 0; the existing resampler suite passed
+59 tests. The quality grids below were not rerendered for this fusion.
+**Future algorithms may differ sample by sample from Rubato, but objective
+quality must not regress.**
+
+The new resource report covers **57 configurations and 248 steady trials**.
+Selected stereo 44.1→48 kHz results:
+
+| Recipe | ns/input sample | One-core CPU budget | Rust retained / peak KiB | Private-commit increment KiB/instance |
+| --- | ---: | ---: | ---: | ---: |
+| Owned Rust | 6.615 | 0.0584% | 106.62 / 106.62 | 117.81 |
+| Raw Rubato, FFT 1024/2 | 7.079 | 0.0623% | 250.96 / 250.96 | 280.12 |
+| Project SoXR, High/Linear | 6.892 | 0.0614% | 0.02 / 0.02 (Rust only) | 284.75 |
+| Raw libsoxr, HQ/Bits20 | 7.045 | 0.0619% | not captured (native) | 284.75 |
+| FFmpeg SWR, default filter | 4.640 | 0.0405% | not captured (native) | 2245.38 |
+
+CPU budget means the fraction of one logical CPU needed for real-time audio.
+Memory increments average 32 simultaneously live, warmed instances and are
+page-granular process measurements. The caller output capacity is
+`ceil(512 * output_rate / input_rate) + 32,768` frames; native workspaces may
+scale with it. These values do not rank minimum possible native memory usage.
+The report also records thread user/kernel time, cycles, working set, peak
+working set, private commit, page faults and lifecycle allocation counts.
+
+Owned Rust has zero measured process/finish/reset heap operations. The seven
+native-shim adapters have temporary Rust-side allocations, and Rust counters
+do not capture C/C++ allocations. Exact native heap/peak payload, hours-long
+memory trends, other CPUs/platforms, the full parameter/amplitude matrix and
+device latency remain uncovered. One of four longer FFmpeg 48→44.1 resource
+trials failed the exact-duration drain check; its steady CPU data is retained,
+but it is not a successful complete-stream check.
+
+Fusion closes part of the CPU gap without shortening the filter. FFmpeg uses
+short SIMD polyphase filters at its selected defaults, with a different
+bandwidth/rejection tradeoff; matching that speed at the owned response remains
+unproven. The main [resampler comparison](resampler-comparison.md) contains the
+paired improvements, full engine table, quality results and FFmpeg analysis.
+See the [resource report](resampler-resources.md) and
+[raw data](data/resampler-resources-2026-10-10.json) for all resource measurements.
+
+#### Historical 2026-10-10 pre-fusion comparison repair
 
 The v7 comparison corrects trial-to-engine attribution and replaces the old
 two-tone quality summary with explicit response/alias/image/channel grids.
 Two sequential feature builds contain 100 rate/channel/engine cases, 1,500
 identified throughput trials and 400,000 individually timed process calls.
-All measured cases pass complete input/output/drain and finite-probe checks;
+All measured v7 cases pass complete input/output/drain and finite-probe checks;
 the independent raw-record reconstruction passes 30,803 checks. Cross-engine
 quality and speed remain report-only.
 
-At stereo High/Linear and 512 input frames, owned Rust measures 7.559 / 7.029
-ns/input-sample for 44.1→48 / 48→44.1 kHz. The selected FFmpeg defaults measure
-4.521 / 4.401 in the same run, but the 23 kHz reverse-alias probe is −19.93 dB
+Before fusion, at stereo High/Linear and 512 input frames, owned Rust measured
+7.559 / 7.029 ns/input-sample for 44.1→48 / 48→44.1 kHz. The selected FFmpeg defaults measured
+4.521 / 4.401 in the same run, but the 23 kHz reverse-alias probe was −19.93 dB
 for FFmpeg versus −185.34 dB for owned Rust. This is a quality/cost difference,
 not equal-quality performance acceptance. The owned and raw Rubato quality
 grids match exactly in the five measured cases.
@@ -1335,7 +1386,7 @@ bulk channel copies, split FIFO/caller input, partial-zero FFT drain, and direct
 terminal truncation. In the final-source public heavy confirmation, all 16
 canonical rate/API/caller medians improved 12.35% to 36.83% against the matched
 v12 A2 report; the least favorable p95 delta was +2.67%. A same-run strict
-1024/2 control now measures project/raw medians of 8.182/8.592 ns/input sample
+1024/2 control measured project/raw medians of 8.182/8.592 ns/input sample
 forward and 7.025/6.908 reverse. The project is 4.77% faster forward and 1.70%
 slower reverse; by the 2% decision rule that is a forward win and reverse tie.
 Project/raw p95 is 13.696/14.226 forward and 8.336/8.599 reverse, about 3% to
@@ -1345,12 +1396,11 @@ Windows plan made several rows fail the v12 threshold before the immediate
 confirmation passed. Raw trials and all reports remain under the Pareto task's
 `research/` directory.
 
-The detailed 11-engine throughput, lifecycle, latency, and objective-response
-tables are in [resampler-comparison.md](resampler-comparison.md). They are a
-Pareto comparison rather than an equal-quality ranking: for example, FFmpeg
-and WebRTC are faster in some rows, but their selected recipes measured only
-−19.93 dB and −42.87 dB reverse alias attenuation versus −232.81 dB for the
-Rubato route.
+The July quality results use their original probe. For updated multi-engine
+throughput, lifecycle, latency and repaired objective-response measurements,
+see [resampler-comparison.md](resampler-comparison.md). The selected recipes
+have different quality/cost targets; their speed ordering does not establish
+equal-quality performance.
 
 #### Half-band and FFT routing comparisons
 

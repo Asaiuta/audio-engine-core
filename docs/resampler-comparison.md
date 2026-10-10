@@ -1,25 +1,118 @@
 # Resampler quality and performance comparison
 
-The later [CPU/memory report and fused-FFT optimization](resampler-resources.md)
-adds 57 resource configurations and a same-filter production optimization. The
-quality evidence and **pre-fusion throughput baseline** below retain their v7
-scope; use the linked report for the latest before/after measurements.
+The latest update (2026-10-10) fuses filter multiplication with inverse-real-FFT
+preparation in the owned Rust backend. Paired measurements reduce steady
+processing time by **3.2–13.5%** across five common configurations while retaining
+the filter. CPU and memory measurements now cover **57 configurations and 248
+steady trials**. Coverage remains incomplete, and matching FFmpeg's default
+throughput at the owned filter's quality remains unproven.
 
 The current default `rubato` feature selects the owned `rust` backend. Upstream
 Rubato 4.0.0 is an optional control enabled by `raw-rubato`; production code does
 not use it. Enabling `soxr` selects SoXR instead. The runner has **11 engine IDs**;
 `audio_engine_core` reports the backend selected by each compiled build.
 
-This document uses the repaired **v7 measurements from 2026-10-10**. The earlier
-October v6 summaries mixed trial records between engines: 96 of 100 rows and
+This document combines the latest fusion/resource results with the repaired
+**v7 quality, latency and pre-fusion throughput measurements from 2026-10-10**.
+The earlier October v6 summaries mixed trial records between engines: 96 of 100 rows and
 672 of 1,500 trials were affected. Those reports and the prior documents remain
 retained as historical evidence and must not serve as current timing baselines.
 The independent R5 complete-waveform and `l5_retest_v1` experiments used different
 drivers and retain their original scope; see [replacement evidence](resampler-replacement.md).
 
-## Current evidence and its limits
+## Latest implementation and resource results
 
-The two sequential runs exited 0 and retained source, executable, native-library,
+Measured on Intel Core i5-12500H (16 logical processors), Windows/x86_64,
+Rust 1.93.1. The fused pass uses disjoint contiguous slices and skips known-zero
+bins. Coefficients, FFT sizes, retained frequency bins, normalization and stream
+scheduling are unchanged.
+
+Values below are median **nanoseconds per input scalar sample**; stereo has two
+samples per frame. Each arm has eight trials of at least 250 ms in one ABBA or
+BAAB schedule, using 512-frame caller blocks on logical processor 2. The gains
+come from these paired measurements, not from comparison with the older v7 table.
+
+| Conversion | Before fusion | After fusion | Wall-time reduction | Cycle reduction |
+| --- | ---: | ---: | ---: | ---: |
+| 44.1→48 kHz, stereo | 7.503 | 6.615 | 11.8% | 10.8% |
+| 48→44.1 kHz, stereo | 7.110 | 6.151 | 13.5% | 14.5% |
+| 44.1→96 kHz, stereo | 10.858 | 10.511 | 3.2% | 3.2% |
+| 96→44.1 kHz, stereo | 4.684 | 4.447 | 5.1% | 5.2% |
+| 44.1→48 kHz, 6ch | 7.923 | 7.493 | 5.4% | 5.9% |
+
+An independent RealFFT comparison covered 15 odd/even and up/down geometries,
+including all High/UltraHigh common-rate sizes: **151,812 scalar outputs,
+maximum absolute error 0**. The existing resampler suite passed 59 tests. The
+v7 quality grids below were not rerendered; this numerical comparison supports
+the local fusion change. Future algorithms may differ sample by sample from
+Rubato, provided objective quality does not regress.
+
+The first indexed-loop candidate regressed in two cases and remains recorded.
+The table reports the subsequent implementation revision, which removed those
+indexed loops. These are machine-specific observations. Retained Rust heap
+decreased by only 48 bytes per instance; the measured benefit is CPU time.
+
+### CPU and memory
+
+The resource report contains 57 current recipe/rate/channel configurations and
+248 steady trials. It records thread user/kernel CPU time, cycles, wall time,
+Rust retained/peak heap and allocation calls, and process memory snapshots.
+The following table selects **stereo 44.1→48 kHz**. Full rate/channel results,
+raw trials and executable identities are in the
+[resource report](resampler-resources.md) and
+[committed JSON](data/resampler-resources-2026-10-10.json).
+
+CPU budget is the fraction of **one logical CPU needed to keep up with real-time
+audio**. It is not whole-machine utilization. CPU-time counters are quantized;
+the final decimal should not be treated as exact.
+
+| Recipe | ns/sample | cycles/sample | One-core CPU budget | Rust retained / peak KiB | Private-commit increment KiB/instance |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Owned Rust | 6.615 | 20.38 | 0.0584% | 106.62 / 106.62 | 117.81 |
+| Raw Rubato, FFT 1024/2 | 7.079 | 21.83 | 0.0623% | 250.96 / 250.96 | 280.12 |
+| Project SoXR, High/Linear | 6.892 | 21.27 | 0.0614% | 0.02 / 0.02 (Rust only) | 284.75 |
+| Raw libsoxr, HQ/Bits20 | 7.045 | 21.72 | 0.0619% | not captured (native) | 284.75 |
+| FFmpeg SWR, default filter | 4.640 | 14.13 | 0.0405% | not captured (native) | 2245.38 |
+| libsamplerate, SINC_BEST | 281.325 | 865.56 | 2.4971% | not captured (native) | 838.75 |
+| SpeexDSP, quality 10 | 242.441 | 746.91 | 2.1029% | not captured (native) | 46.25 |
+| r8brain 7.1 | 17.279 | 53.28 | 0.1530% | not captured (native) | 245.12 |
+| zita-resampler 1.11.2 | 24.232 | 74.55 | 0.2103% | not captured (native) | 17.75 |
+| WebRTC v1.3 shim | 6.255 | 19.29 | 0.0553% | not captured (native) | 52.25 |
+| WDL 96b770f shim | 35.764 | 110.33 | 0.3213% | not captured (native) | 53.25 |
+| libresample 0.1.5 shim | 25.493 | 78.52 | 0.2352% | not captured (native) | 1291.00 |
+
+Private-commit increments are measured across 32 simultaneously live, warmed
+instances and divided by 32. Output capacity is
+`ceil(512 * output_rate / input_rate) + 32,768` frames. Native workspaces may
+scale with this capacity, so these page-granular process increments do not rank
+the libraries' minimum possible memory use. The report also retains absolute
+working set, peak working set, private commit, peak pagefile usage and page
+faults before/after construction, warmup and drop. Allocator caching can retain
+pages after instances are dropped.
+
+Owned Rust has **zero measured process/finish/reset heap operations**. The seven
+native-shim adapters do have temporary Rust-side allocations during those calls;
+their counts include adapter overhead. Rust counters do not intercept native
+C/C++ `malloc`/`free` and cannot establish zero native allocations.
+
+One of four longer FFmpeg 48→44.1 resource trials hit
+`FFmpeg drain ended before the exact target duration`. Its steady CPU results
+are retained, but complete output is unknown and it is not a successful
+complete-stream check. The initial failed child is also retained. Other current
+resource rows completed their duration checks.
+
+### Coverage verdict
+
+CPU and per-instance/process memory reporting are now implemented and measured.
+Quality, startup and individual-call latency observations retain the v7 scope
+below. Remaining gaps include exact native allocator accounting and peak
+payload, hours-long memory trends, other CPUs/platforms, the complete
+rate/quality/phase/channel/buffer/amplitude matrix and device latency. Finite
+tone grids do not establish continuous-band rejection or perceptual transparency.
+
+## Pre-fusion v7 quality and latency evidence
+
+The two sequential v7 runs exited 0 and retained source, executable, native-library,
 command and scheduling identities. An independent reconstruction made 30,803
 integrity checks against the raw records and found no errors.
 
@@ -38,7 +131,7 @@ integrity checks against the raw records and found no errors.
 Raw libsoxr requires the `soxr` feature and is explicitly unavailable in the
 Rust build. Raw libsoxr, FFmpeg and WebRTC adapters support the four stereo cases;
 their current adapters do not support the six-channel case. This is adapter
-coverage, not a general upstream-library limitation. Every measured case passes
+coverage, not a general upstream-library limitation. Every measured v7 case passes
 complete-work and finite-output checks. Cross-engine quality and speed are
 **report-only**, not an assertion that different filters have equal quality.
 
@@ -49,10 +142,11 @@ continuous-band envelope, perceptual transparency or independent analyzer
 accuracy. Other package probes and R5 research provide separately scoped
 coverage; device/driver/DAC latency belongs to the consuming application.
 
-## Throughput
+## Pre-fusion v7 throughput
 
-Cells below are median **nanoseconds per input scalar sample**. Stereo has two
-samples per frame. Each trial uses 32 warmup buffers followed by 4,000 timed
+This table predates the fusion above. Cells are median **nanoseconds per input
+scalar sample**. Stereo has two samples per frame. Each trial uses 32 warmup
+buffers followed by 4,000 timed
 process calls; each case has 15 alternating forward/reverse trials. All factories
 use the same maximum advertised output capacity within a rate/channel case.
 Input preparation, setup, reset, quality analysis and drain are outside steady
@@ -81,7 +175,7 @@ descriptive, not a paired optimization acceptance. Native f32 lanes
 explicit in the raw report and must not be treated as the same precision recipe.
 
 The owned Rust and same-geometry raw Rubato quality grids are exactly equal in
-all five cases. Their current common-rate throughput is close; the historical
+all five v7 cases. Their pre-fusion common-rate throughput was close; the historical
 R5 population speedup is a different measurement over 828 configurations.
 
 The runs pin logical processor 2 and record affinity mask 4, process priority
@@ -109,7 +203,7 @@ The owned High path instead uses real FFT pairs of lengths
 this is not an interpreted-code or missing-vectorization comparison. The long
 filter and narrow transition require substantially different work.
 
-The quality difference is visible in the new measurements:
+The quality difference is visible in the v7 measurements:
 
 | 48→44.1 kHz metric | Owned Rust High | FFmpeg selected default |
 | --- | ---: | ---: |
@@ -127,6 +221,16 @@ establish speed at the project's current response.
 
 ## Can the owned backend reach that speed without losing quality?
 
+The fusion improves all five measured common configurations while retaining
+the owned filter. Matching the selected FFmpeg default across all four stereo
+conversions at that response remains unproven. For example, the latest resource
+rows measure 6.615 ns/sample for owned Rust and 4.640 for FFmpeg at 44.1→48 kHz.
+Cross-engine timings describe the selected recipes, not equal-quality acceptance.
+
+The following gaps are **historical, calculated from pre-fusion v7**. Use the
+paired table above for the fusion's actual gains; these percentages are not the
+remaining reductions needed by the optimized implementation.
+
 | Stereo conversion | Owned Rust / FFmpeg time | Reduction needed to match FFmpeg |
 | --- | ---: | ---: |
 | 44k1 → 48k | 1.672× | 40.2% |
@@ -134,14 +238,14 @@ establish speed at the project's current response.
 | 44k1 → 96k | 1.193× | 16.2% |
 | 96k → 44k1 | 1.140× | 12.3% |
 
-The current implementation has not demonstrated that result across all four
-conversions. SoXR High already approaches or beats the selected FFmpeg recipe
-in two cases, but its bandwidth and residuals differ from owned Rust High;
+In the v7 table, SoXR High approaches or beats the selected FFmpeg recipe in two
+cases, but its bandwidth and residuals differ from owned Rust High;
 selecting it is not proof of quality nonregression against the owned backend.
 
-Windows CPU sampling was rejected by local profiling policy (`0xc5585011`). A
-separate, sealed source-instrumented copy therefore measured the unchanged FFT
-path for four seconds per stereo case, outside all throughput trials:
+Before the fusion, Windows CPU sampling was rejected by local profiling policy
+(`0xc5585011`). A separate, sealed source-instrumented copy therefore measured
+the pre-fusion FFT path for four seconds per stereo case, outside all throughput
+trials:
 
 | Work inside process | Fraction of instrumented process time |
 | --- | ---: |
@@ -151,22 +255,22 @@ path for four seconds per stereo case, outside all throughput trials:
 | Other work, including instrumentation overhead | 7.9–11.0% |
 
 The timings include timer overhead; 10,000 timer-read observations per case are
-retained. They diagnose costs and are not optimization acceptance results.
-Removing a pending-output copy alone cannot close the two largest gaps. A major
-improvement needs faster FFT work, a different block/filter architecture, or both.
-The data does not prove this impossible, and it does not establish an eligible
-new implementation. The production filter and geometry were retained in this
-measurement repair.
+retained. These are pre-fusion diagnostics, not a profile of the optimized
+implementation. The fused pass now combines spectrum multiplication and inverse
+FFT preparation, reducing work while retaining the production filter and
+geometry. No post-fusion stage profile was collected. Faster FFT work or a
+different block/filter architecture remain possible ways to close the remaining
+gap; the data does not establish their achievable speed at the owned quality.
 
-Future replacements may differ sample by sample from Rubato. Their own identity
-must freeze paired passband error, usable bandwidth, alias/image response,
-phase/timeline, full-stream transients and numerical resolution against the
-current implementation before scoring. A quality win at one frequency, a broad
-audibility threshold, or a faster default preset cannot replace nonregression
+Future replacements **do not require sample-by-sample identity with Rubato**.
+Objective quality must not regress: comparisons must cover passband error,
+usable bandwidth, alias/image response, phase/timeline, full-stream transients
+and numerical resolution against the current implementation. A quality win at
+one frequency, a broad audibility threshold, or a faster default preset cannot replace nonregression
 across those criteria. Streaming duration, startup, allocations and process
 tails remain separate acceptance requirements.
 
-## Metric definitions
+## v7 metric definitions
 
 `steady_ns_per_input_sample.p95` is the p95 of 15 trial averages; it is not a callback tail.
 `process_call_latency` comes from a separate instrumented pass and retains every
@@ -206,7 +310,7 @@ long-duration leak test or complete accounting of native C/C++ allocations.
 
 ## Integrity and reproduction
 
-Every trial carries engine, algorithm, sample format, rate pair, channel count,
+Every v7 trial carries engine, algorithm, sample format, rate pair, channel count,
 input chunk, output capacity and trial index. Accumulators use stable factory
 IDs even when execution order reverses. Missing, duplicate, wrong-identity and
 inconsistent records fail. Published statistics and work counters are rebuilt
@@ -234,6 +338,8 @@ libsamplerate DLL through `--libsamplerate <absolute-path>` and each shim throug
 `--engine-library <engine-id>=<absolute-path>`. Libraries are not discovered by
 searching PATH. Record source/build/runtime artifacts and hashes from each run.
 
+The quality/latency comparison mode used for v7 is:
+
 ```text
 cargo bench --bench audio_resampler_comparison_perf --features raw-rubato --   --heavy --enforce --pinned --pin-core 2 --soak-rounds 12   --out target/bench-reports/rust-new.json <explicit-native-arguments>
 
@@ -246,7 +352,25 @@ can require each of its ten expected engines explicitly. Optional
 `--raw-rubato-geometry 512/1` is a different control recipe, not the High/1024/2
 reference used above. There is no claim of native ARM/Linux runtime performance.
 
-Local evidence is retained under
+For CPU/memory reporting without quality renders:
+
+```text
+cargo bench -p audio-engine-core --bench audio_resampler_comparison_perf --features raw-rubato -- --resources --pinned --pin-core 2 --out target/bench-reports/resources.json
+```
+
+Add the same explicit native-library arguments for external engines, or use
+`--all-features` to select project SoXR and raw libsoxr. Filter recipes with
+`--resource-engines=audio_engine_core,ffmpeg_libswresample` and set the minimum
+timing window with `--resource-ms=250`. Cases run in separate child processes;
+allocation instrumentation is disabled during timing. Resource mode is
+report-only and rejects `--enforce` and `--baseline`.
+
+Latest paired/resource evidence is retained under
+`.trellis/tasks/10-08-rubato-dependency-audit/research/resources-fused-fft-v1/`.
+The [committed resource data](data/resampler-resources-2026-10-10.json) includes
+raw trials, executable identities and endpoint failures.
+
+Pre-fusion v7 evidence is retained under
 `.trellis/tasks/10-08-rubato-dependency-audit/research/comparison-repair-v1/`:
 
 - `results/{rust,soxr}-heavy-v7.json`: all measurements and raw records.
