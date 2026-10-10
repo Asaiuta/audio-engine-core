@@ -45,8 +45,11 @@ path = "src/lib.rs"
 [dependencies]
 symphonia = { version = "0.6", features = ["all"] }
 soxr = { version = "0.6.0", optional = true }
+windowfunctions = { version = "0.1", optional = true }
+# Benchmark-only raw Rubato control (upstream rubato crate). Never enabled by
+# default and unused by production code; exists so the resampler comparison
+# probe can measure the historical third-party baseline again.
 rubato = { version = "4.0", optional = true }
-sync_wrapper = { version = "1.0", optional = true }
 rustfft = "6.2"
 realfft = "3.5"
 ebur128 = "0.1"
@@ -76,21 +79,22 @@ loudness-db = ["dep:rusqlite", "dep:sha2"]
 # enough to select the native backend. Both selected backends preserve the same
 # public auto-trait surface.
 soxr = ["dep:soxr"]
-# Pure Rust quality-aware resampler backend, enabled by default. Exact-2x
-# Linear/High upsampling uses a dedicated half-band FIR; other common ratios use
-# FFT at every quality tier (UltraHigh uses a 2x longer single-sub-chunk FFT
-# filter); pathological ratios use sinc; Minimum/Maximum use a bounded causal
-# polyphase FIR. `sync_wrapper` provides the zero-cost exclusive-access boundary
-# around Rubato's `Send` backend; processing still requires `&mut self` and
-# takes no lock. No native dependency.
-rubato = ["dep:rubato", "dep:sync_wrapper"]
+# Owned pure-Rust fixed-ratio resampling. The historical feature selector is
+# retained for consumer configurations; this feature does not depend on the
+# Rubato crate. Common Linear ratios use FFT, pathological ratios use sinc,
+# exact-2x Linear/High uses half-band, and nonlinear phase uses bounded FIRs.
+rubato = ["dep:windowfunctions"]
+# Benchmark-only: compile the raw upstream Rubato FFT control into the resampler
+# comparison probe (--all-features picks this up automatically).
+raw-rubato = ["dep:rubato"]
 
 [dev-dependencies]
 assert_no_alloc = "1.1"
 libloading = "0.8"
 public-api = "0.52.1"
 rustdoc-json = "0.9.10"
-serde_json = "1"
+# Persisted benchmark trials must round-trip every f64 before strict rebuilding.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 
 # Custom-harness benchmarks (run with `cargo bench --bench <name> -- --quick`).

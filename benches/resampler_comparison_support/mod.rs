@@ -5,7 +5,11 @@
 //! audio-engine API.
 
 mod adapters;
+mod latency;
+mod measurement;
 mod quality;
+mod quality_grid;
+mod signal;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::OsString;
@@ -17,19 +21,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::support::{
     compare_case_medians, environment_json, generated_unix_ms, parse_pinned_probe_args,
-    pin_current_thread, read_json, regression_gate_error, summarize_trials,
-    validate_performance_baseline, write_json, BenchEnvironment, BenchMode, PerfArgs,
-    PerformanceReportIdentity, PinnedSchedulingState, RegressionComparison, TrialDistribution,
-    REPORT_SCHEMA_VERSION,
+    pin_current_thread, read_json, regression_gate_error, validate_performance_baseline,
+    write_json, BenchEnvironment, BenchMode, PerfArgs, PerformanceReportIdentity,
+    PinnedSchedulingState, RegressionComparison, TrialDistribution, REPORT_SCHEMA_VERSION,
 };
 
-#[cfg(feature = "rubato")]
-use self::adapters::RawRubatoGeometry;
 use self::adapters::{Discovery, EngineAdapter, EngineFactory};
+use self::measurement::{
+    collect_scheduled_trials, validate_case_trials, CaseAccumulator, MeasurementIdentity,
+    TrialMeasurement, TrialRecord,
+};
 
 const PROBE: &str = "audio_resampler_comparison_perf";
-const ADAPTER_SCHEMA: &str = "cross_project_resampler_v5_common_capacity_compensated_exact_work";
-const CHANNELS: usize = 2;
+const ADAPTER_SCHEMA: &str = "cross_project_resampler_v7_identified_trials_quality_grid";
 const CHUNK_FRAMES: usize = 512;
 const WARMUP_BUFFERS: usize = 32;
 const QUALITY_INPUT_FRAMES: usize = 16_384;
@@ -76,18 +80,39 @@ pub(crate) struct RatePair {
     pub(crate) id: &'static str,
     pub(crate) from_hz: u32,
     pub(crate) to_hz: u32,
+    pub(crate) channels: usize,
 }
 
-const RATE_PAIRS: [RatePair; 2] = [
+const RATE_PAIRS: [RatePair; 5] = [
     RatePair {
         id: "music_44k1_to_48k",
         from_hz: 44_100,
         to_hz: 48_000,
+        channels: 2,
     },
     RatePair {
         id: "music_48k_to_44k1",
         from_hz: 48_000,
         to_hz: 44_100,
+        channels: 2,
+    },
+    RatePair {
+        id: "music_44k1_to_96k",
+        from_hz: 44_100,
+        to_hz: 96_000,
+        channels: 2,
+    },
+    RatePair {
+        id: "music_96k_to_44k1",
+        from_hz: 96_000,
+        to_hz: 44_100,
+        channels: 2,
+    },
+    RatePair {
+        id: "music_44k1_to_48k_6ch",
+        from_hz: 44_100,
+        to_hz: 48_000,
+        channels: 6,
     },
 ];
 
@@ -212,7 +237,10 @@ pub(crate) struct QualitySummary {
     pub(crate) actual_complete_output_frames: usize,
     pub(crate) all_output_samples_finite: bool,
     pub(crate) reported_api_buffering_latency_frames: Option<usize>,
+    /// Input cursor before the first producing call (not physical latency).
     pub(crate) observed_input_frames_before_first_output: Option<usize>,
+    pub(crate) observed_input_frames_through_first_output: Option<usize>,
+    pub(crate) first_output_during_drain: bool,
     pub(crate) measured_impulse_peak_frame: usize,
     pub(crate) measured_impulse_peak_magnitude: f64,
     pub(crate) gain_997_hz_db: Option<f64>,
@@ -223,6 +251,7 @@ pub(crate) struct QualitySummary {
     pub(crate) folded_alias_hz: Option<f64>,
     pub(crate) alias_attenuation_db: Option<f64>,
     pub(crate) validity_errors: Vec<String>,
+    pub(crate) grid: quality_grid::QualityGrid,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -254,6 +283,10 @@ pub(crate) struct ComparisonCase {
     pub(crate) setup_ns: TrialDistribution,
     pub(crate) steady_ns_per_input_sample: TrialDistribution,
     pub(crate) steady_ns_per_input_buffer: TrialDistribution,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) steady_cycles_per_input_sample: Option<TrialDistribution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) steady_cycles_per_input_buffer: Option<TrialDistribution>,
     pub(crate) reset_ns: TrialDistribution,
     pub(crate) drain_ns: TrialDistribution,
     pub(crate) source_buffer_duration_ns: f64,
@@ -261,13 +294,15 @@ pub(crate) struct ComparisonCase {
     pub(crate) p95_source_realtime_utilization_pct: f64,
     pub(crate) quality: QualitySummary,
     pub(crate) work_validation: WorkValidation,
+    pub(crate) trial_records: Vec<TrialRecord>,
+    pub(crate) process_call_latency: Option<latency::CallLatency>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct ComparisonConditions {
     pub(crate) adapter_schema: String,
     pub(crate) workload_id: String,
-    pub(crate) channels: usize,
+    pub(crate) channels_by_rate: BTreeMap<String, usize>,
     pub(crate) chunk_frames: usize,
     pub(crate) rate_pairs: Vec<String>,
     pub(crate) warmup_buffers: usize,
@@ -278,13 +313,16 @@ pub(crate) struct ComparisonConditions {
     pub(crate) quality_policy: String,
     pub(crate) output_capacity_policy: String,
     pub(crate) output_capacity_frames_by_rate: BTreeMap<String, usize>,
-    pub(crate) raw_rubato_geometry: Option<String>,
     pub(crate) pinned: bool,
     pub(crate) pin_core: Option<usize>,
     pub(crate) scheduling: Option<PinnedSchedulingState>,
     pub(crate) require_complete_matrix: bool,
     pub(crate) measured_engines: Vec<EngineIdentity>,
     pub(crate) unavailable_engine_ids: Vec<String>,
+    /// Measured engine id -> rate pairs the engine supports (canonical create
+    /// probe succeeded).  Measured coverage is validated against this support
+    /// set instead of the full matrix.
+    pub(crate) supported_rate_pairs_by_engine: BTreeMap<String, Vec<String>>,
     pub(crate) scope_boundaries: Vec<String>,
 }
 
@@ -298,6 +336,31 @@ pub(crate) struct BaselineReference {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct SoakSummary {
+    pub(crate) rounds_per_case: usize,
+    pub(crate) iterations_per_round: usize,
+    pub(crate) cases_soaked: usize,
+    pub(crate) all_round_outputs_bit_identical: bool,
+    pub(crate) working_set_before_bytes: Option<u64>,
+    pub(crate) working_set_after_bytes: Option<u64>,
+    pub(crate) warmup_buffers_per_round: usize,
+    pub(crate) persistent_adapter_per_case: bool,
+    pub(crate) elapsed_seconds: f64,
+    pub(crate) memory_classification: MetricClassification,
+    pub(crate) cases: Vec<SoakCase>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct SoakCase {
+    pub(crate) identity: MeasurementIdentity,
+    pub(crate) rounds_completed: usize,
+    pub(crate) compared_output_samples: usize,
+    pub(crate) complete_output_frames_per_round: usize,
+    pub(crate) output_digest_fnv1a64: Vec<String>,
+    pub(crate) working_set_after_round_bytes: Vec<Option<u64>>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(crate) struct ComparisonReport {
     pub(crate) schema_version: u32,
     pub(crate) probe: String,
@@ -308,6 +371,8 @@ pub(crate) struct ComparisonReport {
     pub(crate) coverage: CoverageTable,
     pub(crate) unavailable_engines: Vec<UnavailableEngine>,
     pub(crate) cases: Vec<ComparisonCase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) soak: Option<SoakSummary>,
     pub(crate) baseline: Option<BaselineReference>,
     pub(crate) comparisons: Vec<RegressionComparison>,
     pub(crate) run_failures: Vec<String>,
@@ -336,10 +401,9 @@ pub(crate) struct ComparisonArgs {
     pub(crate) native_library_paths: BTreeMap<String, PathBuf>,
     pub(crate) required_engines: BTreeSet<String>,
     pub(crate) require_complete_matrix: bool,
+    pub(crate) soak_rounds: usize,
     pub(crate) pinned: bool,
     pub(crate) pin_core: usize,
-    #[cfg(feature = "rubato")]
-    pub(crate) raw_rubato_geometry: RawRubatoGeometry,
 }
 
 impl ComparisonArgs {
@@ -357,10 +421,8 @@ impl ComparisonArgs {
         let mut native_library_paths = BTreeMap::new();
         let mut required_engines = BTreeSet::new();
         let mut require_complete_matrix = false;
-        #[cfg(feature = "rubato")]
-        let mut raw_rubato_geometry = RawRubatoGeometry::FFT_512_1;
-        #[cfg(feature = "rubato")]
-        let mut raw_rubato_geometry_supplied = false;
+        let mut soak_rounds = 0usize;
+
         let mut index = 0usize;
 
         while index < argv.len() {
@@ -398,18 +460,14 @@ impl ComparisonArgs {
                 "--require-complete-matrix" => {
                     require_complete_matrix = true;
                 }
-                #[cfg(feature = "rubato")]
-                "--raw-rubato-geometry" => {
-                    if raw_rubato_geometry_supplied {
-                        return Err("--raw-rubato-geometry may be supplied only once".to_string());
-                    }
+                "--soak-rounds" => {
                     index += 1;
-                    let value = argv.get(index).ok_or_else(|| {
-                        "--raw-rubato-geometry requires 512/1 or 1024/2".to_string()
-                    })?;
-                    raw_rubato_geometry = RawRubatoGeometry::parse(value)?;
-                    raw_rubato_geometry_supplied = true;
+                    let value = argv
+                        .get(index)
+                        .ok_or_else(|| "--soak-rounds requires a count".to_string())?;
+                    soak_rounds = parse_soak_rounds(value)?;
                 }
+
                 _ => {
                     if let Some(value) = arg.strip_prefix("--libsamplerate=") {
                         if libsamplerate_path.is_some() {
@@ -425,24 +483,8 @@ impl ComparisonArgs {
                         required_engines.insert(value.to_string());
                     } else if let Some(value) = arg.strip_prefix("--engine-library=") {
                         insert_engine_library(&mut native_library_paths, value)?;
-                    } else if let Some(value) = arg.strip_prefix("--raw-rubato-geometry=") {
-                        #[cfg(feature = "rubato")]
-                        {
-                            if raw_rubato_geometry_supplied {
-                                return Err(
-                                    "--raw-rubato-geometry may be supplied only once".to_string()
-                                );
-                            }
-                            raw_rubato_geometry = RawRubatoGeometry::parse(value)?;
-                            raw_rubato_geometry_supplied = true;
-                        }
-                        #[cfg(not(feature = "rubato"))]
-                        {
-                            return Err(
-                                "--raw-rubato-geometry requires the 'rubato' Cargo feature"
-                                    .to_string(),
-                            );
-                        }
+                    } else if let Some(value) = arg.strip_prefix("--soak-rounds=") {
+                        soak_rounds = parse_soak_rounds(value)?;
                     } else {
                         remaining.push(arg.clone());
                     }
@@ -466,12 +508,143 @@ impl ComparisonArgs {
             native_library_paths,
             required_engines,
             require_complete_matrix,
+            soak_rounds,
             pinned: pinned.enabled,
             pin_core: pinned.core,
-            #[cfg(feature = "rubato")]
-            raw_rubato_geometry,
         })
     }
+}
+
+const SOAK_ROUNDS_LIMIT: usize = 4096;
+const SOAK_ITERATIONS_PER_ROUND: usize = 64;
+/// Compact record accompanying an actual complete-sample bit comparison.
+/// Hash equality alone is not used as the determinism gate.
+struct SoakDigest(u64);
+
+impl SoakDigest {
+    fn of_bits(samples: &[u64]) -> String {
+        let mut digest = Self(0xcbf2_9ce4_8422_2325);
+        for sample in samples {
+            for byte in sample.to_le_bytes() {
+                digest.0 ^= u64::from(byte);
+                digest.0 = digest.0.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        format!("{:016x}", digest.0)
+    }
+}
+
+fn parse_soak_rounds(value: &str) -> Result<usize, String> {
+    let rounds = value
+        .parse::<usize>()
+        .map_err(|_| format!("--soak-rounds expects a non-negative integer, got '{value}'"))?;
+    if rounds > SOAK_ROUNDS_LIMIT {
+        return Err(format!(
+            "--soak-rounds {rounds} exceeds the {SOAK_ROUNDS_LIMIT}-round limit"
+        ));
+    }
+    Ok(rounds)
+}
+
+fn run_soak(
+    factories: &[EngineFactory],
+    prepared_inputs: &[PreparedInputs],
+    output_capacity_frames_by_rate: &BTreeMap<String, usize>,
+    rounds: usize,
+) -> Result<(SoakSummary, Vec<String>), String> {
+    let started = Instant::now();
+    let mut failures = Vec::new();
+    let working_set_before = process_working_set_bytes();
+    let mut cases = Vec::new();
+    for (rate_index, rate) in RATE_PAIRS.into_iter().enumerate() {
+        let capacity = *output_capacity_frames_by_rate
+            .get(rate.id)
+            .ok_or_else(|| format!("soak capacity missing for {}", rate.id))?;
+        let inputs = prepared_inputs
+            .get(rate_index)
+            .ok_or_else(|| format!("soak inputs missing for {}", rate.id))?;
+        for factory in factories
+            .iter()
+            .filter(|factory| factory.supports_rate(rate.id))
+        {
+            let mut adapter = match factory.create(rate, rate.channels, CHUNK_FRAMES) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    failures.push(format!(
+                        "{} {} soak create: {error}",
+                        factory.identity().engine_id,
+                        rate.id
+                    ));
+                    continue;
+                }
+            };
+            let mut reference = None;
+            let mut case = SoakCase {
+                identity: MeasurementIdentity::new(factory.identity(), rate, capacity),
+                rounds_completed: 0,
+                compared_output_samples: 0,
+                complete_output_frames_per_round: 0,
+                output_digest_fnv1a64: Vec::with_capacity(rounds),
+                working_set_after_round_bytes: Vec::with_capacity(rounds),
+            };
+            for round in 0..rounds {
+                let outcome = (|| {
+                    if round > 0 {
+                        adapter.reset()?;
+                    }
+                    drive_complete_oracle_stream(
+                        &mut adapter,
+                        inputs,
+                        capacity,
+                        WARMUP_BUFFERS + SOAK_ITERATIONS_PER_ROUND,
+                    )
+                })();
+                let bits = match outcome {
+                    Ok(bits) => bits,
+                    Err(error) => {
+                        failures.push(format!(
+                            "{} {} soak round {round}: {error}",
+                            case.identity.engine_id, rate.id
+                        ));
+                        break;
+                    }
+                };
+                case.rounds_completed += 1;
+                case.output_digest_fnv1a64.push(SoakDigest::of_bits(&bits));
+                case.working_set_after_round_bytes
+                    .push(process_working_set_bytes());
+                if let Some(expected) = &reference {
+                    case.compared_output_samples += bits.len();
+                    if &bits != expected {
+                        failures.push(format!(
+                            "{} {} soak round {round}: complete output bits differ after reset",
+                            case.identity.engine_id, rate.id
+                        ));
+                    }
+                } else {
+                    case.complete_output_frames_per_round = bits.len() / rate.channels;
+                    reference = Some(bits);
+                }
+            }
+            cases.push(case);
+        }
+    }
+    Ok((
+        SoakSummary {
+            rounds_per_case: rounds,
+            iterations_per_round: SOAK_ITERATIONS_PER_ROUND,
+            cases_soaked: cases.len(),
+            all_round_outputs_bit_identical: failures.is_empty(),
+            working_set_before_bytes: working_set_before,
+            working_set_after_bytes: process_working_set_bytes(),
+            warmup_buffers_per_round: WARMUP_BUFFERS,
+            persistent_adapter_per_case: true,
+            elapsed_seconds: started.elapsed().as_secs_f64(),
+            memory_classification: MetricClassification::Report,
+            cases,
+        },
+        failures,
+    ))
 }
 
 fn insert_engine_library(
@@ -517,175 +690,20 @@ fn validate_engine_id(value: &str) -> Result<(), String> {
 
 #[derive(Clone)]
 struct PreparedInputs {
+    channels: usize,
     f64_samples: Vec<f64>,
     f32_samples: Vec<f32>,
 }
 
 impl PreparedInputs {
     fn new(rate: RatePair) -> Self {
-        let f64_samples = synthetic_buffer(CHUNK_FRAMES, CHANNELS, rate.from_hz);
+        let f64_samples = synthetic_buffer(CHUNK_FRAMES, rate.channels, rate.from_hz);
         let f32_samples = f64_samples.iter().map(|sample| *sample as f32).collect();
         Self {
+            channels: rate.channels,
             f64_samples,
             f32_samples,
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct TrialMeasurement {
-    setup_ns: f64,
-    steady_ns_per_input_sample: f64,
-    steady_ns_per_input_buffer: f64,
-    reset_ns: f64,
-    drain_ns: f64,
-    warmup_consumed_frames: usize,
-    timed_consumed_frames: usize,
-    expected_complete_output_frames: usize,
-    warmup_output_frames: usize,
-    steady_output_frames: usize,
-    drain_frames: usize,
-    actual_complete_output_frames: usize,
-    drain_terminal: bool,
-}
-
-struct CaseAccumulator {
-    identity: EngineIdentity,
-    setup_ns: Vec<f64>,
-    steady_ns_per_input_sample: Vec<f64>,
-    steady_ns_per_input_buffer: Vec<f64>,
-    reset_ns: Vec<f64>,
-    drain_ns: Vec<f64>,
-    warmup_consumed_frames: Vec<usize>,
-    timed_consumed_frames: Vec<usize>,
-    expected_complete_output_frames: Vec<usize>,
-    warmup_output_frames: Vec<usize>,
-    steady_output_frames: Vec<usize>,
-    drain_frames: Vec<usize>,
-    actual_complete_output_frames: Vec<usize>,
-    drain_terminal: Vec<bool>,
-}
-
-impl CaseAccumulator {
-    fn new(identity: EngineIdentity, trials: usize) -> Self {
-        Self {
-            identity,
-            setup_ns: Vec::with_capacity(trials),
-            steady_ns_per_input_sample: Vec::with_capacity(trials),
-            steady_ns_per_input_buffer: Vec::with_capacity(trials),
-            reset_ns: Vec::with_capacity(trials),
-            drain_ns: Vec::with_capacity(trials),
-            warmup_consumed_frames: Vec::with_capacity(trials),
-            timed_consumed_frames: Vec::with_capacity(trials),
-            expected_complete_output_frames: Vec::with_capacity(trials),
-            warmup_output_frames: Vec::with_capacity(trials),
-            steady_output_frames: Vec::with_capacity(trials),
-            drain_frames: Vec::with_capacity(trials),
-            actual_complete_output_frames: Vec::with_capacity(trials),
-            drain_terminal: Vec::with_capacity(trials),
-        }
-    }
-
-    fn push(&mut self, measurement: TrialMeasurement) {
-        self.setup_ns.push(measurement.setup_ns);
-        self.steady_ns_per_input_sample
-            .push(measurement.steady_ns_per_input_sample);
-        self.steady_ns_per_input_buffer
-            .push(measurement.steady_ns_per_input_buffer);
-        self.reset_ns.push(measurement.reset_ns);
-        self.drain_ns.push(measurement.drain_ns);
-        self.warmup_consumed_frames
-            .push(measurement.warmup_consumed_frames);
-        self.timed_consumed_frames
-            .push(measurement.timed_consumed_frames);
-        self.expected_complete_output_frames
-            .push(measurement.expected_complete_output_frames);
-        self.warmup_output_frames
-            .push(measurement.warmup_output_frames);
-        self.steady_output_frames
-            .push(measurement.steady_output_frames);
-        self.drain_frames.push(measurement.drain_frames);
-        self.actual_complete_output_frames
-            .push(measurement.actual_complete_output_frames);
-        self.drain_terminal.push(measurement.drain_terminal);
-    }
-
-    fn finish(
-        self,
-        rate: RatePair,
-        iterations: usize,
-        output_capacity_frames: usize,
-        quality: QualitySummary,
-    ) -> Result<ComparisonCase, String> {
-        let expected_warmup_consumed_frames = CHUNK_FRAMES * WARMUP_BUFFERS;
-        let expected_timed_consumed_frames = CHUNK_FRAMES * iterations;
-        let valid = self
-            .warmup_consumed_frames
-            .iter()
-            .all(|frames| *frames == expected_warmup_consumed_frames)
-            && self
-                .timed_consumed_frames
-                .iter()
-                .all(|frames| *frames == expected_timed_consumed_frames)
-            && self
-                .expected_complete_output_frames
-                .iter()
-                .zip(&self.actual_complete_output_frames)
-                .all(|(expected, actual)| expected == actual)
-            && self.drain_terminal.iter().all(|terminal| *terminal)
-            && quality.valid;
-
-        let steady_ns_per_input_sample = summarize_trials(self.steady_ns_per_input_sample)?;
-        let steady_ns_per_input_buffer = summarize_trials(self.steady_ns_per_input_buffer)?;
-        let source_buffer_duration_ns = CHUNK_FRAMES as f64 / rate.from_hz as f64 * 1.0e9;
-        let case_key = format!(
-            "engine={};format={};rate={};from={};to={};frames={};algorithm={}",
-            self.identity.engine_id,
-            self.identity.sample_format.as_str(),
-            rate.id,
-            rate.from_hz,
-            rate.to_hz,
-            CHUNK_FRAMES,
-            self.identity.algorithm_id
-        );
-
-        Ok(ComparisonCase {
-            case_key,
-            engine: self.identity,
-            rate_pair: rate.id.to_string(),
-            from_rate_hz: rate.from_hz,
-            to_rate_hz: rate.to_hz,
-            channels: CHANNELS,
-            chunk_frames: CHUNK_FRAMES,
-            output_capacity_frames,
-            setup_ns: summarize_trials(self.setup_ns)?,
-            median_source_realtime_utilization_pct: steady_ns_per_input_buffer.median
-                / source_buffer_duration_ns
-                * 100.0,
-            p95_source_realtime_utilization_pct: steady_ns_per_input_buffer.p95
-                / source_buffer_duration_ns
-                * 100.0,
-            steady_ns_per_input_sample,
-            steady_ns_per_input_buffer,
-            reset_ns: summarize_trials(self.reset_ns)?,
-            drain_ns: summarize_trials(self.drain_ns)?,
-            source_buffer_duration_ns,
-            quality,
-            work_validation: WorkValidation {
-                classification: MetricClassification::Gate,
-                valid,
-                expected_warmup_consumed_frames_per_trial: expected_warmup_consumed_frames,
-                warmup_consumed_frames_per_trial: self.warmup_consumed_frames,
-                expected_timed_consumed_frames_per_trial: expected_timed_consumed_frames,
-                timed_consumed_frames_per_trial: self.timed_consumed_frames,
-                expected_complete_output_frames_per_trial: self.expected_complete_output_frames,
-                warmup_output_frames_per_trial: self.warmup_output_frames,
-                steady_output_frames_per_trial: self.steady_output_frames,
-                drain_frames_per_trial: self.drain_frames,
-                actual_complete_output_frames_per_trial: self.actual_complete_output_frames,
-                drain_terminal_per_trial: self.drain_terminal,
-            },
-        })
     }
 }
 
@@ -710,8 +728,6 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
         args.libsamplerate_path.as_deref(),
         &args.native_library_paths,
         &args.required_engines,
-        #[cfg(feature = "rubato")]
-        args.raw_rubato_geometry,
     );
 
     let prepared_inputs = RATE_PAIRS.map(PreparedInputs::new);
@@ -728,12 +744,29 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
         let output_capacity_frames = *output_capacity_frames_by_rate
             .get(rate.id)
             .ok_or_else(|| format!("missing common output capacity for {}", rate.id))?;
-        let mut accumulators = factories
+        let supported_indices = factories
             .iter()
-            .map(|factory| CaseAccumulator::new(factory.identity().clone(), trials))
+            .enumerate()
+            .filter(|(_, factory)| factory.supports_rate(rate.id))
+            .map(|(index, _)| index)
             .collect::<Vec<_>>();
+        let mut accumulators = supported_indices
+            .iter()
+            .map(|&index| {
+                (
+                    index,
+                    CaseAccumulator::new(
+                        factories[index].identity().clone(),
+                        rate,
+                        output_capacity_frames,
+                        trials,
+                    ),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        for factory in &factories {
+        for index in &supported_indices {
+            let factory = &factories[*index];
             if runtime_failures.contains_key(&factory.identity().engine_id) {
                 continue;
             }
@@ -750,43 +783,36 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
             }
         }
 
-        for trial in 0..trials {
-            let indices = if trial.is_multiple_of(2) {
-                (0..factories.len()).collect::<Vec<_>>()
-            } else {
-                (0..factories.len()).rev().collect::<Vec<_>>()
-            };
-            for index in indices {
-                let factory = &factories[index];
-                if runtime_failures.contains_key(&factory.identity().engine_id) {
-                    continue;
-                }
-                match measure_trial(
-                    factory,
+        accumulators.retain(|index, _| {
+            !runtime_failures.contains_key(&factories[*index].identity().engine_id)
+        });
+        let failures =
+            collect_scheduled_trials(&mut accumulators, trials, |factory_index, trial| {
+                measure_trial(
+                    &factories[factory_index],
                     rate,
                     &prepared_inputs[rate_index],
                     iterations,
                     output_capacity_frames,
-                ) {
-                    Ok(measurement) => accumulators[index].push(measurement),
-                    Err(error) => {
-                        runtime_failures.insert(
-                            factory.identity().engine_id.clone(),
-                            format!("{} trial {} failed: {error}", rate.id, trial + 1),
-                        );
-                    }
-                }
-            }
+                    trial,
+                )
+            });
+        for (factory_index, error) in failures {
+            runtime_failures.insert(
+                factories[factory_index].identity().engine_id.clone(),
+                format!("{} {error}", rate.id),
+            );
         }
 
-        for (factory, accumulator) in factories.iter().zip(accumulators) {
+        for (factory_index, accumulator) in accumulators {
+            let factory = &factories[factory_index];
             if runtime_failures.contains_key(&factory.identity().engine_id) {
                 continue;
             }
             let quality = match quality::measure_quality(
                 factory,
                 rate,
-                CHANNELS,
+                rate.channels,
                 CHUNK_FRAMES,
                 QUALITY_INPUT_FRAMES,
                 output_capacity_frames,
@@ -800,8 +826,27 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
                     continue;
                 }
             };
-            match accumulator.finish(rate, iterations, output_capacity_frames, quality) {
-                Ok(case) => cases.push(case),
+            let call_latency = match latency::measure(
+                factory,
+                rate,
+                &prepared_inputs[rate_index],
+                iterations,
+                output_capacity_frames,
+            ) {
+                Ok(measured) => measured,
+                Err(error) => {
+                    runtime_failures.insert(
+                        factory.identity().engine_id.clone(),
+                        format!("{} process-call latency: {error}", rate.id),
+                    );
+                    continue;
+                }
+            };
+            match accumulator.finish(iterations, quality) {
+                Ok(mut case) => {
+                    case.process_call_latency = Some(call_latency);
+                    cases.push(case);
+                }
                 Err(error) => {
                     runtime_failures.insert(
                         factory.identity().engine_id.clone(),
@@ -836,6 +881,40 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
         .iter()
         .map(|engine| engine.engine_id.clone())
         .collect::<Vec<_>>();
+    let supported_rate_pairs_by_engine = factories
+        .iter()
+        .map(|factory| {
+            (
+                factory.identity().engine_id.to_string(),
+                RATE_PAIRS
+                    .iter()
+                    .filter(|rate| factory.supports_rate(rate.id))
+                    .map(|rate| rate.id.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let supported_rate_pairs = supported_rate_pairs_by_engine
+        .iter()
+        .map(|(engine_id, pairs)| {
+            (
+                engine_id.clone(),
+                pairs.iter().cloned().collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    let (soak, soak_failures) = if args.soak_rounds > 0 {
+        let (summary, failures) = run_soak(
+            &factories,
+            &prepared_inputs,
+            &output_capacity_frames_by_rate,
+            args.soak_rounds,
+        )?;
+        (Some(summary), failures)
+    } else {
+        (None, Vec::new())
+    };
     let coverage = build_coverage(
         cases.iter().map(|case| {
             (
@@ -845,48 +924,48 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
             )
         }),
         &unavailable,
+        &supported_rate_pairs,
     )?;
     let path_source = args
         .libsamplerate_path_source
         .map_or("none", LibraryPathSource::as_str);
     let conditions = ComparisonConditions {
         adapter_schema: ADAPTER_SCHEMA.to_string(),
-        workload_id: "quality_latency_throughput_pareto_v3_strict_capacity_delay".to_string(),
-        channels: CHANNELS,
+        workload_id: "quality_latency_throughput_pareto_v4_identified_complete_stream".to_string(),
+        channels_by_rate: RATE_PAIRS
+            .iter()
+            .map(|rate| (rate.id.to_string(), rate.channels))
+            .collect(),
         chunk_frames: CHUNK_FRAMES,
         rate_pairs: RATE_PAIRS.iter().map(|rate| rate.id.to_string()).collect(),
         warmup_buffers: WARMUP_BUFFERS,
         iterations_per_trial: iterations,
         trials,
-        trial_order: "alternating_forward_reverse".to_string(),
+        trial_order: "alternating_forward_reverse_by_stable_factory_identity".to_string(),
         quality_input_frames: QUALITY_INPUT_FRAMES,
         quality_policy: format!(
-            "report_only_cross_engine;gate_complete_finite_work;explicit_native_paths;libsamplerate_path_source={path_source}"
+            "explicit_quality_grid_report_only;gate_complete_finite_work;separate_process_call_tails;explicit_native_paths;libsamplerate_path_source={path_source}"
         ),
         output_capacity_policy:
             "common_max_per_rate_across_all_measured_factories;identical_for_process_reset_quality_and_drain"
                 .to_string(),
         output_capacity_frames_by_rate,
-        raw_rubato_geometry: {
-            #[cfg(feature = "rubato")]
-            {
-                Some(args.raw_rubato_geometry.label().to_string())
-            }
-            #[cfg(not(feature = "rubato"))]
-            {
-                None
-            }
-        },
+
         pinned: args.pinned,
         pin_core: args.pinned.then_some(args.pin_core),
         scheduling,
         require_complete_matrix: args.require_complete_matrix,
         measured_engines,
         unavailable_engine_ids,
+        supported_rate_pairs_by_engine,
         scope_boundaries: [
             "cross_format_speed_gate",
             "device_driver_latency",
             "decoder_pipeline",
+            "continuous_frequency_response",
+            "cross_engine_equal_quality_acceptance",
+            "long_duration_leak_proof",
+            "cross_platform_runtime_performance",
         ]
         .into_iter()
         .map(str::to_string)
@@ -902,10 +981,25 @@ pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
         coverage,
         unavailable_engines: unavailable,
         cases,
+        soak,
         baseline: None,
         comparisons: Vec::new(),
         run_failures: Vec::new(),
     };
+    report.run_failures.extend(soak_failures);
+    report.run_failures.extend(
+        runtime_failures
+            .iter()
+            .map(|(engine, error)| format!("{engine}: {error}")),
+    );
+    for case in &report.cases {
+        if let Err(error) = validate_case_trials(case, &report.conditions) {
+            report.run_failures.push(error);
+        }
+        if let Err(error) = latency::validate(case, iterations) {
+            report.run_failures.push(error);
+        }
+    }
     validate_coverage(&report)?;
 
     if let Some(path) = &args.perf.baseline {
@@ -977,9 +1071,10 @@ fn common_output_capacity_frames(
 ) -> Result<usize, String> {
     factories
         .iter()
+        .filter(|factory| factory.supports_rate(rate.id))
         .map(|factory| {
             factory
-                .create(rate, CHANNELS, CHUNK_FRAMES)
+                .create(rate, rate.channels, CHUNK_FRAMES)
                 .map(|adapter| adapter.max_output_frames().max(1))
                 .map_err(|error| {
                     format!(
@@ -992,7 +1087,7 @@ fn common_output_capacity_frames(
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .max()
-        .ok_or_else(|| format!("no measured factory available for {}", rate.id))
+        .ok_or_else(|| format!("no supported factory available for {}", rate.id))
 }
 
 fn measure_trial(
@@ -1001,9 +1096,10 @@ fn measure_trial(
     inputs: &PreparedInputs,
     iterations: usize,
     output_frames: usize,
-) -> Result<TrialMeasurement, String> {
+    trial_index: usize,
+) -> Result<TrialRecord, String> {
     let setup_start = Instant::now();
-    let mut adapter = factory.create(rate, CHANNELS, CHUNK_FRAMES)?;
+    let mut adapter = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
     let setup_ns = positive_elapsed_ns(setup_start, "setup")?;
     if output_frames < adapter.max_output_frames().max(1) {
         return Err(format!(
@@ -1012,8 +1108,8 @@ fn measure_trial(
             factory.identity().engine_id
         ));
     }
-    let mut output_f64 = vec![0.0; output_frames * CHANNELS];
-    let mut output_f32 = vec![0.0; output_frames * CHANNELS];
+    let mut output_f64 = vec![0.0; output_frames * rate.channels];
+    let mut output_f32 = vec![0.0; output_frames * rate.channels];
 
     let mut warmup_consumed_frames = 0usize;
     let mut warmup_output_frames = 0usize;
@@ -1049,6 +1145,7 @@ fn measure_trial(
 
     let mut timed_consumed_frames = 0usize;
     let mut steady_output_frames = 0usize;
+    let steady_cycles_start = query_thread_cycles();
     let steady_start = Instant::now();
     for iteration in 0..iterations {
         let progress = process_prepared(
@@ -1074,7 +1171,18 @@ fn measure_trial(
     }
     let steady_ns = positive_elapsed_ns(steady_start, "steady process")?;
     let steady_ns_per_input_buffer = steady_ns / iterations as f64;
-    let steady_ns_per_input_sample = steady_ns / (iterations * CHUNK_FRAMES * CHANNELS) as f64;
+    let steady_ns_per_input_sample = steady_ns / (iterations * CHUNK_FRAMES * rate.channels) as f64;
+    let (steady_cycles_per_input_sample, steady_cycles_per_input_buffer) =
+        match (steady_cycles_start, query_thread_cycles()) {
+            (Some(start), Some(end)) if end >= start => {
+                let total = (end - start) as f64;
+                (
+                    Some(total / (iterations * CHUNK_FRAMES * rate.channels) as f64),
+                    Some(total / iterations as f64),
+                )
+            }
+            _ => (None, None),
+        };
 
     let total_input_frames = warmup_consumed_frames
         .checked_add(timed_consumed_frames)
@@ -1095,20 +1203,26 @@ fn measure_trial(
         .and_then(|frames| frames.checked_add(drain_frames))
         .ok_or_else(|| "complete output-frame total overflowed usize".to_string())?;
 
-    Ok(TrialMeasurement {
-        setup_ns,
-        steady_ns_per_input_sample,
-        steady_ns_per_input_buffer,
-        reset_ns,
-        drain_ns,
-        warmup_consumed_frames,
-        timed_consumed_frames,
-        expected_complete_output_frames,
-        warmup_output_frames,
-        steady_output_frames,
-        drain_frames,
-        actual_complete_output_frames,
-        drain_terminal,
+    Ok(TrialRecord {
+        identity: MeasurementIdentity::new(factory.identity(), rate, output_frames),
+        trial_index,
+        measurement: TrialMeasurement {
+            setup_ns,
+            steady_ns_per_input_sample,
+            steady_ns_per_input_buffer,
+            steady_cycles_per_input_sample,
+            steady_cycles_per_input_buffer,
+            reset_ns,
+            drain_ns,
+            warmup_consumed_frames,
+            timed_consumed_frames,
+            expected_complete_output_frames,
+            warmup_output_frames,
+            steady_output_frames,
+            drain_frames,
+            actual_complete_output_frames,
+            drain_terminal,
+        },
     })
 }
 
@@ -1118,15 +1232,15 @@ fn validate_reset_matches_fresh(
     inputs: &PreparedInputs,
     output_frames: usize,
 ) -> Result<(), String> {
-    let mut reset_adapter = factory.create(rate, CHANNELS, CHUNK_FRAMES)?;
+    let mut reset_adapter = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
     if output_frames < reset_adapter.max_output_frames().max(1) {
         return Err(format!(
             "common reset output capacity {output_frames} is below {} required frames",
             reset_adapter.max_output_frames()
         ));
     }
-    let mut output_f64 = vec![0.0; output_frames * CHANNELS];
-    let mut output_f32 = vec![0.0; output_frames * CHANNELS];
+    let mut output_f64 = vec![0.0; output_frames * rate.channels];
+    let mut output_f32 = vec![0.0; output_frames * rate.channels];
     for prefix_index in 0..3 {
         let progress = process_prepared(
             &mut reset_adapter,
@@ -1144,9 +1258,9 @@ fn validate_reset_matches_fresh(
     }
     reset_adapter.reset()?;
 
-    let mut fresh_adapter = factory.create(rate, CHANNELS, CHUNK_FRAMES)?;
-    let reset_output = drive_reset_oracle_stream(&mut reset_adapter, inputs, output_frames)?;
-    let fresh_output = drive_reset_oracle_stream(&mut fresh_adapter, inputs, output_frames)?;
+    let mut fresh_adapter = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
+    let reset_output = drive_complete_oracle_stream(&mut reset_adapter, inputs, output_frames, 5)?;
+    let fresh_output = drive_complete_oracle_stream(&mut fresh_adapter, inputs, output_frames, 5)?;
     if reset_output == fresh_output {
         return Ok(());
     }
@@ -1158,8 +1272,8 @@ fn validate_reset_matches_fresh(
     Err(match first_difference {
         Some(sample) => format!(
             "reset output differs from fresh output at sample {sample} (frame {}, channel {}): reset_bits=0x{:016x}, fresh_bits=0x{:016x}",
-            sample / CHANNELS,
-            sample % CHANNELS,
+            sample / rate.channels,
+            sample % rate.channels,
             reset_output[sample],
             fresh_output[sample]
         ),
@@ -1171,25 +1285,30 @@ fn validate_reset_matches_fresh(
     })
 }
 
-fn drive_reset_oracle_stream(
+fn drive_complete_oracle_stream(
     adapter: &mut EngineAdapter,
     inputs: &PreparedInputs,
     output_frames: usize,
+    input_buffers: usize,
 ) -> Result<Vec<u64>, String> {
-    const ORACLE_INPUT_BUFFERS: usize = 5;
-    let mut output_f64 = vec![0.0; output_frames * CHANNELS];
-    let mut output_f32 = vec![0.0; output_frames * CHANNELS];
-    let expected_frames =
-        adapter.expected_complete_output_frames(ORACLE_INPUT_BUFFERS * CHUNK_FRAMES);
-    let mut output_bits = Vec::with_capacity(expected_frames * CHANNELS);
+    if input_buffers == 0 || output_frames < adapter.max_output_frames().max(1) {
+        return Err(
+            "complete oracle requires nonzero input and sufficient output capacity".to_string(),
+        );
+    }
+    let channels = inputs.channels;
+    let mut output_f64 = vec![0.0; output_frames * channels];
+    let mut output_f32 = vec![0.0; output_frames * channels];
+    let expected_frames = adapter.expected_complete_output_frames(input_buffers * CHUNK_FRAMES);
+    let mut output_bits = Vec::with_capacity(expected_frames * channels);
 
-    for index in 0..ORACLE_INPUT_BUFFERS {
+    for index in 0..input_buffers {
         let progress = process_prepared(
             adapter,
             inputs,
             &mut output_f64,
             &mut output_f32,
-            index + 1 == ORACLE_INPUT_BUFFERS,
+            index + 1 == input_buffers,
         )?;
         if progress.consumed_frames != CHUNK_FRAMES {
             return Err(format!(
@@ -1199,6 +1318,7 @@ fn drive_reset_oracle_stream(
         }
         append_oracle_output(
             adapter.sample_format(),
+            channels,
             progress.produced_frames,
             &output_f64,
             &output_f32,
@@ -1214,6 +1334,7 @@ fn drive_reset_oracle_stream(
         };
         append_oracle_output(
             adapter.sample_format(),
+            channels,
             progress.produced_frames,
             &output_f64,
             &output_f32,
@@ -1224,31 +1345,41 @@ fn drive_reset_oracle_stream(
             break;
         }
         if progress.produced_frames == 0 {
-            return Err("reset oracle drain stalled before terminal state".to_string());
+            return Err("complete oracle drain stalled before terminal state".to_string());
         }
     }
     if !terminal {
         return Err(format!(
-            "reset oracle drain exceeded {MAX_DRAIN_CALLS} calls"
+            "complete oracle drain exceeded {MAX_DRAIN_CALLS} calls"
         ));
     }
-    let actual_frames = output_bits.len() / CHANNELS;
+    let actual_frames = output_bits.len() / channels;
     if actual_frames != expected_frames {
         return Err(format!(
-            "reset oracle produced {actual_frames} complete frames, expected {expected_frames}"
+            "complete oracle produced {actual_frames} complete frames, expected {expected_frames}"
         ));
+    }
+    let finite = output_bits
+        .iter()
+        .all(|&bits| match adapter.sample_format() {
+            SampleFormat::InterleavedF64 => f64::from_bits(bits).is_finite(),
+            SampleFormat::InterleavedF32 => f32::from_bits(bits as u32).is_finite(),
+        });
+    if !finite {
+        return Err("complete oracle output contains non-finite samples".to_string());
     }
     Ok(output_bits)
 }
 
 fn append_oracle_output(
     sample_format: SampleFormat,
+    channels: usize,
     produced_frames: usize,
     output_f64: &[f64],
     output_f32: &[f32],
     output_bits: &mut Vec<u64>,
 ) {
-    let samples = produced_frames * CHANNELS;
+    let samples = produced_frames * channels;
     match sample_format {
         SampleFormat::InterleavedF64 => {
             output_bits.extend(output_f64[..samples].iter().map(|sample| sample.to_bits()));
@@ -1316,6 +1447,88 @@ fn positive_elapsed_ns(start: Instant, label: &str) -> Result<f64, String> {
     }
 }
 
+/// Current thread CPU cycle counter (`QueryThreadCycleTime`). Returns `None`
+/// on platforms without a thread-cycle counter; callers must degrade to
+/// wall-clock-only reporting instead of failing the run.
+#[cfg(windows)]
+pub(crate) fn query_thread_cycles() -> Option<u64> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn QueryThreadCycleTime(thread: isize, cycles: *mut u64) -> i32;
+    }
+
+    let mut cycles = 0u64;
+    // SAFETY: pseudo handle that requires no cleanup; out pointer targets a
+    // local u64. Failure is reported by the return value, not the pointer.
+    let succeeded = unsafe { QueryThreadCycleTime(GetCurrentThread(), &mut cycles) };
+    if succeeded != 0 {
+        Some(cycles)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn query_thread_cycles() -> Option<u64> {
+    None
+}
+
+/// Current process working set size in bytes, or `None` when unavailable.
+#[cfg(windows)]
+pub(crate) fn process_working_set_bytes() -> Option<u64> {
+    #[repr(C)]
+    struct ProcessMemoryCounters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+
+    #[link(name = "psapi")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn GetProcessMemoryInfo(
+            process: isize,
+            counters: *mut ProcessMemoryCounters,
+            size: u32,
+        ) -> i32;
+    }
+
+    let mut counters = ProcessMemoryCounters {
+        cb: std::mem::size_of::<ProcessMemoryCounters>() as u32,
+        page_fault_count: 0,
+        peak_working_set_size: 0,
+        working_set_size: 0,
+        quota_peak_paged_pool_usage: 0,
+        quota_paged_pool_usage: 0,
+        quota_peak_non_paged_pool_usage: 0,
+        quota_non_paged_pool_usage: 0,
+        pagefile_usage: 0,
+        peak_pagefile_usage: 0,
+    };
+    // SAFETY: process pseudo handle, no cleanup; the counters pointer targets a
+    // local struct sized exactly by its cb field.
+    let succeeded =
+        unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    if succeeded != 0 {
+        Some(counters.working_set_size as u64)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn process_working_set_bytes() -> Option<u64> {
+    None
+}
+
 fn compare_with_baseline(
     candidate: &ComparisonReport,
     baseline: &ComparisonReport,
@@ -1358,6 +1571,7 @@ fn compare_with_baseline(
 fn build_coverage(
     measured_cases: impl IntoIterator<Item = (String, String, String)>,
     unavailable: &[UnavailableEngine],
+    supported_rate_pairs: &BTreeMap<String, BTreeSet<String>>,
 ) -> Result<CoverageTable, String> {
     let mut measured_by_engine = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut seen_case_keys = BTreeSet::new();
@@ -1402,7 +1616,7 @@ fn build_coverage(
         }
     }
 
-    let expected_rate_pairs = RATE_PAIRS
+    let default_supported_rate_pairs = RATE_PAIRS
         .iter()
         .map(|rate| rate.id.to_string())
         .collect::<BTreeSet<_>>();
@@ -1410,6 +1624,9 @@ fn build_coverage(
     for engine_id in ALL_ENGINE_IDS {
         let measured = measured_by_engine.remove(engine_id);
         let unavailable = unavailable_by_engine.remove(engine_id);
+        let supported = supported_rate_pairs
+            .get(engine_id)
+            .unwrap_or(&default_supported_rate_pairs);
         let entry = match (measured, unavailable) {
             (Some(_), Some(_)) => {
                 return Err(format!(
@@ -1418,10 +1635,10 @@ fn build_coverage(
             }
             (Some(measured), None) => {
                 let actual_rate_pairs = measured.keys().cloned().collect::<BTreeSet<_>>();
-                if actual_rate_pairs != expected_rate_pairs {
+                if actual_rate_pairs != *supported {
                     return Err(format!(
-                        "engine '{engine_id}' has incomplete measured rate coverage: expected {:?}, found {:?}",
-                        expected_rate_pairs, actual_rate_pairs
+                        "engine '{engine_id}' has incomplete measured rate coverage: expected supported {:?}, found {:?}",
+                        supported, actual_rate_pairs
                     ));
                 }
                 EngineCoverage {
@@ -1430,10 +1647,12 @@ fn build_coverage(
                     terminal: true,
                     measured_rate_pairs: RATE_PAIRS
                         .iter()
+                        .filter(|rate| actual_rate_pairs.contains(rate.id))
                         .map(|rate| rate.id.to_string())
                         .collect(),
                     case_keys: RATE_PAIRS
                         .iter()
+                        .filter(|rate| actual_rate_pairs.contains(rate.id))
                         .map(|rate| measured[rate.id].clone())
                         .collect(),
                     evidence: None,
@@ -1464,6 +1683,17 @@ fn build_coverage(
 }
 
 fn validate_coverage(report: &ComparisonReport) -> Result<(), String> {
+    let supported_rate_pairs = report
+        .conditions
+        .supported_rate_pairs_by_engine
+        .iter()
+        .map(|(engine_id, pairs)| {
+            (
+                engine_id.clone(),
+                pairs.iter().cloned().collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let expected = build_coverage(
         report.cases.iter().map(|case| {
             (
@@ -1473,6 +1703,7 @@ fn validate_coverage(report: &ComparisonReport) -> Result<(), String> {
             )
         }),
         &report.unavailable_engines,
+        &supported_rate_pairs,
     )?;
     if report.coverage == expected {
         Ok(())
@@ -1567,6 +1798,8 @@ fn enforce_report(report: &ComparisonReport) -> Result<(), String> {
         .iter()
         .filter(|case| {
             !seen.insert(case.case_key.clone())
+                || validate_case_trials(case, &report.conditions).is_err()
+                || latency::validate(case, report.conditions.iterations_per_trial).is_err()
                 || !case.work_validation.valid
                 || case.setup_ns.samples.len() != report.conditions.trials
                 || case.steady_ns_per_input_sample.samples.len() != report.conditions.trials
@@ -1652,10 +1885,8 @@ fn first_json_difference(
         {
             let original = original.as_f64()?;
             let decoded = decoded.as_f64()?;
-            let tolerance = 4.0 * f64::EPSILON * original.abs().max(decoded.abs()).max(1.0);
-            ((original - decoded).abs() > tolerance).then(|| {
-                format!("{path} changed from {original} to {decoded} (tolerance {tolerance})")
-            })
+            (original.to_bits() != decoded.to_bits())
+                .then(|| format!("{path} changed from {original} to {decoded}"))
         }
         _ if original == decoded => None,
         _ => Some(format!("{path} changed from {original} to {decoded}")),
@@ -1716,8 +1947,12 @@ fn print_report(report: &ComparisonReport) -> Result<(), String> {
         );
     }
     for case in &report.cases {
+        let steady_cycles = case.steady_cycles_per_input_sample.as_ref().map_or_else(
+            || "n/a".to_string(),
+            |distribution| format!("{:.2}", distribution.median),
+        );
         println!(
-            "resampler_comparison case={} engine={} version={} format={} setup_us={:.3} steady_ns_per_input_sample={:.3} steady_p95={:.3} reset_us={:.3} drain_us={:.3} api_buffering_latency_frames={} observed_input_before_first_output={} impulse_peak_frame={} impulse_peak_magnitude={:.6e} gain_997_db={} gain_18k_db={} thdn_db={} alias_db={} quality_valid={} work_valid={}",
+            "resampler_comparison case={} engine={} version={} format={} setup_us={:.3} steady_ns_per_input_sample={:.3} trial_average_p95={:.3} steady_cycles_per_input_sample={} reset_us={:.3} drain_us={:.3} api_buffering_latency_frames={} input_consumed_through_first_output={} impulse_peak_frame={} impulse_peak_magnitude={:.6e} gain_997_db={} gain_18k_db={} thdn_db={} alias_db={} quality_valid={} work_valid={}",
             case.case_key,
             case.engine.engine_id,
             case.engine.upstream_version.replace(' ', "_"),
@@ -1725,13 +1960,14 @@ fn print_report(report: &ComparisonReport) -> Result<(), String> {
             case.setup_ns.median / 1_000.0,
             case.steady_ns_per_input_sample.median,
             case.steady_ns_per_input_sample.p95,
+            steady_cycles,
             case.reset_ns.median / 1_000.0,
             case.drain_ns.median / 1_000.0,
             case.quality
                 .reported_api_buffering_latency_frames
                 .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
             case.quality
-                .observed_input_frames_before_first_output
+                .observed_input_frames_through_first_output
                 .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
             case.quality.measured_impulse_peak_frame,
             case.quality.measured_impulse_peak_magnitude,
@@ -1751,6 +1987,14 @@ fn print_report(report: &ComparisonReport) -> Result<(), String> {
             case.quality.valid,
             case.work_validation.valid
         );
+        if let Some(latency) = &case.process_call_latency {
+            let calls = &latency.process_call_ns;
+            println!("resampler_comparison_calls case={} calls={} median_ns={:.1} p95_ns={:.1} p99_ns={:.1} max_ns={:.1} valid={}",
+                case.case_key,calls.samples.len(),calls.median,calls.p95,calls.p99,calls.max,latency.valid);
+        }
+        let grid = &case.quality.grid;
+        println!("resampler_comparison_grid case={} renders={} response_points={} alias_points={} image_points={} channel_pairs={} checked_output_samples={}",
+            case.case_key,grid.renders_checked,grid.response.len(),grid.aliases.len(),grid.images.len(),grid.channel_isolation.len(),grid.output_samples_checked);
         for error in &case.quality.validity_errors {
             println!(
                 "resampler_comparison_quality_error case={} reason={}",
@@ -1758,6 +2002,20 @@ fn print_report(report: &ComparisonReport) -> Result<(), String> {
                 error.replace(' ', "_")
             );
         }
+    }
+    if let Some(soak) = &report.soak {
+        println!(
+            "resampler_comparison_soak rounds_per_case={} iterations_per_round={} cases_soaked={} all_round_outputs_bit_identical={} working_set_before_bytes={} working_set_after_bytes={} persistent_adapter={} memory=report_only",
+            soak.rounds_per_case,
+            soak.iterations_per_round,
+            soak.cases_soaked,
+            soak.all_round_outputs_bit_identical,
+            soak.working_set_before_bytes
+                .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+            soak.working_set_after_bytes
+                .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+            soak.persistent_adapter_per_case
+        );
     }
     for comparison in &report.comparisons {
         println!(
@@ -1786,9 +2044,9 @@ fn print_help() {
          [--max-median-regression-pct <pct>] [--libsamplerate <absolute-path>] \
          [--engine-library <engine-id>=<absolute-shim-path>] \
          [--require-engine <engine-id>] [--require-complete-matrix] \
-         [--raw-rubato-geometry <512/1|1024/2>] [--pinned] [--pin-core <core>]\n\
+         [--pinned] [--pin-core <core>]\n\
          \n\
-         Engines: audio_engine_core, raw_libsoxr, raw_rubato, libsamplerate, \
+         Engines: audio_engine_core, raw_libsoxr, libsamplerate, \
          ffmpeg_libswresample, speexdsp, r8brain, zita_resampler, webrtc, wdl, \
          libresample.\n\
          Cross-engine quality/latency/throughput is report-only. --enforce gates \
@@ -1829,6 +2087,28 @@ fn synthetic_buffer(frames: usize, channels: usize, sample_rate: u32) -> Vec<f64
 #[allow(unused_imports)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_output_oracle_catches_early_drain_differences_and_reset_replays() {
+        let rate = RATE_PAIRS[0];
+        let inputs = PreparedInputs::new(rate);
+        let mut left = EngineAdapter::chunked_drain_test(rate, 1.0);
+        let mut right = EngineAdapter::chunked_drain_test(rate, 2.0);
+        let a = drive_complete_oracle_stream(&mut left, &inputs, 2048, 1).unwrap();
+        let b = drive_complete_oracle_stream(&mut right, &inputs, 2048, 1).unwrap();
+        assert_eq!(
+            a.len(),
+            rounded_output_frames(CHUNK_FRAMES, rate.from_hz, rate.to_hz) * rate.channels
+        );
+        assert_eq!(a.last(), b.last());
+        assert_ne!(a, b);
+        assert_ne!(SoakDigest::of_bits(&a), SoakDigest::of_bits(&b));
+        left.reset().unwrap();
+        assert_eq!(
+            a,
+            drive_complete_oracle_stream(&mut left, &inputs, 2048, 1).unwrap()
+        );
+    }
 
     #[test]
     fn comparison_args_extract_native_options_before_perf_args() {
@@ -1928,27 +2208,33 @@ mod tests {
         let expected_timed = CHUNK_FRAMES;
         let expected_output =
             rounded_output_frames(expected_warmup + expected_timed, rate.from_hz, rate.to_hz);
-        let mut accumulator =
-            CaseAccumulator::new(adapters::EngineFactory::silent_test().identity().clone(), 1);
-        accumulator.push(TrialMeasurement {
-            setup_ns: 1.0,
-            steady_ns_per_input_sample: 1.0,
-            steady_ns_per_input_buffer: 1.0,
-            reset_ns: 1.0,
-            drain_ns: 1.0,
-            warmup_consumed_frames: expected_warmup,
-            timed_consumed_frames: expected_timed,
-            expected_complete_output_frames: expected_output,
-            warmup_output_frames: 0,
-            steady_output_frames: expected_output - 1,
-            drain_frames: 0,
-            actual_complete_output_frames: expected_output - 1,
-            drain_terminal: true,
-        });
-
-        let case = accumulator
-            .finish(rate, 1, 2_048, valid_test_quality())
+        let identity = adapters::EngineFactory::silent_test().identity().clone();
+        let mut accumulator = CaseAccumulator::new(identity.clone(), rate, 2_048, 1);
+        accumulator
+            .push(TrialRecord {
+                identity: MeasurementIdentity::new(&identity, rate, 2_048),
+                trial_index: 0,
+                measurement: TrialMeasurement {
+                    setup_ns: 1.0,
+                    steady_ns_per_input_sample: 1.0,
+                    steady_ns_per_input_buffer: 1.0,
+                    steady_cycles_per_input_sample: None,
+                    steady_cycles_per_input_buffer: None,
+                    reset_ns: 1.0,
+                    drain_ns: 1.0,
+                    warmup_consumed_frames: expected_warmup,
+                    timed_consumed_frames: expected_timed,
+                    expected_complete_output_frames: expected_output,
+                    warmup_output_frames: 0,
+                    steady_output_frames: expected_output - 1,
+                    drain_frames: 0,
+                    actual_complete_output_frames: expected_output - 1,
+                    drain_terminal: true,
+                },
+            })
             .unwrap();
+
+        let case = accumulator.finish(1, valid_test_quality()).unwrap();
         assert!(!case.work_validation.valid);
         assert_eq!(
             case.work_validation
@@ -2025,6 +2311,31 @@ mod tests {
         assert!(conditions.contains_key("scope_boundaries"));
         assert!(!conditions.contains_key("excludes"));
 
+        let decoded: ComparisonReport = serde_json::from_value(report).unwrap();
+        let original = decoded
+            .cases
+            .first()
+            .expect("project case must be measured");
+        validate_case_trials(original, &decoded.conditions).unwrap();
+        let mut forged = original.clone();
+        forged.trial_records[0]
+            .identity
+            .engine_id
+            .push_str("_wrong");
+        assert!(validate_case_trials(&forged, &decoded.conditions).is_err());
+        let mut forged = original.clone();
+        forged
+            .work_validation
+            .actual_complete_output_frames_per_trial[0] += 1;
+        forged.work_validation.valid = true;
+        assert!(validate_case_trials(&forged, &decoded.conditions).is_err());
+        let mut forged = original.clone();
+        forged.steady_ns_per_input_sample.median *= 0.5;
+        assert!(validate_case_trials(&forged, &decoded.conditions).is_err());
+        let mut forged = original.clone();
+        forged.trial_records.pop();
+        assert!(validate_case_trials(&forged, &decoded.conditions).is_err());
+
         std::fs::remove_file(&output_path).unwrap();
     }
 
@@ -2038,6 +2349,8 @@ mod tests {
             all_output_samples_finite: true,
             reported_api_buffering_latency_frames: None,
             observed_input_frames_before_first_output: Some(0),
+            observed_input_frames_through_first_output: Some(512),
+            first_output_during_drain: false,
             measured_impulse_peak_frame: 0,
             measured_impulse_peak_magnitude: 1.0,
             gain_997_hz_db: Some(0.0),
@@ -2048,11 +2361,24 @@ mod tests {
             folded_alias_hz: Some(18_000.0),
             alias_attenuation_db: Some(-100.0),
             validity_errors: Vec::new(),
+            grid: quality_grid::QualityGrid::default(),
         }
     }
 
     #[test]
     fn coverage_table_has_one_terminal_row_per_representative_engine() {
+        let supported_rate_pairs = ALL_ENGINE_IDS
+            .into_iter()
+            .map(|engine_id| {
+                (
+                    engine_id.to_string(),
+                    RATE_PAIRS
+                        .iter()
+                        .map(|rate| rate.id.to_string())
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         let measured_cases = ALL_ENGINE_IDS.into_iter().flat_map(|engine_id| {
             RATE_PAIRS.into_iter().map(move |rate| {
                 (
@@ -2062,7 +2388,7 @@ mod tests {
                 )
             })
         });
-        let coverage = build_coverage(measured_cases, &[]).unwrap();
+        let coverage = build_coverage(measured_cases, &[], &supported_rate_pairs).unwrap();
 
         assert!(coverage.all_terminal);
         assert_eq!(coverage.entries.len(), ALL_ENGINE_IDS.len());
@@ -2077,7 +2403,64 @@ mod tests {
     }
 
     #[test]
+    fn coverage_table_keeps_partially_supported_engine_terminal_on_its_support_set() {
+        let supported_rate_pairs = ALL_ENGINE_IDS
+            .into_iter()
+            .map(|engine_id| {
+                let pairs = if engine_id == WEBRTC_ENGINE_ID {
+                    RATE_PAIRS
+                        .iter()
+                        .filter(|rate| rate.channels <= 2)
+                        .map(|rate| rate.id.to_string())
+                        .collect::<BTreeSet<_>>()
+                } else {
+                    RATE_PAIRS
+                        .iter()
+                        .map(|rate| rate.id.to_string())
+                        .collect::<BTreeSet<_>>()
+                };
+                (engine_id.to_string(), pairs)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let measured_cases = ALL_ENGINE_IDS.into_iter().flat_map(|engine_id| {
+            let pairs = supported_rate_pairs[engine_id].clone();
+            pairs.into_iter().map(move |rate_pair| {
+                (
+                    engine_id.to_string(),
+                    rate_pair.clone(),
+                    format!("engine={engine_id};rate={rate_pair}"),
+                )
+            })
+        });
+        let coverage = build_coverage(measured_cases, &[], &supported_rate_pairs).unwrap();
+
+        assert!(coverage.all_terminal);
+        let webrtc = coverage
+            .entries
+            .iter()
+            .find(|entry| entry.engine_id == WEBRTC_ENGINE_ID)
+            .unwrap();
+        assert_eq!(webrtc.state, CoverageState::Measured);
+        assert!(webrtc.terminal);
+        assert!(webrtc.measured_rate_pairs.len() < RATE_PAIRS.len());
+        assert_eq!(webrtc.case_keys.len(), webrtc.measured_rate_pairs.len());
+        enforce_complete_coverage(&coverage).unwrap();
+    }
+
+    #[test]
     fn coverage_table_keeps_unavailable_engine_nonterminal() {
+        let supported_rate_pairs = ALL_ENGINE_IDS
+            .into_iter()
+            .map(|engine_id| {
+                (
+                    engine_id.to_string(),
+                    RATE_PAIRS
+                        .iter()
+                        .map(|rate| rate.id.to_string())
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         let measured_cases = ALL_ENGINE_IDS
             .into_iter()
             .filter(|engine_id| *engine_id != LIBRESAMPLE_ENGINE_ID)
@@ -2096,7 +2479,7 @@ mod tests {
             required: true,
             reason: "explicit libresample shim path was not supplied".to_string(),
         }];
-        let coverage = build_coverage(measured_cases, &unavailable).unwrap();
+        let coverage = build_coverage(measured_cases, &unavailable, &supported_rate_pairs).unwrap();
 
         assert!(!coverage.all_terminal);
         let libresample = coverage
@@ -2113,6 +2496,18 @@ mod tests {
 
     #[test]
     fn coverage_table_rejects_partial_measured_rate_pairs() {
+        let supported_rate_pairs = ALL_ENGINE_IDS
+            .into_iter()
+            .map(|engine_id| {
+                (
+                    engine_id.to_string(),
+                    RATE_PAIRS
+                        .iter()
+                        .map(|rate| rate.id.to_string())
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         let measured_cases = ALL_ENGINE_IDS.into_iter().flat_map(|engine_id| {
             RATE_PAIRS
                 .into_iter()
@@ -2125,7 +2520,7 @@ mod tests {
                     )
                 })
         });
-        let error = build_coverage(measured_cases, &[]).unwrap_err();
+        let error = build_coverage(measured_cases, &[], &supported_rate_pairs).unwrap_err();
         assert!(error.contains(WDL_ENGINE_ID), "{error}");
         assert!(
             error.contains("incomplete measured rate coverage"),
@@ -2134,23 +2529,28 @@ mod tests {
     }
 
     #[test]
-    fn json_round_trip_comparison_allows_only_tiny_float_changes() {
+    fn json_round_trip_comparison_rejects_even_one_bit_changes() {
         let original = serde_json::json!({
             "identity": "engine",
             "samples": [1.0, 2.0],
         });
-        let within_tolerance = serde_json::json!({
+        assert!(first_json_difference(&original, &original, "$").is_none());
+        let one_bit_change = serde_json::json!({
             "identity": "engine",
-            "samples": [1.0 + 2.0 * f64::EPSILON, 2.0],
+            "samples": [1.0 + f64::EPSILON, 2.0],
         });
-        assert!(first_json_difference(&original, &within_tolerance, "$").is_none());
+        let difference = first_json_difference(&original, &one_bit_change, "$").unwrap();
+        assert!(difference.contains("$.samples[0]"), "{difference}");
 
-        let outside_tolerance = serde_json::json!({
+        let larger_change = serde_json::json!({
             "identity": "engine",
             "samples": [1.0 + 8.0 * f64::EPSILON, 2.0],
         });
-        let difference = first_json_difference(&original, &outside_tolerance, "$").unwrap();
+        let difference = first_json_difference(&original, &larger_change, "$").unwrap();
         assert!(difference.contains("$.samples[0]"), "{difference}");
+        assert!(
+            first_json_difference(&serde_json::json!(-0.0), &serde_json::json!(0.0), "$").is_some()
+        );
 
         let changed_identity = serde_json::json!({
             "identity": "other",

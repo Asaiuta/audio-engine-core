@@ -1137,11 +1137,14 @@ explicitly a pure scalar at the 1 kHz reference (flat 0 dB is `[1.0]`).
 ### Resampler routing & geometry contracts
 
 Exact 2x `Linear + High` upsampling uses a dedicated 127-tap symmetric
-half-band FIR. Other common ratios use rubato 4.0's synchronous FFT engine at
-every quality tier: UltraHigh selects one FFT sub-chunk (a 2x longer internal
-FIR) while Low through High use two sub-chunks (2026-07-25 routing change).
-Only ratios whose reduced components would create pathological FFT blocks use
-windowed sinc. The shared adapter removes each linear engine's leading delay.
+half-band FIR. Other common ratios use this crate's owned FFT stream with the
+former Rubato 4.0 filter arithmetic and quality-specific FFT geometry.
+UltraHigh retains its longer FIR. Large reduced ratios use an owned,
+output-driven sinc stream with bounded history. Linear routes remove leading
+delay and emit the exact rounded input duration. The existing `rubato` feature
+selects this backend, whose runtime name is `rust`; it does not enable the
+upstream Rubato package. That package is optional under the benchmark-only
+`raw-rubato` feature. See [replacement evidence](resampler-replacement.md).
 
 For `PhaseResponse::Minimum` and `Maximum`, the pure-Rust backend instead
 builds an exact spectral (FFT block-convolution) rational resampler during
@@ -1173,7 +1176,7 @@ dirty state are recorded but may differ. Aggregate reports retain every trial
 plus min/median/nearest-rank p95/max; the tail report retains every callback
 and extends the distribution through p99.9. All include the complete build
 environment. Benchmark reports record the compiled backend in the environment
-`features` field (`resampler-soxr` / `resampler-rubato`) and in the
+`features` field (`resampler-soxr` / `resampler-rust`) and in the
 `algorithm` labels, so performance baselines recorded before backend labeling
 are incompatible with new reports.
 
@@ -1284,7 +1287,31 @@ comparisons, and offline-render measurements.
 
 ### Resampler performance & Pareto updates
 
-#### 2026-07-27 adapter Pareto update
+#### 2026-10-10 comparison repair
+
+The v7 comparison corrects trial-to-engine attribution and replaces the old
+two-tone quality summary with explicit response/alias/image/channel grids.
+Two sequential feature builds contain 100 rate/channel/engine cases, 1,500
+identified throughput trials and 400,000 individually timed process calls.
+All measured cases pass complete input/output/drain and finite-probe checks;
+the independent raw-record reconstruction passes 30,803 checks. Cross-engine
+quality and speed remain report-only.
+
+At stereo High/Linear and 512 input frames, owned Rust measures 7.559 / 7.029
+ns/input-sample for 44.1→48 / 48→44.1 kHz. The selected FFmpeg defaults measure
+4.521 / 4.401 in the same run, but the 23 kHz reverse-alias probe is −19.93 dB
+for FFmpeg versus −185.34 dB for owned Rust. This is a quality/cost difference,
+not equal-quality performance acceptance. The owned and raw Rubato quality
+grids match exactly in the five measured cases.
+
+Per-call percentiles come from a separate instrumented pass. Input consumed
+through the first producing call is distinct from compensated API latency.
+The reset/render repetition phase compares complete sample vectors, including
+warmup and every drain chunk; its working-set observations are report-only and
+do not establish long-duration leak freedom. Full tables, identities, numerical
+limits and commands are in [resampler-comparison.md](resampler-comparison.md).
+
+#### Historical 2026-07-27 adapter work
 
 Stereo SoXR v2 replaces two native mono states plus deinterleave/reinterleave
 scratch with one native interleaved state. Against the former project route,

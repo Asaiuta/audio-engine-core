@@ -352,26 +352,31 @@ The project supports:
 
 ### SoX VHQ / SoXR
 
-The opt-in native backend provides high-quality SoX resampling through libsoxr (SoX VHQ quality), enabled with `features = ["soxr"]`. It requires the libsoxr native library at build/link time (LGPL-2.1; see [License](#license)).
+The opt-in native backend provides SoX resampling through libsoxr, with quality-dependent recipes up to VHQ, enabled with `features = ["soxr"]`. It requires the libsoxr native library at build/link time (LGPL-2.1; see [License](#license)).
 
 ### Pure Rust
 
-The default `rubato` backend provides quality-aware pure-Rust routing, including:
+The default `rubato` feature selects this crate's owned pure-Rust backend
+(reported as `rust`). The feature name is retained for existing consumers;
+production code does not use the upstream Rubato package. The optional
+`raw-rubato` feature retains it only for benchmark controls. Routing includes:
 
 * half-band FIR paths for exact 2× conversion (`PhaseResponse::Linear` + High uses a dedicated 127-tap symmetric half-band FIR)
-* FFT-based paths for common ratios (two sub-chunks through High, one longer sub-chunk for UltraHigh)
-* windowed-sinc handling for pathological reduced ratios
+* direct FFT-unit processing for common ratios, preserving the former quality-specific filter geometry
+* output-driven windowed sinc with bounded history for large reduced ratios
 * setup-designed rational FIRs with real-cepstrum spectral factorization for Minimum/Maximum phases, selecting spectral execution for small interpolation factors and contiguous polyphase execution otherwise
-* reduced-rate components above 1024 are rejected rather than silently treated as linear phase
+* Minimum/Maximum phases reject reduced-rate components above 1024; linear phase supports these ratios through sinc
 * no native dependency
 
 The streaming contract explicitly tracks consumed and produced samples.
 
-Finalization uses `finish_checked()` to drain native resampler state, while `reset()` clears the streaming history.
+Finalization uses `finish_checked()` to drain resampler state, while `reset()` clears the streaming history.
 
 At least one resampler backend must be enabled — enabling neither is a compile error, and when both are enabled, `soxr` wins.
 
-Detailed comparisons and methodology are documented in `docs/resampler-comparison.md`.
+The replacement contract and validation are documented in
+[`docs/resampler-replacement.md`](docs/resampler-replacement.md). Current
+measurements and their limits are in [the cross-engine comparison](docs/resampler-comparison.md).
 
 ---
 
@@ -427,19 +432,22 @@ In the offline render chain the limiter runs in the output-rate domain, after an
 
 ## Quality & validation
 
-Representative results from the current benchmark suite (reproduce with `cargo bench`; values differ by CPU, compiler, and load) include:
+The table below retains historical component-probe observations. Current resampler
+comparisons and analyzer limits are documented in
+[the October comparison](docs/resampler-comparison.md); these older single-probe
+figures are not new measurements of the owned backend.
 
 | Measurement                                                    |                  Result |
 | -------------------------------------------------------------- | ----------------------: |
 | `LoudnessMeter` integrated loudness parity vs direct `ebur128` |         **0.000000 LU** |
 | SoXR resampler THD+N, 44.1 → 48 kHz                            |           **−187.0 dB** |
-| Pure-Rust Rubato UltraHigh THD+N                               |           **−204.9 dB** |
+| Historical Rubato UltraHigh THD+N                              |           **−204.9 dB** |
 | Worst fitted alias attenuation, 96 → 48 kHz                    |           **−290.2 dB** |
 | True-peak limiter ceiling                                      |          **−1.00 dBTP** |
 | Dynamic loudness compensation at 40 Hz / 3 kHz                 | **+8.41 dB / +2.83 dB** |
 | Generation-based parameter snapshot (`audio_lockfree_params_perf`) |            **~7 ns** |
 
-True-peak limiter context: **−1.00 dBTP** is measured on a +0.10 dBTP intersample-stress signal; the legacy sample-peak mode never engages on it (+0.10 dBTP). The full output-chain true-peak probe is enforced as a CI gate: the current quick run measures a worst full-chain output true peak of **−1.000 dBTP** with zero over-limit points.
+True-peak limiter context: **−1.00 dBTP** is measured on a +0.10 dBTP intersample-stress signal; the legacy sample-peak mode never engages on it (+0.10 dBTP). The full output-chain true-peak probe is enforced as a CI gate: the recorded quick run measures a worst full-chain output true peak of **−1.000 dBTP** with zero over-limit points.
 
 These values are benchmark evidence from specific machines, configurations, and compiler builds.
 
@@ -447,21 +455,18 @@ They are **not universal performance or quality guarantees**.
 
 ### Resampler performance
 
-On the 2026-07-27 core-pinned heavy adapter controls:
+The repaired 2026-10-10 comparison uses High/Linear, stereo, 512-frame blocks
+and 15 pinned trials. Median nanoseconds per input scalar sample:
 
-```text
-SoXR v2
-44.1 → 48 kHz   : 8.569 ns/sample    (raw libsoxr: 8.632)
-48 → 44.1 kHz   : 7.424 ns/sample    (raw libsoxr: 7.368)
-  → statistical tie in both directions
+| Backend | 44.1 → 48 kHz | 48 → 44.1 kHz |
+| --- | ---: | ---: |
+| Owned Rust | 7.559 | 7.029 |
+| SoXR High | 6.897 | 6.563 |
 
-Rubato v17 (same-geometry build)
-44.1 → 48 kHz   : 8.182 ns/sample    (raw Rubato: 8.592)
-48 → 44.1 kHz   : 7.025 ns/sample    (raw Rubato: 6.908)
-  → 4.77% faster forward, tied reverse
-```
-
-The project deliberately reports these as benchmark evidence rather than claiming a universal fastest backend. The wider 11-engine matrix is Pareto evidence across different recipes, lanes, and latency policies, not a universal fastest ranking.
+These are machine-specific results from separate feature builds with different
+filter responses. The full 11-engine study retains identified raw trials,
+frequency/alias/image/channel probes, per-call tails and complete drain checks.
+It does not establish equal quality across engines or a universal fastest backend.
 
 See:
 
@@ -504,10 +509,12 @@ The main Cargo features are:
 | `loudness-db` |    ✓    | SQLite-backed loudness metadata persistence |
 | `rubato`      |    ✓    | Pure-Rust quality-aware resampling          |
 | `soxr`        |         | Native SoXR / SoX VHQ resampling            |
+| `raw-rubato`  |         | Upstream Rubato control for benchmarks      |
 
-All four features are independent; the first three are enabled by default. A
-default build is pure Rust: it needs no native library, no vcpkg/pkg-config
-probe, and carries no LGPL-2.1 linking obligation.
+The first three runtime features are enabled by default. `raw-rubato` only
+enables the benchmark control; a runtime resampler backend is still required.
+The default resampler is pure Rust: it needs no native resampler library or
+vcpkg/pkg-config probe and carries no LGPL-2.1 linking obligation.
 
 ### `http`
 
@@ -531,19 +538,16 @@ This requires the libsoxr native library at build/link time. libsoxr is LGPL-2.1
 
 ### `rubato`
 
-Enables the pure-Rust resampling backend. Enabled by default.
+Enables the owned pure-Rust resampling backend. Enabled by default. This feature
+name does not enable the upstream Rubato package. The optional `raw-rubato`
+feature enables that package solely for benchmark comparisons.
 
 When both `soxr` and `rubato` are enabled, SoXR is selected, so adding `soxr` on
 top of the default feature set is enough to get the native backend back.
 
-`StreamingResampler` is `Send` under either backend, but it is **not `Sync`** on
-the rubato backend, because rubato's `Async<f64>` holds a
-`Box<dyn InnerResampler<f64>>` that does not declare `Sync`. This is rarely a
-limitation: every method that does work takes `&mut self`, so the usable sharing
-pattern is `Arc<Mutex<StreamingResampler>>` (which only needs `Send`) or moving
-it to the audio thread. Only `Arc<StreamingResampler>` — which could call the
-read-only accessors and nothing else — is rejected. Enable `soxr` if you need the
-`Sync` impl itself.
+`StreamingResampler` preserves `Send`, `Sync`, `UnwindSafe`, and `RefUnwindSafe`
+under either backend. Advancing or resetting a stream requires `&mut self`;
+the pure-Rust processing path uses preallocated storage without locks.
 
 ---
 

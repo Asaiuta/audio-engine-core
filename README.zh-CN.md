@@ -344,28 +344,32 @@ fn process_callback_block(
 
 ### SoX VHQ / SoXR
 
-可选的原生后端通过 libsoxr(SoX VHQ 质量)提供高质量 SoX 重采样,以 `features = ["soxr"]` 启用。构建/链接时需要 libsoxr 原生库(LGPL-2.1;见 [许可证](#许可证))。
+可选的原生后端通过 libsoxr 提供 SoX 重采样，按质量档选择配置，最高支持 VHQ，以 `features = ["soxr"]` 启用。构建/链接时需要 libsoxr 原生库(LGPL-2.1;见 [许可证](#许可证))。
 
 ### 纯 Rust
 
-默认的 `rubato` 后端提供质量感知的纯 Rust 路由,包括:
+默认的 `rubato` 特性选择本 crate 自有的纯 Rust 后端（运行时名称为 `rust`）。
+保留特性名称以支持现有调用方，生产代码不使用上游 Rubato 包；可选的
+`raw-rubato` 特性仅为基准对照保留该依赖。路由包括：
 
 * 精确 2× 转换的半带 FIR 路径(`PhaseResponse::Linear` + High 使用专用 127 抽头对称半带 FIR)
-* 常见比率的 FFT 路径(High 采用两个子块,UltraHigh 采用一个更长子块)
-* 病态降比率的窗函数 sinc 处理
+* 常见比率直接按 FFT 单元处理，保留原有各质量档的滤波器几何
+* 大约分比率使用按输出推进、历史存储有界的窗函数 sinc
 * Minimum/Maximum 相位使用设计阶段确定的有理 FIR 与实倒谱谱分解,小插值因子选择频谱执行,其余选择连续多相执行
-* 超过 1024 的降比率分量被拒绝,而非静默按线性相位处理
+* Minimum/Maximum 相位拒绝超过 1024 的约分比率分量；线性相位通过 sinc 支持这些比率
 * 无原生依赖
 
 流式契约显式跟踪已消费与已产出的样本。
 
-收尾使用 `finish_checked()` 排空原生重采样器状态,`reset()` 清除流式历史。
+收尾使用 `finish_checked()` 排空重采样器状态，`reset()` 清除流式历史。
 
 至少必须启用一个重采样后端 —— 两者都不启用是编译错误;两者都启用时 `soxr` 优先。
 
-`StreamingResampler` 在两种后端下都是 `Send`,但在默认的 rubato 后端下**不是** `Sync`(也不是 `UnwindSafe` / `RefUnwindSafe`),因为 rubato 的 `Async<f64>` 持有未声明这些 auto trait 的 `Box<dyn InnerResampler<f64>>`。实践中影响很小:所有推进状态的方法都取 `&mut self`,因此 `Arc<Mutex<StreamingResampler>>`(只需 `Send`)与「移动到音频线程」两种用法都照常可用;仅 `Arc<StreamingResampler>` 会被拒绝。若确需 `Sync` 实现本身,请启用 `soxr`。
+`StreamingResampler` 在两种后端下均保留 `Send`、`Sync`、`UnwindSafe` 和
+`RefUnwindSafe`。推进或重置流需要 `&mut self`；纯 Rust 处理路径使用预分配存储，无需锁。
 
-详细对比与方法学见 `docs/resampler-comparison.md`。
+替换契约与验证见 [`docs/resampler-replacement.md`](docs/resampler-replacement.md)，
+最新测量与适用范围见[跨引擎比较](docs/resampler-comparison.md)。
 
 ---
 
@@ -421,19 +425,20 @@ fn process_callback_block(
 
 ## 质量与验证
 
-当前基准套件的代表性结果(用 `cargo bench` 复现;数值随 CPU、编译器与负载而异)包括:
+下表保留历史组件探针的观测值。当前重采样比较与分析器边界见
+[十月比较报告](docs/resampler-comparison.md)；这些旧单项数值不是自有后端的新测量。
 
 | 测量项                                                    |                 结果 |
 | -------------------------------------------------------------- | ----------------------: |
 | `LoudnessMeter` 综合响度与直接 `ebur128` 对比 |         **0.000000 LU** |
 | SoXR 重采样器 THD+N,44.1 → 48 kHz                            |           **−187.0 dB** |
-| 纯 Rust Rubato UltraHigh THD+N                               |           **−204.9 dB** |
+| 历史 Rubato UltraHigh THD+N                                  |           **−204.9 dB** |
 | 最差拟合混叠衰减,96 → 48 kHz                    |           **−290.2 dB** |
 | 真实峰值限制器上限                                      |          **−1.00 dBTP** |
 | 动态响度补偿,40 Hz / 3 kHz                 | **+8.41 dB / +2.83 dB** |
 | 基于代际的参数快照(`audio_lockfree_params_perf`) |            **~7 ns** |
 
-真实峰值限制器上下文:**−1.00 dBTP** 是在 +0.10 dBTP 采样间应力信号上测得的;旧式采样峰值模式对该信号从不触发(+0.10 dBTP)。完整输出链真实峰值探针作为 CI 门禁强制执行:当前快速运行测得最坏全链输出真实峰值为 **−1.000 dBTP**,超限点为零。
+真实峰值限制器上下文:**−1.00 dBTP** 是在 +0.10 dBTP 采样间应力信号上测得的;旧式采样峰值模式对该信号从不触发(+0.10 dBTP)。完整输出链真实峰值探针作为 CI 门禁强制执行:保留的快速运行测得最坏全链输出真实峰值为 **−1.000 dBTP**,超限点为零。
 
 这些数值是特定机器、配置与编译器构建下的基准证据。
 
@@ -441,21 +446,17 @@ fn process_callback_block(
 
 ### 重采样器性能
 
-在 2026-07-27 固定核心的重型适配器控制上:
+2026-10-10 修正后的比较使用 High/Linear、双声道、512 帧输入块与 15 次固定核心试验。
+下表为每个输入标量采样的耗时中位数，单位为纳秒：
 
-```text
-SoXR v2
-44.1 → 48 kHz   : 8.569 ns/采样    (原生 libsoxr: 8.632)
-48 → 44.1 kHz   : 7.424 ns/采样    (原生 libsoxr: 7.368)
-  → 双向统计持平
+| 后端 | 44.1 → 48 kHz | 48 → 44.1 kHz |
+| --- | ---: | ---: |
+| 自有 Rust | 7.559 | 7.029 |
+| SoXR High | 6.897 | 6.563 |
 
-Rubato v17(同几何构建)
-44.1 → 48 kHz   : 8.182 ns/采样    (原生 Rubato: 8.592)
-48 → 44.1 kHz   : 7.025 ns/采样    (原生 Rubato: 6.908)
-  → 正向快 4.77%,反向持平
-```
-
-本项目刻意将其作为基准证据报告,而非声称普遍的"最快"后端。更广的 11 引擎矩阵是不同方案、通道与延迟策略下的帕累托证据,而非普适的最快排名。
+两行来自同一机器的不同特性构建，滤波响应也不同。完整的 11 引擎研究保留了
+明确归属的原始试验、频响/混叠/镜像/声道探针、单次调用尾延迟和完整排空检查。
+这些证据不代表跨引擎质量相同，也不构成普遍的最快后端结论。
 
 完整方法学、配置、原始测量与可复现命令见:
 
@@ -496,8 +497,10 @@ audio-engine-core = {
 | `loudness-db` |    ✓    | 基于 SQLite 的响度元数据持久化 |
 | `rubato`      |    ✓    | 纯 Rust 质量感知重采样          |
 | `soxr`        |         | 原生 SoXR / SoX VHQ 重采样            |
+| `raw-rubato`  |         | 基准比较使用的上游 Rubato 对照       |
 
-四个特性互相独立;前三个默认启用。默认构建是纯 Rust:不需要原生库、不需要 vcpkg/pkg-config 探测,也不承担 LGPL-2.1 链接义务。
+前三个运行时特性默认启用。`raw-rubato` 只启用基准对照，仍需选择运行时重采样后端。
+默认重采样后端为纯 Rust，不需要原生重采样库或 vcpkg/pkg-config 探测，也不承担 LGPL-2.1 链接义务。
 
 ### `http`
 
@@ -521,7 +524,8 @@ audio-engine-core = {
 
 ### `rubato`
 
-启用纯 Rust 重采样后端。默认启用。
+启用本 crate 自有的纯 Rust 重采样后端，默认开启。此特性不启用上游 Rubato 包；
+可选的 `raw-rubato` 特性仅为基准比较启用该包。
 
 当 `soxr` 与 `rubato` 同时启用时,SoXR 优先 —— 因此在默认特性集之上加上 `soxr` 即可切回原生后端。
 

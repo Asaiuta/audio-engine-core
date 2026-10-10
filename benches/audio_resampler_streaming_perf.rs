@@ -29,13 +29,12 @@ const RESAMPLER_ALGORITHM_LABEL: &str =
     "native-interleaved stereo with per-channel fallback, default quality/phase";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 const RESAMPLER_ALGORITHM_LABEL: &str =
-    "native-interleaved exact-2x High half-band plus quality-preserving FFT 1024/2 Low-High and 1024/1 UltraHigh routing with bulk channel input/output adapters, split FIFO-prefix/caller-suffix input, aligned split output, partial-zero terminal-truncating FFT drain, ring FIFO fallback, and prefix-budget direct output";
+    "owned FFT units and output-driven sinc with bounded history, exact duration, and exact-2x High half-band";
 
 #[cfg(feature = "soxr")]
 const RESAMPLER_ALGORITHM_ID: &str = "streaming_interleaved_stereo_v2";
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-const RESAMPLER_ALGORITHM_ID: &str =
-    "streaming_native_interleaved_halfband2x_fft1024_sub2_bulk_io_split_input_terminal_drain_v17";
+const RESAMPLER_ALGORITHM_ID: &str = "streaming_owned_fft_sinc_v1";
 
 fn resampler_algorithm_label() -> String {
     format!("{RESAMPLER_BACKEND_NAME} {RESAMPLER_ALGORITHM_LABEL}")

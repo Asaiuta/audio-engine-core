@@ -50,8 +50,8 @@ pub(super) struct SpectralNonlinearResampler {
     /// `(nout + 1) · down` entries ordered by output bin, `down` terms each.
     fold: Vec<FoldEntry>,
     down: usize,
-    forward: Arc<dyn RealToComplex<f64>>,
-    inverse: Arc<dyn ComplexToReal<f64>>,
+    forward: std::panic::AssertUnwindSafe<Arc<dyn RealToComplex<f64>>>,
+    inverse: std::panic::AssertUnwindSafe<Arc<dyn ComplexToReal<f64>>>,
     /// Per-channel previous input block (`channels · nin`).
     history: Vec<f64>,
     /// Per-channel deinterleaved staging for the current block.
@@ -193,6 +193,7 @@ impl SpectralNonlinearResampler {
         let forward_scratch = forward.make_scratch_vec();
         let inverse_scratch = inverse.make_scratch_vec();
 
+        super::rust_backend::samples(nin, channels, "spectral history")?;
         Ok(Self {
             channels,
             nin,
@@ -200,8 +201,8 @@ impl SpectralNonlinearResampler {
             chunk_frames,
             fold,
             down,
-            forward,
-            inverse,
+            forward: std::panic::AssertUnwindSafe(forward),
+            inverse: std::panic::AssertUnwindSafe(inverse),
             history: vec![0.0; channels * nin],
             pending: vec![0.0; channels * nin],
             pending_frames: 0,

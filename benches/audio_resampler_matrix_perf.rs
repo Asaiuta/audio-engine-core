@@ -2,7 +2,7 @@
 //!
 //! Complements `audio_resampler_streaming_perf` (default High/Linear streaming
 //! path only) with a broader process_checked matrix plus setup cost. Case keys
-//! and algorithm labels include the compile-time backend so soxr/rubato reports
+//! and algorithm labels include the compile-time backend so soxr/rust reports
 //! stay baseline-incompatible by design.
 //!
 //! Coverage is intentional, not exhaustive: decoder, device write, and full
@@ -36,7 +36,7 @@ const WARMUP_BUFFERS: usize = 32;
 const OUTPUT_FRAMES_ABS_SLACK: usize = 2048;
 const VALIDATION_BUFFERS: usize = 4;
 const MATRIX_PROBE: &str = "audio_resampler_matrix_perf";
-const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v4_nonlinear_polyphase_up16";
+const MATRIX_ALGORITHM_ID: &str = "matrix_process_checked_v5_owned_fft_sinc";
 
 #[derive(Clone, Copy)]
 struct RatePair {
@@ -548,7 +548,7 @@ fn print_help() {
          quality, phase, and channel counts, plus construction (setup) cost.\n\
          Complements audio_resampler_streaming_perf; does not replace it.\n\
          Timing is report-only unless a compatible same-machine baseline is supplied.\n\
-         Build with default features for soxr, or:\n\
+         Build with default features for owned Rust, or select the same backend explicitly:\n\
            cargo bench --bench audio_resampler_matrix_perf --no-default-features --features rubato -- --quick"
     );
 }

@@ -35,7 +35,7 @@ use super::polyphase_backend::{
 };
 use crate::processor::fir_design::FirFftPlans;
 
-use super::{BackendInitError, BackendProcessError};
+use super::{aligned_buffer::AlignedBuffer, BackendInitError, BackendProcessError};
 
 pub(super) struct ContiguousPolyphaseResampler {
     channels: usize,
@@ -45,7 +45,7 @@ pub(super) struct ContiguousPolyphaseResampler {
     /// Reversed per-phase coefficient banks: entry `phase * taps + i`
     /// multiplies the history sample `taps - 1 - i` frames old, so the dot
     /// product walks both slices forward contiguously.
-    coefficients_reversed: Vec<f64>,
+    coefficients_reversed: AlignedBuffer,
     /// Planar per-channel history. The head retains enough prior input for the
     /// first rationally authorized output to lag the current chunk boundary.
     history: Vec<f64>,
@@ -210,6 +210,11 @@ impl ContiguousPolyphaseResampler {
             });
         }
 
+        super::rust_backend::samples(
+            chunk_frames.saturating_add(1024),
+            channels,
+            "contiguous_polyphase_backend.rs channel storage",
+        )?;
         let divisor = gcd(from_rate, to_rate);
         let up = (to_rate / divisor) as usize;
         let down = (from_rate / divisor) as usize;
@@ -247,7 +252,7 @@ impl ContiguousPolyphaseResampler {
         let finish_extension_frames = kernel_finish_extension_frames(kernel.len(), down);
 
         let forward = polyphase_coefficients(&kernel, up, taps_per_phase);
-        let mut coefficients_reversed = vec![0.0; forward.len()];
+        let mut coefficients_reversed = AlignedBuffer::zeroed(forward.len())?;
         for phase_index in 0..up {
             let source = &forward[phase_index * taps_per_phase..(phase_index + 1) * taps_per_phase];
             let target = &mut coefficients_reversed

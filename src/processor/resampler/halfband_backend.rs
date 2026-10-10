@@ -61,6 +61,11 @@ impl Halfband2xResampler {
             });
         }
 
+        super::rust_backend::samples(
+            chunk_frames.saturating_mul(2).saturating_add(128),
+            channels,
+            "halfband_backend.rs channel storage",
+        )?;
         let (even_coefficients, center_gain) = design_coefficients();
         let input_span_frames = HISTORY_PREFIX_FRAMES.checked_add(chunk_frames).ok_or(
             BackendInitError::StorageOverflow {

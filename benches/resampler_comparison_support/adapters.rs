@@ -22,12 +22,6 @@ use audio_engine_core::{
 use libloading::Library;
 use sha2::{Digest, Sha256};
 
-#[cfg(feature = "rubato")]
-use rubato::{
-    audioadapter::{Adapter, AdapterMut},
-    audioadapter_buffers::direct::InterleavedSlice,
-    Fft, FixedSync, Indexing, Resampler, WindowFunction,
-};
 #[cfg(feature = "soxr")]
 use soxr::{
     format::Stereo,
@@ -35,10 +29,17 @@ use soxr::{
     Soxr,
 };
 
+#[cfg(feature = "raw-rubato")]
+use rubato::{
+    audioadapter::{Adapter, AdapterMut},
+    audioadapter_buffers::direct::InterleavedSlice,
+    Fft, FixedSync, Indexing, Resampler, WindowFunction,
+};
+
 use super::{
     rounded_output_frames, EngineIdentity, MetricClassification, NativeArtifactIdentity,
-    NativeLibraryIdentity, RatePair, SampleFormat, UnavailableEngine, ADAPTER_SCHEMA, CHANNELS,
-    CHUNK_FRAMES, LIBSAMPLERATE_ENGINE_ID, NATIVE_SHIM_ENGINE_IDS, PROJECT_ENGINE_ID, RATE_PAIRS,
+    NativeLibraryIdentity, RatePair, SampleFormat, UnavailableEngine, ADAPTER_SCHEMA, CHUNK_FRAMES,
+    LIBSAMPLERATE_ENGINE_ID, NATIVE_SHIM_ENGINE_IDS, PROJECT_ENGINE_ID, RATE_PAIRS,
     RAW_RUBATO_ENGINE_ID, RAW_SOXR_ENGINE_ID,
 };
 
@@ -63,14 +64,14 @@ pub(crate) struct Discovery {
     pub(crate) unavailable: Vec<UnavailableEngine>,
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RawRubatoGeometry {
     pub(crate) chunk_frames: usize,
     pub(crate) sub_chunks: usize,
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 impl RawRubatoGeometry {
     pub(crate) const FFT_512_1: Self = Self {
         chunk_frames: 512,
@@ -80,16 +81,6 @@ impl RawRubatoGeometry {
         chunk_frames: 1_024,
         sub_chunks: 2,
     };
-
-    pub(crate) fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "512/1" => Ok(Self::FFT_512_1),
-            "1024/2" => Ok(Self::FFT_1024_2),
-            _ => Err(format!(
-                "unsupported raw Rubato geometry '{value}'; expected 512/1 or 1024/2"
-            )),
-        }
-    }
 
     pub(crate) const fn label(self) -> &'static str {
         match (self.chunk_frames, self.sub_chunks) {
@@ -112,6 +103,10 @@ impl RawRubatoGeometry {
 pub(crate) struct EngineFactory {
     identity: EngineIdentity,
     kind: EngineFactoryKind,
+    /// Rate pairs whose canonical create probe failed while at least one other
+    /// pair succeeded.  Such an engine stays measured on the pairs it supports
+    /// and is skipped (never globally unavailable) on the remaining pairs.
+    canonical_create_failures: BTreeMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -119,8 +114,9 @@ enum EngineFactoryKind {
     Project,
     #[cfg(feature = "soxr")]
     RawSoxr,
-    #[cfg(feature = "rubato")]
+    #[cfg(feature = "raw-rubato")]
     RawRubato(RawRubatoGeometry),
+
     LibSamplerate(Arc<LibSamplerateLibrary>),
     NativeShim(Arc<NativeShimLibrary>),
     #[cfg(test)]
@@ -132,6 +128,14 @@ enum EngineFactoryKind {
 impl EngineFactory {
     pub(crate) fn identity(&self) -> &EngineIdentity {
         &self.identity
+    }
+
+    pub(crate) fn supports_rate(&self, rate_id: &str) -> bool {
+        !self.canonical_create_failures.contains_key(rate_id)
+    }
+
+    pub(crate) fn canonical_create_failure(&self, rate_id: &str) -> Option<&String> {
+        self.canonical_create_failures.get(rate_id)
     }
 
     pub(crate) fn create(
@@ -148,12 +152,12 @@ impl EngineFactory {
             EngineFactoryKind::RawSoxr => {
                 RawSoxrAdapter::new(rate, channels, chunk_frames).map(EngineAdapter::RawSoxr)
             }
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             EngineFactoryKind::RawRubato(geometry) => {
                 RawRubatoAdapter::new(rate, channels, chunk_frames, *geometry)
-                    .map(Box::new)
-                    .map(EngineAdapter::RawRubato)
+                    .map(|adapter| EngineAdapter::RawRubato(Box::new(adapter)))
             }
+
             EngineFactoryKind::LibSamplerate(library) => {
                 LibSamplerateAdapter::new(Arc::clone(library), rate, channels, chunk_frames)
                     .map(EngineAdapter::LibSamplerate)
@@ -190,6 +194,7 @@ impl EngineFactory {
                 native_library: None,
             },
             kind: EngineFactoryKind::SilentTest,
+            canonical_create_failures: BTreeMap::new(),
         }
     }
 
@@ -209,23 +214,18 @@ impl EngineFactory {
                 native_library: None,
             },
             kind: EngineFactoryKind::CreateFailureTest,
+            canonical_create_failures: BTreeMap::new(),
         }
     }
 }
 
-#[cfg_attr(
-    all(feature = "rubato", not(feature = "soxr")),
-    expect(
-        clippy::large_enum_variant,
-        reason = "boxing only the largest benchmark adapter would charge an engine-specific allocation to measured setup"
-    )
-)]
 pub(crate) enum EngineAdapter {
     Project(ProjectAdapter),
     #[cfg(feature = "soxr")]
     RawSoxr(RawSoxrAdapter),
-    #[cfg(feature = "rubato")]
+    #[cfg(feature = "raw-rubato")]
     RawRubato(Box<RawRubatoAdapter>),
+
     LibSamplerate(LibSamplerateAdapter),
     NativeShim(NativeShimAdapter),
     #[cfg(test)]
@@ -233,13 +233,21 @@ pub(crate) enum EngineAdapter {
 }
 
 impl EngineAdapter {
+    #[cfg(test)]
+    pub(crate) fn chunked_drain_test(rate: RatePair, first_chunk_value: f64) -> Self {
+        let mut adapter = SilentTestAdapter::new(rate, rate.channels, 512).unwrap();
+        adapter.deferred_first_chunk_value = Some(first_chunk_value);
+        Self::SilentTest(adapter)
+    }
+
     pub(crate) fn sample_format(&self) -> SampleFormat {
         match self {
             Self::Project(_) => SampleFormat::InterleavedF64,
             #[cfg(feature = "soxr")]
             Self::RawSoxr(_) => SampleFormat::InterleavedF64,
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(_) => SampleFormat::InterleavedF64,
+
             Self::LibSamplerate(_) => SampleFormat::InterleavedF32,
             Self::NativeShim(adapter) => adapter.sample_format,
             #[cfg(test)]
@@ -252,8 +260,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.max_output_frames,
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.max_output_frames,
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.max_output_frames,
+
             Self::LibSamplerate(adapter) => adapter.max_output_frames,
             Self::NativeShim(adapter) => adapter.max_output_frames,
             #[cfg(test)]
@@ -266,8 +275,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.api_buffering_latency_frames,
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.api_buffering_latency_frames,
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.api_buffering_latency_frames,
+
             Self::LibSamplerate(adapter) => adapter.api_buffering_latency_frames,
             Self::NativeShim(adapter) => adapter.api_buffering_latency_frames,
             #[cfg(test)]
@@ -280,8 +290,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.expected_complete_output_frames(input_frames),
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.expected_complete_output_frames(input_frames),
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.expected_complete_output_frames(input_frames),
+
             Self::LibSamplerate(adapter) => adapter.expected_complete_output_frames(input_frames),
             Self::NativeShim(adapter) => adapter.expected_complete_output_frames(input_frames),
             #[cfg(test)]
@@ -298,8 +309,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.process(input, output),
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.process(input, output),
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.process(input, output),
+
             Self::LibSamplerate(_) => {
                 Err("libsamplerate uses the interleaved_f32 lane, not interleaved_f64".to_string())
             }
@@ -351,8 +363,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.drain(output),
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.drain(output),
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.drain(output),
+
             Self::LibSamplerate(_) => {
                 Err("libsamplerate uses the interleaved_f32 lane, not interleaved_f64".to_string())
             }
@@ -375,8 +388,9 @@ impl EngineAdapter {
             Self::Project(adapter) => adapter.reset(),
             #[cfg(feature = "soxr")]
             Self::RawSoxr(adapter) => adapter.reset(),
-            #[cfg(feature = "rubato")]
+            #[cfg(feature = "raw-rubato")]
             Self::RawRubato(adapter) => adapter.reset(),
+
             Self::LibSamplerate(adapter) => adapter.reset(),
             Self::NativeShim(adapter) => adapter.reset(),
             #[cfg(test)]
@@ -395,6 +409,7 @@ pub(crate) struct SilentTestAdapter {
     total_output_frames: usize,
     end_signalled: bool,
     finished: bool,
+    deferred_first_chunk_value: Option<f64>,
 }
 
 #[cfg(test)]
@@ -412,6 +427,7 @@ impl SilentTestAdapter {
             total_output_frames: 0,
             end_signalled: false,
             finished: false,
+            deferred_first_chunk_value: None,
         })
     }
 
@@ -432,7 +448,11 @@ impl SilentTestAdapter {
             .checked_add(input_frames)
             .ok_or_else(|| "silent test input total overflowed".to_string())?;
         let target = self.expected_complete_output_frames(self.total_input_frames);
-        let produced = target.saturating_sub(self.total_output_frames);
+        let produced = if self.deferred_first_chunk_value.is_some() {
+            0
+        } else {
+            target.saturating_sub(self.total_output_frames)
+        };
         let output_capacity = output.len() / self.channels;
         if produced > output_capacity {
             return Err(format!(
@@ -449,15 +469,26 @@ impl SilentTestAdapter {
         })
     }
 
-    fn drain(&mut self, _output: &mut [f64]) -> Result<AdapterProgress, String> {
+    fn drain(&mut self, output: &mut [f64]) -> Result<AdapterProgress, String> {
         if !self.end_signalled {
             return Err("silent test drain requires end-of-input".to_string());
         }
-        self.finished = true;
+        let remaining = self
+            .expected_complete_output_frames(self.total_input_frames)
+            .saturating_sub(self.total_output_frames);
+        let produced = remaining.min(127).min(output.len() / self.channels);
+        let value = if self.total_output_frames == 0 {
+            self.deferred_first_chunk_value.unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        output[..produced * self.channels].fill(value);
+        self.total_output_frames += produced;
+        self.finished = produced == remaining;
         Ok(AdapterProgress {
             consumed_frames: 0,
-            produced_frames: 0,
-            finished: true,
+            produced_frames: produced,
+            finished: self.finished,
         })
     }
 
@@ -478,11 +509,11 @@ pub(crate) fn discover(
     libsamplerate_path: Option<&Path>,
     native_library_paths: &BTreeMap<String, std::path::PathBuf>,
     required_engines: &BTreeSet<String>,
-    #[cfg(feature = "rubato")] raw_rubato_geometry: RawRubatoGeometry,
 ) -> Discovery {
     let mut factories = vec![EngineFactory {
         identity: project_identity(),
         kind: EngineFactoryKind::Project,
+        canonical_create_failures: BTreeMap::new(),
     }];
     let mut unavailable = Vec::new();
 
@@ -490,6 +521,7 @@ pub(crate) fn discover(
     factories.push(EngineFactory {
         identity: raw_soxr_identity(),
         kind: EngineFactoryKind::RawSoxr,
+        canonical_create_failures: BTreeMap::new(),
     });
     #[cfg(not(feature = "soxr"))]
     unavailable.push(unavailable_engine(
@@ -498,15 +530,16 @@ pub(crate) fn discover(
         required_engines,
     ));
 
-    #[cfg(feature = "rubato")]
+    #[cfg(feature = "raw-rubato")]
     factories.push(EngineFactory {
-        identity: raw_rubato_identity(raw_rubato_geometry),
-        kind: EngineFactoryKind::RawRubato(raw_rubato_geometry),
+        identity: raw_rubato_identity(RawRubatoGeometry::FFT_1024_2),
+        kind: EngineFactoryKind::RawRubato(RawRubatoGeometry::FFT_1024_2),
+        canonical_create_failures: BTreeMap::new(),
     });
-    #[cfg(not(feature = "rubato"))]
+    #[cfg(not(feature = "raw-rubato"))]
     unavailable.push(unavailable_engine(
         RAW_RUBATO_ENGINE_ID,
-        "raw Rubato control was not compiled; enable the 'rubato' Cargo feature",
+        "raw Rubato control was not compiled; enable the 'raw-rubato' Cargo feature",
         required_engines,
     ));
 
@@ -517,6 +550,7 @@ pub(crate) fn discover(
                 factories.push(EngineFactory {
                     identity,
                     kind: EngineFactoryKind::LibSamplerate(Arc::new(library)),
+                    canonical_create_failures: BTreeMap::new(),
                 });
             }
             Err(error) => unavailable.push(unavailable_engine(
@@ -540,6 +574,7 @@ pub(crate) fn discover(
                     factories.push(EngineFactory {
                         identity,
                         kind: EngineFactoryKind::NativeShim(Arc::new(library)),
+                        canonical_create_failures: BTreeMap::new(),
                     });
                 }
                 Err(error) => {
@@ -565,20 +600,25 @@ fn probe_canonical_factories(
     required_engines: &BTreeSet<String>,
 ) -> Discovery {
     let mut probed_factories = Vec::with_capacity(factories.len());
-    for factory in factories {
-        let probe_failure = RATE_PAIRS.iter().find_map(|rate| {
-            factory
-                .create(*rate, CHANNELS, CHUNK_FRAMES)
-                .err()
-                .map(|error| format!("{} canonical create probe failed: {error}", rate.id))
-        });
-        if let Some(error) = probe_failure {
+    for mut factory in factories {
+        let mut failures = BTreeMap::new();
+        for rate in RATE_PAIRS {
+            if let Err(error) = factory.create(rate, rate.channels, CHUNK_FRAMES) {
+                failures.insert(
+                    rate.id.to_string(),
+                    format!("canonical create probe failed: {error}"),
+                );
+            }
+        }
+        if failures.len() == RATE_PAIRS.len() {
+            let reason = failures.values().cloned().collect::<Vec<_>>().join("; ");
             unavailable.push(unavailable_engine(
                 &factory.identity.engine_id,
-                &error,
+                &reason,
                 required_engines,
             ));
         } else {
+            factory.canonical_create_failures = failures;
             probed_factories.push(factory);
         }
     }
@@ -610,11 +650,10 @@ fn project_identity() -> EngineIdentity {
             "audio-engine-core High: libsoxr HQ/Bits20, linear phase, high-precision clock"
                 .to_string(),
         ),
-        "rubato" => (
-            format!("rubato {RAW_RUBATO_CRATE_VERSION}"),
-            "audio_engine_core_rubato_fft1024_subchunk2_bulk_io_split_input_terminal_drain_v17".to_string(),
-            "audio-engine-core High: Rubato FFT 1024/2 with bulk channel input/output adapters, split FIFO-prefix/caller-suffix input, constrained split spill, and partial-zero terminal-truncating FFT drain, linear phase"
-                .to_string(),
+        "rust" => (
+            "project-owned kernels; Rubato 4.0 response convention".to_string(),
+            "audio_engine_core_owned_fft_sinc_v1".to_string(),
+            "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase".to_string(),
         ),
         other => (
             other.to_string(),
@@ -657,7 +696,7 @@ fn raw_soxr_identity() -> EngineIdentity {
     }
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 fn raw_rubato_identity(geometry: RawRubatoGeometry) -> EngineIdentity {
     EngineIdentity {
         engine_id: RAW_RUBATO_ENGINE_ID.to_string(),
@@ -678,219 +717,14 @@ fn raw_rubato_identity(geometry: RawRubatoGeometry) -> EngineIdentity {
     }
 }
 
-pub(crate) struct ProjectAdapter {
-    resampler: StreamingResampler,
-    channels: usize,
-    from_hz: u32,
-    to_hz: u32,
-    max_output_frames: usize,
-    api_buffering_latency_frames: Option<usize>,
-}
-
-impl ProjectAdapter {
-    fn new(rate: RatePair, channels: usize, chunk_frames: usize) -> Result<Self, String> {
-        let resampler = StreamingResampler::with_quality(
-            channels,
-            rate.from_hz,
-            rate.to_hz,
-            PhaseResponse::Linear,
-            ResampleQuality::High,
-        )
-        .map_err(|error| format!("audio-engine-core resampler setup failed: {error}"))?;
-        let max_output_frames = resampler
-            .process_output_capacity_frames(chunk_frames)
-            .map_err(|error| format!("audio-engine-core capacity failed: {error}"))?
-            .max(1);
-        // Match the caller capacity supplied to the raw controls. The public
-        // resampler accepts arbitrary output capacity and exposes backpressure;
-        // its 16K internal-step bound is not the current 512-frame workload.
-        let api_buffering_latency_frames = Some(resampler.latency().frames());
-        Ok(Self {
-            resampler,
-            channels,
-            from_hz: rate.from_hz,
-            to_hz: rate.to_hz,
-            max_output_frames,
-            api_buffering_latency_frames,
-        })
-    }
-
-    fn process(&mut self, input: &[f64], output: &mut [f64]) -> Result<AdapterProgress, String> {
-        validate_interleaved(input.len(), self.channels, "project input")?;
-        validate_interleaved(output.len(), self.channels, "project output")?;
-        let input_frames = input.len() / self.channels;
-        let output_frames = output.len() / self.channels;
-        let input = AudioBlockRef::new(input, self.channels)
-            .map_err(|error| format!("project input block failed: {error}"))?;
-        let output = AudioBlockMut::new(output, self.channels)
-            .map_err(|error| format!("project output block failed: {error}"))?;
-        let progress = process_checked(
-            &mut self.resampler,
-            ProcessBuffers::out_of_place(input, output)
-                .map_err(|error| format!("project process buffers failed: {error}"))?,
-        )
-        .map_err(|error| format!("project resampler process failed: {error}"))?;
-        validate_progress(
-            "project process",
-            progress.consumed_frames(),
-            progress.produced_frames(),
-            input_frames,
-            output_frames,
-        )?;
-        Ok(AdapterProgress {
-            consumed_frames: progress.consumed_frames(),
-            produced_frames: progress.produced_frames(),
-            finished: progress.state() == ProcessState::Finished,
-        })
-    }
-
-    fn drain(&mut self, output: &mut [f64]) -> Result<AdapterProgress, String> {
-        validate_interleaved(output.len(), self.channels, "project drain output")?;
-        let output_frames = output.len() / self.channels;
-        let block = AudioBlockMut::new(output, self.channels)
-            .map_err(|error| format!("project drain block failed: {error}"))?;
-        let progress = finish_checked(&mut self.resampler, block)
-            .map_err(|error| format!("project resampler drain failed: {error}"))?;
-        validate_progress(
-            "project drain",
-            progress.consumed_frames(),
-            progress.produced_frames(),
-            0,
-            output_frames,
-        )?;
-        Ok(AdapterProgress {
-            consumed_frames: progress.consumed_frames(),
-            produced_frames: progress.produced_frames(),
-            finished: progress.state() == ProcessState::Finished,
-        })
-    }
-
-    fn reset(&mut self) -> Result<(), String> {
-        self.resampler
-            .reset()
-            .map_err(|error| format!("project resampler reset failed: {error}"))
-    }
-
-    fn expected_complete_output_frames(&self, input_frames: usize) -> usize {
-        rounded_output_frames(input_frames, self.from_hz, self.to_hz)
-    }
-}
-
-#[cfg(feature = "soxr")]
-pub(crate) struct RawSoxrAdapter {
-    resampler: Soxr<Stereo<f64>>,
-    from_hz: u32,
-    to_hz: u32,
-    max_output_frames: usize,
-    api_buffering_latency_frames: Option<usize>,
-    finished: bool,
-}
-
-#[cfg(feature = "soxr")]
-impl RawSoxrAdapter {
-    fn new(rate: RatePair, channels: usize, chunk_frames: usize) -> Result<Self, String> {
-        if channels != 2 {
-            return Err(format!(
-                "raw libsoxr stereo adapter requires 2 channels, received {channels}"
-            ));
-        }
-        let quality = QualitySpec::configure(
-            QualityRecipe::high(),
-            Rolloff::default(),
-            QualityFlags::HighPrecisionClock,
-        )
-        .with_phase_response(50.0);
-        let runtime = RuntimeSpec::new(1);
-        let resampler = Soxr::<Stereo<f64>>::new_with_params(
-            rate.from_hz as f64,
-            rate.to_hz as f64,
-            quality,
-            runtime,
-        )
-        .map_err(|error| format!("raw libsoxr setup failed: {error:?}"))?;
-        Ok(Self {
-            resampler,
-            from_hz: rate.from_hz,
-            to_hz: rate.to_hz,
-            max_output_frames: generous_output_capacity(chunk_frames, rate),
-            api_buffering_latency_frames: None,
-            finished: false,
-        })
-    }
-
-    fn process(&mut self, input: &[f64], output: &mut [f64]) -> Result<AdapterProgress, String> {
-        if self.finished {
-            return Err("raw libsoxr received input after terminal drain".to_string());
-        }
-        let input = stereo_frames(input, "raw libsoxr input")?;
-        let output = stereo_frames_mut(output, "raw libsoxr output")?;
-        let input_frames = input.len();
-        let output_frames = output.len();
-        let progress = self
-            .resampler
-            .process(input, output)
-            .map_err(|error| format!("raw libsoxr process failed: {error:?}"))?;
-        validate_progress(
-            "raw libsoxr process",
-            progress.input_frames,
-            progress.output_frames,
-            input_frames,
-            output_frames,
-        )?;
-        if input_frames > 0 && progress.input_frames == 0 && progress.output_frames == 0 {
-            return Err("raw libsoxr process made no progress".to_string());
-        }
-        Ok(AdapterProgress {
-            consumed_frames: progress.input_frames,
-            produced_frames: progress.output_frames,
-            finished: false,
-        })
-    }
-
-    fn drain(&mut self, output: &mut [f64]) -> Result<AdapterProgress, String> {
-        if self.finished {
-            return Ok(AdapterProgress {
-                consumed_frames: 0,
-                produced_frames: 0,
-                finished: true,
-            });
-        }
-        let output = stereo_frames_mut(output, "raw libsoxr drain output")?;
-        let capacity = output.len();
-        let produced = self
-            .resampler
-            .drain(output)
-            .map_err(|error| format!("raw libsoxr drain failed: {error:?}"))?;
-        validate_progress("raw libsoxr drain", 0, produced, 0, capacity)?;
-        self.finished = produced == 0;
-        Ok(AdapterProgress {
-            consumed_frames: 0,
-            produced_frames: produced,
-            finished: self.finished,
-        })
-    }
-
-    fn reset(&mut self) -> Result<(), String> {
-        self.resampler
-            .clear()
-            .map_err(|error| format!("raw libsoxr reset failed: {error:?}"))?;
-        self.finished = false;
-        Ok(())
-    }
-
-    fn expected_complete_output_frames(&self, input_frames: usize) -> usize {
-        rounded_output_frames(input_frames, self.from_hz, self.to_hz)
-    }
-}
-
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 struct FixedSampleRing {
     data: Box<[f64]>,
     head: usize,
     len: usize,
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 impl FixedSampleRing {
     fn new(capacity: usize) -> Self {
         Self {
@@ -978,7 +812,7 @@ impl FixedSampleRing {
     }
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 struct StrictSplitInterleavedOutput<'a> {
     direct: &'a mut [f64],
     spill: &'a mut [f64],
@@ -988,7 +822,7 @@ struct StrictSplitInterleavedOutput<'a> {
     direct_frames: usize,
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 impl<'a> StrictSplitInterleavedOutput<'a> {
     fn new(
         direct: &'a mut [f64],
@@ -1025,7 +859,7 @@ impl<'a> StrictSplitInterleavedOutput<'a> {
     }
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 unsafe impl Adapter<f64> for StrictSplitInterleavedOutput<'_> {
     unsafe fn read_sample_unchecked(&self, channel: usize, frame: usize) -> f64 {
         if frame < self.drop_frames {
@@ -1050,7 +884,7 @@ unsafe impl Adapter<f64> for StrictSplitInterleavedOutput<'_> {
     }
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 unsafe impl AdapterMut<f64> for StrictSplitInterleavedOutput<'_> {
     unsafe fn write_sample_unchecked(&mut self, channel: usize, frame: usize, value: &f64) -> bool {
         if frame < self.drop_frames {
@@ -1105,7 +939,7 @@ unsafe impl AdapterMut<f64> for StrictSplitInterleavedOutput<'_> {
     }
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 #[allow(clippy::too_many_arguments)]
 fn run_strict_rubato_chunk(
     resampler: &mut Fft<f64>,
@@ -1200,7 +1034,7 @@ fn run_strict_rubato_chunk(
     ))
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 pub(crate) struct RawRubatoAdapter {
     resampler: Fft<f64>,
     geometry: RawRubatoGeometry,
@@ -1222,7 +1056,7 @@ pub(crate) struct RawRubatoAdapter {
     finished: bool,
 }
 
-#[cfg(feature = "rubato")]
+#[cfg(feature = "raw-rubato")]
 impl RawRubatoAdapter {
     fn new(
         rate: RatePair,
@@ -1502,6 +1336,211 @@ impl RawRubatoAdapter {
         self.processed_real_input_frames = 0;
         self.emitted_frames = 0;
         self.draining = false;
+        self.finished = false;
+        Ok(())
+    }
+
+    fn expected_complete_output_frames(&self, input_frames: usize) -> usize {
+        rounded_output_frames(input_frames, self.from_hz, self.to_hz)
+    }
+}
+
+pub(crate) struct ProjectAdapter {
+    resampler: StreamingResampler,
+    channels: usize,
+    from_hz: u32,
+    to_hz: u32,
+    max_output_frames: usize,
+    api_buffering_latency_frames: Option<usize>,
+}
+
+impl ProjectAdapter {
+    fn new(rate: RatePair, channels: usize, chunk_frames: usize) -> Result<Self, String> {
+        let resampler = StreamingResampler::with_quality(
+            channels,
+            rate.from_hz,
+            rate.to_hz,
+            PhaseResponse::Linear,
+            ResampleQuality::High,
+        )
+        .map_err(|error| format!("audio-engine-core resampler setup failed: {error}"))?;
+        let max_output_frames = resampler
+            .process_output_capacity_frames(chunk_frames)
+            .map_err(|error| format!("audio-engine-core capacity failed: {error}"))?
+            .max(1);
+        // Match the caller capacity supplied to the raw controls. The public
+        // resampler accepts arbitrary output capacity and exposes backpressure;
+        // its 16K internal-step bound is not the current 512-frame workload.
+        let api_buffering_latency_frames = Some(resampler.latency().frames());
+        Ok(Self {
+            resampler,
+            channels,
+            from_hz: rate.from_hz,
+            to_hz: rate.to_hz,
+            max_output_frames,
+            api_buffering_latency_frames,
+        })
+    }
+
+    fn process(&mut self, input: &[f64], output: &mut [f64]) -> Result<AdapterProgress, String> {
+        validate_interleaved(input.len(), self.channels, "project input")?;
+        validate_interleaved(output.len(), self.channels, "project output")?;
+        let input_frames = input.len() / self.channels;
+        let output_frames = output.len() / self.channels;
+        let input = AudioBlockRef::new(input, self.channels)
+            .map_err(|error| format!("project input block failed: {error}"))?;
+        let output = AudioBlockMut::new(output, self.channels)
+            .map_err(|error| format!("project output block failed: {error}"))?;
+        let progress = process_checked(
+            &mut self.resampler,
+            ProcessBuffers::out_of_place(input, output)
+                .map_err(|error| format!("project process buffers failed: {error}"))?,
+        )
+        .map_err(|error| format!("project resampler process failed: {error}"))?;
+        validate_progress(
+            "project process",
+            progress.consumed_frames(),
+            progress.produced_frames(),
+            input_frames,
+            output_frames,
+        )?;
+        Ok(AdapterProgress {
+            consumed_frames: progress.consumed_frames(),
+            produced_frames: progress.produced_frames(),
+            finished: progress.state() == ProcessState::Finished,
+        })
+    }
+
+    fn drain(&mut self, output: &mut [f64]) -> Result<AdapterProgress, String> {
+        validate_interleaved(output.len(), self.channels, "project drain output")?;
+        let output_frames = output.len() / self.channels;
+        let block = AudioBlockMut::new(output, self.channels)
+            .map_err(|error| format!("project drain block failed: {error}"))?;
+        let progress = finish_checked(&mut self.resampler, block)
+            .map_err(|error| format!("project resampler drain failed: {error}"))?;
+        validate_progress(
+            "project drain",
+            progress.consumed_frames(),
+            progress.produced_frames(),
+            0,
+            output_frames,
+        )?;
+        Ok(AdapterProgress {
+            consumed_frames: progress.consumed_frames(),
+            produced_frames: progress.produced_frames(),
+            finished: progress.state() == ProcessState::Finished,
+        })
+    }
+
+    fn reset(&mut self) -> Result<(), String> {
+        self.resampler
+            .reset()
+            .map_err(|error| format!("project resampler reset failed: {error}"))
+    }
+
+    fn expected_complete_output_frames(&self, input_frames: usize) -> usize {
+        rounded_output_frames(input_frames, self.from_hz, self.to_hz)
+    }
+}
+
+#[cfg(feature = "soxr")]
+pub(crate) struct RawSoxrAdapter {
+    resampler: Soxr<Stereo<f64>>,
+    from_hz: u32,
+    to_hz: u32,
+    max_output_frames: usize,
+    api_buffering_latency_frames: Option<usize>,
+    finished: bool,
+}
+
+#[cfg(feature = "soxr")]
+impl RawSoxrAdapter {
+    fn new(rate: RatePair, channels: usize, chunk_frames: usize) -> Result<Self, String> {
+        if channels != 2 {
+            return Err(format!(
+                "raw libsoxr stereo adapter requires 2 channels, received {channels}"
+            ));
+        }
+        let quality = QualitySpec::configure(
+            QualityRecipe::high(),
+            Rolloff::default(),
+            QualityFlags::HighPrecisionClock,
+        )
+        .with_phase_response(50.0);
+        let runtime = RuntimeSpec::new(1);
+        let resampler = Soxr::<Stereo<f64>>::new_with_params(
+            rate.from_hz as f64,
+            rate.to_hz as f64,
+            quality,
+            runtime,
+        )
+        .map_err(|error| format!("raw libsoxr setup failed: {error:?}"))?;
+        Ok(Self {
+            resampler,
+            from_hz: rate.from_hz,
+            to_hz: rate.to_hz,
+            max_output_frames: generous_output_capacity(chunk_frames, rate),
+            api_buffering_latency_frames: None,
+            finished: false,
+        })
+    }
+
+    fn process(&mut self, input: &[f64], output: &mut [f64]) -> Result<AdapterProgress, String> {
+        if self.finished {
+            return Err("raw libsoxr received input after terminal drain".to_string());
+        }
+        let input = stereo_frames(input, "raw libsoxr input")?;
+        let output = stereo_frames_mut(output, "raw libsoxr output")?;
+        let input_frames = input.len();
+        let output_frames = output.len();
+        let progress = self
+            .resampler
+            .process(input, output)
+            .map_err(|error| format!("raw libsoxr process failed: {error:?}"))?;
+        validate_progress(
+            "raw libsoxr process",
+            progress.input_frames,
+            progress.output_frames,
+            input_frames,
+            output_frames,
+        )?;
+        if input_frames > 0 && progress.input_frames == 0 && progress.output_frames == 0 {
+            return Err("raw libsoxr process made no progress".to_string());
+        }
+        Ok(AdapterProgress {
+            consumed_frames: progress.input_frames,
+            produced_frames: progress.output_frames,
+            finished: false,
+        })
+    }
+
+    fn drain(&mut self, output: &mut [f64]) -> Result<AdapterProgress, String> {
+        if self.finished {
+            return Ok(AdapterProgress {
+                consumed_frames: 0,
+                produced_frames: 0,
+                finished: true,
+            });
+        }
+        let output = stereo_frames_mut(output, "raw libsoxr drain output")?;
+        let capacity = output.len();
+        let produced = self
+            .resampler
+            .drain(output)
+            .map_err(|error| format!("raw libsoxr drain failed: {error:?}"))?;
+        validate_progress("raw libsoxr drain", 0, produced, 0, capacity)?;
+        self.finished = produced == 0;
+        Ok(AdapterProgress {
+            consumed_frames: 0,
+            produced_frames: produced,
+            finished: self.finished,
+        })
+    }
+
+    fn reset(&mut self) -> Result<(), String> {
+        self.resampler
+            .clear()
+            .map_err(|error| format!("raw libsoxr reset failed: {error:?}"))?;
         self.finished = false;
         Ok(())
     }
@@ -2348,10 +2387,10 @@ impl LibSamplerateLibrary {
             implementation: "runtime-loaded libsamplerate streaming C API".to_string(),
             upstream_version: self.native_identity.upstream_version.clone(),
             adapter_schema: ADAPTER_SCHEMA.to_string(),
-            algorithm_id: "libsamplerate_sinc_best_quality_streaming_f32_v3".to_string(),
+            algorithm_id: "libsamplerate_sinc_best_quality_streaming_f32_v4_native_end_clock".to_string(),
             sample_format: SampleFormat::InterleavedF32,
             quality_recipe:
-                "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1; complete length uses ceil(input_frames * ratio)"
+                "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1; exact native 2/6-channel floating-clock end predicate; no output padding or trimming"
                     .to_string(),
             phase_response: "library-defined linear-phase sinc; latency not exposed by API"
                 .to_string(),
@@ -2411,6 +2450,14 @@ impl LibSamplerateAdapter {
         channels: usize,
         chunk_frames: usize,
     ) -> Result<Self, String> {
+        // The native 0.2.2 mono path has a different endpoint comparison and
+        // rounding at the buffer coordinate. Its exact length is not covered
+        // by this comparison matrix's oracle. Do not silently generalize it.
+        if !matches!(channels, 2 | 6) {
+            return Err(
+                "libsamplerate exact-length comparison supports 2 or 6 channels".to_string(),
+            );
+        }
         let channels_c = c_int::try_from(channels)
             .map_err(|_| format!("libsamplerate channel count {channels} exceeds c_int"))?;
         let mut error = 0;
@@ -2569,7 +2616,7 @@ impl LibSamplerateAdapter {
     }
 
     fn expected_complete_output_frames(&self, input_frames: usize) -> usize {
-        libsamplerate_complete_output_frames(input_frames, self.from_hz, self.to_hz)
+        libsamplerate_complete_output_frames(input_frames, self.from_hz, self.to_hz, self.channels)
     }
 }
 
@@ -2640,13 +2687,41 @@ fn div_ceil(value: usize, divisor: usize) -> usize {
     }
 }
 
-fn libsamplerate_complete_output_frames(input_frames: usize, from_hz: u32, to_hz: u32) -> usize {
-    if from_hz == 0 {
+fn libsamplerate_complete_output_frames(
+    input_frames: usize,
+    from_hz: u32,
+    to_hz: u32,
+    channels: usize,
+) -> usize {
+    if from_hz == 0 || to_hz == 0 || channels == 0 {
         return 0;
     }
-    let numerator = (input_frames as u128) * (to_hz as u128);
-    let frames = numerator.div_ceil(from_hz as u128);
-    usize::try_from(frames).unwrap_or(usize::MAX)
+    // libsamplerate 0.2.2 src_sinc.c: sinc_stereo_vari_process and
+    // sinc_hex_vari_process compare b_current + input_index + 1/ratio
+    // against b_real_end. The b_* positions count interleaved samples,
+    // whereas input_index and 1/ratio count frames. Preserve that native
+    // policy, including common.h's fmod_one floating clock. Integer ceil
+    // misses 96k -> 44.1k endpoints; a rational clock also misses exact
+    // 147-input-frame boundaries for 44.1k -> 48k/96k.
+    // This independent count oracle runs outside every timed region.
+    let step = 1.0 / (to_hz as f64 / from_hz as f64);
+    let mut position = 0usize;
+    let mut fraction = 0.0_f64;
+    let mut frames = 0usize;
+    while position < input_frames {
+        if fraction + step >= (input_frames - position) as f64 * channels as f64 {
+            break;
+        }
+        frames += 1;
+        let next = fraction + step;
+        let mut remainder = next - next.round_ties_even();
+        if remainder < 0.0 {
+            remainder += 1.0;
+        }
+        position += (next - remainder).round_ties_even() as usize;
+        fraction = remainder;
+    }
+    frames
 }
 
 #[cfg(feature = "soxr")]
@@ -2724,13 +2799,7 @@ mod tests {
     #[test]
     fn missing_libsamplerate_path_is_visible_and_preserves_required_flag() {
         let required = BTreeSet::from([LIBSAMPLERATE_ENGINE_ID.to_string()]);
-        let discovery = discover(
-            None,
-            &BTreeMap::new(),
-            &required,
-            #[cfg(feature = "rubato")]
-            RawRubatoGeometry::FFT_512_1,
-        );
+        let discovery = discover(None, &BTreeMap::new(), &required);
         let unavailable = discovery
             .unavailable
             .iter()
@@ -2749,30 +2818,107 @@ mod tests {
     }
 
     #[test]
-    fn libsamplerate_complete_output_uses_duration_ceiling() {
+    fn libsamplerate_complete_output_preserves_native_channel_and_clock_endpoints() {
         assert_eq!(
-            libsamplerate_complete_output_frames(2_560, 44_100, 48_000),
+            libsamplerate_complete_output_frames(2_560, 44_100, 48_000, 2),
             2_787
         );
         assert_eq!(
-            libsamplerate_complete_output_frames(16_384, 44_100, 48_000),
+            libsamplerate_complete_output_frames(16_384, 44_100, 48_000, 2),
             17_833
         );
         assert_eq!(
-            libsamplerate_complete_output_frames(2_560, 48_000, 44_100),
+            libsamplerate_complete_output_frames(2_560, 48_000, 44_100, 2),
             2_352
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(16_384, 96_000, 44_100, 2),
+            7_526
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(16_384, 96_000, 44_100, 6),
+            7_527
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(2_064_384, 96_000, 44_100, 2),
+            948_326
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(147, 44_100, 48_000, 2),
+            161
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(147, 44_100, 96_000, 6),
+            321
+        );
+        assert_eq!(
+            libsamplerate_complete_output_frames(0, 44_100, 48_000, 2),
+            0
         );
     }
 
     #[test]
+    #[ignore = "requires AUDIO_BENCH_LIBSAMPLERATE_TEST_PATH pointing to the pinned native DLL"]
+    fn libsamplerate_end_clock_matches_complete_native_streams() {
+        let path = env::var_os("AUDIO_BENCH_LIBSAMPLERATE_TEST_PATH")
+            .map(std::path::PathBuf::from)
+            .expect("set the explicit libsamplerate test path");
+        let library = Arc::new(LibSamplerateLibrary::load(&path).unwrap());
+        for (from_hz, to_hz) in [
+            (44_100, 48_000),
+            (48_000, 44_100),
+            (44_100, 96_000),
+            (96_000, 44_100),
+        ] {
+            for channels in [2, 6] {
+                let rate = RatePair {
+                    id: "native_end_test",
+                    from_hz,
+                    to_hz,
+                    channels,
+                };
+                for frames in [
+                    1, 2, 3, 127, 147, 294, 441, 511, 512, 513, 588, 640, 2_560, 16_384, 65_536,
+                ] {
+                    let mut adapter =
+                        LibSamplerateAdapter::new(Arc::clone(&library), rate, channels, 512)
+                            .unwrap();
+                    let input = vec![0.125_f32; 512 * channels];
+                    let mut output = vec![0.0; 9_000 * channels];
+                    let mut cursor = 0;
+                    let mut produced = 0;
+                    while cursor < frames {
+                        let take = (frames - cursor).min(512);
+                        let progress = if cursor + take == frames {
+                            adapter.process_final(&input[..take * channels], &mut output)
+                        } else {
+                            adapter.process(&input[..take * channels], &mut output)
+                        }
+                        .unwrap();
+                        assert_eq!(progress.consumed_frames, take);
+                        cursor += take;
+                        produced += progress.produced_frames;
+                    }
+                    loop {
+                        let progress = adapter.drain(&mut output).unwrap();
+                        produced += progress.produced_frames;
+                        if progress.finished {
+                            break;
+                        }
+                    }
+                    assert_eq!(
+                        produced,
+                        adapter.expected_complete_output_frames(frames),
+                        "{from_hz}->{to_hz}, {channels}ch, {frames} input frames"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn discovered_engine_ids_are_unique() {
-        let discovery = discover(
-            None,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
-            #[cfg(feature = "rubato")]
-            RawRubatoGeometry::FFT_512_1,
-        );
+        let discovery = discover(None, &BTreeMap::new(), &BTreeSet::new());
         let ids = discovery
             .factories
             .iter()
@@ -2806,7 +2952,7 @@ mod tests {
         assert!(
             unavailable
                 .reason
-                .contains("music_44k1_to_48k canonical create probe failed"),
+                .contains("canonical create probe failed: intentional canonical create failure for music_44k1_to_48k"),
             "{}",
             unavailable.reason
         );
@@ -2819,6 +2965,7 @@ mod tests {
             id: "test",
             from_hz: 44_100,
             to_hz: 48_000,
+            channels: 2,
         };
         let mut adapter = RawSoxrAdapter::new(rate, 2, 512).unwrap();
         let input = vec![0.0; 512 * 2];
@@ -2827,98 +2974,6 @@ mod tests {
         assert_eq!(progress.consumed_frames, 512);
         assert!(progress.produced_frames <= adapter.max_output_frames);
         adapter.reset().unwrap();
-    }
-
-    #[cfg(feature = "rubato")]
-    #[test]
-    fn raw_rubato_compensates_native_delay_and_uses_exact_duration() {
-        let rate = RatePair {
-            id: "test",
-            from_hz: 44_100,
-            to_hz: 48_000,
-        };
-        let adapter = RawRubatoAdapter::new(rate, 2, 512, RawRubatoGeometry::FFT_512_1).unwrap();
-        let latency = adapter
-            .api_buffering_latency_frames
-            .expect("strict raw Rubato control exposes compensated API latency");
-        assert_eq!(latency, 0);
-        assert!(adapter.initial_output_delay_frames > 0);
-        assert_eq!(adapter.expected_complete_output_frames(44_100), 48_000);
-    }
-
-    #[cfg(feature = "rubato")]
-    #[test]
-    fn raw_rubato_subchunk1_drain_advances_across_zero_output_states() {
-        let rate = RatePair {
-            id: "test",
-            from_hz: 44_100,
-            to_hz: 48_000,
-        };
-        let mut adapter =
-            RawRubatoAdapter::new(rate, 2, 512, RawRubatoGeometry::FFT_512_1).unwrap();
-        let input = vec![0.0; 512 * 2];
-        let mut output = vec![0.0; adapter.max_output_frames * 2];
-        for _ in 0..253 {
-            let progress = adapter.process(&input, &mut output).unwrap();
-            assert_eq!(progress.consumed_frames, 512);
-        }
-        let expected = adapter.expected_complete_output_frames(253 * 512);
-
-        for call in 0..32 {
-            let progress = adapter.drain(&mut output).unwrap();
-            assert!(progress.produced_frames > 0 || progress.finished);
-            if progress.finished {
-                assert_eq!(adapter.emitted_frames, expected);
-                return;
-            }
-            assert!(call < 31, "raw Rubato drain did not terminate");
-        }
-        unreachable!("bounded raw Rubato drain loop must return");
-    }
-
-    #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-    #[test]
-    fn strict_raw_rubato_1024_matches_production_complete_stream_bit_exactly() {
-        let project_factory = EngineFactory {
-            identity: project_identity(),
-            kind: EngineFactoryKind::Project,
-        };
-        let raw_factory = EngineFactory {
-            identity: raw_rubato_identity(RawRubatoGeometry::FFT_1024_2),
-            kind: EngineFactoryKind::RawRubato(RawRubatoGeometry::FFT_1024_2),
-        };
-
-        for rate in RATE_PAIRS {
-            let mut project = project_factory.create(rate, 2, 512).unwrap();
-            let mut raw = raw_factory.create(rate, 2, 512).unwrap();
-            let project_output = drive_native_test_stream(&project_factory, &mut project, 4_097);
-            let raw_output = drive_native_test_stream(&raw_factory, &mut raw, 4_097);
-            assert_native_streams_equal(
-                &project_output,
-                &raw_output,
-                "strict_raw_rubato_1024_vs_production",
-                rate.id,
-            );
-        }
-    }
-
-    #[cfg(feature = "rubato")]
-    #[test]
-    fn strict_raw_rubato_1024_stages_512_callers_and_resets_fresh() {
-        let factory = EngineFactory {
-            identity: raw_rubato_identity(RawRubatoGeometry::FFT_1024_2),
-            kind: EngineFactoryKind::RawRubato(RawRubatoGeometry::FFT_1024_2),
-        };
-        for rate in RATE_PAIRS {
-            let mut adapter = factory.create(rate, 2, 512).unwrap();
-            let first = drive_native_test_stream(&factory, &mut adapter, 4_097);
-            adapter.reset().unwrap();
-            let second = drive_native_test_stream(&factory, &mut adapter, 4_097);
-            let mut fresh = factory.create(rate, 2, 512).unwrap();
-            let fresh_output = drive_native_test_stream(&factory, &mut fresh, 4_097);
-            assert_native_streams_equal(&first, &second, "raw_rubato_1024_reset", rate.id);
-            assert_native_streams_equal(&second, &fresh_output, "raw_rubato_1024_fresh", rate.id);
-        }
     }
 
     #[test]
@@ -2948,13 +3003,7 @@ mod tests {
             .into_iter()
             .map(str::to_string)
             .collect::<BTreeSet<_>>();
-        let discovery = discover(
-            None,
-            &native_paths,
-            &required,
-            #[cfg(feature = "rubato")]
-            RawRubatoGeometry::FFT_512_1,
-        );
+        let discovery = discover(None, &native_paths, &required);
 
         let unavailable_native = discovery
             .unavailable
@@ -2979,11 +3028,13 @@ mod tests {
                 id: "native_44k1_to_48k",
                 from_hz: 44_100,
                 to_hz: 48_000,
+                channels: 2,
             },
             RatePair {
                 id: "native_48k_to_44k1",
                 from_hz: 48_000,
                 to_hz: 44_100,
+                channels: 2,
             },
         ];
         for factory in native_factories {

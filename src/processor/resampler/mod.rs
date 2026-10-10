@@ -2,27 +2,20 @@
 //!
 //! Two backends implement the same streaming contract (arbitrary input
 //! granularity, duration-aligned drain, `clear` restoring initial state): the
-//! pure-Rust rubato backend (`rubato` feature, default), which routes common
+//! owned pure-Rust backend (`rubato` feature, default), which routes common
 //! sample-rate ratios through FFT resampling at every quality tier (UltraHigh
-//! selects a 2x longer single-sub-chunk FFT filter) and uses windowed sinc only
+//! selects a 2x longer FFT filter) and uses windowed sinc only
 //! for pathological ratios, and the native SoXR / SoX VHQ backend (`soxr`
 //! feature, opt-in). When both features are enabled, SoXR
 //! wins. The public `Resampler` / `StreamingResampler` API is identical for
 //! both.
 //!
-//! Both backends expose the same `Send + Sync + UnwindSafe + RefUnwindSafe`
-//! surface. Rubato's `Async<f64>` contains a
-//! `Box<dyn InnerResampler<f64>>` that does not provide those auto traits, so
-//! the private backend uses an exclusive-access wrapper. State-advancing
-//! methods already take `&mut self` and access the backend through `get_mut`;
-//! the realtime algorithm therefore remains lock-free and unchanged.
+//! Both backends expose `Send + Sync + UnwindSafe + RefUnwindSafe`.
+//! Owned Rust state is exclusively advanced through `&mut self`. Only immutable
+//! FFT plans require an opaque unwind boundary; processing takes no lock.
 
 use crate::audio_block::{AudioBlockError, AudioBlockMut, AudioBlockRef};
 use crate::config::{PhaseResponse, ResampleQuality};
-#[cfg(all(feature = "rubato", not(feature = "soxr")))]
-use std::panic::AssertUnwindSafe;
-#[cfg(all(feature = "rubato", not(feature = "soxr")))]
-use sync_wrapper::SyncWrapper;
 use thiserror::Error;
 
 #[cfg(not(any(feature = "soxr", feature = "rubato")))]
@@ -32,24 +25,26 @@ compile_error!(
 );
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
+mod aligned_buffer;
+#[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod contiguous_polyphase_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod halfband_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod polyphase_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-mod rubato_backend;
+mod rust_backend;
 #[cfg(feature = "soxr")]
 mod soxr_backend;
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
 mod spectral_backend;
 
 #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-use rubato_backend::{MonoBackend, BACKEND_NAME};
+use rust_backend::{MonoBackend, BACKEND_NAME};
 #[cfg(feature = "soxr")]
 use soxr_backend::{MonoBackend, BACKEND_NAME};
 
-/// Compile-time selected resampler backend name: `"rubato"` (pure Rust,
+/// Compile-time selected resampler backend name: `"rust"` (owned pure Rust,
 /// default) or `"soxr"` (native SoX VHQ, opt-in). Follows the same precedence as
 /// the backend selection above — SoXR wins when both features are enabled — so
 /// benchmark reports and diagnostics can label the measured backend without
@@ -637,25 +632,21 @@ impl Resampler {
 
 /// Stateful streaming resampler that maintains backend state across chunks.
 /// SoXR uses one native interleaved stream for stereo and mono streams as the
-/// fallback for other layouts. Rubato uses one native interleaved stream for
+/// fallback for other layouts. The Rust backend uses one interleaved stream for
 /// the complete block. This is used by AudioPipeline for memory-efficient
 /// streaming resampling.
 ///
 /// # Thread safety
 ///
-/// Both supported backends provide `Send + Sync + UnwindSafe + RefUnwindSafe`.
-/// Rubato's backend is wrapped privately in a static exclusive-access boundary
-/// solely to preserve those auto traits. [`process`](Self::process),
-/// [`finish`](Self::finish), [`reset`](Self::reset), and
-/// [`set_sample_rate`](Self::set_sample_rate) all take `&mut self` and use
-/// `SyncWrapper::get_mut`, so the processing and drain paths acquire no lock.
+/// Both selected backends preserve `Send + Sync + UnwindSafe + RefUnwindSafe`.
+/// All state changes require exclusive mutable access and processing takes no lock.
 ///
 /// FIX for Defect 33: Pre-allocate all buffers to avoid heap allocation in process.
 pub struct StreamingResampler {
     #[cfg(feature = "soxr")]
     backends: Vec<MonoBackend>,
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-    backend: AssertUnwindSafe<SyncWrapper<MonoBackend>>,
+    backend: MonoBackend,
     channels: usize,
     from_rate: u32,
     to_rate: u32,
@@ -725,9 +716,9 @@ fn streaming_buffer_layout(
 impl StreamingResampler {
     /// Exact `f64` capacity bytes allocated by reusable adapter scratch.
     ///
-    /// Rubato processes caller-owned interleaved buffers directly, so this is
-    /// zero for the pure-Rust backend; Rubato's own engine storage is part of
-    /// setup allocation rather than adapter scratch.
+    /// The owned Rust backend accepts caller-owned interleaved buffers, so this
+    /// is zero for that backend. Its fixed kernel/history storage belongs to
+    /// setup allocation rather than public adapter scratch.
     pub fn working_buffer_bytes(
         channels: usize,
         from_rate: u32,
@@ -893,7 +884,7 @@ impl StreamingResampler {
             #[cfg(feature = "soxr")]
             backends,
             #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-            backend: AssertUnwindSafe(SyncWrapper::new(backend)),
+            backend,
             channels,
             from_rate,
             to_rate,
@@ -984,7 +975,7 @@ impl StreamingResampler {
         input: &[f64],
         output: &mut [f64],
     ) -> Result<BackendProgress, BackendProcessError> {
-        self.backend.get_mut().process(input, output)
+        self.backend.process(input, output)
     }
 
     #[cfg(feature = "soxr")]
@@ -1228,7 +1219,7 @@ impl StreamingResampler {
         &mut self,
         output: &mut [f64],
     ) -> Result<usize, BackendProcessError> {
-        self.backend.get_mut().drain(output)
+        self.backend.drain(output)
     }
 
     #[cfg(feature = "soxr")]
@@ -1414,16 +1405,11 @@ impl StreamingProcessor for StreamingResampler {
             }
         }
         #[cfg(all(feature = "rubato", not(feature = "soxr")))]
-        let first_error = self
-            .backend
-            .get_mut()
-            .clear()
-            .err()
-            .map(|_| ProcessError::Backend {
-                processor: "StreamingResampler",
-                operation: "reset",
-                message: "backend clear failed",
-            });
+        let first_error = self.backend.clear().err().map(|_| ProcessError::Backend {
+            processor: "StreamingResampler",
+            operation: "reset",
+            message: "backend clear failed",
+        });
         #[cfg(feature = "soxr")]
         self.clear_work_buffers();
         self.finishing = false;
@@ -1970,7 +1956,7 @@ mod tests {
 
     #[cfg(all(feature = "rubato", not(feature = "soxr")))]
     #[test]
-    fn rubato_sinc_fallback_is_duration_and_impulse_aligned() {
+    fn owned_sinc_fallback_is_duration_and_impulse_aligned() {
         let input_frames = 4_096;
         let impulse_frame = 1_024;
         let mut input = vec![0.0; input_frames];
@@ -1988,9 +1974,9 @@ mod tests {
             .map(|(frame, _)| frame)
             .unwrap();
         let expected_frames =
-            super::rubato_backend::expected_output_frames(input_frames as u64, 44_100, 44_101);
+            super::rust_backend::expected_output_frames(input_frames as u64, 44_100, 44_101);
         let expected_peak =
-            super::rubato_backend::expected_output_frames(impulse_frame as u64, 44_100, 44_101);
+            super::rust_backend::expected_output_frames(impulse_frame as u64, 44_100, 44_101);
 
         assert_eq!(output.len() as u64, expected_frames);
         assert!(
@@ -2175,7 +2161,7 @@ mod tests {
         let maximum_output = render_with_chunks(&mut maximum, &input, &[127, 509], 257).unwrap();
 
         let expected_frames =
-            super::rubato_backend::expected_output_frames(input_frames as u64, 44_100, 48_000)
+            super::rust_backend::expected_output_frames(input_frames as u64, 44_100, 48_000)
                 as usize;
         assert_eq!(linear_output.len(), expected_frames);
         let minimum_tail = minimum.tail().finite_duration().unwrap().frames();
