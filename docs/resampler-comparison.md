@@ -1,6 +1,9 @@
 # Resampler quality and performance comparison
 
-The latest update (2026-10-10) also shares FFT frequency storage, reducing
+The latest update (2026-10-10) also compacts setup-only FFT coefficient storage
+and adds a direct emit path after an internally accumulated block. The measured
+speed effect is inconclusive; the deterministic storage reduction is retained.
+The preceding update shares FFT frequency storage, reducing
 retained Rust heap by a further **5.9–9.5%** versus the preceding time-buffer
 implementation. The filter is unchanged. This round's timing was unstable and
 does **not establish another speedup**. Bounded lifecycle observations now cover
@@ -104,6 +107,35 @@ retain all snapshots, identities and exact stream counts. A bounded warmed
 observation cannot establish long-duration leak freedom, exact native
 allocation-call counts or temporal peaks.
 
+## Latest targeted storage and stream-path optimization
+
+The current targeted change keeps only the coefficient bins and inverse rotation
+factors that `prepare_inverse` can access. The FFT library still receives the
+full temporary filter spectrum during setup, then the unused tail is released.
+For the selected geometries this removes 53 complex values (848 bytes) at
+48→44.1 kHz and 347 complex values (5,552 bytes) at 96→44.1 kHz per instance.
+The selected upsampling cases do not remove inverse factors; their active range
+already covers the allocated rotation table.
+
+When a fragmented caller input fills the internal block, the stream now emits
+directly into a sufficiently large caller buffer when no output has been
+skipped. This avoids a `pending` copy under that condition; existing output
+budget, duration and backpressure checks remain in force.
+
+One fixed ABBA/BAAB schedule compared the v6 executable with v7 over three
+representative cases (four trials per arm and case, core 2). Every trial passed
+the complete-work check. The stereo 44.1→48 result showed a small apparent
+improvement, 48→44.1 varied with construction/order, and six-channel 44.1→48
+was effectively flat. The schedule is therefore **inconclusive for speed** and
+does not justify a stable throughput claim. The direct path is retained for its
+bounded copy reduction; the compact vectors are retained for deterministic setup
+memory savings. Raw observations and binary hashes are in
+[targeted optimization data](data/resampler-targeted-optimization-2026-10-10.json).
+
+The current path passed the two independent FFT oracles (maximum absolute error 0),
+the 60-test resampler module set, allocation-free streaming validation and
+strict scoped Clippy. The full quality grid was not rerun because the filter and
+FFT arithmetic are unchanged.
 ## Earlier time-buffer optimization and supplemental metrics
 
 The forward FFT consumes the time-domain input before the inverse writes its

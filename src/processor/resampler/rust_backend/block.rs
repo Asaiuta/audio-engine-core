@@ -4,8 +4,9 @@ use super::super::{
     halfband_backend::Halfband2xResampler, spectral_backend::SpectralNonlinearResampler,
 };
 use super::{
-    fft::{reference_filter, FftKernel, Geometry},
-    gcd, zeroed, BackendProgress, Config, InitError, ProcessError, Quality,
+    BackendProgress, Config, InitError, ProcessError, Quality,
+    fft::{FftKernel, Geometry, reference_filter},
+    gcd, zeroed,
 };
 use crate::config::PhaseResponse;
 
@@ -233,9 +234,24 @@ impl BlockStream {
                 break;
             }
             if self.filled == ni && self.start == self.end {
-                let (read, wrote) = self.kernel.process(&self.input, &mut self.pending)?;
-                self.generated(read, wrote)?;
-                self.filled = 0;
+                if self.skip == 0
+                    && output.len() / c - produced >= no
+                    && self.budget()?.saturating_sub(self.emitted) >= no as u64
+                {
+                    let (read, wrote) = self
+                        .kernel
+                        .process(&self.input, &mut output[produced * c..(produced + no) * c])?;
+                    if read != ni || wrote > no {
+                        return Err("owned resampler direct progress overflow".into());
+                    }
+                    self.emitted += wrote as u64;
+                    produced += wrote;
+                    self.filled = 0;
+                } else {
+                    let (read, wrote) = self.kernel.process(&self.input, &mut self.pending)?;
+                    self.generated(read, wrote)?;
+                    self.filled = 0;
+                }
             } else if used == input.len() / c {
                 break;
             } else if self.filled == 0 && self.start == self.end && input.len() / c - used >= ni {

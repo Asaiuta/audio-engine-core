@@ -1,0 +1,63 @@
+{
+  "schema": "resampler_targeted_optimization_v1",
+  "date": "2026-10-10",
+  "scope": "One fixed ABBA/BAAB schedule; three representative owned FFT cases; four resource trials per arm and case; logical core 2; complete work required.",
+  "baseline": {
+    "identity": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+    "binary_sha256": "BB73352AF5BD738DDBE6C9526992FAF0583F648E45A62EA03FEE93A8F920E84A",
+    "description": "pre-change v6 executable"
+  },
+  "candidate": {
+    "identity": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+    "binary_sha256": "52B00808350187F8ADFF77372DB3AD083E6A0C3AC9D5DD5C2040A54952DD3565",
+    "description": "compact setup coefficients/twiddles and direct emit after internally filled block"
+  },
+  "cases": [
+    {
+      "rate_pair": "music_44k1_to_48k",
+      "channels": 2,
+      "baseline_wall_ns_per_input_sample": [6.095305521776722, 6.138001955472506, 6.103651690634952, 6.209078702059659, 6.191253662109375, 6.1903012183404735, 6.194892486968598, 6.1747323313067035],
+      "candidate_wall_ns_per_input_sample": [6.0309859941590505, 5.981037616729736, 5.9877610206604, 5.9833526611328125, 6.142447544978215, 6.162473617061492, 6.1544676749936995, 6.133632170848357],
+      "all_complete_work_valid": true,
+      "interpretation": "small apparent improvement; not a stable speed claim"
+    },
+    {
+      "rate_pair": "music_48k_to_44k1",
+      "channels": 2,
+      "baseline_wall_ns_per_input_sample": [5.80679922392874, 5.779436410191548, 5.772666471550264, 5.766919147537415, 5.969080924987793, 5.964542175672069, 5.94060672736316, 5.956059805354717],
+      "candidate_wall_ns_per_input_sample": [5.4182494427524714, 5.440345677462491, 5.431454831903631, 5.451921735491071, 5.817808756014196, 5.854441636910468, 5.840941173274342, 5.837561444538395],
+      "all_complete_work_valid": true,
+      "interpretation": "schedule drift dominates the apparent reduction; inconclusive"
+    },
+    {
+      "rate_pair": "music_44k1_to_48k_6ch",
+      "channels": 6,
+      "baseline_wall_ns_per_input_sample": [7.167821813512732, 7.1610288266782405, 7.148957429108797, 7.160294144241898, 7.1320371274594905, 7.121457700376157, 7.075429845739294, 7.088569358543113],
+      "candidate_wall_ns_per_input_sample": [7.229406183416193, 7.210764001916956, 7.213174325448495, 7.203555636935764, 7.0684164541739, 6.870137207896997, 6.84820405134918, 6.859972798232491],
+      "all_complete_work_valid": true,
+      "interpretation": "effectively flat within this schedule"
+    }
+  ],
+  "deterministic_storage_effect": {
+    "filter_complex_values_removed": {
+      "48k_to_44k1": 53,
+      "96k_to_44k1": 347
+    },
+    "filter_payload_bytes_removed": {
+      "48k_to_44k1": 848,
+      "96k_to_44k1": 5552
+    },
+    "inverse_twiddle_values_removed": {
+      "all_selected_cases": 0
+    },
+    "note": "The setup vectors are compacted after the filter transform. These are payload reductions, not a claim about total process heap or throughput."
+  },
+  "quality_validation": {
+    "fft_oracle_tests": 2,
+    "resampler_tests": 60,
+    "maximum_oracle_error": 0.0,
+    "allocation_free_streaming_test": "passed",
+    "strict_clippy": "passed",
+    "full_quality_grid": "not rerun"
+  }
+}

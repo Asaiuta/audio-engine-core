@@ -1,11 +1,11 @@
 //! Synchronous FFT control. See NOTICE: filter constants are from Rubato.
 
-use super::{gcd, samples, zeroed, Config, InitError, ProcessError, Quality};
+use super::{Config, InitError, ProcessError, Quality, gcd, samples, zeroed};
 use realfft::{RealToComplex, RealToComplexEven};
 use rustfft::num_complex::Complex64 as Complex;
 use rustfft::{Fft, FftPlanner};
 use std::{f64::consts::PI, sync::Arc};
-use windowfunctions::{window, Symmetry, WindowFunction};
+use windowfunctions::{Symmetry, WindowFunction, window};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Geometry {
@@ -107,7 +107,13 @@ impl FftKernel {
             Arc::new(RealToComplexEven::new(2 * geometry.input, &mut planner));
         let inverse = planner.plan_fft_inverse(geometry.output);
         let angle = -2.0 * PI / (2 * geometry.output) as f64;
-        let inverse_twiddles = (0..geometry.output.div_ceil(2))
+        let keep = if geometry.input < geometry.output {
+            geometry.input + 1
+        } else {
+            geometry.output
+        };
+        let active_end = keep.min(geometry.output.div_ceil(2));
+        let inverse_twiddles = (0..active_end)
             .map(|k| {
                 let phase = angle * k as f64;
                 Complex::new(phase.cos(), -phase.sin())
@@ -117,7 +123,8 @@ impl FftKernel {
         for (y, x) in time.iter_mut().zip(taps) {
             *y = *x / (2 * geometry.input) as f64;
         }
-        let mut filter = forward.make_output_vec();
+        let filter_len = keep;
+        let mut filter_full = forward.make_output_vec();
         // Transforms run sequentially for each channel, so their temporary
         // storage can share one allocation without retaining both workspaces.
         let mut scratch = vec![
@@ -127,10 +134,15 @@ impl FftKernel {
                 .max(inverse.get_outofplace_scratch_len())
         ];
         forward
-            .process_with_scratch(&mut time[..2 * geometry.input], &mut filter, &mut scratch)
+            .process_with_scratch(
+                &mut time[..2 * geometry.input],
+                &mut filter_full,
+                &mut scratch,
+            )
             .map_err(|error| InitError::Backend {
                 message: error.to_string(),
             })?;
+        let filter = filter_full[..filter_len].to_vec();
         Ok(Self {
             geometry,
             channels: config.channels,

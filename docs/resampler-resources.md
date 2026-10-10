@@ -2,6 +2,14 @@
 
 Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The latest owned implementation also shares frequency storage by preparing inverse conjugate pairs in place. It follows the time-buffer and fused-inverse optimizations documented below.
 
+## Latest targeted optimization
+
+The owned FFT now compacts setup-only coefficient storage and can emit a block
+straight to the caller after an internally fragmented input block is completed.
+The fixed three-case comparison was complete-work valid but inconclusive for
+throughput; it is retained as a copy-path observation, not a speed claim. The
+compact coefficient tail removes 848 bytes at 48→44.1 and 5,552 bytes at
+96→44.1 per instance. See the [raw targeted observations](data/resampler-targeted-optimization-2026-10-10.json).
 ## Latest frequency storage and bounded retention
 
 Retained Rust heap falls another **5.9–9.5%**, to **88.16 / 88.17 / 143.03 /
