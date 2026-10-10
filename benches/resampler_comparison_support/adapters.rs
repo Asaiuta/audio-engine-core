@@ -652,7 +652,7 @@ fn project_identity() -> EngineIdentity {
         ),
         "rust" => (
             "project-owned kernels; Rubato 4.0 response convention".to_string(),
-            "audio_engine_core_owned_fft_sinc_v1".to_string(),
+            "audio_engine_core_owned_fft_fused_inverse_sinc_v3".to_string(),
             "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase".to_string(),
         ),
         other => (

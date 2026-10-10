@@ -59,12 +59,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 -------------------------------------------------------------------------------
-Owned resampler arithmetic adapted from Rubato 4.0.0
+Owned resampler arithmetic adapted from Rubato 4.0.0 and RealFFT 3.5.0
 -------------------------------------------------------------------------------
 
 The filter design, sinc interpolation/clock convention, and SIMD reductions in
 src/processor/resampler/rust_backend/ are adapted from Rubato 4.0.0:
   https://github.com/HEnquist/rubato
+
+The fused inverse-FFT preparation in rust_backend/fft.rs adapts the real-inverse
+packing equations from RealFFT 3.5.0, also by Henrik Enquist:
+  https://github.com/HEnquist/realfft
 
 The project selects the following MIT license for these portions. The owned
 stream scheduling/history and integration do not require the Rubato crate.

@@ -1,5 +1,10 @@
 # Owned Rust resampler replacement
 
+The later [fused-FFT optimization and resource report](resampler-resources.md)
+describes the current inverse-transform implementation. The replacement and
+full-waveform replay evidence below identifies the preceding O8 integration;
+it was not rerun or relabeled for that local optimization.
+
 The default `rubato` Cargo feature selects the crate's owned Rust backend,
 reported as `rust`. Existing consumer feature selections continue to work.
 Production code no longer depends on upstream Rubato or directly on

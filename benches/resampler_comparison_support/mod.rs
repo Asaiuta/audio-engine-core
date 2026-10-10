@@ -9,6 +9,7 @@ mod latency;
 mod measurement;
 mod quality;
 mod quality_grid;
+mod resources;
 mod signal;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -708,6 +709,9 @@ impl PreparedInputs {
 }
 
 pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
+    if argv.iter().any(|arg| arg == "--resources") {
+        return resources::run(argv);
+    }
     let args = ComparisonArgs::parse(argv)?;
     if args.perf.help {
         print_help();
@@ -1475,58 +1479,8 @@ pub(crate) fn query_thread_cycles() -> Option<u64> {
 }
 
 /// Current process working set size in bytes, or `None` when unavailable.
-#[cfg(windows)]
 pub(crate) fn process_working_set_bytes() -> Option<u64> {
-    #[repr(C)]
-    struct ProcessMemoryCounters {
-        cb: u32,
-        page_fault_count: u32,
-        peak_working_set_size: usize,
-        working_set_size: usize,
-        quota_peak_paged_pool_usage: usize,
-        quota_paged_pool_usage: usize,
-        quota_peak_non_paged_pool_usage: usize,
-        quota_non_paged_pool_usage: usize,
-        pagefile_usage: usize,
-        peak_pagefile_usage: usize,
-    }
-
-    #[link(name = "psapi")]
-    unsafe extern "system" {
-        fn GetCurrentProcess() -> isize;
-        fn GetProcessMemoryInfo(
-            process: isize,
-            counters: *mut ProcessMemoryCounters,
-            size: u32,
-        ) -> i32;
-    }
-
-    let mut counters = ProcessMemoryCounters {
-        cb: std::mem::size_of::<ProcessMemoryCounters>() as u32,
-        page_fault_count: 0,
-        peak_working_set_size: 0,
-        working_set_size: 0,
-        quota_peak_paged_pool_usage: 0,
-        quota_paged_pool_usage: 0,
-        quota_peak_non_paged_pool_usage: 0,
-        quota_non_paged_pool_usage: 0,
-        pagefile_usage: 0,
-        peak_pagefile_usage: 0,
-    };
-    // SAFETY: process pseudo handle, no cleanup; the counters pointer targets a
-    // local struct sized exactly by its cb field.
-    let succeeded =
-        unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
-    if succeeded != 0 {
-        Some(counters.working_set_size as u64)
-    } else {
-        None
-    }
-}
-
-#[cfg(not(windows))]
-pub(crate) fn process_working_set_bytes() -> Option<u64> {
-    None
+    resources::working_set_bytes()
 }
 
 fn compare_with_baseline(
@@ -2038,6 +1992,7 @@ fn print_report(report: &ComparisonReport) -> Result<(), String> {
 }
 
 fn print_help() {
+    println!("Resource-only report: add --resources [--resource-engines=id,id] [--resource-ms=250]. No frequency-response rerun; use --resources --help for details.");
     println!(
         "Usage: cargo bench --bench audio_resampler_comparison_perf --all-features -- \
          [--quick|--heavy] [--enforce] [--out <json>] [--baseline <json>] \

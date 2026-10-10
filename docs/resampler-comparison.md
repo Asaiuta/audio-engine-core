@@ -1,5 +1,10 @@
 # Resampler quality and performance comparison
 
+The later [CPU/memory report and fused-FFT optimization](resampler-resources.md)
+adds 57 resource configurations and a same-filter production optimization. The
+quality evidence and **pre-fusion throughput baseline** below retain their v7
+scope; use the linked report for the latest before/after measurements.
+
 The current default `rubato` feature selects the owned `rust` backend. Upstream
 Rubato 4.0.0 is an optional control enabled by `raw-rubato`; production code does
 not use it. Enabling `soxr` selects SoXR instead. The runner has **11 engine IDs**;
