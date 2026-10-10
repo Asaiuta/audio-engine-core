@@ -1110,7 +1110,7 @@ labeled music corpus rather than pre-freezing an always-empty DTO shape.
 
 `FFTConvolver` keeps the existing overlap-save path for impulse responses up to
 4096 taps per channel, which covers the current FIR EQ tap counts. Longer IRs
-route to a uniform 1024-frame partitioned tail with an overlap-save head so
+route to a 1024-frame partitioned tail with an overlap-save head so
 room/reverb-length responses avoid one very large callback FFT. Older tail
 spectral passes are accumulated through a deterministic frame-position
 schedule while the partition fills; the newest pass and inverse FFT complete
@@ -1122,6 +1122,15 @@ The routing and partition size remain exposed as
 `PARTITIONED_CONVOLUTION_IR_THRESHOLD` and
 `PARTITIONED_CONVOLUTION_PARTITION_SIZE`; use `audio_convolver_perf` and
 `audio_fir_eq_perf` before changing either value.
+
+For stereo IRs of at least 65536 taps, the first 8192 taps retain this base
+engine and later taps use a scheduled 4096-frame tier. The late IR offset pays
+for capture and computation without adding external latency. FFT work is
+spread across frames and kept away from base-tier boundaries. Other channel
+counts and shorter IRs retain uniform partitions. The measured CPU gain costs
+about 766 KiB of extra stereo heap, and the 64-frame p99 rises slightly;
+see [the nonuniform convolution results](convolver-performance.md) for the
+complete quality, CPU, callback and memory evidence, including rejected cases.
 
 ### FIR EQ IR generation
 

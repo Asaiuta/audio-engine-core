@@ -467,6 +467,126 @@ fn assert_close(expected: &[f64], actual: &[f64], tolerance: f64) {
     }
 }
 
+#[test]
+fn nonuniform_tail_matches_direct_oracle_across_boundaries_reset_and_wet_ramp() {
+    // Strong late taps avoid the almost-silent late section of synthetic_ir.
+    let taps = [0, 1023, 1024, 8191, 8192, 8193, 12287, 12288, 16384, 65536];
+    let ir_frames = 65537;
+    let input_frames = 5003;
+    let frames = input_frames + ir_frames - 1;
+    let channels = 2;
+    let mut ir = vec![0.0; ir_frames * channels];
+    for (index, &tap) in taps.iter().enumerate() {
+        for channel in 0..channels {
+            ir[tap * channels + channel] =
+                (index as f64 * 0.73 + channel as f64 * 0.21).cos() * 0.1;
+        }
+    }
+    let mut input = synthetic_input(input_frames, channels);
+    input.resize(frames * channels, 0.0);
+    let mut expected = vec![0.0; input.len()];
+    for frame in 0..input_frames {
+        for &tap in &taps {
+            for channel in 0..channels {
+                expected[(frame + tap) * channels + channel] +=
+                    input[frame * channels + channel] * ir[tap * channels + channel];
+            }
+        }
+    }
+    for mode in 0..3 {
+        let mut convolver = FFTConvolver::new(&ir, channels).unwrap();
+        assert_eq!(convolver.fft_size(), 8192);
+        let mut actual = input.clone();
+        let chunks: &[usize] = if mode == 0 {
+            &[512]
+        } else {
+            &[61, 1024, 7, 5001, 64]
+        };
+        // Reset while an FFT/MAC/IFFT schedule is part-way through a period.
+        for warm_frames in [9347, 1025] {
+            convolver
+                .process_inplace(&mut actual[..warm_frames * channels])
+                .unwrap();
+            assert_no_alloc::assert_no_alloc(|| convolver.reset());
+            actual.copy_from_slice(&input);
+        }
+        let mut frame = 0;
+        let mut chunk = 0;
+        assert_no_alloc::assert_no_alloc(|| {
+            while frame < frames {
+                let end = (frame + chunks[chunk % chunks.len()]).min(frames);
+                let range = frame * channels..end * channels;
+                match mode {
+                    0 => convolver.process_into(&input[range.clone()], &mut actual[range]),
+                    1 => convolver.process_inplace(&mut actual[range]),
+                    _ => convolver.process_inplace_with_wet_ramp(
+                        &mut actual[range],
+                        frame,
+                        frames,
+                        true,
+                    ),
+                }
+                .unwrap();
+                frame = end;
+                chunk += 1;
+            }
+        });
+        if mode == 2 {
+            let mixed: Vec<f64> = expected
+                .iter()
+                .zip(&input)
+                .enumerate()
+                .map(|(i, (&wet, &dry))| {
+                    let t = (i / channels) as f64 / (frames - 1) as f64;
+                    let w = t * t * (3.0 - 2.0 * t);
+                    dry * (1.0 - w) + wet * w
+                })
+                .collect();
+            assert_close(&mixed, &actual, 1e-10);
+        } else {
+            assert_close(&expected, &actual, 1e-10);
+        }
+    }
+}
+
+#[test]
+fn nonuniform_dense_tail_matches_overlap_save_after_history_wrap() {
+    for ir_frames in [65535, 65536, 65539] {
+        let channels = 2;
+        let ir: Vec<f64> = (0..ir_frames * channels)
+            .map(|i| (i as f64 * 0.793).sin() * 0.003)
+            .collect();
+        let input = synthetic_input(2 * ir_frames + 177, channels);
+        let mut expected = vec![0.0; input.len()];
+        let mut actual = vec![0.0; input.len()];
+        let mut reference = OverlapSaveConvolver::new(&ir, channels);
+        reference.process_into(&input, &mut expected);
+        let mut convolver = FFTConvolver::new(&ir, channels).unwrap();
+        for (input, output) in input
+            .chunks(137 * channels)
+            .zip(actual.chunks_mut(137 * channels))
+        {
+            convolver.process_into(input, output).unwrap();
+        }
+        assert_close(&expected, &actual, 1e-10);
+    }
+}
+
+#[test]
+fn nonuniform_routing_is_limited_to_measured_stereo_long_irs() {
+    for (frames, channels, enabled) in [
+        (65535, 2, false),
+        (65536, 2, true),
+        (65536, 1, false),
+        (65536, 6, false),
+    ] {
+        let convolver = FFTConvolver::new(&vec![0.0; frames * channels], channels).unwrap();
+        assert_eq!(partitioned_engine(&convolver).late_tail.is_some(), enabled);
+        assert_eq!(convolver.ir_length(), frames);
+        assert_eq!(convolver.partition_size(), Some(1024));
+    }
+}
+
 /// An IR long enough that `tail_partitions` exceeds a handful of slots, so a
 /// warmup can fill the whole history ring rather than a corner of it.
 fn long_partitioned_ir(channels: usize) -> Vec<f64> {

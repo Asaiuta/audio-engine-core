@@ -1,8 +1,8 @@
 //! FFT-based convolution for FIR filters.
 //!
 //! Short and medium impulse responses use a classic overlap-save engine. Long
-//! impulse responses route to a uniform partitioned engine so callback work is
-//! spread across fixed-size FFT blocks instead of one very large FFT.
+//! impulse responses use a partitioned engine. Very long stereo responses add a
+//! larger late tier whose transforms and multiply-adds are distributed across frames.
 
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use rustfft::num_complex::Complex;
@@ -10,6 +10,9 @@ use std::sync::Arc;
 
 use super::traits::ProcessError;
 use crate::audio_block::AudioBlockRef;
+
+mod late;
+use late::LateTail;
 
 /// Per-channel IR length above which [`FFTConvolver::new`] selects the
 /// partitioned path.
@@ -20,7 +23,7 @@ use crate::audio_block::AudioBlockRef;
 /// changing it.
 pub const PARTITIONED_CONVOLUTION_IR_THRESHOLD: usize = 4_096;
 
-/// Uniform partition size used by the long-IR convolution path.
+/// Base partition size used by the long-IR convolution path.
 pub const PARTITIONED_CONVOLUTION_PARTITION_SIZE: usize = 1_024;
 
 /// Runtime convolution strategy selected for an [`FFTConvolver`].
@@ -28,7 +31,7 @@ pub const PARTITIONED_CONVOLUTION_PARTITION_SIZE: usize = 1_024;
 pub enum ConvolutionStrategy {
     /// Classic single-kernel overlap-save convolution.
     OverlapSave,
-    /// Head/tail uniform partitioned convolution for long impulse responses.
+    /// Head/tail partitioned convolution, with a larger late tier for long IRs.
     Partitioned,
 }
 
@@ -92,7 +95,7 @@ impl FFTConvolver {
         }
     }
 
-    /// Get the FFT size used by the active engine.
+    /// Get the largest FFT size used by the active engine.
     pub fn fft_size(&self) -> usize {
         match &self.engine {
             ConvolverEngine::OverlapSave(engine) => engine.fft_size(),
@@ -108,7 +111,7 @@ impl FFTConvolver {
         }
     }
 
-    /// Return the partition size for long-IR mode.
+    /// Return the base partition size for long-IR mode.
     pub fn partition_size(&self) -> Option<usize> {
         match &self.engine {
             ConvolverEngine::OverlapSave(_) => None,
@@ -670,7 +673,7 @@ impl OverlapSaveConvolver {
     }
 }
 
-/// Uniform-partition convolution with a time-distributed tail.
+/// Base partitions with a time-distributed tail and an optional larger late tier.
 ///
 /// # Lazy history invalidation
 ///
@@ -699,6 +702,7 @@ struct PartitionedConvolver {
     fft_size: usize,
     tail_partitions: usize,
     head: OverlapSaveConvolver,
+    late_tail: Option<LateTail>,
     channel_states: Vec<PartitionedChannelState>,
     fft_forward: Arc<dyn RealToComplex<f64>>,
     fft_inverse: Arc<dyn ComplexToReal<f64>>,
@@ -751,9 +755,22 @@ struct PartitionedChannelState {
 impl PartitionedConvolver {
     fn new(ir_data: &[f64], channels: usize) -> Result<Self, ProcessError> {
         let ir_len = ir_data.len() / channels;
+        // Smaller rings did not repay the extra FFT cost at small callbacks.
+        // Six-channel trials improved CPU but failed the callback maximum gate;
+        // keep those on the uniform engine until that schedule is established.
+        let late_tail = if channels == 2 && ir_len >= late::MIN_IR_FRAMES {
+            Some(LateTail::new(ir_data, channels)?)
+        } else {
+            None
+        };
+        let early_len = if late_tail.is_some() {
+            late::IR_OFFSET
+        } else {
+            ir_len
+        };
         let partition_size = PARTITIONED_CONVOLUTION_PARTITION_SIZE;
         let fft_size = partition_size * 2;
-        let tail_partitions = ir_len
+        let tail_partitions = early_len
             .saturating_sub(partition_size)
             .div_ceil(partition_size);
 
@@ -771,7 +788,7 @@ impl PartitionedConvolver {
 
             for partition in 0..tail_partitions {
                 let start_frame = partition_size * (partition + 1);
-                let frames = ir_len.saturating_sub(start_frame).min(partition_size);
+                let frames = early_len.saturating_sub(start_frame).min(partition_size);
                 let mut input = vec![0.0; fft_size];
                 let spectrum_start = partition * spectrum_size;
                 let spectrum_end = spectrum_start + spectrum_size;
@@ -811,6 +828,7 @@ impl PartitionedConvolver {
             fft_size,
             tail_partitions,
             head,
+            late_tail,
             channel_states,
             scratch_real: vec![0.0; fft_size],
             scratch_spectrum: vec![Complex::new(0.0, 0.0); spectrum_size],
@@ -843,7 +861,11 @@ impl PartitionedConvolver {
     }
 
     fn fft_size(&self) -> usize {
-        self.fft_size
+        if self.late_tail.is_some() {
+            2 * late::PARTITION
+        } else {
+            self.fft_size
+        }
     }
 
     fn partition_size(&self) -> usize {
@@ -852,6 +874,9 @@ impl PartitionedConvolver {
 
     fn reset(&mut self) {
         self.head.reset();
+        if let Some(late_tail) = &mut self.late_tail {
+            late_tail.reset();
+        }
         self.block_pos = 0;
         self.history_cursor = 0;
         self.scratch_real.fill(0.0);
@@ -885,7 +910,11 @@ impl PartitionedConvolver {
         debug_assert_eq!(input.len(), output.len());
 
         self.head.process_into(input, output);
-        self.add_partitioned_tail(input, output)
+        self.add_partitioned_tail(input, output)?;
+        if let Some(late_tail) = &mut self.late_tail {
+            late_tail.process_into(input, output)?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -903,6 +932,10 @@ impl PartitionedConvolver {
             self.head
                 .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end]);
             self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end])?;
+            if let Some(late_tail) = &mut self.late_tail {
+                late_tail
+                    .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end])?;
+            }
 
             processed_frames += chunk_frames;
         }
@@ -929,6 +962,10 @@ impl PartitionedConvolver {
             self.head
                 .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end]);
             self.add_partitioned_tail_from_scratch(chunk_samples, &mut buf[start..end])?;
+            if let Some(late_tail) = &mut self.late_tail {
+                late_tail
+                    .process_into(&self.inplace_scratch[..chunk_samples], &mut buf[start..end])?;
+            }
             for sample in 0..chunk_samples {
                 let frame = start_frame.saturating_add(processed_frames + sample / self.channels);
                 let wet = transition_weight(frame, total_frames, start_wet, target_wet);
