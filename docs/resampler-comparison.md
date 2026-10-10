@@ -90,6 +90,58 @@ working set, peak working set, private commit, peak pagefile usage and page
 faults before/after construction, warmup and drop. Allocator caching can retain
 pages after instances are dropped.
 
+### Native-inclusive heap snapshots (2026-10-10)
+
+The missing native entries in the **Rust heap** column do not mean that native
+engines have no measurable memory use. In addition to process commit/residency,
+the resource runner now walks Windows process heaps outside processing/timing.
+It records live busy-block bytes and block counts before construction, after
+construction, after warmup and after releasing the instances. A failed or
+unsupported walk returns `null`, never a fabricated zero or partial total.
+
+One memory-only run covers **11 recipes at stereo 44.1→48 kHz**, with 512-frame
+input, 32 warmed instances and the same caller capacity described above.
+Each recipe runs in a fresh child process. All 11 completed; no throughput or
+quality grid was rerun. The values below are warmed-minus-baseline busy bytes
+divided by 32, in KiB. Raw lifecycle snapshots, block counts, engine identities,
+commands and executable hash are in the
+[native-inclusive heap data](data/resampler-native-heap-2026-10-10.json).
+
+| Recipe | Process heap increment KiB/instance |
+| --- | ---: |
+| Raw Rubato, FFT 1024/2 | 251.21 |
+| Project SoXR, High/Linear | 195.05 |
+| Raw libsoxr, HQ/Bits20 | 195.03 |
+| FFmpeg SWR, default filter | 2241.22 |
+| libsamplerate, SINC_BEST | 859.58 |
+| SpeexDSP, quality 10 | 39.53 |
+| r8brain 7.1 | 230.56 |
+| zita-resampler 1.11.2 | 15.89 |
+| WebRTC v1.3 shim | 43.89 |
+| WDL 96b770f shim | 52.05 |
+| libresample 0.1.5 shim | 1257.55 |
+
+These are **process heap block increments**, including adapter/runtime effects
+and allocator slabs. They are not library-attributed `malloc` request payloads,
+allocation-call counts, or peaks between snapshots. Direct `VirtualAlloc`,
+mapped data and allocations not represented by Windows heap entries remain
+outside this column; process commit/residency remains the complementary view.
+The large output capacity can still inflate native workspace requirements.
+Do not add this column to the Rust heap column: the populations overlap.
+The owned Rust recipe was not rerun in this native-memory addition.
+
+After releasing the 32 instances, ten recipes returned to the baseline busy
+byte count. r8brain retained about **1.40 MiB** above baseline for the entire
+process. This one lifecycle observation does not distinguish shared cache
+retention from a leak or establish a growth trend.
+
+Exact native requested-byte retention, temporal peaks and allocation/free counts
+would require a separate instrumented native build or heap-allocation trace.
+Such instrumentation must cover the dependency DLLs and aligned allocations,
+not just the C++ shim's `new`/`delete`. Allocation pointers need to be tracked
+through `realloc` and free; the instrumented run must be separate from timing.
+This additional instrumentation has not been implemented.
+
 Owned Rust has **zero measured process/finish/reset heap operations**. The seven
 native-shim adapters do have temporary Rust-side allocations during those calls;
 their counts include adapter overhead. Rust counters do not intercept native
@@ -109,6 +161,25 @@ below. Remaining gaps include exact native allocator accounting and peak
 payload, hours-long memory trends, other CPUs/platforms, the complete
 rate/quality/phase/channel/buffer/amplitude matrix and device latency. Finite
 tone grids do not establish continuous-band rejection or perceptual transparency.
+
+The most useful remaining additions to the cross-library comparison are:
+
+| Area | Present evidence | Remaining gap / next useful scope |
+| --- | --- | --- |
+| Frequency response and rejection | Finite response, alias/image grids and quadrature probes | Denser transition/stopband extrema and usable-bandwidth summaries for a changed filter; the grid alone is not a continuous-band bound |
+| Levels and numerical accuracy | Main grid uses amplitude 0.5; native-format analyzer self-controls | Near-full-scale and low-level linearity/residuals, silence/subnormal behavior, and an independent analyzer accuracy bound |
+| Phase and transients | Phase error at sampled frequencies, impulse peak, DC and full-stream step peaks | Unwrapped phase/group-delay variation, pre/post-ringing energy and settling duration; first output is not group delay |
+| Streaming | Exact-duration checks, reset/fresh comparison, separate scoped irregular-buffer tests | Resolve the observed FFmpeg drain failure; compare short streams and block-boundary invariance for changed algorithms |
+| Performance | Steady wall/CPU/cycles, setup/reset/drain and v7 per-call percentiles/deadline counts | Current optimized-path tails at small/irregular buffers, multistream/cache pressure and realistic callback scheduling; refresh only when the proposed change needs these claims |
+| Memory | Rust allocation accounting, process commit/residency, native-inclusive heap snapshots | Exact native allocation attribution/calls/peaks, capacity sensitivity, shared-cache versus instance cost, and bounded growth over long lifetimes |
+| Recipe/platform coverage | Common High/Linear comparisons on Windows x86_64; broader project-only historical matrices | Selected other tiers, phases, levels, channel counts and CPUs; device/driver latency belongs to application integration |
+
+Some broader probes already exist in the project-only replacement research;
+their coverage is not a complete current cross-library matrix. These gaps are
+not a requirement to repeat all prior measurements before each local change.
+For a new filter, prioritize response/phase/transient nonregression. For a
+memory-reporting change, measure memory independently and reuse unchanged
+quality/timing evidence.
 
 ## Pre-fusion v7 quality and latency evidence
 
@@ -262,6 +333,16 @@ geometry. No post-fusion stage profile was collected. Faster FFT work or a
 different block/filter architecture remain possible ways to close the remaining
 gap; the data does not establish their achievable speed at the owned quality.
 
+Further optimization should distinguish three targets. The production FFT still
+zero-pads half of each forward input and gathers/scatters individual channels;
+specialized transforms or layouts are hypotheses requiring a useful measured
+gain. Prior decimation experiments already tried selective spectrum rebuilding,
+so repeating that work unchanged is not a new optimization. A fixed-ratio
+polyphase or multistage design may change the filter and reduce buffering, but
+must satisfy the quality criteria below. Separately, native benchmark adapters
+currently allocate formatted validation labels on successful calls; removing
+that harness overhead would improve measurement fidelity, not the owned DSP.
+
 Future replacements **do not require sample-by-sample identity with Rubato**.
 Objective quality must not regress: comparisons must cover passband error,
 usable bandwidth, alias/image response, phase/timeline, full-stream transients
@@ -357,6 +438,11 @@ For CPU/memory reporting without quality renders:
 ```text
 cargo bench -p audio-engine-core --bench audio_resampler_comparison_perf --features raw-rubato -- --resources --pinned --pin-core 2 --out target/bench-reports/resources.json
 ```
+
+Add `--resource-memory-only` to skip steady timing entirely while retaining
+construction/warmup/release snapshots and the short allocation/lifecycle pass.
+The extended resource schema is `resampler_resources_v2`; historical v1 reports
+are retained as measured and have no newly inferred heap fields.
 
 Add the same explicit native-library arguments for external engines, or use
 `--all-features` to select project SoXR and raw libsoxr. Filter recipes with

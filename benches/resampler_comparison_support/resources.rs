@@ -24,10 +24,13 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
     let mut remaining = Vec::new();
     let mut selected = BTreeSet::new();
     let mut child_case = None;
+    let mut memory_only = false;
     let mut milliseconds = 250u64;
     for arg in &argv {
         if arg == "--resources" {
             continue;
+        } else if arg == "--resource-memory-only" {
+            memory_only = true;
         } else if let Some(value) = arg.strip_prefix("--resource-engines=") {
             for id in value.split(',') {
                 super::validate_engine_id(id)?;
@@ -47,7 +50,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
     let args = ComparisonArgs::parse(remaining)?;
     if args.perf.help {
         println!(
-            "--resources [--resource-engines=id,id] [--resource-ms=250] \
+            "--resources [--resource-engines=id,id] [--resource-ms=250] [--resource-memory-only] \
                   [--pinned --pin-core 2] [--out report.json] \
                   [--engine-library id=absolute-path]"
         );
@@ -84,7 +87,12 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
                         None
                     };
                     audio_engine_core::runtime::audio_thread_init();
-                    let mut result = measure(factory, rate, Duration::from_millis(milliseconds))?;
+                    let mut result = measure(
+                        factory,
+                        rate,
+                        Duration::from_millis(milliseconds),
+                        memory_only,
+                    )?;
                     result["scheduling"] = json!(scheduling);
                     println!("{result}");
                     return Ok(());
@@ -122,17 +130,19 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
         }
     }
     let report = json!({
-        "schema": "resampler_resources_v1",
+        "schema": "resampler_resources_v2",
         "generated_unix_ms": generated_unix_ms(),
         "environment": BenchEnvironment::capture(),
         "conditions": {
             "chunk_frames": CHUNK_FRAMES,
-            "trials": TIMING_TRIALS,
+            "trials": if memory_only { 0 } else { TIMING_TRIALS },
+            "memory_only": memory_only,
             "minimum_trial_ms": milliseconds,
             "memory_instances": MEMORY_INSTANCES,
             "fresh_process_per_case": true,
             "allocation_instrumentation_during_timing": false,
             "native_heap_calls_instrumented": false,
+            "process_heap_walk": "Windows HeapWalk snapshots, not allocation-call counts or temporal peaks; includes runtime/adapter heap blocks and allocator slabs; excludes direct VirtualAlloc payloads",
             "cpu_budget_definition": "100 * thread_cpu_seconds / timed_input_audio_seconds; one logical CPU",
             "process_memory_scope": "entire child including DLLs/runtime; per-instance increments are pooled page-granular estimates",
             "quality_scope": "existing selected High/Linear recipes; this command does not rerun quality analysis"
@@ -167,7 +177,12 @@ fn allocation_json(snapshot: AllocationSnapshot) -> Value {
     })
 }
 
-fn measure(factory: &EngineFactory, rate: RatePair, duration: Duration) -> Result<Value, String> {
+fn measure(
+    factory: &EngineFactory,
+    rate: RatePair,
+    duration: Duration,
+    memory_only: bool,
+) -> Result<Value, String> {
     let inputs = PreparedInputs::new(rate);
     let scope = AllocationScope::start();
     let setup_start = Instant::now();
@@ -188,20 +203,26 @@ fn measure(factory: &EngineFactory, rate: RatePair, duration: Duration) -> Resul
 
     let mut instances = Vec::with_capacity(MEMORY_INSTANCES);
     let memory_before = process_memory();
+    let heap_before = process_heap_snapshot();
     let pool_scope = AllocationScope::start();
     for _ in 0..MEMORY_INSTANCES {
         instances.push(factory.create(rate, rate.channels, CHUNK_FRAMES)?);
     }
     let pool_heap = pool_scope.finish();
     let memory_created = process_memory();
+    let heap_created = process_heap_snapshot();
     for instance in &mut instances {
         for _ in 0..WARMUP_BUFFERS {
             process_prepared(instance, &inputs, &mut output_f64, &mut output_f32, false)?;
         }
     }
     let memory_warm = process_memory();
-    drop(instances);
+    let heap_warm = process_heap_snapshot();
+    // Keep the pool's handle storage, which predates memory_before, alive for
+    // the final snapshot too. Only the measured adapters are released here.
+    instances.clear();
     let memory_released = process_memory();
+    let heap_released = process_heap_snapshot();
 
     let mut adapter = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
     for _ in 0..WARMUP_BUFFERS {
@@ -230,8 +251,9 @@ fn measure(factory: &EngineFactory, rate: RatePair, duration: Duration) -> Resul
         return Err("resource allocation pass did not finish".into());
     }
 
-    let mut trials = Vec::with_capacity(TIMING_TRIALS);
-    for trial in 0..TIMING_TRIALS {
+    let trial_count = if memory_only { 0 } else { TIMING_TRIALS };
+    let mut trials = Vec::with_capacity(trial_count);
+    for trial in 0..trial_count {
         adapter.reset()?;
         let mut all_output_frames = 0usize;
         for _ in 0..WARMUP_BUFFERS {
@@ -335,7 +357,14 @@ fn measure(factory: &EngineFactory, rate: RatePair, duration: Duration) -> Resul
     let resident_increment = memory_before.zip(memory_warm).map(|(a, b)| {
         (b.working_set_bytes as f64 - a.working_set_bytes as f64) / MEMORY_INSTANCES as f64
     });
+    let heap_busy_increment = heap_before
+        .zip(heap_warm)
+        .map(|(a, b)| (b.busy_bytes as f64 - a.busy_bytes as f64) / MEMORY_INSTANCES as f64);
+    let heap_busy_blocks_increment = heap_before
+        .zip(heap_warm)
+        .map(|(a, b)| (b.busy_blocks as f64 - a.busy_blocks as f64) / MEMORY_INSTANCES as f64);
     Ok(json!({
+        "memory_only": memory_only,
         "case_key": case_key(factory, rate),
         "engine": factory.identity(),
         "rate_pair": rate.id,
@@ -351,8 +380,14 @@ fn measure(factory: &EngineFactory, rate: RatePair, duration: Duration) -> Resul
         "memory_after_construction": memory_created,
         "memory_after_warmup": memory_warm,
         "memory_after_drop": memory_released,
+        "process_heap_before_instances": heap_before,
+        "process_heap_after_construction": heap_created,
+        "process_heap_after_warmup": heap_warm,
+        "process_heap_after_drop": heap_released,
         "pooled_private_commit_increment_bytes_per_instance": private_increment,
         "pooled_working_set_increment_bytes_per_instance": resident_increment,
+        "pooled_process_heap_busy_bytes_increment_per_instance": heap_busy_increment,
+        "pooled_process_heap_busy_blocks_increment_per_instance": heap_busy_blocks_increment,
         "trials": trials
     }))
 }
@@ -374,6 +409,13 @@ struct ProcessMemory {
     private_commit_bytes: u64,
     peak_pagefile_bytes: u64,
     page_faults: u32,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct ProcessHeapSnapshot {
+    busy_bytes: u64,
+    busy_blocks: u64,
+    heap_count: u32,
 }
 
 pub(super) fn working_set_bytes() -> Option<u64> {
@@ -471,6 +513,109 @@ fn process_memory() -> Option<ProcessMemory> {
     })
 }
 
+#[cfg(windows)]
+fn process_heap_snapshot() -> Option<ProcessHeapSnapshot> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetProcessHeaps(number_of_heaps: u32, heaps: *mut isize) -> u32;
+    }
+    // A stack buffer avoids measuring the snapshotter's own heap allocation.
+    // Fail closed if it cannot hold the complete list; never publish a partial sum.
+    let mut heaps = [0isize; 128];
+    // SAFETY: the array is writable and holds exactly the advertised handle count.
+    let count = unsafe { GetProcessHeaps(heaps.len() as u32, heaps.as_mut_ptr()) };
+    if count == 0 || count as usize > heaps.len() {
+        return None;
+    }
+    let mut snapshot = ProcessHeapSnapshot {
+        busy_bytes: 0,
+        busy_blocks: 0,
+        heap_count: count,
+    };
+    for &heap in &heaps[..count as usize] {
+        // SAFETY: handles belong to this process. Resource children do not
+        // destroy heaps concurrently; no adapter or allocator is invoked here.
+        let (bytes, blocks) = unsafe { heap_busy_snapshot(heap) }?;
+        snapshot.busy_bytes = snapshot.busy_bytes.checked_add(bytes)?;
+        snapshot.busy_blocks = snapshot.busy_blocks.checked_add(blocks)?;
+    }
+    Some(snapshot)
+}
+
+/// The heap handle must stay valid throughout this non-realtime snapshot.
+#[cfg(windows)]
+unsafe fn heap_busy_snapshot(heap: isize) -> Option<(u64, u64)> {
+    // The Region member supplies storage/alignment for the SDK's union:
+    // 16 bytes on Win32 and 24 on Win64. Only the prefix fields are read.
+    #[repr(C)]
+    struct HeapRegion {
+        committed_bytes: u32,
+        uncommitted_bytes: u32,
+        first_block: *mut std::ffi::c_void,
+        last_block: *mut std::ffi::c_void,
+    }
+    #[repr(C)]
+    struct ProcessHeapEntry {
+        data: *mut std::ffi::c_void,
+        data_bytes: u32,
+        overhead: u8,
+        region_index: u8,
+        flags: u16,
+        trailing_union: HeapRegion,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn HeapLock(heap: isize) -> i32;
+        fn HeapUnlock(heap: isize) -> i32;
+        fn HeapWalk(heap: isize, entry: *mut ProcessHeapEntry) -> i32;
+        fn GetLastError() -> u32;
+    }
+
+    const ERROR_NO_MORE_ITEMS: u32 = 259;
+    const PROCESS_HEAP_ENTRY_BUSY: u16 = 0x0004;
+    // SAFETY: the caller guarantees a live process heap. Locking prevents
+    // mutation during traversal; no allocation, formatting or logging occurs
+    // until after HeapUnlock, including all failure paths below.
+    if unsafe { HeapLock(heap) } == 0 {
+        return None;
+    }
+    let mut busy_bytes = 0u64;
+    let mut busy_blocks = 0u64;
+    let mut entry = ProcessHeapEntry {
+        data: std::ptr::null_mut(),
+        data_bytes: 0,
+        overhead: 0,
+        region_index: 0,
+        flags: 0,
+        trailing_union: HeapRegion {
+            committed_bytes: 0,
+            uncommitted_bytes: 0,
+            first_block: std::ptr::null_mut(),
+            last_block: std::ptr::null_mut(),
+        },
+    };
+    let complete = loop {
+        // SAFETY: entry matches PROCESS_HEAP_ENTRY and the heap is locked.
+        let walked = unsafe { HeapWalk(heap, &mut entry) } != 0;
+        if !walked {
+            // SAFETY: query the calling thread's last-error immediately.
+            break unsafe { GetLastError() } == ERROR_NO_MORE_ITEMS;
+        }
+        if entry.flags & PROCESS_HEAP_ENTRY_BUSY != 0 {
+            busy_bytes = busy_bytes.saturating_add(u64::from(entry.data_bytes));
+            busy_blocks = busy_blocks.saturating_add(1);
+        }
+    };
+    // SAFETY: paired with the successful HeapLock, on every traversal outcome.
+    let unlocked = unsafe { HeapUnlock(heap) } != 0;
+    (complete && unlocked).then_some((busy_bytes, busy_blocks))
+}
+
+#[cfg(not(windows))]
+fn process_heap_snapshot() -> Option<ProcessHeapSnapshot> {
+    None
+}
+
 #[cfg(not(windows))]
 fn process_memory() -> Option<ProcessMemory> {
     None
@@ -478,6 +623,38 @@ fn process_memory() -> Option<ProcessMemory> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn heap_snapshot_observes_native_allocation_and_release() {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn HeapCreate(options: u32, initial: usize, maximum: usize) -> isize;
+            fn HeapAlloc(heap: isize, flags: u32, bytes: usize) -> *mut std::ffi::c_void;
+            fn HeapFree(heap: isize, flags: u32, block: *mut std::ffi::c_void) -> i32;
+            fn HeapDestroy(heap: isize) -> i32;
+        }
+        // SAFETY: a dedicated test heap stays live through every snapshot and
+        // allocation/free; it is destroyed before assertions can unwind.
+        let (before, during, after, freed, destroyed, observed_block) = unsafe {
+            let heap = HeapCreate(0, 0, 0);
+            assert_ne!(heap, 0);
+            let before = super::heap_busy_snapshot(heap);
+            let block = HeapAlloc(heap, 0, 12_345);
+            let during = super::heap_busy_snapshot(heap);
+            let freed = !block.is_null() && HeapFree(heap, 0, block) != 0;
+            let after = super::heap_busy_snapshot(heap);
+            let destroyed = HeapDestroy(heap) != 0;
+            (before, during, after, freed, destroyed, !block.is_null())
+        };
+        assert!(observed_block && freed && destroyed);
+        let before = before.expect("initial heap traversal");
+        let during = during.expect("allocated heap traversal");
+        assert!(during.0 >= before.0 + 12_345);
+        assert_eq!(during.1, before.1 + 1);
+        assert_eq!(after, Some(before));
+        assert!(super::process_heap_snapshot().is_some());
+    }
+
     #[test]
     fn unavailable_or_decreasing_cpu_counters_are_not_reported_as_zero() {
         assert_eq!(super::counter_delta(None, Some(5)), None);

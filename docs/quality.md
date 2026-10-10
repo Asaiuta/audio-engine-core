@@ -1338,6 +1338,16 @@ paired improvements, full engine table, quality results and FFmpeg analysis.
 See the [resource report](resampler-resources.md) and
 [raw data](data/resampler-resources-2026-10-10.json) for all resource measurements.
 
+Native-inclusive heap snapshots have since been added for 11 recipes at stereo
+44.1→48 kHz. Warmed Windows heap increments include FFmpeg 2241.22 KiB/instance,
+libsamplerate 859.58 and project SoXR 195.05. These process heap block counts
+complement private commit and working set; they are not exact native allocator
+request sizes, allocation-call counts or temporal peaks. The new
+`--resource-memory-only` mode collected these without rerunning throughput or
+quality grids. The main comparison now includes the
+[native heap table](resampler-comparison.md#native-inclusive-heap-snapshots-2026-10-10)
+and a prioritized [metric-gap inventory](resampler-comparison.md#coverage-verdict).
+
 #### Historical 2026-10-10 pre-fusion comparison repair
 
 The v7 comparison corrects trial-to-engine attribution and replaces the old

@@ -1,0 +1,1342 @@
+{
+  "schema": "resampler_native_process_heap_v1",
+  "date": "2026-10-10",
+  "binary_sha256": "4419ceaebe36768b1417b7eb40df7fb94698f5c254bee3533d8d0a2e398f2eaf",
+  "scope": "One memory-only case per engine; 44100->48000 stereo, 512-frame input, 32 live warmed instances; no new throughput or quality measurements",
+  "heap_scope": "Windows HeapWalk busy blocks; process/runtime/adapter/library combined; snapshots are neither malloc-request payloads nor allocation-call counts nor temporal peaks; direct VirtualAlloc excluded",
+  "cases": [
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=audio_engine_core",
+        "--resource-case=audio_engine_core:audio_engine_core_soxr_interleaved_stereo_high_linear_v2:music_44k1_to_48k"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "audio_engine_core:audio_engine_core_soxr_interleaved_stereo_high_linear_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "audio_engine_core_soxr_interleaved_stereo_high_linear_v2",
+          "display_name": "audio-engine-core (soxr)",
+          "engine_id": "audio_engine_core",
+          "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+          "native_library": null,
+          "phase_response": "linear; project lifecycle semantics",
+          "quality_recipe": "audio-engine-core High: libsoxr HQ/Bits20, linear phase, high-precision clock",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "libsoxr via soxr crate 0.6.0"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3283,
+          "peak_pagefile_bytes": 9265152,
+          "peak_working_set_bytes": 10235904,
+          "private_commit_bytes": 9265152,
+          "working_set_bytes": 10235904
+        },
+        "memory_after_drop": {
+          "page_faults": 4586,
+          "peak_pagefile_bytes": 12562432,
+          "peak_working_set_bytes": 15560704,
+          "private_commit_bytes": 5234688,
+          "working_set_bytes": 8171520
+        },
+        "memory_after_warmup": {
+          "page_faults": 4584,
+          "peak_pagefile_bytes": 12562432,
+          "peak_working_set_bytes": 15556608,
+          "private_commit_bytes": 12562432,
+          "working_set_bytes": 15556608
+        },
+        "memory_before_instances": {
+          "page_faults": 2566,
+          "peak_pagefile_bytes": 4071424,
+          "peak_working_set_bytes": 7331840,
+          "private_commit_bytes": 3526656,
+          "working_set_bytes": 7307264
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 282368.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 25.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 199728.0,
+        "pooled_working_set_increment_bytes_per_instance": 257792.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1463,
+          "busy_bytes": 6572180,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 663,
+          "busy_bytes": 967316,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1463,
+          "busy_bytes": 7358612,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 663,
+          "busy_bytes": 967316,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 32,
+          "deallocations": 0,
+          "peak_live_bytes": 512,
+          "reallocations": 0,
+          "retained_bytes": 512
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 1,
+          "deallocations": 0,
+          "peak_live_bytes": 16,
+          "reallocations": 0,
+          "retained_bytes": 16
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 210400,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=raw_libsoxr",
+        "--resource-case=raw_libsoxr:raw_libsoxr_hq_bits20_linear_single_thread_v1:music_44k1_to_48k"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "raw_libsoxr:raw_libsoxr_hq_bits20_linear_single_thread_v1:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "raw_libsoxr_hq_bits20_linear_single_thread_v1",
+          "display_name": "raw libsoxr stereo",
+          "engine_id": "raw_libsoxr",
+          "implementation": "direct Soxr<Stereo<f64>> via soxr 0.6.0",
+          "native_library": null,
+          "phase_response": "linear; phase_response=50",
+          "quality_recipe": "QualityRecipe::high/Bits20; Small rolloff; HighPrecisionClock; RuntimeSpec threads=1",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "libsoxr via soxr crate 0.6.0"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3278,
+          "peak_pagefile_bytes": 9261056,
+          "peak_working_set_bytes": 10178560,
+          "private_commit_bytes": 9261056,
+          "working_set_bytes": 10178560
+        },
+        "memory_after_drop": {
+          "page_faults": 4580,
+          "peak_pagefile_bytes": 12558336,
+          "peak_working_set_bytes": 15499264,
+          "private_commit_bytes": 5230592,
+          "working_set_bytes": 8122368
+        },
+        "memory_after_warmup": {
+          "page_faults": 4578,
+          "peak_pagefile_bytes": 12558336,
+          "peak_working_set_bytes": 15495168,
+          "private_commit_bytes": 12558336,
+          "working_set_bytes": 15495168
+        },
+        "memory_before_instances": {
+          "page_faults": 2565,
+          "peak_pagefile_bytes": 4067328,
+          "peak_working_set_bytes": 7290880,
+          "private_commit_bytes": 3522560,
+          "working_set_bytes": 7266304
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 282368.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 24.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 199712.0,
+        "pooled_working_set_increment_bytes_per_instance": 257152.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1430,
+          "busy_bytes": 6571226,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 662,
+          "busy_bytes": 966874,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1430,
+          "busy_bytes": 7357658,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 662,
+          "busy_bytes": 966874,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 202700,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=raw_rubato",
+        "--resource-case=raw_rubato:raw_rubato_fft1024_bh2_subchunk2_compensated_exact_v3:music_44k1_to_48k"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "raw_rubato:raw_rubato_fft1024_bh2_subchunk2_compensated_exact_v3:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "raw_rubato_fft1024_bh2_subchunk2_compensated_exact_v3",
+          "display_name": "raw Rubato FFT",
+          "engine_id": "raw_rubato",
+          "implementation": "direct rubato::Fft<f64> 4.0.0",
+          "native_library": null,
+          "phase_response": "linear; native output_delay reported by recipe and compensated before caller output",
+          "quality_recipe": "Fft<f64>; requested_chunk_frames=1024; BlackmanHarris2; sub_chunks=2; FixedSync::Input; native multichannel; adapter delay compensation and exact-duration pacing",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "rubato 4.0.0"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 4724,
+          "peak_pagefile_bytes": 11714560,
+          "peak_working_set_bytes": 15962112,
+          "private_commit_bytes": 11714560,
+          "working_set_bytes": 15962112
+        },
+        "memory_after_drop": {
+          "page_faults": 4736,
+          "peak_pagefile_bytes": 11714560,
+          "peak_working_set_bytes": 16011264,
+          "private_commit_bytes": 4890624,
+          "working_set_bytes": 9240576
+        },
+        "memory_after_warmup": {
+          "page_faults": 4735,
+          "peak_pagefile_bytes": 11714560,
+          "peak_working_set_bytes": 16007168,
+          "private_commit_bytes": 11714560,
+          "working_set_bytes": 16007168
+        },
+        "memory_before_instances": {
+          "page_faults": 2610,
+          "peak_pagefile_bytes": 4079616,
+          "peak_working_set_bytes": 7520256,
+          "private_commit_bytes": 2908160,
+          "working_set_bytes": 7319552
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 275200.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 32.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 257242.0,
+        "pooled_working_set_increment_bytes_per_instance": 271488.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1688,
+          "busy_bytes": 9199262,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 664,
+          "busy_bytes": 967518,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1688,
+          "busy_bytes": 9199262,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 664,
+          "busy_bytes": 967518,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 1408,
+          "deallocations": 384,
+          "peak_live_bytes": 8223552,
+          "reallocations": 0,
+          "retained_bytes": 8223552
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 44,
+          "deallocations": 12,
+          "peak_live_bytes": 256986,
+          "reallocations": 0,
+          "retained_bytes": 256986
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 133600,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=libsamplerate",
+        "--resource-case=libsamplerate:libsamplerate_sinc_best_quality_streaming_f32_v4_native_end_clock:music_44k1_to_48k",
+        "--libsamplerate",
+        "\\\\?\\<workspace>\\target\\benchmark-deps\\libsamplerate-0.2.2-1\\mingw64\\bin\\libsamplerate-0.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "libsamplerate:libsamplerate_sinc_best_quality_streaming_f32_v4_native_end_clock:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "libsamplerate_sinc_best_quality_streaming_f32_v4_native_end_clock",
+          "display_name": "libsamplerate SINC_BEST_QUALITY",
+          "engine_id": "libsamplerate",
+          "implementation": "runtime-loaded libsamplerate streaming C API",
+          "native_library": {
+            "build_provenance": "loaded DLL matches pinned MSYS2 package payload sha256=1e08aeb1fecade2cf2d7a83463a1b375e13d5f2f008cdeea7409a3eff7ed9a0e",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\libsamplerate-0.2.2-1\\mingw64\\bin\\libsamplerate-0.dll",
+            "file_bytes": 1502619,
+            "linked_artifacts": [],
+            "provenance_verified": true,
+            "sha256": "1e08aeb1fecade2cf2d7a83463a1b375e13d5f2f008cdeea7409a3eff7ed9a0e",
+            "source_revision": "MSYS2 mingw-w64-x86_64-libsamplerate 0.2.2-1; package-sha256=454b2d8eb1a22f8df2a84d10fa0244420fde55de877823062e93c192a551f8b6",
+            "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo"
+          },
+          "phase_response": "library-defined linear-phase sinc; latency not exposed by API",
+          "quality_recipe": "SRC_SINC_BEST_QUALITY (converter type 0); final real input uses end_of_input=1; exact native 2/6-channel floating-clock end predicate; no output padding or trimming",
+          "sample_format": "interleaved_f32",
+          "upstream_version": "libsamplerate-0.2.2 (c) 2002-2008 Erik de Castro Lopo"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 9541,
+          "peak_pagefile_bytes": 31952896,
+          "peak_working_set_bytes": 35774464,
+          "private_commit_bytes": 31952896,
+          "working_set_bytes": 35774464
+        },
+        "memory_after_drop": {
+          "page_faults": 9877,
+          "peak_pagefile_bytes": 31952896,
+          "peak_working_set_bytes": 37150720,
+          "private_commit_bytes": 4689920,
+          "working_set_bytes": 9940992
+        },
+        "memory_after_warmup": {
+          "page_faults": 9876,
+          "peak_pagefile_bytes": 31952896,
+          "peak_working_set_bytes": 37146624,
+          "private_commit_bytes": 31952896,
+          "working_set_bytes": 37146624
+        },
+        "memory_before_instances": {
+          "page_faults": 2839,
+          "peak_pagefile_bytes": 5369856,
+          "peak_working_set_bytes": 8380416,
+          "private_commit_bytes": 4468736,
+          "working_set_bytes": 8380416
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 858880.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 3.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 880212.0,
+        "pooled_working_set_increment_bytes_per_instance": 898944.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 787,
+          "busy_bytes": 29139157,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 691,
+          "busy_bytes": 972373,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 787,
+          "busy_bytes": 29139157,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 691,
+          "busy_bytes": 972373,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 39700,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=ffmpeg_libswresample",
+        "--resource-case=ffmpeg_libswresample:ffmpeg_libswresample_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "ffmpeg_libswresample=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\ffmpeg_libswresample_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "ffmpeg_libswresample:ffmpeg_libswresample_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "ffmpeg_libswresample_benchmark_shim_v2",
+          "display_name": "FFmpeg libswresample",
+          "engine_id": "ffmpeg_libswresample",
+          "implementation": "native swr_alloc_set_opts2/swr_convert streaming shim",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; FFmpeg n8.0.1 clean source revision; installed include-tree manifest sha256=9C7EF81AF2DA1EEA17A5C5EAA3A678BD72F5C0F70C99C4A22D4C064D43666AFA (relative-path/SP/SHA-256 records, UTF-8/LF); pinned import/runtime library hashes",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\ffmpeg_libswresample_shim.dll",
+            "file_bytes": 677931,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\swresample-6.dll",
+                "file_bytes": 172032,
+                "sha256": "fec286d162189b4499aaa411c975febd04c7fc99f3b1d0ce7d6178a8edf03f47"
+              },
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\avutil-60.dll",
+                "file_bytes": 1129472,
+                "sha256": "d3234261346451da891e4012863cb26cdbeffae7aaa151ce905a07f46bce3cf4"
+              },
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "47f1f18274312054d6487d4fc15ce7d5598f829f2dc6fa524081ef7fac5cd9b9",
+            "source_revision": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+            "upstream_version": "FFmpeg n8.0.1 libswresample 6"
+          },
+          "phase_response": "linear-phase windowed sinc; null-input flush",
+          "quality_recipe": "libswresample SWR engine defaults; packed AV_SAMPLE_FMT_DBL stereo; filter_size=32; phase_shift=10; exact_rational=1",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "FFmpeg n8.0.1 libswresample 6"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3966,
+          "peak_pagefile_bytes": 24838144,
+          "peak_working_set_bytes": 12283904,
+          "private_commit_bytes": 24838144,
+          "working_set_bytes": 12283904
+        },
+        "memory_after_drop": {
+          "page_faults": 20983,
+          "peak_pagefile_bytes": 94482432,
+          "peak_working_set_bytes": 81838080,
+          "private_commit_bytes": 20709376,
+          "working_set_bytes": 8278016
+        },
+        "memory_after_warmup": {
+          "page_faults": 20982,
+          "peak_pagefile_bytes": 94482432,
+          "peak_working_set_bytes": 81833984,
+          "private_commit_bytes": 94429184,
+          "working_set_bytes": 81833984
+        },
+        "memory_before_instances": {
+          "page_faults": 2959,
+          "peak_pagefile_bytes": 21245952,
+          "peak_working_set_bytes": 8286208,
+          "private_commit_bytes": 20656128,
+          "working_set_bytes": 8163328
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 2305408.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 10.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 2295007.0,
+        "pooled_working_set_increment_bytes_per_instance": 2302208.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 965,
+          "busy_bytes": 5165811,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 773,
+          "busy_bytes": 1073811,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1093,
+          "busy_bytes": 74514035,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 773,
+          "busy_bytes": 1073811,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 40,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 80800,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=speexdsp",
+        "--resource-case=speexdsp:speexdsp_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "speexdsp=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\speexdsp_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "speexdsp:speexdsp_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "speexdsp_benchmark_shim_v2",
+          "display_name": "SpeexDSP quality 10",
+          "engine_id": "speexdsp",
+          "implementation": "native speex_resampler_process_interleaved_float streaming shim; fresh-state reset",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG; MSYS2 package sha256=E46B80E43DB1436F9469FB9500FEB1A0D3879E63B35703BABA6F46AF4949A4C8; linked runtime payload is hashed in report",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\speexdsp_shim.dll",
+            "file_bytes": 677571,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libspeexdsp-1.dll",
+                "file_bytes": 111227,
+                "sha256": "676de283408c6a7c06221774bbf8150dcfe94668e0a249d67e81ede17cc22a45"
+              },
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "99ee66f19dfaea194b844eed0db1bf82ae8fa2d59e62760293310696dd9b1611",
+            "source_revision": "MSYS2 mingw-w64-x86_64-speexdsp-1.2.1-1",
+            "upstream_version": "SpeexDSP 1.2.1"
+          },
+          "phase_response": "SpeexDSP quality-10 sinc; API output latency retained and reported",
+          "quality_recipe": "SpeexDSP quality=10; interleaved float stereo; natural leading latency retained; zero-tail drain to nominal plus output latency",
+          "sample_format": "interleaved_f32",
+          "upstream_version": "SpeexDSP 1.2.1"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3034,
+          "peak_pagefile_bytes": 5210112,
+          "peak_working_set_bytes": 9179136,
+          "private_commit_bytes": 5210112,
+          "working_set_bytes": 9179136
+        },
+        "memory_after_drop": {
+          "page_faults": 3037,
+          "peak_pagefile_bytes": 5210112,
+          "peak_working_set_bytes": 9191424,
+          "private_commit_bytes": 4026368,
+          "working_set_bytes": 8048640
+        },
+        "memory_after_warmup": {
+          "page_faults": 3036,
+          "peak_pagefile_bytes": 5210112,
+          "peak_working_set_bytes": 9187328,
+          "private_commit_bytes": 5210112,
+          "working_set_bytes": 9187328
+        },
+        "memory_before_instances": {
+          "page_faults": 2679,
+          "peak_pagefile_bytes": 4288512,
+          "peak_working_set_bytes": 7725056,
+          "private_commit_bytes": 3756032,
+          "working_set_bytes": 7725056
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 45440.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 8.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 40480.0,
+        "pooled_working_set_increment_bytes_per_instance": 45696.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 973,
+          "busy_bytes": 2359900,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 717,
+          "busy_bytes": 1064540,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 973,
+          "busy_bytes": 2359900,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 717,
+          "busy_bytes": 1064540,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 16,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 416600,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=r8brain",
+        "--resource-case=r8brain:r8brain_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "r8brain=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\r8brain_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "r8brain:r8brain_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "r8brain_benchmark_shim_v2",
+          "display_name": "r8brain-free-src",
+          "engine_id": "r8brain",
+          "implementation": "two independent r8b::CDSPResampler24 channel states with interleaved shim",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated header implementation; FFT4G double backend",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\r8brain_shim.dll",
+            "file_bytes": 891260,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "03d02272f0aaeba9f986ec270f544117fcd59b719fc8086b381815aa23ad3157",
+            "source_revision": "e71c31bf320f84210bb4bdcb57e296c39ce940f9",
+            "upstream_version": "r8brain-free-src 7.1"
+          },
+          "phase_response": "linear phase; upstream automatic initial-latency consumption; bounded zero-tail drain to duration-aligned output",
+          "quality_recipe": "CDSPResampler24; 2 percent transition band; 180.15 dB requested attenuation; linear phase; double precision",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "r8brain-free-src 7.1"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3518,
+          "peak_pagefile_bytes": 12251136,
+          "peak_working_set_bytes": 10919936,
+          "private_commit_bytes": 12251136,
+          "working_set_bytes": 10919936
+        },
+        "memory_after_drop": {
+          "page_faults": 4771,
+          "peak_pagefile_bytes": 12251136,
+          "peak_working_set_bytes": 16052224,
+          "private_commit_bytes": 7581696,
+          "working_set_bytes": 11169792
+        },
+        "memory_after_warmup": {
+          "page_faults": 4770,
+          "peak_pagefile_bytes": 12251136,
+          "peak_working_set_bytes": 16048128,
+          "private_commit_bytes": 12251136,
+          "working_set_bytes": 16048128
+        },
+        "memory_before_instances": {
+          "page_faults": 2810,
+          "peak_pagefile_bytes": 4251648,
+          "peak_working_set_bytes": 8060928,
+          "private_commit_bytes": 4050944,
+          "working_set_bytes": 8032256
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 256256.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 33.875,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 236093.5,
+        "pooled_working_set_increment_bytes_per_instance": 250496.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1845,
+          "busy_bytes": 8945067,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 1109,
+          "busy_bytes": 2855851,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1845,
+          "busy_bytes": 8945067,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 761,
+          "busy_bytes": 1390075,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 68,
+          "deallocations": 68,
+          "peak_live_bytes": 16,
+          "reallocations": 68,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 14200,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=zita_resampler",
+        "--resource-case=zita_resampler:zita_resampler_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "zita_resampler=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\zita_resampler_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "zita_resampler:zita_resampler_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "zita_resampler_benchmark_shim_v2",
+          "display_name": "zita-resampler",
+          "engine_id": "zita_resampler",
+          "implementation": "native Resampler::setup/process/reset interleaved float shim",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -DENABLE_SSE2 -msse3; source-integrated shared release shim",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\zita_resampler_shim.dll",
+            "file_bytes": 698762,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "b9d7331741d8e2b6e173d9a160337cf0f77b74bfa098e2b1fff3e1fff3d3835b",
+            "source_revision": "official release 1.11.2; archive sha256 AA5C54E696069AF26F3F1FED4A963113CC1237CDDFD57AE5842ABCB1ACD5492C",
+            "upstream_version": "zita-resampler 1.11.2"
+          },
+          "phase_response": "linear phase; half-filter input latency reported; file-mode centered stream alignment",
+          "quality_recipe": "zita Resampler hlen=96 default cutoff; author file-mode half-filter pre/post zero policy; interleaved float stereo",
+          "sample_format": "interleaved_f32",
+          "upstream_version": "zita-resampler 1.11.2"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 2934,
+          "peak_pagefile_bytes": 4526080,
+          "peak_working_set_bytes": 8232960,
+          "private_commit_bytes": 4526080,
+          "working_set_bytes": 8232960
+        },
+        "memory_after_drop": {
+          "page_faults": 2937,
+          "peak_pagefile_bytes": 4526080,
+          "peak_working_set_bytes": 8245248,
+          "private_commit_bytes": 4136960,
+          "working_set_bytes": 7974912
+        },
+        "memory_after_warmup": {
+          "page_faults": 2936,
+          "peak_pagefile_bytes": 4526080,
+          "peak_working_set_bytes": 8241152,
+          "private_commit_bytes": 4526080,
+          "working_set_bytes": 8241152
+        },
+        "memory_before_instances": {
+          "page_faults": 2780,
+          "peak_pagefile_bytes": 4251648,
+          "peak_working_set_bytes": 7667712,
+          "private_commit_bytes": 3661824,
+          "working_set_bytes": 7602176
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 27008.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 3.0625,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 16269.25,
+        "pooled_working_set_increment_bytes_per_instance": 19968.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 806,
+          "busy_bytes": 1584150,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 708,
+          "busy_bytes": 1063534,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 806,
+          "busy_bytes": 1584150,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 708,
+          "busy_bytes": 1063534,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 28,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 1894900,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=webrtc",
+        "--resource-case=webrtc:webrtc_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "webrtc=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\webrtc_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "webrtc:webrtc_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "webrtc_benchmark_shim_v2",
+          "display_name": "WebRTC PushResampler",
+          "engine_id": "webrtc",
+          "implementation": "WebRTC PushResampler<float> with preallocated arbitrary-chunk 10 ms staging",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; source-integrated PushResampler with runtime SSE2/AVX2 dispatch",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\webrtc_shim.dll",
+            "file_bytes": 726302,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "7e764d6e9c7dbfd30018706e4f273b42522cbd323e68a85795a2f8ead434a9ff",
+            "source_revision": "8e258a1933d405073c9e6465628a69ac7d2a1f13",
+            "upstream_version": "webrtc-audio-processing 1.3"
+          },
+          "phase_response": "linear phase; 16-input-frame algorithmic delay; final 10 ms block zero padded and trimmed to exact duration",
+          "quality_recipe": "WebRTC SincResampler kernel=32, offset_count=32, Blackman window, 0.9 cutoff scale; runtime AVX2/SSE2; interleaved float stereo",
+          "sample_format": "interleaved_f32",
+          "upstream_version": "webrtc-audio-processing 1.3"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 3119,
+          "peak_pagefile_bytes": 5406720,
+          "peak_working_set_bytes": 9408512,
+          "private_commit_bytes": 5406720,
+          "working_set_bytes": 9408512
+        },
+        "memory_after_drop": {
+          "page_faults": 3122,
+          "peak_pagefile_bytes": 5406720,
+          "peak_working_set_bytes": 9420800,
+          "private_commit_bytes": 4825088,
+          "working_set_bytes": 8384512
+        },
+        "memory_after_warmup": {
+          "page_faults": 3121,
+          "peak_pagefile_bytes": 5406720,
+          "peak_working_set_bytes": 9416704,
+          "private_commit_bytes": 5406720,
+          "working_set_bytes": 9416704
+        },
+        "memory_before_instances": {
+          "page_faults": 2698,
+          "peak_pagefile_bytes": 4268032,
+          "peak_working_set_bytes": 7712768,
+          "private_commit_bytes": 3698688,
+          "working_set_bytes": 7684096
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 53376.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 22.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 44944.0,
+        "pooled_working_set_increment_bytes_per_instance": 54144.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1427,
+          "busy_bytes": 2503767,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 723,
+          "busy_bytes": 1065559,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1427,
+          "busy_bytes": 2503767,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 723,
+          "busy_bytes": 1065559,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 16,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 299500,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=wdl",
+        "--resource-case=wdl:wdl_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "wdl=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\wdl_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "wdl:wdl_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "wdl_benchmark_shim_v2",
+          "display_name": "WDL Resampler",
+          "engine_id": "wdl",
+          "implementation": "native WDL_Resampler input-driven interleaved double shim",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; WDL resample.cpp source-integrated release shim",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\wdl_shim.dll",
+            "file_bytes": 704111,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "b8b7ff370337fa970afce68b6acd1064257e2b49bd5ff30a03b5dac2d9114b54",
+            "source_revision": "96b770f7368f75b53756e0c8941ce3ecc8b6c29b",
+            "upstream_version": "WDL commit 96b770f (2026-07-15)"
+          },
+          "phase_response": "linear-phase sinc; 31-input-frame startup latency reported; documented short-input flush trimmed to duration alignment",
+          "quality_recipe": "WDL sinc mode size=64, interpolation table=32, input-driven feed mode, double samples, stereo",
+          "sample_format": "interleaved_f64",
+          "upstream_version": "WDL commit 96b770f (2026-07-15)"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 2832,
+          "peak_pagefile_bytes": 5595136,
+          "peak_working_set_bytes": 8314880,
+          "private_commit_bytes": 5595136,
+          "working_set_bytes": 8314880
+        },
+        "memory_after_drop": {
+          "page_faults": 2906,
+          "peak_pagefile_bytes": 5595136,
+          "peak_working_set_bytes": 8617984,
+          "private_commit_bytes": 4083712,
+          "working_set_bytes": 7942144
+        },
+        "memory_after_warmup": {
+          "page_faults": 2905,
+          "peak_pagefile_bytes": 5595136,
+          "peak_working_set_bytes": 8613888,
+          "private_commit_bytes": 5595136,
+          "working_set_bytes": 8613888
+        },
+        "memory_before_instances": {
+          "page_faults": 2659,
+          "peak_pagefile_bytes": 4251648,
+          "peak_working_set_bytes": 7618560,
+          "private_commit_bytes": 3661824,
+          "working_set_bytes": 7606272
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 60416.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 3.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 53296.0,
+        "pooled_working_set_increment_bytes_per_instance": 31488.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 803,
+          "busy_bytes": 2768537,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 707,
+          "busy_bytes": 1063065,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 803,
+          "busy_bytes": 2768537,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 707,
+          "busy_bytes": 1063065,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 16,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 165100,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    },
+    {
+      "command": [
+        "<workspace>\\target\\release\\deps\\audio_resampler_comparison_perf-75ad8570245dec37.exe",
+        "--resources",
+        "--resource-memory-only",
+        "--resource-engines=libresample",
+        "--resource-case=libresample:libresample_benchmark_shim_v2:music_44k1_to_48k",
+        "--engine-library",
+        "libresample=\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libresample_shim.dll"
+      ],
+      "exit_code": 0,
+      "measurement": {
+        "case_key": "libresample:libresample_benchmark_shim_v2:music_44k1_to_48k",
+        "channels": 2,
+        "engine": {
+          "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+          "algorithm_id": "libresample_benchmark_shim_v2",
+          "display_name": "libresample high quality",
+          "engine_id": "libresample",
+          "implementation": "two independent high-quality libresample C states with interleaved float shim",
+          "native_library": {
+            "build_provenance": "MinGW-w64 GCC/G++ 15.2.0 -O3 -DNDEBUG -march=x86-64-v2; resample.c/filterkit.c/resamplesubs.c source-integrated release shim",
+            "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libresample_shim.dll",
+            "file_bytes": 695625,
+            "linked_artifacts": [
+              {
+                "canonical_path": "\\\\?\\<workspace>\\target\\benchmark-deps\\build\\resampler-shims\\libwinpthread-1.dll",
+                "file_bytes": 65018,
+                "sha256": "b0d84f7b6346cf835ef19ecc95991cdaa6272bb8ad6fee43f446c07aa97fcbd9"
+              }
+            ],
+            "provenance_verified": true,
+            "sha256": "2cc3dcbaf2ba140fba00e387a749955449add1c36e0e336fe932b3120e4fbd06",
+            "source_revision": "7cb7f9c3f72d4e6774d964dc324af827192df7c3",
+            "upstream_version": "libresample 0.1.5 development head"
+          },
+          "phase_response": "linear-phase Kaiser-windowed sinc; filter-width input latency reported; documented padding used for exact output duration",
+          "quality_recipe": "resample_open highQuality=1 at fixed exact ratio; one state per channel; final zero padding trimmed to exact duration",
+          "sample_format": "interleaved_f32",
+          "upstream_version": "libresample 0.1.5 development head"
+        },
+        "from_rate_hz": 44100,
+        "memory_after_construction": {
+          "page_faults": 18090,
+          "peak_pagefile_bytes": 46108672,
+          "peak_working_set_bytes": 49352704,
+          "private_commit_bytes": 46108672,
+          "working_set_bytes": 49352704
+        },
+        "memory_after_drop": {
+          "page_faults": 18108,
+          "peak_pagefile_bytes": 46129152,
+          "peak_working_set_bytes": 49426432,
+          "private_commit_bytes": 3915776,
+          "working_set_bytes": 7831552
+        },
+        "memory_after_warmup": {
+          "page_faults": 18107,
+          "peak_pagefile_bytes": 46108672,
+          "peak_working_set_bytes": 49422336,
+          "private_commit_bytes": 46108672,
+          "working_set_bytes": 49422336
+        },
+        "memory_before_instances": {
+          "page_faults": 6380,
+          "peak_pagefile_bytes": 6635520,
+          "peak_working_set_bytes": 11026432,
+          "private_commit_bytes": 3768320,
+          "working_set_bytes": 7671808
+        },
+        "memory_only": true,
+        "output_capacity_frames": 33326,
+        "pooled_private_commit_increment_bytes_per_instance": 1323136.0,
+        "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+        "pooled_process_heap_busy_bytes_increment_per_instance": 1287736.0,
+        "pooled_working_set_increment_bytes_per_instance": 1304704.0,
+        "process_heap_after_construction": {
+          "busy_blocks": 1314,
+          "busy_bytes": 42270771,
+          "heap_count": 3
+        },
+        "process_heap_after_drop": {
+          "busy_blocks": 706,
+          "busy_bytes": 1063219,
+          "heap_count": 3
+        },
+        "process_heap_after_warmup": {
+          "busy_blocks": 1314,
+          "busy_bytes": 42270771,
+          "heap_count": 3
+        },
+        "process_heap_before_instances": {
+          "busy_blocks": 706,
+          "busy_bytes": 1063219,
+          "heap_count": 3
+        },
+        "rate_pair": "music_44k1_to_48k",
+        "rust_pool_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "rust_process_finish_reset_heap": {
+          "allocations": 65,
+          "deallocations": 65,
+          "peak_live_bytes": 22,
+          "reallocations": 65,
+          "retained_bytes": 0
+        },
+        "rust_setup_heap": {
+          "allocations": 0,
+          "deallocations": 0,
+          "peak_live_bytes": 0,
+          "reallocations": 0,
+          "retained_bytes": 0
+        },
+        "scheduling": null,
+        "setup_instrumented_ns": 9854400,
+        "to_rate_hz": 48000,
+        "trials": []
+      }
+    }
+  ],
+  "host": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "logical_processors": 16,
+    "processor_identifier": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel"
+  },
+  "build_features": "all-features; audio_engine_core selects SoXR",
+  "source_sha256": {
+    "benches/resampler_comparison_support/resources.rs": "a5669fc514d46bda0394d9ec8e143953ae6d5e887526563abddc05c9168488e0",
+    "benches/resampler_comparison_support/adapters.rs": "bfc9d2002eaf4d3295cbb569ad2ed91bbb01b77f1fdd5d02f63bb8e3391ccb40"
+  }
+}

@@ -47,6 +47,24 @@ One of the four longer FFmpeg 48->44.1 resource trials hit the existing shim's `
 
 ## Coverage verdict and FFmpeg comparison
 
+The subsequent native-memory addition uses Windows `HeapWalk` to record busy
+heap-block bytes/counts at the same four lifecycle points. One memory-only run
+at stereo 44.1→48 kHz measured 11 recipes, including every native library in the
+comparison, without rerunning quality grids or steady timing. Examples are
+FFmpeg **2241.22 KiB/instance**, libsamplerate **859.58**, project SoXR **195.05**,
+SpeexDSP **39.53** and zita **15.89**. See the
+[full table and scope](resampler-comparison.md#native-inclusive-heap-snapshots-2026-10-10)
+and [raw heap snapshots](data/resampler-native-heap-2026-10-10.json).
+
+These process heap increments include adapter/runtime allocations and allocator
+slabs. They do not establish library-specific requested bytes, native allocation
+call counts or temporal peaks, and omit direct `VirtualAlloc`/mapped payloads.
+They overlap with Rust heap data and must not be added to it. `null` means the
+walk is unavailable or incomplete. Pool handle storage is retained through the
+release snapshot so its deallocation does not look like a native memory decrease.
+The native-memory addition did not rerun the owned Rust recipe or update the
+earlier CPU table.
+
 CPU and per-instance/process memory reporting are now implemented and measured. The existing [quality and latency report](resampler-comparison.md) supplies the finite response, alias/image, distortion, channel-isolation, DC/step, startup and call-tail observations; unchanged engines were not rerendered for this resource addition.
 
 Coverage is still incomplete for exact native allocator accounting/peak payload, hours-long memory trends, other platforms/CPUs, the complete parameter/level matrix and consuming-application device latency. Finite tone grids are not continuous-band guarantees.
@@ -60,3 +78,10 @@ cargo bench -p audio-engine-core --bench audio_resampler_comparison_perf --featu
 ```
 
 Add the existing explicit native-library arguments to include external engines, or `--all-features` to select project SoXR and raw libsoxr. `--resource-engines=audio_engine_core,ffmpeg_libswresample` limits engines. `--resource-ms=250` selects the minimum of four timing windows per case. Each case runs in a separate child process; allocation instrumentation is disabled during timing. This mode does not render quality grids and is report-only; `--enforce`/`--baseline` belong to the normal comparison report.
+
+Add `--resource-memory-only` to skip steady timing and collect lifecycle memory
+plus the short allocation/lifecycle pass. New reports use
+`resampler_resources_v2` with `process_heap_*` snapshots and
+`pooled_process_heap_busy_{bytes,blocks}_increment_per_instance`. Exact native
+allocation profiling still requires separate instrumented libraries or heap
+traces that cover dependency DLLs, aligned allocations and realloc/free pairs.
