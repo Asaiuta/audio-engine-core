@@ -1368,7 +1368,7 @@ not identify the retained blocks or prove long-term leak freedom.
 Project SoXR and raw libsoxr now have both capacity observations: respectively
 195.05 and 195.03 KiB/instance at common and advertised caller capacities.
 Exact native allocation calls/peaks and long-duration growth remain open.
-See the [current comparison](resampler/comparison.md#latest-spectrum-storage-and-lifecycle-results),
+See the [current comparison](resampler/comparison.md#spectrum-storage-sharing-and-lifecycle-retention),
 [paired data](data/resampler-spectrum-reuse-2026-10-10.json), and
 [lifecycle data](data/resampler-retention-2026-10-10.json).
 
@@ -1400,7 +1400,7 @@ minimum native memory. Lazy native progress-label formatting removes successful
 wrapper allocations; all ten recipes report zero Rust-side hot allocation
 operations, without counting C/C++ malloc/free.
 
-The [main comparison](resampler/comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
+The [main comparison](resampler/comparison.md#time-buffer-sharing-and-supplemental-metrics)
 contains the updated tables, limits and metric-gap inventory. Raw evidence:
 [paired resources](data/resampler-fft-layout-2026-10-10.json),
 [diagnostics](data/resampler-diagnostics-2026-10-10.json), and

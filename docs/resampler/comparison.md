@@ -4,32 +4,159 @@ The project-owned Rust implementation is named **CoreSinc**. `rust` remains
 its stable machine/backend identifier for feature selection, diagnostics and
 historical benchmark records.
 
-The latest update (2026-10-10) also compacts setup-only FFT coefficient storage
-and adds a direct emit path after an internally accumulated block. The measured
-speed effect is inconclusive; the deterministic storage reduction is retained.
-The preceding update shares FFT frequency storage, reducing
-retained Rust heap by a further **5.9–9.5%** versus the preceding time-buffer
-implementation. The filter is unchanged. This round's timing was unstable and
-does **not establish another speedup**. Bounded lifecycle observations now cover
-12 recipes, and SoXR's stereo 44.1→48 output-capacity comparison is now covered. Earlier
-supplemental probes cover levels, delay, ringing, dense finite bands and small
-blocks. Coverage remains incomplete, and matching FFmpeg's default throughput
-at the owned quality remains unproven.
+This document has three parts. [Current comparison](#current-comparison) and
+[Coverage verdict](#coverage-verdict) give the present picture and state what is
+still unmeasured. [Evidence rounds](#evidence-rounds) records how the
+implementation got there, newest first, each round carrying the verdict that
+round actually established. Metric definitions and the reproduction commands
+close the document.
+
+Every number here belongs to the implementation state that produced it, so cite
+the round when quoting one. The rounds are kept precisely because their verdicts
+differ: several did **not** establish a speedup, and one established a memory
+reduction with no timing claim at all. Timings from different rounds must not be
+combined into a cumulative percentage.
 
 The current default `rubato` feature selects the owned `rust` backend. Upstream
 Rubato 4.0.0 is an optional control enabled by `raw-rubato`; production code does
 not use it. Enabling `soxr` selects SoXR instead. The runner has **11 engine IDs**;
 `audio_engine_core` reports the backend selected by each compiled build.
 
-This document combines the latest spectrum/retention results, earlier storage/diagnostic and fusion/resource results, and the repaired
-**v7 quality, latency and pre-fusion throughput measurements from 2026-10-10**.
+The document combines the 2026-10-10 storage, retention, diagnostic and
+fusion/resource rounds with the repaired **v7 quality, latency and throughput
+measurements**.
 The earlier October v6 summaries mixed trial records between engines: 96 of 100 rows and
 672 of 1,500 trials were affected. Those reports and the prior documents remain
 retained as historical evidence and must not serve as current timing baselines.
 The independent R5 complete-waveform and `l5_retest_v1` experiments used different
 drivers and retain their original scope; see [replacement evidence](replacement.md).
 
-## Latest spectrum storage and lifecycle results
+## Current comparison
+
+The CPU column is the cross-engine baseline in [Cross-engine CPU and memory
+baseline](#cross-engine-cpu-and-memory-baseline) (57 configurations, 248 steady
+trials). The memory columns use the 2026-10-10 observations: current owned Rust
+retention after the spectrum storage change, and native-inclusive process-heap
+increments for the third-party recipes. These are different memory domains and
+must not be added together. `—` means that the corresponding domain was not
+captured in that run.
+
+| Engine | Established ns/input sample | One-core CPU budget | Rust retained KiB (2026-10-10) | Process-heap increment KiB/instance (2026-10-10) |
+| --- | ---: | ---: | ---: | ---: |
+| **CoreSinc (owned Rust)** | 6.615 | 0.0584% | **88.16** | — |
+| Raw Rubato FFT 1024/2 | 7.079 | 0.0623% | 250.96 | 251.21 |
+| Project SoXR High/Linear | 6.892 | 0.0614% | 0.02 (Rust only) | 195.05 |
+| Raw libsoxr HQ/Bits20 | 7.045 | 0.0619% | — | 195.03 |
+| FFmpeg SWR default | **4.640** | **0.0405%** | — | **2241.22** |
+| libsamplerate SINC_BEST | 281.325 | 2.4971% | — | 859.58 |
+| SpeexDSP quality 10 | 242.441 | 2.1029% | — | 39.53 |
+| r8brain 7.1 | 17.279 | 0.1530% | — | 230.56 |
+| zita-resampler 1.11.2 | 24.232 | 0.2103% | — | 15.89 |
+| WebRTC v1.3 shim | 6.255 | 0.0553% | — | 43.89 |
+| WDL 96b770f shim | 35.764 | 0.3213% | — | 52.05 |
+| libresample 0.1.5 shim | 25.493 | 0.2352% | — | 1257.55 |
+
+This gives the current practical ranking: FFmpeg remains fastest at the tested
+default quality, while Owned Rust is about **42.6% slower** in wall time
+(6.615 versus 4.640 ns/input sample) and remains close to SoXR and WebRTC.
+The spectrum-storage timing schedule itself was inconclusive, so 6.615 is
+retained as the last established CPU baseline rather than claimed as a new speed
+result.
+Owned Rust's retained Rust heap is now **88.16 KiB**, down from 97.38 KiB in
+the previous implementation; this is the confirmed resource improvement of the
+spectrum-storage round.
+
+Private-commit increments are measured across 32 simultaneously live, warmed
+instances and divided by 32. Output capacity is
+`ceil(512 * output_rate / input_rate) + 32,768` frames. Native workspaces may
+scale with this capacity, so these page-granular process increments do not rank
+the libraries' minimum possible memory use. The report also retains absolute
+working set, peak working set, private commit, peak pagefile usage and page
+faults before/after construction, warmup and drop. Allocator caching can retain
+pages after instances are dropped.
+
+## Coverage verdict
+
+CPU and per-instance/process memory reporting are now implemented and measured.
+Quality and latency combine the Pre-fusion v7 grids with the supplemental
+metrics in [Evidence rounds](#evidence-rounds). Remaining gaps include exact
+native allocator accounting and peak payload, hours-long memory trends, other
+CPUs/platforms, the complete rate/phase/channel/buffer/amplitude matrix and
+device latency. Finite tone grids do not establish continuous-band rejection or
+perceptual transparency.
+
+The most useful remaining additions to the cross-library comparison are:
+
+| Area | Present evidence | Remaining gap / next useful scope |
+| --- | --- | --- |
+| Frequency response and rejection | v7 response/alias/image grids plus 49-point transition and 33-point quadrature stopband samples for selected recipes | Dense image coverage and band-edge/extrema certification for a changed filter; finite grids are not continuous-band bounds |
+| Levels and numerical accuracy | Four amplitudes at two tones and silence for selected recipes; native-format analyzer self-controls | Broader level/frequency/recipe matrix, subnormal signal behavior and an independent analyzer accuracy bound |
+| Phase and transients | Phase error, two local group-delay estimates, centered pre/post-ring energy/extent, DC and full-stream step peaks | Broadband unwrapped group-delay variation and other phase modes; residual timeline delay is not API buffering |
+| Streaming | Exact-duration checks, reset/fresh comparison, separate scoped irregular-buffer tests | Resolve the observed FFmpeg drain failure; compare short streams and block-boundary invariance for changed algorithms |
+| Performance | Steady wall/CPU/cycles, setup/reset/drain and current 64/128/512-frame call percentiles/deadline counts for selected recipes | Irregular buffers, multistream/cache pressure and realistic callback scheduling; refresh only when the proposed change needs these claims |
+| Memory | Rust allocation accounting, process commit/residency, native-inclusive heap snapshots, capacity comparisons including SoXR, and 32-round reuse/recreate observations for 12 recipes | Exact native allocation attribution/calls/peaks, persistent-block attribution, and growth over long lifetimes |
+| Recipe/platform coverage | Common High/Linear comparisons on Windows x86_64; broader project-only historical matrices | Selected other tiers, phases, levels, channel counts and CPUs; device/driver latency belongs to application integration |
+
+Some broader probes already exist in the project-only replacement research;
+their coverage is not a complete current cross-library matrix. These gaps are
+not a requirement to repeat all prior measurements before each local change.
+For a new filter, prioritize response/phase/transient nonregression. For a
+memory-reporting change, measure memory independently and reuse unchanged
+quality/timing evidence.
+
+## Evidence rounds
+
+Each round below is one implementation change or measurement addition, newest
+first, with the verdict that round established. They are kept because the
+verdicts differ: several rounds did **not** establish a speedup, and one
+established a memory reduction with no timing claim at all. A number is only
+valid for the implementation state that produced it, so cite the round when
+quoting one. The committed JSON in `docs/data/` is the primary record; each
+section below summarises it.
+
+| Round | Change | Verdict | Data |
+| --- | --- | --- | --- |
+| Setup-storage compaction | Keeps only the coefficient bins and inverse rotation factors `prepare_inverse` can reach; emits directly into a sufficiently large caller buffer | **Inconclusive for speed**; retained for deterministic setup-memory savings and a bounded copy reduction | [`resampler-targeted-optimization`](../data/resampler-targeted-optimization-2026-10-10.json) |
+| Spectrum storage sharing | Prepares conjugate pairs inside the forward spectrum's allocation, removing the second spectrum allocation | Wall medians retained, **not confirmed speedups**; confirmed Rust heap reduction of **5.9–9.5%** | [`resampler-spectrum-reuse`](../data/resampler-spectrum-reuse-2026-10-10.json) |
+| Time-buffer sharing | Forward input and inverse output share one allocation, and their scratch storage is shared too | 0.3–5.5% wall reduction on one ABBA/BAAB schedule; retained Rust KiB **106.62 → 97.38** | [`resampler-fft-layout`](../data/resampler-fft-layout-2026-10-10.json) |
+| Native process-heap measurement | Independent native-inclusive process-heap walk over 11 recipes | Report-only; **not additive** with the Rust heap column | [`resampler-native-heap`](../data/resampler-native-heap-2026-10-10.json) |
+| Fused inverse transform | Disjoint contiguous slices, skipping known-zero bins | **3.2–13.5%** wall reduction, all five paired cases positive | [`resampler-resources`](../data/resampler-resources-2026-10-10.json) |
+| Pre-fusion v7 measurement | The v7 quality, latency and throughput runs, before any change above | Established the cross-engine CPU baseline and the quality grids | [`resampler-diagnostics`](../data/resampler-diagnostics-2026-10-10.json) |
+
+All six rounds date to 2026-10-10 and are ordered by commit. Verdicts are the
+observations recorded in that round, not cumulative claims.
+
+### Setup-storage compaction and direct full-block emit
+
+The current targeted change keeps only the coefficient bins and inverse rotation
+factors that `prepare_inverse` can access. The FFT library still receives the
+full temporary filter spectrum during setup, then the unused tail is released.
+For the selected geometries this removes 53 complex values (848 bytes) at
+48→44.1 kHz and 347 complex values (5,552 bytes) at 96→44.1 kHz per instance.
+The selected upsampling cases do not remove inverse factors; their active range
+already covers the allocated rotation table.
+
+When a fragmented caller input fills the internal block, the stream now emits
+directly into a sufficiently large caller buffer when no output has been
+skipped. This avoids a `pending` copy under that condition; existing output
+budget, duration and backpressure checks remain in force.
+
+One fixed ABBA/BAAB schedule compared the v6 executable with v7 over three
+representative cases (four trials per arm and case, core 2). Every trial passed
+the complete-work check. The stereo 44.1→48 result showed a small apparent
+improvement, 48→44.1 varied with construction/order, and six-channel 44.1→48
+was effectively flat. The schedule is therefore **inconclusive for speed** and
+does not justify a stable throughput claim. The direct path is retained for its
+bounded copy reduction; the compact vectors are retained for deterministic setup
+memory savings. Raw observations and binary hashes are in
+[targeted optimization data](../data/resampler-targeted-optimization-2026-10-10.json).
+
+The current path passed the two independent FFT oracles (maximum absolute error 0),
+the 60-test resampler module set, allocation-free streaming validation and
+strict scoped Clippy. The full quality grid was not rerun because the filter and
+FFT arithmetic are unchanged.
+
+### Spectrum storage sharing and lifecycle retention
 
 The FFT now prepares conjugate pairs in the forward spectrum's allocation.
 Each pair reads both source bins before overwriting them; the unpaired middle
@@ -72,7 +199,7 @@ needs a quieter measurement environment before a stronger claim. The complete
 [paired data](../data/resampler-spectrum-reuse-2026-10-10.json) contains raw order,
 cycles, thread CPU time, work checks, heap observations and executable hashes.
 
-### Bounded native memory retention and SoXR capacity
+#### Bounded native memory retention and SoXR capacity
 
 `--resource-retention-rounds=32` adds 32 process/finish/reset cycles on one
 instance, followed by 32 create/process/finish/drop cycles. Each stream has
@@ -111,36 +238,7 @@ retain all snapshots, identities and exact stream counts. A bounded warmed
 observation cannot establish long-duration leak freedom, exact native
 allocation-call counts or temporal peaks.
 
-## Latest targeted storage and stream-path optimization
-
-The current targeted change keeps only the coefficient bins and inverse rotation
-factors that `prepare_inverse` can access. The FFT library still receives the
-full temporary filter spectrum during setup, then the unused tail is released.
-For the selected geometries this removes 53 complex values (848 bytes) at
-48→44.1 kHz and 347 complex values (5,552 bytes) at 96→44.1 kHz per instance.
-The selected upsampling cases do not remove inverse factors; their active range
-already covers the allocated rotation table.
-
-When a fragmented caller input fills the internal block, the stream now emits
-directly into a sufficiently large caller buffer when no output has been
-skipped. This avoids a `pending` copy under that condition; existing output
-budget, duration and backpressure checks remain in force.
-
-One fixed ABBA/BAAB schedule compared the v6 executable with v7 over three
-representative cases (four trials per arm and case, core 2). Every trial passed
-the complete-work check. The stereo 44.1→48 result showed a small apparent
-improvement, 48→44.1 varied with construction/order, and six-channel 44.1→48
-was effectively flat. The schedule is therefore **inconclusive for speed** and
-does not justify a stable throughput claim. The direct path is retained for its
-bounded copy reduction; the compact vectors are retained for deterministic setup
-memory savings. Raw observations and binary hashes are in
-[targeted optimization data](../data/resampler-targeted-optimization-2026-10-10.json).
-
-The current path passed the two independent FFT oracles (maximum absolute error 0),
-the 60-test resampler module set, allocation-free streaming validation and
-strict scoped Clippy. The full quality grid was not rerun because the filter and
-FFT arithmetic are unchanged.
-## Earlier time-buffer optimization and supplemental metrics
+### Time-buffer sharing and supplemental metrics
 
 The forward FFT consumes the time-domain input before the inverse writes its
 output, so both now use one allocation sized to the larger transform. Their
@@ -164,8 +262,9 @@ Rust allocator payload after construction, including the owned adapter.
 
 Cycle reductions are 0.05%, 5.83%, 4.51%, 3.08% and 2.39%, respectively.
 These are observations from one machine/schedule, not significance estimates
-or universal gains. Do not combine these timings with the earlier fusion table
-to infer a cumulative percentage. [Raw paired trials and binary hashes](../data/resampler-fft-layout-2026-10-10.json)
+or universal gains. Do not combine these timings with [the fused-inverse
+table](#fused-inverse-transform-and-resource-results) to infer a cumulative
+percentage. [Raw paired trials and binary hashes](../data/resampler-fft-layout-2026-10-10.json)
 include CPU time, allocation counts, lifecycle snapshots and work validity.
 
 The initial scratch-only storage revision saved just 24 bytes and had a 2.6%
@@ -179,7 +278,7 @@ covers 12 geometries × 4 channel layouts × 4 blocks, including overlap/reset:
 retains its 151,812-output zero-error result. These are local same-filter checks;
 Rubato samplewise identity is still not a requirement for new algorithms.
 
-### Added quality and small-block observations
+#### Added quality and small-block observations
 
 The standalone `--diagnostics` mode collected **447 complete finite renders per
 owned arm** across the five configurations above. The four-level tone results,
@@ -223,7 +322,7 @@ versus 205/206 here at the stated threshold. Short SIMD polyphase filtering
 does less work, with a different response/transient tradeoff. This update
 preserves the owned response; it does not establish FFmpeg-speed parity.
 
-### Output-capacity memory comparison
+#### Output-capacity memory comparison
 
 `--resources --resource-memory-only --resource-output=adapter` now uses each
 adapter's advertised output capacity. The default remains `common`. Twenty
@@ -248,118 +347,15 @@ request payloads or peaks. Caller buffers themselves are excluded.
 FFmpeg's heap increment falls **68.5%** solely from changing caller capacity;
 this does not measure its minimum possible memory use. Other measured recipes
 do not change at these two capacities. SoXR capacity sensitivity was not
-collected in that earlier round; the subsequent table above completes it. [Raw capacity observations](../data/resampler-capacity-memory-2026-10-10.json)
+collected in that round; [Bounded native memory retention and SoXR
+capacity](#bounded-native-memory-retention-and-soxr-capacity) completes it.
+[Raw capacity observations](../data/resampler-capacity-memory-2026-10-10.json)
 also include commit/residency, lifecycle points and native identities.
 
 The native shim wrappers now format progress-validation labels only on error.
 All ten recipes recorded zero **Rust-side** process/finish/reset allocation
 operations in these short runs. That removes measurement-adapter overhead;
 it does not establish zero C/C++ allocations or production DSP acceleration.
-
-## Earlier fused-inverse implementation and resource results
-
-Measured on Intel Core i5-12500H (16 logical processors), Windows/x86_64,
-Rust 1.93.1. The fused pass uses disjoint contiguous slices and skips known-zero
-bins. Coefficients, FFT sizes, retained frequency bins, normalization and stream
-scheduling are unchanged.
-
-Values below are median **nanoseconds per input scalar sample**; stereo has two
-samples per frame. Each arm has eight trials of at least 250 ms in one ABBA or
-BAAB schedule, using 512-frame caller blocks on logical processor 2. The gains
-come from these paired measurements, not from comparison with the older v7 table.
-
-| Conversion | Before fusion | After fusion | Wall-time reduction | Cycle reduction |
-| --- | ---: | ---: | ---: | ---: |
-| 44.1→48 kHz, stereo | 7.503 | 6.615 | 11.8% | 10.8% |
-| 48→44.1 kHz, stereo | 7.110 | 6.151 | 13.5% | 14.5% |
-| 44.1→96 kHz, stereo | 10.858 | 10.511 | 3.2% | 3.2% |
-| 96→44.1 kHz, stereo | 4.684 | 4.447 | 5.1% | 5.2% |
-| 44.1→48 kHz, 6ch | 7.923 | 7.493 | 5.4% | 5.9% |
-
-An independent RealFFT comparison covered 15 odd/even and up/down geometries,
-including all High/UltraHigh common-rate sizes: **151,812 scalar outputs,
-maximum absolute error 0**. The existing resampler suite passed 59 tests. The
-v7 quality grids below were not rerendered; this numerical comparison supports
-the local fusion change. Future algorithms may differ sample by sample from
-Rubato, provided objective quality does not regress.
-
-The first indexed-loop candidate regressed in two cases and remains recorded.
-The table reports the subsequent implementation revision, which removed those
-indexed loops. These are machine-specific observations. Retained Rust heap
-decreased by only 48 bytes per instance; the measured benefit is CPU time.
-
-### CPU and memory
-
-The resource report contains 57 current recipe/rate/channel configurations and
-248 steady trials. It records thread user/kernel CPU time, cycles, wall time,
-Rust retained/peak heap and allocation calls, and process memory snapshots.
-The following table selects **stereo 44.1→48 kHz**. Full rate/channel results,
-raw trials and executable identities are in the
-[resource report](resources.md) and
-[committed JSON](../data/resampler-resources-2026-10-10.json).
-
-CPU budget is the fraction of **one logical CPU needed to keep up with real-time
-audio**. It is not whole-machine utilization. CPU-time counters are quantized;
-the final decimal should not be treated as exact. The heap and private-commit
-columns in this baseline table belong to that same historical measurement set;
-the current c9 retention value is shown in the merged view below.
-
-| Recipe | ns/sample | cycles/sample | One-core CPU budget | Rust retained / peak KiB | Private-commit increment KiB/instance |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Owned Rust | 6.615 | 20.38 | 0.0584% | 106.62 / 106.62 | 117.81 |
-| Raw Rubato, FFT 1024/2 | 7.079 | 21.83 | 0.0623% | 250.96 / 250.96 | 280.12 |
-| Project SoXR, High/Linear | 6.892 | 21.27 | 0.0614% | 0.02 / 0.02 (Rust only) | 284.75 |
-| Raw libsoxr, HQ/Bits20 | 7.045 | 21.72 | 0.0619% | not captured (native) | 284.75 |
-| FFmpeg SWR, default filter | 4.640 | 14.13 | 0.0405% | not captured (native) | 2245.38 |
-| libsamplerate, SINC_BEST | 281.325 | 865.56 | 2.4971% | not captured (native) | 838.75 |
-| SpeexDSP, quality 10 | 242.441 | 746.91 | 2.1029% | not captured (native) | 46.25 |
-| r8brain 7.1 | 17.279 | 53.28 | 0.1530% | not captured (native) | 245.12 |
-| zita-resampler 1.11.2 | 24.232 | 74.55 | 0.2103% | not captured (native) | 17.75 |
-| WebRTC v1.3 shim | 6.255 | 19.29 | 0.0553% | not captured (native) | 52.25 |
-| WDL 96b770f shim | 35.764 | 110.33 | 0.3213% | not captured (native) | 53.25 |
-| libresample 0.1.5 shim | 25.493 | 78.52 | 0.2352% | not captured (native) | 1291.00 |
-
-### Current all-engine view
-
-The table below puts the latest results into one view. CPU values are the last
-complete cross-engine baseline above (57 configurations, 248 steady trials).
-The memory columns use the latest 2026-10-10 observations: current owned Rust
-retention after the c9 storage change, and native-inclusive process-heap
-increments for the third-party recipes. These are different memory domains and
-must not be added together. `—` means that the corresponding domain was not
-captured in that run.
-
-| Engine | Established ns/input sample | One-core CPU budget | Latest Rust retained KiB | Latest process-heap increment KiB/instance |
-| --- | ---: | ---: | ---: | ---: |
-| **CoreSinc (owned Rust)** | 6.615 | 0.0584% | **88.16** | — |
-| Raw Rubato FFT 1024/2 | 7.079 | 0.0623% | 250.96 | 251.21 |
-| Project SoXR High/Linear | 6.892 | 0.0614% | 0.02 (Rust only) | 195.05 |
-| Raw libsoxr HQ/Bits20 | 7.045 | 0.0619% | — | 195.03 |
-| FFmpeg SWR default | **4.640** | **0.0405%** | — | **2241.22** |
-| libsamplerate SINC_BEST | 281.325 | 2.4971% | — | 859.58 |
-| SpeexDSP quality 10 | 242.441 | 2.1029% | — | 39.53 |
-| r8brain 7.1 | 17.279 | 0.1530% | — | 230.56 |
-| zita-resampler 1.11.2 | 24.232 | 0.2103% | — | 15.89 |
-| WebRTC v1.3 shim | 6.255 | 0.0553% | — | 43.89 |
-| WDL 96b770f shim | 35.764 | 0.3213% | — | 52.05 |
-| libresample 0.1.5 shim | 25.493 | 0.2352% | — | 1257.55 |
-
-This gives the current practical ranking: FFmpeg remains fastest at the tested
-default quality, while Owned Rust is about **42.6% slower** in wall time
-(6.615 versus 4.640 ns/input sample) and remains close to SoXR and WebRTC.
-The c9 timing schedule itself was inconclusive, so 6.615 is retained as the
-last established CPU baseline rather than claimed as a new c9 speed result.
-Owned Rust's retained Rust heap is now **88.16 KiB**, down from 97.38 KiB in
-the preceding implementation; this is the confirmed c9 resource improvement.
-
-Private-commit increments are measured across 32 simultaneously live, warmed
-instances and divided by 32. Output capacity is
-`ceil(512 * output_rate / input_rate) + 32,768` frames. Native workspaces may
-scale with this capacity, so these page-granular process increments do not rank
-the libraries' minimum possible memory use. The report also retains absolute
-working set, peak working set, private commit, peak pagefile usage and page
-faults before/after construction, warmup and drop. Allocator caching can retain
-pages after instances are dropped.
 
 ### Native-inclusive heap snapshots (2026-10-10)
 
@@ -413,9 +409,10 @@ not just the C++ shim's `new`/`delete`. Allocation pointers need to be tracked
 through `realloc` and free; the instrumented run must be separate from timing.
 This additional instrumentation has not been implemented.
 
-Owned Rust had **zero measured process/finish/reset heap operations** in this
-earlier run. The seven native-shim adapters then had temporary Rust-side
-allocations; the latest lazy-label change above removes that observed overhead. Rust counters do not intercept native
+Owned Rust had **zero measured process/finish/reset heap operations** in the
+[output-capacity run above](#output-capacity-memory-comparison). The seven
+native-shim adapters then had temporary Rust-side allocations, which the
+lazy-label change in that section removed. Rust counters do not intercept native
 C/C++ `malloc`/`free` and cannot establish zero native allocations.
 
 One of four longer FFmpeg 48→44.1 resource trials hit
@@ -424,35 +421,70 @@ are retained, but complete output is unknown and it is not a successful
 complete-stream check. The initial failed child is also retained. Other current
 resource rows completed their duration checks.
 
-### Coverage verdict
+### Fused inverse transform and resource results
 
-CPU and per-instance/process memory reporting are now implemented and measured.
-Quality and latency now combine the v7 grids with the selected supplemental
-metrics above. Remaining gaps include exact native allocator accounting and peak
-payload, hours-long memory trends, other CPUs/platforms, the complete
-rate/quality/phase/channel/buffer/amplitude matrix and device latency. Finite
-tone grids do not establish continuous-band rejection or perceptual transparency.
+Measured on Intel Core i5-12500H (16 logical processors), Windows/x86_64,
+Rust 1.93.1. The fused pass uses disjoint contiguous slices and skips known-zero
+bins. Coefficients, FFT sizes, retained frequency bins, normalization and stream
+scheduling are unchanged.
 
-The most useful remaining additions to the cross-library comparison are:
+Values below are median **nanoseconds per input scalar sample**; stereo has two
+samples per frame. Each arm has eight trials of at least 250 ms in one ABBA or
+BAAB schedule, using 512-frame caller blocks on logical processor 2. The gains
+come from these paired measurements, not from comparison with the older v7 table.
 
-| Area | Present evidence | Remaining gap / next useful scope |
-| --- | --- | --- |
-| Frequency response and rejection | v7 response/alias/image grids plus 49-point transition and 33-point quadrature stopband samples for selected recipes | Dense image coverage and band-edge/extrema certification for a changed filter; finite grids are not continuous-band bounds |
-| Levels and numerical accuracy | Four amplitudes at two tones and silence for selected recipes; native-format analyzer self-controls | Broader level/frequency/recipe matrix, subnormal signal behavior and an independent analyzer accuracy bound |
-| Phase and transients | Phase error, two local group-delay estimates, centered pre/post-ring energy/extent, DC and full-stream step peaks | Broadband unwrapped group-delay variation and other phase modes; residual timeline delay is not API buffering |
-| Streaming | Exact-duration checks, reset/fresh comparison, separate scoped irregular-buffer tests | Resolve the observed FFmpeg drain failure; compare short streams and block-boundary invariance for changed algorithms |
-| Performance | Steady wall/CPU/cycles, setup/reset/drain and current 64/128/512-frame call percentiles/deadline counts for selected recipes | Irregular buffers, multistream/cache pressure and realistic callback scheduling; refresh only when the proposed change needs these claims |
-| Memory | Rust allocation accounting, process commit/residency, native-inclusive heap snapshots, capacity comparisons including SoXR, and 32-round reuse/recreate observations for 12 recipes | Exact native allocation attribution/calls/peaks, persistent-block attribution, and growth over long lifetimes |
-| Recipe/platform coverage | Common High/Linear comparisons on Windows x86_64; broader project-only historical matrices | Selected other tiers, phases, levels, channel counts and CPUs; device/driver latency belongs to application integration |
+| Conversion | Before fusion | After fusion | Wall-time reduction | Cycle reduction |
+| --- | ---: | ---: | ---: | ---: |
+| 44.1→48 kHz, stereo | 7.503 | 6.615 | 11.8% | 10.8% |
+| 48→44.1 kHz, stereo | 7.110 | 6.151 | 13.5% | 14.5% |
+| 44.1→96 kHz, stereo | 10.858 | 10.511 | 3.2% | 3.2% |
+| 96→44.1 kHz, stereo | 4.684 | 4.447 | 5.1% | 5.2% |
+| 44.1→48 kHz, 6ch | 7.923 | 7.493 | 5.4% | 5.9% |
 
-Some broader probes already exist in the project-only replacement research;
-their coverage is not a complete current cross-library matrix. These gaps are
-not a requirement to repeat all prior measurements before each local change.
-For a new filter, prioritize response/phase/transient nonregression. For a
-memory-reporting change, measure memory independently and reuse unchanged
-quality/timing evidence.
+An independent RealFFT comparison covered 15 odd/even and up/down geometries,
+including all High/UltraHigh common-rate sizes: **151,812 scalar outputs,
+maximum absolute error 0**. The existing resampler suite passed 59 tests. The
+v7 quality grids below were not rerendered; this numerical comparison supports
+the local fusion change. Future algorithms may differ sample by sample from
+Rubato, provided objective quality does not regress.
 
-## Pre-fusion v7 quality and latency evidence
+The first indexed-loop candidate regressed in two cases and remains recorded.
+The table reports the subsequent implementation revision, which removed those
+indexed loops. These are machine-specific observations. Retained Rust heap
+decreased by only 48 bytes per instance; the measured benefit is CPU time.
+
+#### Cross-engine CPU and memory baseline
+
+The resource report contains 57 current recipe/rate/channel configurations and
+248 steady trials. It records thread user/kernel CPU time, cycles, wall time,
+Rust retained/peak heap and allocation calls, and process memory snapshots.
+The following table selects **stereo 44.1→48 kHz**. Full rate/channel results,
+raw trials and executable identities are in the
+[resource report](resources.md) and
+[committed JSON](../data/resampler-resources-2026-10-10.json).
+
+CPU budget is the fraction of **one logical CPU needed to keep up with real-time
+audio**. It is not whole-machine utilization. CPU-time counters are quantized;
+the final decimal should not be treated as exact. The heap and private-commit
+columns in this baseline table belong to that same historical measurement set;
+the current retention value is shown in [Current comparison](#current-comparison).
+
+| Recipe | ns/sample | cycles/sample | One-core CPU budget | Rust retained / peak KiB | Private-commit increment KiB/instance |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Owned Rust | 6.615 | 20.38 | 0.0584% | 106.62 / 106.62 | 117.81 |
+| Raw Rubato, FFT 1024/2 | 7.079 | 21.83 | 0.0623% | 250.96 / 250.96 | 280.12 |
+| Project SoXR, High/Linear | 6.892 | 21.27 | 0.0614% | 0.02 / 0.02 (Rust only) | 284.75 |
+| Raw libsoxr, HQ/Bits20 | 7.045 | 21.72 | 0.0619% | not captured (native) | 284.75 |
+| FFmpeg SWR, default filter | 4.640 | 14.13 | 0.0405% | not captured (native) | 2245.38 |
+| libsamplerate, SINC_BEST | 281.325 | 865.56 | 2.4971% | not captured (native) | 838.75 |
+| SpeexDSP, quality 10 | 242.441 | 746.91 | 2.1029% | not captured (native) | 46.25 |
+| r8brain 7.1 | 17.279 | 53.28 | 0.1530% | not captured (native) | 245.12 |
+| zita-resampler 1.11.2 | 24.232 | 74.55 | 0.2103% | not captured (native) | 17.75 |
+| WebRTC v1.3 shim | 6.255 | 19.29 | 0.0553% | not captured (native) | 52.25 |
+| WDL 96b770f shim | 35.764 | 110.33 | 0.3213% | not captured (native) | 53.25 |
+| libresample 0.1.5 shim | 25.493 | 78.52 | 0.2352% | not captured (native) | 1291.00 |
+
+### Pre-fusion v7 quality and latency evidence
 
 The two sequential v7 runs exited 0 and retained source, executable, native-library,
 command and scheduling identities. An independent reconstruction made 30,803
@@ -484,7 +516,7 @@ continuous-band envelope, perceptual transparency or independent analyzer
 accuracy. Other package probes and R5 research provide separately scoped
 coverage; device/driver/DAC latency belongs to the consuming application.
 
-## Pre-fusion v7 throughput
+### Pre-fusion v7 throughput
 
 This table predates the fusion above. Cells are median **nanoseconds per input
 scalar sample**. Stereo has two samples per frame. Each trial uses 32 warmup
@@ -565,7 +597,7 @@ establish speed at the project's current response.
 
 The fusion improves all five measured common configurations while retaining
 the owned filter. Matching the selected FFmpeg default across all four stereo
-conversions at that response remains unproven. For example, the earlier fusion resource
+conversions at that response remains unproven. For example, the fused-inverse resource
 rows measured 6.615 ns/sample for owned Rust and 4.640 for FFmpeg at 44.1→48 kHz;
 they are not a fresh speed ratio for the current implementation.
 Cross-engine timings describe the selected recipes, not equal-quality acceptance.
@@ -745,16 +777,16 @@ timing window with `--resource-ms=250`. Cases run in separate child processes;
 allocation instrumentation is disabled during timing. Resource mode is
 report-only and rejects `--enforce` and `--baseline`.
 
-The latest spectrum and retention evidence is retained in the local research
+The spectrum-storage and retention evidence is retained in the local research
 workspace (deliberately not distributed), alongside committed
 [paired timing](../data/resampler-spectrum-reuse-2026-10-10.json) and
 [lifecycle snapshots](../data/resampler-retention-2026-10-10.json). Use
 `--resource-memory-only --resource-retention-rounds=32` for bounded lifecycle
 observations, and `--resource-output=common|adapter` to select caller capacity.
-The preceding time-buffer and supplemental quality evidence was captured in the
-same local workspace.
+The time-buffer and supplemental quality evidence was captured in the same local
+workspace.
 
-Earlier fusion/resource evidence was captured in the same local research
+The fused-inverse and resource evidence was captured in the same local research
 workspace. The [committed resource data](../data/resampler-resources-2026-10-10.json)
 includes raw trials, executable identities and endpoint failures.
 

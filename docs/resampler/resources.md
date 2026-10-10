@@ -38,7 +38,7 @@ The one 80-trial timing schedule is **inconclusive for speed**. The apparent
 unchanged baseline children (9.195–10.196 versus 5.599–5.849 ns/sample). The
 six-channel observed median increased 2.9%; other cases were faster or flat.
 All observations are retained without further retries. See the
-[current table](comparison.md#latest-spectrum-storage-and-lifecycle-results)
+[current table](comparison.md#spectrum-storage-sharing-and-lifecycle-retention)
 and [raw paired data](../data/resampler-spectrum-reuse-2026-10-10.json).
 
 Optional `--resource-retention-rounds=32` collects 32 one-instance reuse/reset
@@ -62,7 +62,7 @@ stereo 44.1→48 and 48→44.1 use 97.38 KiB instead of 106.62; 44.1→96 uses
 152.26 instead of 161.49; 96→44.1 uses 76.63 instead of 81.27; six-channel
 44.1→48 uses 155.76 instead of 164.99. The final paired schedule measured
 **0.3% / 5.5% / 4.7% / 3.1% / 2.6%** lower wall medians in that order; the
-first case is effectively flat. See the [current table and validation](comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
+first case is effectively flat. See the [current table and validation](comparison.md#time-buffer-sharing-and-supplemental-metrics)
 and [80 paired trials](../data/resampler-fft-layout-2026-10-10.json). These are
 local observations, not universal speed claims or FFmpeg-speed parity.
 
