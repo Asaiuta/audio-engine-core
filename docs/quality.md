@@ -1287,6 +1287,43 @@ comparisons, and offline-render measurements.
 
 ### Resampler performance & Pareto updates
 
+#### 2026-10-10 shared FFT storage and supplemental diagnostics
+
+The latest owned FFT shares forward-input/inverse-output storage and scratch,
+and specializes interleaved transfers for mono/stereo/6-channel layouts.
+Retained Rust heap falls **5.6–8.7%**. One final paired schedule (80 valid trials)
+measures **0.3% / 5.5% / 4.7% / 3.1% / 2.6%** wall-time reductions for stereo
+44.1→48 / 48→44.1 / 44.1→96 / 96→44.1 and six-channel 44.1→48, respectively.
+The first is effectively unchanged; these are machine-specific observations.
+The full-block RealFFT oracle compares 404,400 outputs with maximum error 0,
+including generic/specialized layouts, overlap and reset. The same filter is
+retained; future algorithms still may depart from Rubato samplewise identity.
+
+New standalone diagnostics add four-level tone response/residuals, two local
+group-delay estimates, centered-impulse ringing/settling, dense finite
+transition/stopband points, silence and 64/128/512-frame call tails. **447
+complete finite renders per owned arm have identical quality metrics**;
+192 FFmpeg control renders are also retained. Group delay describes the
+compensated output timeline, not device/API buffering. Zero-nanosecond buffered
+calls remain visible as below timer resolution. The final owned passes had no
+source-buffer deadline exceedances among 30,720 calls.
+
+Twenty memory-only runs compare common/adapter-advertised caller capacity for
+ten recipes. FFmpeg process heap increment falls **2241.22→705.22 KiB/instance**
+when caller capacity changes from 33,326 to 8,749 frames; neither is a claim of
+minimum native memory. Lazy native progress-label formatting removes successful
+wrapper allocations; all ten recipes report zero Rust-side hot allocation
+operations, without counting C/C++ malloc/free.
+
+The [main comparison](resampler-comparison.md#latest-storage-optimization-and-supplemental-metrics)
+contains the updated tables, limits and metric-gap inventory. Raw evidence:
+[paired resources](data/resampler-fft-layout-2026-10-10.json),
+[diagnostics](data/resampler-diagnostics-2026-10-10.json), and
+[capacity memory](data/resampler-capacity-memory-2026-10-10.json).
+Exact native allocation peaks, subnormal behavior, full parameter/platform
+coverage, multistream pressure and device latency remain open. Matching
+FFmpeg default speed at the owned response remains unproven.
+
 #### 2026-10-10 fused FFT and CPU/memory results
 
 The owned Rust backend now fuses filter multiplication with inverse-real-FFT
@@ -1323,7 +1360,7 @@ The report also records thread user/kernel time, cycles, working set, peak
 working set, private commit, page faults and lifecycle allocation counts.
 
 Owned Rust has zero measured process/finish/reset heap operations. The seven
-native-shim adapters have temporary Rust-side allocations, and Rust counters
+native-shim adapters had temporary Rust-side allocations in that earlier run, and Rust counters
 do not capture C/C++ allocations. Exact native heap/peak payload, hours-long
 memory trends, other CPUs/platforms, the full parameter/amplitude matrix and
 device latency remain uncovered. One of four longer FFmpeg 48→44.1 resource

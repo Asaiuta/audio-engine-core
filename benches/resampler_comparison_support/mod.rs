@@ -5,6 +5,7 @@
 //! audio-engine API.
 
 mod adapters;
+mod diagnostics;
 mod latency;
 mod measurement;
 mod quality;
@@ -698,7 +699,11 @@ struct PreparedInputs {
 
 impl PreparedInputs {
     fn new(rate: RatePair) -> Self {
-        let f64_samples = synthetic_buffer(CHUNK_FRAMES, rate.channels, rate.from_hz);
+        Self::with_chunk(rate, CHUNK_FRAMES)
+    }
+
+    fn with_chunk(rate: RatePair, chunk_frames: usize) -> Self {
+        let f64_samples = synthetic_buffer(chunk_frames, rate.channels, rate.from_hz);
         let f32_samples = f64_samples.iter().map(|sample| *sample as f32).collect();
         Self {
             channels: rate.channels,
@@ -709,6 +714,9 @@ impl PreparedInputs {
 }
 
 pub(crate) fn run(argv: Vec<String>) -> Result<(), String> {
+    if argv.iter().any(|arg| arg == "--diagnostics") {
+        return diagnostics::run(argv);
+    }
     if argv.iter().any(|arg| arg == "--resources") {
         return resources::run(argv);
     }

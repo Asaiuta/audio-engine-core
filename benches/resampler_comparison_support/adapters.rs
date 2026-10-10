@@ -652,7 +652,7 @@ fn project_identity() -> EngineIdentity {
         ),
         "rust" => (
             "project-owned kernels; Rubato 4.0 response convention".to_string(),
-            "audio_engine_core_owned_fft_fused_inverse_sinc_v3".to_string(),
+            "audio_engine_core_owned_fft_shared_time_sinc_v5".to_string(),
             "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase".to_string(),
         ),
         other => (
@@ -2109,7 +2109,7 @@ impl NativeShimAdapter {
         let consumed = consumed as usize;
         let produced = produced as usize;
         validate_progress(
-            &format!("{} process", self.library.engine_identity.engine_id),
+            format_args!("{} process", self.library.engine_identity.engine_id),
             consumed,
             produced,
             input_frames,
@@ -2193,7 +2193,7 @@ impl NativeShimAdapter {
         let consumed = consumed as usize;
         let produced = produced as usize;
         validate_progress(
-            &format!("{} drain", self.library.engine_identity.engine_id),
+            format_args!("{} drain", self.library.engine_identity.engine_id),
             consumed,
             produced,
             0,
@@ -2643,7 +2643,7 @@ fn validate_interleaved(samples: usize, channels: usize, label: &str) -> Result<
 }
 
 fn validate_progress(
-    label: &str,
+    label: impl std::fmt::Display,
     consumed: usize,
     produced: usize,
     input_capacity: usize,

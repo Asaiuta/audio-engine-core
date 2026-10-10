@@ -76,12 +76,11 @@ pub(super) struct FftKernel {
     forward: std::panic::AssertUnwindSafe<Arc<dyn RealToComplex<f64>>>,
     inverse: std::panic::AssertUnwindSafe<Arc<dyn Fft<f64>>>,
     inverse_twiddles: Vec<Complex>,
-    input_time: Vec<f64>,
+    // Forward input is dead before the inverse produces its time-domain output.
+    time: Vec<f64>,
     input_spectrum: Vec<Complex>,
-    input_scratch: Vec<Complex>,
-    output_time: Vec<f64>,
+    scratch: Vec<Complex>,
     output_spectrum: Vec<Complex>,
-    output_scratch: Vec<Complex>,
     filter: Vec<Complex>,
     overlap: Vec<f64>,
 }
@@ -114,26 +113,31 @@ impl FftKernel {
                 Complex::new(phase.cos(), -phase.sin())
             })
             .collect();
-        let mut input_time = forward.make_input_vec();
-        for (y, x) in input_time.iter_mut().zip(taps) {
+        let mut time = vec![0.0; 2 * geometry.input.max(geometry.output)];
+        for (y, x) in time.iter_mut().zip(taps) {
             *y = *x / (2 * geometry.input) as f64;
         }
         let mut filter = forward.make_output_vec();
-        let mut input_scratch = forward.make_scratch_vec();
+        // Transforms run sequentially for each channel, so their temporary
+        // storage can share one allocation without retaining both workspaces.
+        let mut scratch = vec![
+            Complex::default();
+            forward
+                .get_scratch_len()
+                .max(inverse.get_outofplace_scratch_len())
+        ];
         forward
-            .process_with_scratch(&mut input_time, &mut filter, &mut input_scratch)
+            .process_with_scratch(&mut time[..2 * geometry.input], &mut filter, &mut scratch)
             .map_err(|error| InitError::Backend {
                 message: error.to_string(),
             })?;
         Ok(Self {
             geometry,
             channels: config.channels,
-            input_time,
+            time,
             input_spectrum: forward.make_output_vec(),
-            input_scratch,
-            output_time: vec![0.0; 2 * geometry.output],
+            scratch,
             output_spectrum: vec![Complex::default(); geometry.output],
-            output_scratch: vec![Complex::default(); inverse.get_outofplace_scratch_len()],
             inverse_twiddles,
             filter,
             overlap,
@@ -151,20 +155,42 @@ impl FftKernel {
         if input.len() != ni * channels || output.len() != no * channels {
             return Err(ProcessError::new("incorrect FFT block dimensions"));
         }
+        match channels {
+            1 => self.block_channels::<1>(input, output),
+            2 => self.block_channels::<2>(input, output),
+            6 => self.block_channels::<6>(input, output),
+            _ => self.block_channels::<0>(input, output),
+        }
+    }
+
+    fn block_channels<const CHANNELS: usize>(
+        &mut self,
+        input: &[f64],
+        output: &mut [f64],
+    ) -> Result<(), ProcessError> {
+        let ni = self.geometry.input;
+        let no = self.geometry.output;
+        // Constant strides permit vectorized gather/scatter for common
+        // layouts. Zero retains the generic path for any other channel count.
+        let channels = if CHANNELS == 0 {
+            self.channels
+        } else {
+            CHANNELS
+        };
         for ch in 0..channels {
             if channels == 1 {
-                self.input_time[..ni].copy_from_slice(input);
+                self.time[..ni].copy_from_slice(input);
             } else {
-                for (i, x) in self.input_time[..ni].iter_mut().enumerate() {
-                    *x = input[i * channels + ch];
+                for (x, frame) in self.time[..ni].iter_mut().zip(input.chunks_exact(channels)) {
+                    *x = frame[ch];
                 }
             }
-            self.input_time[ni..].fill(0.0);
+            self.time[ni..2 * ni].fill(0.0);
             self.forward
                 .process_with_scratch(
-                    &mut self.input_time,
+                    &mut self.time[..2 * ni],
                     &mut self.input_spectrum,
-                    &mut self.input_scratch,
+                    &mut self.scratch,
                 )
                 .map_err(|_| ProcessError::new("owned FFT transform failed"))?;
             self.prepare_inverse();
@@ -172,18 +198,22 @@ impl FftKernel {
             // alignment as f64. The initialized 2*no scalar allocation is
             // exclusively borrowed as exactly no complex values for this call.
             let packed_time = unsafe {
-                std::slice::from_raw_parts_mut(self.output_time.as_mut_ptr().cast::<Complex>(), no)
+                std::slice::from_raw_parts_mut(self.time.as_mut_ptr().cast::<Complex>(), no)
             };
             self.inverse.process_outofplace_with_scratch(
                 &mut self.output_spectrum,
                 packed_time,
-                &mut self.output_scratch,
+                &mut self.scratch,
             );
             let overlap = &mut self.overlap[ch * no..(ch + 1) * no];
-            for (i, old) in overlap.iter().enumerate() {
-                output[i * channels + ch] = self.output_time[i] + old;
+            for ((frame, value), old) in output
+                .chunks_exact_mut(channels)
+                .zip(&self.time[..no])
+                .zip(overlap.iter())
+            {
+                frame[ch] = value + old;
             }
-            overlap.copy_from_slice(&self.output_time[no..]);
+            overlap.copy_from_slice(&self.time[no..2 * no]);
         }
         Ok(())
     }
@@ -277,6 +307,91 @@ mod tests {
     use realfft::RealFftPlanner;
 
     #[test]
+    fn interleaved_blocks_match_independent_realfft_with_overlap_and_reset() {
+        let mut maximum_error = 0.0f64;
+        let mut compared = 0;
+        for (ni, no) in [
+            (3, 5),
+            (5, 3),
+            (4, 7),
+            (7, 4),
+            (588, 640),
+            (640, 588),
+            (588, 1280),
+            (640, 294),
+            (1176, 1280),
+            (1280, 1176),
+            (1176, 2560),
+            (1280, 588),
+        ] {
+            for channels in [1, 2, 3, 6] {
+                let geometry = Geometry {
+                    input: ni,
+                    output: no,
+                };
+                let config = Config {
+                    from: ni as u32,
+                    to: no as u32,
+                    channels,
+                    quality: Quality::High,
+                };
+                let taps = reference_filter(geometry);
+                let mut kernel = FftKernel::new(config, geometry, &taps).unwrap();
+                let mut planner = RealFftPlanner::<f64>::new();
+                let forward = planner.plan_fft_forward(2 * ni);
+                let inverse = planner.plan_fft_inverse(2 * no);
+                let mut filter_time = forward.make_input_vec();
+                for (dst, tap) in filter_time.iter_mut().zip(taps) {
+                    *dst = tap / (2 * ni) as f64;
+                }
+                let mut filter = forward.make_output_vec();
+                forward.process(&mut filter_time, &mut filter).unwrap();
+                let mut overlap = vec![vec![0.0; no]; channels];
+                for block in 0..4 {
+                    if block == 3 {
+                        kernel.reset();
+                        overlap.iter_mut().for_each(|ch| ch.fill(0.0));
+                    }
+                    let input: Vec<_> = (0..ni * channels)
+                        .map(|i| ((i * 43 + block * 29 + 11) % 211) as f64 / 211.0 - 0.5)
+                        .collect();
+                    let mut actual = vec![0.0; no * channels];
+                    kernel.block(&input, &mut actual).unwrap();
+                    for ch in 0..channels {
+                        let mut time = forward.make_input_vec();
+                        for i in 0..ni {
+                            time[i] = input[i * channels + ch];
+                        }
+                        let mut spectrum = forward.make_output_vec();
+                        forward.process(&mut time, &mut spectrum).unwrap();
+                        let mut mapped = inverse.make_input_vec();
+                        let keep = if ni < no { ni + 1 } else { no };
+                        for k in 0..keep {
+                            mapped[k] = spectrum[k] * filter[k];
+                        }
+                        let mut expected = inverse.make_output_vec();
+                        inverse.process(&mut mapped, &mut expected).unwrap();
+                        for i in 0..no {
+                            let error =
+                                (actual[i * channels + ch] - (expected[i] + overlap[ch][i])).abs();
+                            maximum_error = maximum_error.max(error);
+                            assert!(
+                                error <= 3e-13,
+                                "{ni}->{no}, {channels}ch, block {block}: {error}"
+                            );
+                            compared += 1;
+                        }
+                        overlap[ch].copy_from_slice(&expected[no..]);
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "full FFT blocks: {compared} scalar outputs, maximum absolute error {maximum_error:e}"
+        );
+    }
+
+    #[test]
     fn fused_inverse_matches_independent_realfft_filtering() {
         // Cover odd/even packed transforms, up/down maps, one surviving bin,
         // and the production High/UltraHigh common-rate geometries.
@@ -348,7 +463,7 @@ mod tests {
                 kernel.inverse.process_outofplace_with_scratch(
                     &mut kernel.output_spectrum,
                     &mut actual,
-                    &mut kernel.output_scratch,
+                    &mut kernel.scratch,
                 );
                 for (pair, reference) in actual.iter().zip(expected.chunks_exact(2)) {
                     for (value, wanted) in [pair.re, pair.im].into_iter().zip(reference) {

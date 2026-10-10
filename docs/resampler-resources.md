@@ -1,8 +1,42 @@
-# Resampler CPU, memory and fused-FFT results
+# Resampler CPU, memory and FFT results
 
-Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The owned Rust backend now fuses filter multiplication with inverse-real-FFT preparation. All five measured common configurations improved; this does not establish FFmpeg-default speed or universal improvement.
+Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The latest owned implementation shares FFT time-domain/scratch storage and specializes common-channel transfers. It follows the fused-inverse optimization documented below.
 
-## Actual implementation improvement
+## Latest storage and capacity measurements
+
+Retained Rust heap decreased **5.6–8.7%** across five common configurations:
+stereo 44.1→48 and 48→44.1 use 97.38 KiB instead of 106.62; 44.1→96 uses
+152.26 instead of 161.49; 96→44.1 uses 76.63 instead of 81.27; six-channel
+44.1→48 uses 155.76 instead of 164.99. The final paired schedule measured
+**0.3% / 5.5% / 4.7% / 3.1% / 2.6%** lower wall medians in that order; the
+first case is effectively flat. See the [current table and validation](resampler-comparison.md#latest-storage-optimization-and-supplemental-metrics)
+and [80 paired trials](data/resampler-fft-layout-2026-10-10.json). These are
+local observations, not universal speed claims or FFmpeg-speed parity.
+
+The new `--resource-output=adapter` option permits a second capacity policy.
+Twenty fresh memory-only children measured ten recipes at stereo 44.1→48.
+FFmpeg's warmed process-heap increment changes from **2241.22 KiB** with 33,326
+caller frames to **705.22 KiB** with the adapter's advertised 8,749 frames.
+The other nine recipes had unchanged busy-byte increments between the policies.
+See the [capacity table](resampler-comparison.md#output-capacity-memory-comparison)
+and [raw observations](data/resampler-capacity-memory-2026-10-10.json).
+Advertised capacity is not minimum native capacity. SoXR capacity sensitivity
+was not measured in this round.
+
+Lazy progress-label formatting removes benchmark-wrapper allocations on
+successful native calls. All ten measured recipes now have zero Rust-side
+process/finish/reset allocation operations; native malloc/free is not counted.
+Earlier native timing tables include the old wrapper overhead and have not
+been remeasured solely to update those numbers.
+
+`--diagnostics` separately adds selected multi-level response, phase-slope delay,
+impulse ringing, dense finite transition/stopband samples, silence and
+64/128/512-frame call tails. Its [report](data/resampler-diagnostics-2026-10-10.json)
+has 447 complete renders per owned arm with identical quality metrics, plus
+192 FFmpeg control renders. These supplements do not close the full parameter,
+native allocation-peak, multistream, platform or device-latency gaps.
+
+## Earlier fused-inverse implementation improvement
 
 The coefficients, FFT sizes, retained frequency bins, normalization and stream scheduling are unchanged. The fused pass uses disjoint contiguous slices and skips known-zero bins. An independent RealFFT comparison exercised 15 odd/even and up/down geometries, including all High/UltraHigh common-rate sizes: 151,812 scalar outputs, maximum absolute error 0. The existing resampler suite passed 59 tests. Rubato sample equality is **not** a requirement for future algorithms; objective response, alias/image rejection, phase and transient quality must not regress.
 
@@ -41,7 +75,7 @@ The table below selects stereo 44.1->48 kHz. CPU budget is the fraction of **one
 
 Memory increments are measured across 32 simultaneously live, warmed instances and divided by 32. They are page-granular process increments, not exact native heap payload. The common output capacity is ceil(512 * output/input rate) + 32,768 frames. Native libraries may size their internal workspaces from that capacity; the numbers therefore do not rank each library's minimum possible memory usage. The report retains absolute working set, peak working set, private commit, peak pagefile usage and page faults before/after construction, warmup and drop. Allocator caching means a process need not release pages immediately after dropping instances.
 
-The owned Rust backend has zero measured process/finish/reset heap operations. The seven native-shim adapters do show Rust-side temporary allocations during those calls; the raw counts are retained and include benchmark adapter overhead. These counters do not intercept C/C++ malloc/free and must not be described as zero native allocations.
+In this earlier run, the owned Rust backend had zero measured process/finish/reset heap operations. The seven native-shim adapters showed Rust-side temporary allocations during those calls; the raw counts are retained and include the old benchmark wrapper overhead. These counters do not intercept C/C++ malloc/free and must not be described as zero native allocations.
 
 One of the four longer FFmpeg 48->44.1 resource trials hit the existing shim's `FFmpeg drain ended before the exact target duration` check. Its steady CPU measurements are retained, complete output is explicitly unknown and the trial is not a successful complete-stream check. The initial failed child is retained separately. Other current resource rows completed their duration checks.
 
@@ -85,3 +119,13 @@ plus the short allocation/lifecycle pass. New reports use
 `pooled_process_heap_busy_{bytes,blocks}_increment_per_instance`. Exact native
 allocation profiling still requires separate instrumented libraries or heap
 traces that cover dependency DLLs, aligned allocations and realloc/free pairs.
+
+To compare output capacities, run memory-only mode once with
+`--resource-output=common` (default) and once with `--resource-output=adapter`.
+Both reports retain `output_capacity_policy` and `output_capacity_frames`.
+
+For supplemental metrics without rerunning the full quality/throughput matrix:
+
+```text
+cargo bench -p audio-engine-core --bench audio_resampler_comparison_perf --features raw-rubato -- --diagnostics --diagnostic-engines=audio_engine_core --diagnostic-rates=music_44k1_to_48k,music_96k_to_44k1 --pinned --pin-core 2 --out target/bench-reports/diagnostics.json
+```

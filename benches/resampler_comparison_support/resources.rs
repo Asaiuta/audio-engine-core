@@ -25,12 +25,19 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
     let mut selected = BTreeSet::new();
     let mut child_case = None;
     let mut memory_only = false;
+    let mut adapter_capacity = false;
     let mut milliseconds = 250u64;
     for arg in &argv {
         if arg == "--resources" {
             continue;
         } else if arg == "--resource-memory-only" {
             memory_only = true;
+        } else if let Some(value) = arg.strip_prefix("--resource-output=") {
+            adapter_capacity = match value {
+                "adapter" => true,
+                "common" => false,
+                _ => return Err("--resource-output must be common or adapter".into()),
+            };
         } else if let Some(value) = arg.strip_prefix("--resource-engines=") {
             for id in value.split(',') {
                 super::validate_engine_id(id)?;
@@ -51,7 +58,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
     if args.perf.help {
         println!(
             "--resources [--resource-engines=id,id] [--resource-ms=250] [--resource-memory-only] \
-                  [--pinned --pin-core 2] [--out report.json] \
+                  [--resource-output=common|adapter] [--pinned --pin-core 2] [--out report.json] \
                   [--engine-library id=absolute-path]"
         );
         return Ok(());
@@ -92,6 +99,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
                         rate,
                         Duration::from_millis(milliseconds),
                         memory_only,
+                        adapter_capacity,
                     )?;
                     result["scheduling"] = json!(scheduling);
                     println!("{result}");
@@ -137,6 +145,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
             "chunk_frames": CHUNK_FRAMES,
             "trials": if memory_only { 0 } else { TIMING_TRIALS },
             "memory_only": memory_only,
+            "output_capacity_policy": if adapter_capacity { "adapter_advertised" } else { "common_conservative" },
             "minimum_trial_ms": milliseconds,
             "memory_instances": MEMORY_INSTANCES,
             "fresh_process_per_case": true,
@@ -182,6 +191,7 @@ fn measure(
     rate: RatePair,
     duration: Duration,
     memory_only: bool,
+    adapter_capacity: bool,
 ) -> Result<Value, String> {
     let inputs = PreparedInputs::new(rate);
     let scope = AllocationScope::start();
@@ -189,11 +199,15 @@ fn measure(
     let adapter = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
     let setup_ns = setup_start.elapsed().as_nanos();
     let setup_heap = scope.finish();
-    // All recipes get the same conservative caller capacity, independent of
-    // their internal lookahead. Caller allocations are excluded from heap data.
-    let output_frames = (CHUNK_FRAMES * rate.to_hz as usize)
-        .div_ceil(rate.from_hz as usize)
-        .saturating_add(32_768);
+    // Caller allocations are excluded from heap data. The optional advertised
+    // capacity is an adapter contract, not a minimum native workspace claim.
+    let output_frames = if adapter_capacity {
+        adapter.max_output_frames().max(1)
+    } else {
+        (CHUNK_FRAMES * rate.to_hz as usize)
+            .div_ceil(rate.from_hz as usize)
+            .saturating_add(32_768)
+    };
     if adapter.max_output_frames() > output_frames {
         return Err("resource caller capacity is below adapter requirement".into());
     }
@@ -372,6 +386,7 @@ fn measure(
         "to_rate_hz": rate.to_hz,
         "channels": rate.channels,
         "output_capacity_frames": output_frames,
+        "output_capacity_policy": if adapter_capacity { "adapter_advertised" } else { "common_conservative" },
         "setup_instrumented_ns": setup_ns,
         "rust_setup_heap": allocation_json(setup_heap),
         "rust_pool_heap": allocation_json(pool_heap),

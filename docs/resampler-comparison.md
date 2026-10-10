@@ -1,18 +1,20 @@
 # Resampler quality and performance comparison
 
-The latest update (2026-10-10) fuses filter multiplication with inverse-real-FFT
-preparation in the owned Rust backend. Paired measurements reduce steady
-processing time by **3.2–13.5%** across five common configurations while retaining
-the filter. CPU and memory measurements now cover **57 configurations and 248
-steady trials**. Coverage remains incomplete, and matching FFmpeg's default
-throughput at the owned filter's quality remains unproven.
+The latest update (2026-10-10) reuses FFT time-domain and scratch storage and
+specializes interleaved transfers for common channel counts. Retained Rust heap
+falls **5.6–8.7%**; four measured configurations take **2.6–5.5%** less time,
+while stereo 44.1→48 kHz is essentially unchanged. Supplemental quality probes
+match the preceding implementation. New measurements also cover low-level
+response, group delay, ringing, dense finite bands, small-block call tails and
+native memory sensitivity to caller capacity. Coverage remains incomplete, and
+matching FFmpeg's default throughput at the owned quality remains unproven.
 
 The current default `rubato` feature selects the owned `rust` backend. Upstream
 Rubato 4.0.0 is an optional control enabled by `raw-rubato`; production code does
 not use it. Enabling `soxr` selects SoXR instead. The runner has **11 engine IDs**;
 `audio_engine_core` reports the backend selected by each compiled build.
 
-This document combines the latest fusion/resource results with the repaired
+This document combines the latest storage/diagnostic results, earlier fusion/resource results and the repaired
 **v7 quality, latency and pre-fusion throughput measurements from 2026-10-10**.
 The earlier October v6 summaries mixed trial records between engines: 96 of 100 rows and
 672 of 1,500 trials were affected. Those reports and the prior documents remain
@@ -20,7 +22,124 @@ retained as historical evidence and must not serve as current timing baselines.
 The independent R5 complete-waveform and `l5_retest_v1` experiments used different
 drivers and retain their original scope; see [replacement evidence](resampler-replacement.md).
 
-## Latest implementation and resource results
+## Latest storage optimization and supplemental metrics
+
+The forward FFT consumes the time-domain input before the inverse writes its
+output, so both now use one allocation sized to the larger transform. Their
+scratch storage is shared too. Mono/stereo/6-channel transfers have constant
+strides; other layouts retain a generic path. Filter coefficients, transforms,
+normalization, scheduling and public interfaces are unchanged.
+
+One final ABBA/BAAB schedule contains **80 valid trials**, eight per arm per
+configuration, each at least 250 ms, with 512-frame input and logical core 2 on
+the i5-12500H Windows host. Baseline and candidate use identical measurement
+tooling. Medians below are ns/input scalar sample; memory is exact retained
+Rust allocator payload after construction, including the owned adapter.
+
+| Conversion | Before | After | Wall reduction | Retained KiB before → after |
+| --- | ---: | ---: | ---: | ---: |
+| 44.1→48 kHz, stereo | 6.570 | 6.549 | 0.3% (essentially flat) | 106.62 → 97.38 |
+| 48→44.1 kHz, stereo | 6.130 | 5.790 | 5.5% | 106.62 → 97.38 |
+| 44.1→96 kHz, stereo | 10.360 | 9.871 | 4.7% | 161.49 → 152.26 |
+| 96→44.1 kHz, stereo | 4.341 | 4.207 | 3.1% | 81.27 → 76.63 |
+| 44.1→48 kHz, 6ch | 7.241 | 7.050 | 2.6% | 164.99 → 155.76 |
+
+Cycle reductions are 0.05%, 5.83%, 4.51%, 3.08% and 2.39%, respectively.
+These are observations from one machine/schedule, not significance estimates
+or universal gains. Do not combine these timings with the earlier fusion table
+to infer a cumulative percentage. [Raw paired trials and binary hashes](data/resampler-fft-layout-2026-10-10.json)
+include CPU time, allocation counts, lifecycle snapshots and work validity.
+
+The initial scratch-only storage revision saved just 24 bytes and had a 2.6%
+44.1→96 slowdown. It was superseded by actual time-buffer reuse, with a new
+implementation identity and paired schedule; its results are retained in the
+task's `research/metrics-fft-layout-v1/initial-*` files. No further timing retries
+were made. The full resampler suite passed 60 tests before this storage extension;
+the final extension passed the two affected FFT oracles. The full-block oracle
+covers 12 geometries × 4 channel layouts × 4 blocks, including overlap/reset:
+**404,400 scalar outputs, maximum absolute error 0**. The inverse oracle also
+retains its 151,812-output zero-error result. These are local same-filter checks;
+Rubato samplewise identity is still not a requirement for new algorithms.
+
+### Added quality and small-block observations
+
+The standalone `--diagnostics` mode collected **447 complete finite renders per
+owned arm** across the five configurations above. The four-level tone results,
+local group delay, centered-impulse metrics, dense response/alias points and
+silence output are identical before/after. Two FFmpeg cases add 192 renders and
+are retained controls. The report contains 1,086 renders total and 36 separate
+call-tail passes; [raw diagnostics](data/resampler-diagnostics-2026-10-10.json)
+retain the exact frequencies, amplitudes, windows, frame counts and samples.
+
+| Added metric | Measured scope / interpretation |
+| --- | --- |
+| Multi-level response | 997 Hz and 18 kHz at 0.999, 0.5, 0.001 and 0.000001 amplitude; gain, residual RMS/dBFS, THD+N and full-output peak |
+| Local group delay | 1000/1001 and 18000/18001 Hz phase differences; seconds and output frames, principal-phase ambiguity ±0.5 s |
+| Centered impulse | Peak/energy-centroid timing, pre/post-peak energy fractions, -100 dB relative-peak extents and record-edge flag |
+| Dense finite bands | 49 transition frequencies from 18 kHz to shared Nyquist−1 Hz; downsampling additionally uses 33 stopband frequencies with two quadrature phases |
+| Silence | Complete zero-input output peak; all measured cases produced zero |
+| Small-block call tails | 64/128/512-frame callers, 2,048 measured calls per pass, p50/p95/p99/p99.9/max, raw durations and deadline counts |
+
+These signal metrics excite all channels identically and analyze channel 0;
+finite/complete checks cover all channels. Existing v7 channel-isolation and
+image grids remain separate. Group delay here is the **residual output timeline
+delay after adapter compensation**, approximately zero for the owned linear
+recipes; it does not mean zero buffering or device latency. Fractional impulse
+positions also make pre/post-peak energy asymmetric even for a linear-phase
+filter. Analytic delay and known-FIR tests check the metric calculations.
+
+For the final owned implementation, 64-frame p99 call times are **7.4 / 7.2 /
+11.3 / 5.5 / 23.6 µs** in table order. None of its 30,720 measured calls exceeded
+the corresponding source-buffer duration. Some buffered calls read **0 ns** at
+the host timer's resolution; the report keeps those zeros instead of rejecting
+them or replacing them with 1 ns. This is not device callback evidence.
+
+The added data again shows why default FFmpeg is a different quality target:
+at 96→44.1 kHz, worst output among the 33 quadrature stopband points is
+**−168.31 dB** for owned Rust versus **−10.36 dB** for default SWR (the grid
+starts only 1 Hz above output Nyquist). At 44.1→48 kHz, the first sampled
+transition point below −0.1 dB is 21,289 Hz versus 19,265 Hz. These are finite
+samples, not exact cutoff frequencies or continuous-band extrema. FFmpeg also
+has much shorter impulse ringing: about 16/17 frames before/after the peak
+versus 205/206 here at the stated threshold. Short SIMD polyphase filtering
+does less work, with a different response/transient tradeoff. This update
+preserves the owned response; it does not establish FFmpeg-speed parity.
+
+### Output-capacity memory comparison
+
+`--resources --resource-memory-only --resource-output=adapter` now uses each
+adapter's advertised output capacity. The default remains `common`. Twenty
+fresh child runs cover **10 recipes × 2 capacities**, stereo 44.1→48 kHz,
+512-frame input and 32 warmed instances. All completed. Values below are
+Windows process heap busy-byte increments per instance, not native malloc
+request payloads or peaks. Caller buffers themselves are excluded.
+
+| Recipe | Common / advertised capacity, frames | Common / advertised heap increment, KiB |
+| --- | ---: | ---: |
+| Owned Rust | 33,326 / 622 | 97.63 / 97.63 |
+| Raw Rubato | 33,326 / 1,280 | 251.21 / 251.21 |
+| libsamplerate | 33,326 / 1,070 | 859.58 / 859.58 |
+| FFmpeg SWR | 33,326 / 8,749 | **2,241.22 / 705.22** |
+| SpeexDSP | 33,326 / 1,720 | 39.53 / 39.53 |
+| r8brain | 33,326 / 1,024 | 230.56 / 230.56 |
+| zita | 33,326 / 1,685 | 15.89 / 15.89 |
+| WebRTC | 33,326 / 960 | 43.89 / 43.89 |
+| WDL | 33,326 / 1,615 | 52.05 / 52.05 |
+| libresample | 33,326 / 4,681 | 1,257.55 / 1,257.55 |
+
+FFmpeg's heap increment falls **68.5%** solely from changing caller capacity;
+this does not measure its minimum possible memory use. Other measured recipes
+do not change at these two capacities. SoXR capacity sensitivity was not
+collected; its native heap snapshots below remain valid for their original
+capacity. [Raw capacity observations](data/resampler-capacity-memory-2026-10-10.json)
+also include commit/residency, lifecycle points and native identities.
+
+The native shim wrappers now format progress-validation labels only on error.
+All ten recipes recorded zero **Rust-side** process/finish/reset allocation
+operations in these short runs. That removes measurement-adapter overhead;
+it does not establish zero C/C++ allocations or production DSP acceleration.
+
+## Earlier fused-inverse implementation and resource results
 
 Measured on Intel Core i5-12500H (16 logical processors), Windows/x86_64,
 Rust 1.93.1. The fused pass uses disjoint contiguous slices and skips known-zero
@@ -142,9 +261,9 @@ not just the C++ shim's `new`/`delete`. Allocation pointers need to be tracked
 through `realloc` and free; the instrumented run must be separate from timing.
 This additional instrumentation has not been implemented.
 
-Owned Rust has **zero measured process/finish/reset heap operations**. The seven
-native-shim adapters do have temporary Rust-side allocations during those calls;
-their counts include adapter overhead. Rust counters do not intercept native
+Owned Rust had **zero measured process/finish/reset heap operations** in this
+earlier run. The seven native-shim adapters then had temporary Rust-side
+allocations; the latest lazy-label change above removes that observed overhead. Rust counters do not intercept native
 C/C++ `malloc`/`free` and cannot establish zero native allocations.
 
 One of four longer FFmpeg 48→44.1 resource trials hit
@@ -156,8 +275,8 @@ resource rows completed their duration checks.
 ### Coverage verdict
 
 CPU and per-instance/process memory reporting are now implemented and measured.
-Quality, startup and individual-call latency observations retain the v7 scope
-below. Remaining gaps include exact native allocator accounting and peak
+Quality and latency now combine the v7 grids with the selected supplemental
+metrics above. Remaining gaps include exact native allocator accounting and peak
 payload, hours-long memory trends, other CPUs/platforms, the complete
 rate/quality/phase/channel/buffer/amplitude matrix and device latency. Finite
 tone grids do not establish continuous-band rejection or perceptual transparency.
@@ -166,12 +285,12 @@ The most useful remaining additions to the cross-library comparison are:
 
 | Area | Present evidence | Remaining gap / next useful scope |
 | --- | --- | --- |
-| Frequency response and rejection | Finite response, alias/image grids and quadrature probes | Denser transition/stopband extrema and usable-bandwidth summaries for a changed filter; the grid alone is not a continuous-band bound |
-| Levels and numerical accuracy | Main grid uses amplitude 0.5; native-format analyzer self-controls | Near-full-scale and low-level linearity/residuals, silence/subnormal behavior, and an independent analyzer accuracy bound |
-| Phase and transients | Phase error at sampled frequencies, impulse peak, DC and full-stream step peaks | Unwrapped phase/group-delay variation, pre/post-ringing energy and settling duration; first output is not group delay |
+| Frequency response and rejection | v7 response/alias/image grids plus 49-point transition and 33-point quadrature stopband samples for selected recipes | Dense image coverage and band-edge/extrema certification for a changed filter; finite grids are not continuous-band bounds |
+| Levels and numerical accuracy | Four amplitudes at two tones and silence for selected recipes; native-format analyzer self-controls | Broader level/frequency/recipe matrix, subnormal signal behavior and an independent analyzer accuracy bound |
+| Phase and transients | Phase error, two local group-delay estimates, centered pre/post-ring energy/extent, DC and full-stream step peaks | Broadband unwrapped group-delay variation and other phase modes; residual timeline delay is not API buffering |
 | Streaming | Exact-duration checks, reset/fresh comparison, separate scoped irregular-buffer tests | Resolve the observed FFmpeg drain failure; compare short streams and block-boundary invariance for changed algorithms |
-| Performance | Steady wall/CPU/cycles, setup/reset/drain and v7 per-call percentiles/deadline counts | Current optimized-path tails at small/irregular buffers, multistream/cache pressure and realistic callback scheduling; refresh only when the proposed change needs these claims |
-| Memory | Rust allocation accounting, process commit/residency, native-inclusive heap snapshots | Exact native allocation attribution/calls/peaks, capacity sensitivity, shared-cache versus instance cost, and bounded growth over long lifetimes |
+| Performance | Steady wall/CPU/cycles, setup/reset/drain and current 64/128/512-frame call percentiles/deadline counts for selected recipes | Irregular buffers, multistream/cache pressure and realistic callback scheduling; refresh only when the proposed change needs these claims |
+| Memory | Rust allocation accounting, process commit/residency, native-inclusive heap snapshots and two output-capacity policies for ten recipes | Exact native allocation attribution/calls/peaks, SoXR capacity sensitivity, shared-cache versus instance cost, and bounded growth over long lifetimes |
 | Recipe/platform coverage | Common High/Linear comparisons on Windows x86_64; broader project-only historical matrices | Selected other tiers, phases, levels, channel counts and CPUs; device/driver latency belongs to application integration |
 
 Some broader probes already exist in the project-only replacement research;
