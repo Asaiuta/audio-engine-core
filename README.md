@@ -99,7 +99,7 @@ The project combines decoding, resampling, loudness processing, DSP, analysis, a
 ┌──────────────┐
 │   Resample   │
 │ SoX VHQ /    │
-│ pure Rust    │
+│ CoreSinc     │
 └──────┬───────┘
        │
        ▼
@@ -198,7 +198,7 @@ That makes it possible to reuse the same processing layer across different playe
 | Area                  | Capability                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **Decode**            | Streaming decode built on Symphonia 0.6, typed error handling, and per-codec gapless ownership             |
-| **Resampling**        | SoX VHQ / SoXR backend and quality-aware pure-Rust resampling backends behind a common streaming interface |
+| **Resampling**        | CoreSinc (owned pure-Rust) and native SoX VHQ / SoXR behind one streaming contract                         |
 | **Loudness**          | EBU R128 integrated loudness, True Peak measurement, offline analysis, and realtime normalization          |
 | **EQ**                | 10-band IIR biquad EQ and linear-/minimum-phase FIR EQ                                                     |
 | **Convolution**       | FFT convolution with nonuniform partitioned routing for long impulse responses                             |
@@ -346,7 +346,9 @@ This avoids hidden assumptions about block size and makes backpressure visible t
 
 ## Resampling
 
-Resampling is exposed through a common streaming contract.
+Resampling is exposed through a common streaming contract. Two backends
+implement it: the owned pure-Rust **CoreSinc**, whose machine identifier is
+`rust`, and the opt-in native SoX VHQ / SoXR backend.
 
 The project supports:
 
@@ -354,12 +356,15 @@ The project supports:
 
 The opt-in native backend provides SoX resampling through libsoxr, with quality-dependent recipes up to VHQ, enabled with `features = ["soxr"]`. It requires the libsoxr native library at build/link time (LGPL-2.1; see [License](#license)).
 
-### Pure Rust
+### CoreSinc (pure Rust)
 
-The default `rubato` feature selects this crate's owned pure-Rust backend
-(reported as `rust`). The feature name is retained for existing consumers;
-production code does not use the upstream Rubato package. The optional
-`raw-rubato` feature retains it only for benchmark controls. Routing includes:
+The default `rubato` feature selects **CoreSinc**, this crate's owned
+pure-Rust backend, reported as `rust`. The machine identifier deliberately
+stays `rust` so existing feature selection, diagnostics and historical
+benchmark records need no compatibility migration. The feature name is
+retained for existing consumers; production code does not use the upstream
+Rubato package. The optional `raw-rubato` feature retains it only for
+benchmark controls. Routing includes:
 
 * half-band FIR paths for exact 2× conversion (`PhaseResponse::Linear` + High uses a dedicated 127-tap symmetric half-band FIR)
 * direct FFT-unit processing for common ratios, preserving the former quality-specific filter geometry
@@ -525,14 +530,15 @@ The main Cargo features are:
 | ------------- | :-----: | ------------------------------------------- |
 | `http`        |    ✓    | HTTP/HTTPS streaming decode                 |
 | `loudness-db` |    ✓    | SQLite-backed loudness metadata persistence |
-| `rubato`      |    ✓    | Pure-Rust quality-aware resampling          |
+| `rubato`      |    ✓    | CoreSinc, the owned quality-aware resampler |
 | `soxr`        |         | Native SoXR / SoX VHQ resampling            |
 | `raw-rubato`  |         | Upstream Rubato control for benchmarks      |
 
 The first three runtime features are enabled by default. `raw-rubato` only
 enables the benchmark control; a runtime resampler backend is still required.
-The default resampler is pure Rust: it needs no native resampler library or
-vcpkg/pkg-config probe and carries no LGPL-2.1 linking obligation.
+The default resampler is **CoreSinc**, the owned pure-Rust backend: it needs
+no native resampler library or vcpkg/pkg-config probe and carries no
+LGPL-2.1 linking obligation.
 
 ### `http`
 
@@ -556,9 +562,10 @@ This requires the libsoxr native library at build/link time. libsoxr is LGPL-2.1
 
 ### `rubato`
 
-Enables the owned pure-Rust resampling backend. Enabled by default. This feature
-name does not enable the upstream Rubato package. The optional `raw-rubato`
-feature enables that package solely for benchmark comparisons.
+Enables **CoreSinc**, the owned pure-Rust resampling backend. Enabled by
+default. This feature name does not enable the upstream Rubato package. The
+optional `raw-rubato` feature enables that package solely for benchmark
+comparisons.
 
 When both `soxr` and `rubato` are enabled, SoXR is selected, so adding `soxr` on
 top of the default feature set is enough to get the native backend back.
@@ -741,4 +748,4 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ### Native dependency licensing
 
-With the opt-in `soxr` feature, this crate links the SoXR native library (libsoxr), which is distributed under the LGPL-2.1. The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically link libsoxr carry LGPL-2.1 relinking obligations. The default feature set uses the pure-Rust `rubato` backend, does not link libsoxr, and carries no LGPL obligation. See [NOTICE](NOTICE) for details.
+With the opt-in `soxr` feature, this crate links the SoXR native library (libsoxr), which is distributed under the LGPL-2.1. The Rust source in this crate is MIT OR Apache-2.0, but binaries that statically link libsoxr carry LGPL-2.1 relinking obligations. The default feature set uses **CoreSinc**, the pure-Rust `rubato` backend, does not link libsoxr, and carries no LGPL obligation. See [NOTICE](NOTICE) for details.

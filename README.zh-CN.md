@@ -91,7 +91,7 @@
 ┌──────────────┐
 │   重采样     │
 │ SoX VHQ /    │
-│ 纯 Rust      │
+│ CoreSinc     │
 └──────┬───────┘
        │
        ▼
@@ -190,7 +190,7 @@
 | 领域                  | 能力                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **解码**            | 基于 Symphonia 0.6 的流式解码、类型化错误处理、按编解码器划分的无缝(gapless)所有权                          |
-| **重采样**        | SoX VHQ / SoXR 后端与质量感知的纯 Rust 重采样后端,统一在一个流式接口之后                                     |
+| **重采样**        | CoreSinc(自有纯 Rust)与原生 SoX VHQ / SoXR 后端,统一在一个流式接口之后                                 |
 | **响度**          | EBU R128 综合响度、真实峰值测量、离线分析与实时归一化                                                        |
 | **EQ**                | 10 段 IIR 双二阶 EQ 与线性/最小相位 FIR EQ                                                                     |
 | **卷积**       | 面向长脉冲响应的非均匀分区路由 FFT 卷积                                                                     |
@@ -338,7 +338,7 @@ fn process_callback_block(
 
 ## 重采样
 
-重采样通过统一的流式契约暴露。
+重采样通过统一的流式契约暴露。它由两个后端实现:自有的纯 Rust **CoreSinc**(机读标识 `rust`)与可选的原生 SoX VHQ / SoXR。
 
 本项目支持:
 
@@ -346,9 +346,9 @@ fn process_callback_block(
 
 可选的原生后端通过 libsoxr 提供 SoX 重采样，按质量档选择配置，最高支持 VHQ，以 `features = ["soxr"]` 启用。构建/链接时需要 libsoxr 原生库(LGPL-2.1;见 [许可证](#许可证))。
 
-### 纯 Rust
+### CoreSinc(纯 Rust)
 
-默认的 `rubato` 特性选择本 crate 自有的纯 Rust 后端（运行时名称为 `rust`）。
+默认的 `rubato` 特性选择自有的纯 Rust 后端 **CoreSinc**(运行时名称为 `rust`)。机读标识刻意保持为 `rust`，现有特性选择、诊断与历史基准记录因此无需迁移。
 保留特性名称以支持现有调用方，生产代码不使用上游 Rubato 包；可选的
 `raw-rubato` 特性仅为基准对照保留该依赖。路由包括：
 
@@ -509,12 +509,12 @@ audio-engine-core = {
 | ------------- | :-----: | ------------------------------------------- |
 | `http`        |    ✓    | HTTP/HTTPS 流式解码                 |
 | `loudness-db` |    ✓    | 基于 SQLite 的响度元数据持久化 |
-| `rubato`      |    ✓    | 纯 Rust 质量感知重采样          |
+| `rubato`      |    ✓    | CoreSinc 质量感知重采样        |
 | `soxr`        |         | 原生 SoXR / SoX VHQ 重采样            |
 | `raw-rubato`  |         | 基准比较使用的上游 Rubato 对照       |
 
 前三个运行时特性默认启用。`raw-rubato` 只启用基准对照，仍需选择运行时重采样后端。
-默认重采样后端为纯 Rust，不需要原生重采样库或 vcpkg/pkg-config 探测，也不承担 LGPL-2.1 链接义务。
+默认重采样后端为 **CoreSinc**，即纯 Rust 实现，不需要原生重采样库或 vcpkg/pkg-config 探测，也不承担 LGPL-2.1 链接义务。
 
 ### `http`
 
@@ -538,7 +538,7 @@ audio-engine-core = {
 
 ### `rubato`
 
-启用本 crate 自有的纯 Rust 重采样后端，默认开启。此特性不启用上游 Rubato 包；
+启用自有的纯 Rust 重采样后端 **CoreSinc**，默认开启。此特性不启用上游 Rubato 包；
 可选的 `raw-rubato` 特性仅为基准比较启用该包。
 
 当 `soxr` 与 `rubato` 同时启用时,SoXR 优先 —— 因此在默认特性集之上加上 `soxr` 即可切回原生后端。
@@ -714,4 +714,4 @@ cargo doc --open
 
 ### 原生依赖许可
 
-启用可选的 `soxr` 特性时,本 crate 链接 SoXR 原生库(libsoxr),其以 LGPL-2.1 分发。本 crate 的 Rust 源码为 MIT OR Apache-2.0,但静态链接 libsoxr 的二进制带有 LGPL-2.1 重链接义务。默认特性集使用纯 Rust `rubato` 后端,不链接 libsoxr,不承担 LGPL 义务。详见 [NOTICE](NOTICE)。
+启用可选的 `soxr` 特性时,本 crate 链接 SoXR 原生库(libsoxr),其以 LGPL-2.1 分发。本 crate 的 Rust 源码为 MIT OR Apache-2.0,但静态链接 libsoxr 的二进制带有 LGPL-2.1 重链接义务。默认特性集使用 **CoreSinc**,即纯 Rust `rubato` 后端,不链接 libsoxr,不承担 LGPL 义务。详见 [NOTICE](NOTICE)。
