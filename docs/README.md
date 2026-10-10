@@ -28,6 +28,15 @@ measurements stay compatible.
 * [`resampler/replacement.md`](resampler/replacement.md) — the replacement
   contract, recorded evidence and acceptance SHA-256 values.
 
+## Convolution
+
+* [`convolver-performance.md`](convolver-performance.md) — nonuniform partitioned
+  convolution for long stereo impulse responses: the accepted routing and
+  scheduling rules, the measurement scope, the rejected research
+  configurations, and the CPU/memory trade-off. The late tier costs about
+  766 KiB of extra retained heap per instance and only applies at or above
+  65536 taps per channel on stereo.
+
 ## Setup
 
 * [`installation.md`](installation.md) — native SoXR backend setup per platform.

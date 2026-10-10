@@ -201,7 +201,7 @@ That makes it possible to reuse the same processing layer across different playe
 | **Resampling**        | SoX VHQ / SoXR backend and quality-aware pure-Rust resampling backends behind a common streaming interface |
 | **Loudness**          | EBU R128 integrated loudness, True Peak measurement, offline analysis, and realtime normalization          |
 | **EQ**                | 10-band IIR biquad EQ and linear-/minimum-phase FIR EQ                                                     |
-| **Convolution**       | FFT convolution with partitioned routing for long impulse responses                                        |
+| **Convolution**       | FFT convolution with nonuniform partitioned routing for long impulse responses                             |
 | **Crossfeed**         | Bauer crossfeed                                                                                            |
 | **Saturation**        | Oversampled saturation with antialiasing                                                                   |
 | **Dynamic Loudness**  | Loudness compensation based on perceptual equal-loudness behavior                                          |
@@ -476,6 +476,23 @@ See:
 
 for the full methodology, configurations, raw measurements, and reproducible commands.
 
+### Convolver performance
+
+Stereo impulse responses of at least 65536 taps per channel now take a
+scheduled late partition on top of the 1024-frame base engine. Median
+nanoseconds per input scalar sample for that configuration:
+
+| Callback | Before | After |
+| --- | ---: | ---: |
+| 64 frames | 164.533 | 135.357 |
+| 512 frames | 84.936 | 53.068 |
+
+This is a CPU/memory trade rather than a uniform win: retained Rust heap grows
+by about 766 KiB per instance and the 64-frame p99 rises slightly. Other
+channel counts and shorter impulse responses keep uniform partitions. See
+`docs/convolver-performance.md` for the rejected configurations, the scheduling
+rules and the raw records.
+
 ---
 
 ## Installation
@@ -684,6 +701,9 @@ Stable `1.0.0` release: the public API is fully documented (`missing_docs` is de
 
 * [`docs/README.md`](docs/README.md) — documentation index
 * `docs/quality.md` — benchmark methodology and quality validation
+* `docs/convolver-performance.md` — nonuniform long-IR convolution measurements
+* `docs/audio-algorithm-research.md` — literature cross-reference for candidate
+  algorithm changes (Chinese)
 * `docs/resampler/` — CoreSinc/SoXR comparison, resource and replacement reports
 * `docs/installation.md` — native SoXR backend setup per platform
 * `examples/` — runnable examples

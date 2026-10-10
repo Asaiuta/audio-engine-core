@@ -193,7 +193,7 @@
 | **重采样**        | SoX VHQ / SoXR 后端与质量感知的纯 Rust 重采样后端,统一在一个流式接口之后                                     |
 | **响度**          | EBU R128 综合响度、真实峰值测量、离线分析与实时归一化                                                        |
 | **EQ**                | 10 段 IIR 双二阶 EQ 与线性/最小相位 FIR EQ                                                                     |
-| **卷积**       | 面向长脉冲响应的分区路由 FFT 卷积                                                                        |
+| **卷积**       | 面向长脉冲响应的非均匀分区路由 FFT 卷积                                                                     |
 | **交叉馈送**         | Bauer 交叉馈送                                                                                            |
 | **饱和**        | 带抗混叠的过采样饱和                                                                                   |
 | **动态响度**  | 基于感知等响曲线的响度补偿                                                                          |
@@ -463,6 +463,20 @@ fn process_callback_block(
 * `docs/quality.md`
 * `docs/resampler/comparison.md`
 
+### 卷积性能
+
+每声道至少 65536 taps 的立体声脉冲响应，现在会在 1024 帧基础引擎之上采用
+一个有界调度的晚期分区。该配置下每个输入标量采样的耗时中位数:
+
+| 回调 | 改动前 | 改动后 |
+| --- | ---: | ---: |
+| 64 帧 | 164.533 | 135.357 |
+| 512 帧 | 84.936 | 53.068 |
+
+这是 CPU 与内存的取舍，而非全面改善:保留 Rust 堆每实例增加约 766 KiB，
+64 帧 p99 略有上升。其它声道数与更短的脉冲响应保留均匀分区。被否决的
+配置、调度规则与原始记录见 `docs/convolver-performance.md`。
+
 ---
 
 ## 安装
@@ -663,6 +677,8 @@ cargo run --example equalizer_curve
 
 * [`docs/README.md`](docs/README.md) — 文档索引
 * `docs/quality.md` — 基准方法学与质量验证
+* `docs/convolver-performance.md` — 非均匀长 IR 卷积测量
+* `docs/audio-algorithm-research.md` — 候选算法变更的文献对照
 * `docs/resampler/` — CoreSinc/SoXR 对比、资源与替换报告
 * `docs/installation.md` — 各平台原生 SoXR 后端安装
 * `examples/` — 可运行示例
