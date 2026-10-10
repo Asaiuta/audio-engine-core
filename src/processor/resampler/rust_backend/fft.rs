@@ -78,9 +78,9 @@ pub(super) struct FftKernel {
     inverse_twiddles: Vec<Complex>,
     // Forward input is dead before the inverse produces its time-domain output.
     time: Vec<f64>,
-    input_spectrum: Vec<Complex>,
+    // Pair preparation overwrites only bins whose inputs have been read.
+    spectrum: Vec<Complex>,
     scratch: Vec<Complex>,
-    output_spectrum: Vec<Complex>,
     filter: Vec<Complex>,
     overlap: Vec<f64>,
 }
@@ -135,9 +135,8 @@ impl FftKernel {
             geometry,
             channels: config.channels,
             time,
-            input_spectrum: forward.make_output_vec(),
+            spectrum: vec![Complex::default(); (geometry.input + 1).max(geometry.output)],
             scratch,
-            output_spectrum: vec![Complex::default(); geometry.output],
             inverse_twiddles,
             filter,
             overlap,
@@ -189,7 +188,7 @@ impl FftKernel {
             self.forward
                 .process_with_scratch(
                     &mut self.time[..2 * ni],
-                    &mut self.input_spectrum,
+                    &mut self.spectrum[..ni + 1],
                     &mut self.scratch,
                 )
                 .map_err(|_| ProcessError::new("owned FFT transform failed"))?;
@@ -201,7 +200,7 @@ impl FftKernel {
                 std::slice::from_raw_parts_mut(self.time.as_mut_ptr().cast::<Complex>(), no)
             };
             self.inverse.process_outofplace_with_scratch(
-                &mut self.output_spectrum,
+                &mut self.spectrum[..no],
                 packed_time,
                 &mut self.scratch,
             );
@@ -231,26 +230,29 @@ impl FftKernel {
         let pair_end = no.div_ceil(2);
         let active_end = keep.min(pair_end);
         let both_start = (no + 1 - keep).clamp(1, active_end);
-        let dc = (self.input_spectrum[0] * self.filter[0]).re;
-        // Output Nyquist is zero in both the existing up/downsampling maps.
-        self.output_spectrum[0] = Complex::new(dc, dc);
+        let dc = (self.spectrum[0] * self.filter[0]).re;
+        // Save the unpaired middle bin before zeroing the inactive interval.
+        let middle = if no.is_multiple_of(2) && no / 2 < keep {
+            let value = self.spectrum[no / 2] * self.filter[no / 2];
+            Some((value + value).conj())
+        } else {
+            None
+        };
+        self.spectrum[0] = Complex::new(dc, dc);
 
-        // Split disjoint output halves once. Contiguous zipped slices let LLVM
-        // vectorize the arithmetic without per-bin indexed bounds checks.
-        let (output_left, output_right) = self.output_spectrum.split_at_mut(pair_end);
+        // Every pair reads k and no-k before writing either. No other pair
+        // needs those bins. In the single-member range no-k is outside keep,
+        // so stale contents there are never read. Disjoint slices preserve
+        // vectorization while removing the second spectrum allocation.
+        let (left, right) = self.spectrum[..no].split_at_mut(pair_end);
         let right_single_start = no - both_start + 1 - pair_end;
-        // Only the low member survives in this range of an upsampled spectrum.
-        for (((out, out_rev), (input, filter)), twiddle) in output_left[1..both_start]
+        for (((out, out_rev), filter), twiddle) in left[1..both_start]
             .iter_mut()
-            .zip(output_right[right_single_start..].iter_mut().rev())
-            .zip(
-                self.input_spectrum[1..both_start]
-                    .iter()
-                    .zip(&self.filter[1..both_start]),
-            )
+            .zip(right[right_single_start..].iter_mut().rev())
+            .zip(&self.filter[1..both_start])
             .zip(&self.inverse_twiddles[1..both_start])
         {
-            let value = *input * *filter;
+            let value = *out * *filter;
             let real = value.im * twiddle.re + value.re * twiddle.im;
             let imag = value.im * twiddle.im - value.re * twiddle.re;
             *out = Complex::new(value.re - real, value.im - imag);
@@ -259,31 +261,21 @@ impl FftKernel {
         if both_start < active_end {
             let reverse_start = no - active_end + 1;
             let reverse_end = no - both_start + 1;
-            for ((((out, out_rev), (input, filter)), (input_rev, filter_rev)), twiddle) in
-                output_left[both_start..active_end]
-                    .iter_mut()
-                    .zip(
-                        output_right[reverse_start - pair_end..reverse_end - pair_end]
-                            .iter_mut()
-                            .rev(),
-                    )
-                    .zip(
-                        self.input_spectrum[both_start..active_end]
-                            .iter()
-                            .zip(&self.filter[both_start..active_end]),
-                    )
-                    .zip(
-                        self.input_spectrum[reverse_start..reverse_end]
-                            .iter()
-                            .rev()
-                            .zip(self.filter[reverse_start..reverse_end].iter().rev()),
-                    )
-                    .zip(&self.inverse_twiddles[both_start..active_end])
+            for ((((out, out_rev), filter), filter_rev), twiddle) in left[both_start..active_end]
+                .iter_mut()
+                .zip(
+                    right[reverse_start - pair_end..reverse_end - pair_end]
+                        .iter_mut()
+                        .rev(),
+                )
+                .zip(&self.filter[both_start..active_end])
+                .zip(self.filter[reverse_start..reverse_end].iter().rev())
+                .zip(&self.inverse_twiddles[both_start..active_end])
             {
-                let left = *input * *filter;
-                let right = *input_rev * *filter_rev;
-                let sum = left + right;
-                let diff = left - right;
+                let low = *out * *filter;
+                let high = *out_rev * *filter_rev;
+                let sum = low + high;
+                let diff = low - high;
                 let real = sum.im * twiddle.re + diff.re * twiddle.im;
                 let imag = sum.im * twiddle.im - diff.re * twiddle.re;
                 *out = Complex::new(sum.re - real, diff.im - imag);
@@ -292,11 +284,10 @@ impl FftKernel {
         }
         let zero_end = no - active_end + 1;
         if active_end < zero_end {
-            self.output_spectrum[active_end..zero_end].fill(Complex::default());
+            self.spectrum[active_end..zero_end].fill(Complex::default());
         }
-        if no.is_multiple_of(2) && no / 2 < keep {
-            let value = self.input_spectrum[no / 2] * self.filter[no / 2];
-            self.output_spectrum[no / 2] = (value + value).conj();
+        if let Some(value) = middle {
+            self.spectrum[no / 2] = value;
         }
     }
 }
@@ -436,7 +427,7 @@ mod tests {
             // all other bins, and a single active bin on either side of each
             // conjugate pair. This exercises every retained bin, not one tone.
             for trial in 0..9 {
-                for (k, value) in kernel.input_spectrum.iter_mut().enumerate() {
+                for (k, value) in kernel.spectrum[..ni + 1].iter_mut().enumerate() {
                     let re = ((k * 17 + trial * 11 + 3) % 97) as f64 / 97.0 - 0.5;
                     let im = if k == 0 || k == ni {
                         0.0
@@ -451,7 +442,7 @@ mod tests {
                 }
                 spectrum.fill(Complex::default());
                 for (k, value) in spectrum[..keep].iter_mut().enumerate() {
-                    *value = kernel.input_spectrum[k] * kernel.filter[k];
+                    *value = kernel.spectrum[k] * kernel.filter[k];
                 }
                 inverse
                     .process_with_scratch(&mut spectrum, &mut expected, &mut scratch)
@@ -461,7 +452,7 @@ mod tests {
                 // production real/complex slice cast.
                 let mut actual = vec![Complex::default(); no];
                 kernel.inverse.process_outofplace_with_scratch(
-                    &mut kernel.output_spectrum,
+                    &mut kernel.spectrum[..no],
                     &mut actual,
                     &mut kernel.scratch,
                 );

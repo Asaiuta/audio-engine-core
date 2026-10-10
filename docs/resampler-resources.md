@@ -1,15 +1,45 @@
 # Resampler CPU, memory and FFT results
 
-Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The latest owned implementation shares FFT time-domain/scratch storage and specializes common-channel transfers. It follows the fused-inverse optimization documented below.
+Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The latest owned implementation also shares frequency storage by preparing inverse conjugate pairs in place. It follows the time-buffer and fused-inverse optimizations documented below.
 
-## Latest storage and capacity measurements
+## Latest frequency storage and bounded retention
+
+Retained Rust heap falls another **5.9–9.5%**, to **88.16 / 88.17 / 143.03 /
+72.01 / 146.53 KiB** for stereo 44.1→48 / 48→44.1 / 44.1→96 / 96→44.1 and
+six-channel 44.1→48. The existing inverse and complete-block RealFFT oracles
+pass with maximum error 0 across 556,212 outputs; allocation-free streaming
+still passes. Coefficients and scheduling are unchanged.
+
+The one 80-trial timing schedule is **inconclusive for speed**. The apparent
+18.6% median reduction at 48→44.1 is smaller than the drift between the two
+unchanged baseline children (9.195–10.196 versus 5.599–5.849 ns/sample). The
+six-channel observed median increased 2.9%; other cases were faster or flat.
+All observations are retained without further retries. See the
+[current table](resampler-comparison.md#latest-spectrum-storage-and-lifecycle-results)
+and [raw paired data](data/resampler-spectrum-reuse-2026-10-10.json).
+
+Optional `--resource-retention-rounds=32` collects 32 one-instance reuse/reset
+and 32 recreate/drop streams after initial pool warmup. Fourteen fresh children
+cover 12 recipes and 896 complete-duration streams. Busy bytes are flat within
+each lifecycle sequence; recreate/drop returns to the warmed baseline.
+SpeexDSP's private commit varies by one 4 KiB page despite flat busy bytes.
+r8brain retains 1431.42 KiB from pool warmup, with no subsequent accumulation in
+these 64 streams; this is not proof of a cache or long-term leak freedom.
+
+SoXR capacity comparisons are now filled: project SoXR uses 195.05 KiB/instance
+at both 33,326 and 622 advertised caller frames; raw libsoxr uses 195.03 KiB at
+33,326 and 1,070 frames. See [lifecycle and capacity observations](data/resampler-retention-2026-10-10.json).
+Native exact allocation-call counts, temporal peaks and long-duration growth
+remain outside these snapshots.
+
+## Earlier time-buffer storage and capacity measurements
 
 Retained Rust heap decreased **5.6–8.7%** across five common configurations:
 stereo 44.1→48 and 48→44.1 use 97.38 KiB instead of 106.62; 44.1→96 uses
 152.26 instead of 161.49; 96→44.1 uses 76.63 instead of 81.27; six-channel
 44.1→48 uses 155.76 instead of 164.99. The final paired schedule measured
 **0.3% / 5.5% / 4.7% / 3.1% / 2.6%** lower wall medians in that order; the
-first case is effectively flat. See the [current table and validation](resampler-comparison.md#latest-storage-optimization-and-supplemental-metrics)
+first case is effectively flat. See the [current table and validation](resampler-comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
 and [80 paired trials](data/resampler-fft-layout-2026-10-10.json). These are
 local observations, not universal speed claims or FFmpeg-speed parity.
 
@@ -21,7 +51,7 @@ The other nine recipes had unchanged busy-byte increments between the policies.
 See the [capacity table](resampler-comparison.md#output-capacity-memory-comparison)
 and [raw observations](data/resampler-capacity-memory-2026-10-10.json).
 Advertised capacity is not minimum native capacity. SoXR capacity sensitivity
-was not measured in this round.
+was not measured in that earlier round; the latest observations above fill it.
 
 Lazy progress-label formatting removes benchmark-wrapper allocations on
 successful native calls. All ten measured recipes now have zero Rust-side
@@ -123,6 +153,12 @@ traces that cover dependency DLLs, aligned allocations and realloc/free pairs.
 To compare output capacities, run memory-only mode once with
 `--resource-output=common` (default) and once with `--resource-output=adapter`.
 Both reports retain `output_capacity_policy` and `output_capacity_frames`.
+
+Add `--resource-retention-rounds=32` (accepted range 1–128) for bounded lifecycle
+observations. They run after throughput and report `retention.valid`, completed
+stream counts, frame counts and process heap/commit snapshots. A lifecycle
+error stays separate from existing CPU/pool observations. Use memory-only mode
+when collecting just these observations.
 
 For supplemental metrics without rerunning the full quality/throughput matrix:
 

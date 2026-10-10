@@ -26,12 +26,18 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
     let mut child_case = None;
     let mut memory_only = false;
     let mut adapter_capacity = false;
+    let mut retention_rounds = 0usize;
     let mut milliseconds = 250u64;
     for arg in &argv {
         if arg == "--resources" {
             continue;
         } else if arg == "--resource-memory-only" {
             memory_only = true;
+        } else if let Some(value) = arg.strip_prefix("--resource-retention-rounds=") {
+            retention_rounds = value.parse().map_err(|_| "invalid retention round count")?;
+            if !(1..=128).contains(&retention_rounds) {
+                return Err("--resource-retention-rounds must be in 1..=128".into());
+            }
         } else if let Some(value) = arg.strip_prefix("--resource-output=") {
             adapter_capacity = match value {
                 "adapter" => true,
@@ -59,6 +65,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
         println!(
             "--resources [--resource-engines=id,id] [--resource-ms=250] [--resource-memory-only] \
                   [--resource-output=common|adapter] [--pinned --pin-core 2] [--out report.json] \
+                  [--resource-retention-rounds=32] \
                   [--engine-library id=absolute-path]"
         );
         return Ok(());
@@ -100,6 +107,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
                         Duration::from_millis(milliseconds),
                         memory_only,
                         adapter_capacity,
+                        retention_rounds,
                     )?;
                     result["scheduling"] = json!(scheduling);
                     println!("{result}");
@@ -146,6 +154,7 @@ pub(super) fn run(argv: Vec<String>) -> Result<(), String> {
             "trials": if memory_only { 0 } else { TIMING_TRIALS },
             "memory_only": memory_only,
             "output_capacity_policy": if adapter_capacity { "adapter_advertised" } else { "common_conservative" },
+            "retention_rounds": retention_rounds,
             "minimum_trial_ms": milliseconds,
             "memory_instances": MEMORY_INSTANCES,
             "fresh_process_per_case": true,
@@ -192,6 +201,7 @@ fn measure(
     duration: Duration,
     memory_only: bool,
     adapter_capacity: bool,
+    retention_rounds: usize,
 ) -> Result<Value, String> {
     let inputs = PreparedInputs::new(rate);
     let scope = AllocationScope::start();
@@ -377,6 +387,20 @@ fn measure(
     let heap_busy_blocks_increment = heap_before
         .zip(heap_warm)
         .map(|(a, b)| (b.busy_blocks as f64 - a.busy_blocks as f64) / MEMORY_INSTANCES as f64);
+    // Extra lifecycle observations run after all steady timing. Preserve their
+    // failures independently of successful CPU and pool-memory observations.
+    let retention = (retention_rounds != 0).then(|| {
+        drop(adapter);
+        retention_observations(
+            factory,
+            rate,
+            &inputs,
+            &mut output_f64,
+            &mut output_f32,
+            retention_rounds,
+        )
+        .unwrap_or_else(|error| json!({"valid": false, "error": error}))
+    });
     Ok(json!({
         "memory_only": memory_only,
         "case_key": case_key(factory, rate),
@@ -403,7 +427,75 @@ fn measure(
         "pooled_working_set_increment_bytes_per_instance": resident_increment,
         "pooled_process_heap_busy_bytes_increment_per_instance": heap_busy_increment,
         "pooled_process_heap_busy_blocks_increment_per_instance": heap_busy_blocks_increment,
-        "trials": trials
+        "trials": trials,
+        "retention": retention
+    }))
+}
+
+#[derive(Serialize)]
+struct RetentionPoint {
+    phase: &'static str,
+    completed_rounds: usize,
+    process_memory: Option<ProcessMemory>,
+    process_heap: Option<ProcessHeapSnapshot>,
+}
+
+fn retention_observations(
+    factory: &EngineFactory,
+    rate: RatePair,
+    inputs: &PreparedInputs,
+    output_f64: &mut [f64],
+    output_f32: &mut [f32],
+    rounds: usize,
+) -> Result<Value, String> {
+    // Reserve the observation storage before the baseline and keep it alive
+    // through the final snapshot. JSON serialization starts only afterwards.
+    let mut points = Vec::with_capacity(2 * rounds + 3);
+    let observe = |phase, completed_rounds| RetentionPoint {
+        phase,
+        completed_rounds,
+        process_memory: process_memory(),
+        process_heap: process_heap_snapshot(),
+    };
+    let mut cycle = |adapter: &mut adapters::EngineAdapter| -> Result<(), String> {
+        let mut output_frames = 0;
+        for call in 0..64 {
+            let p = process_prepared(adapter, inputs, output_f64, output_f32, call == 63)?;
+            if p.consumed_frames != CHUNK_FRAMES || p.finished {
+                return Err("incomplete retention input call".into());
+            }
+            output_frames += p.produced_frames;
+        }
+        let (drained, terminal) = drain_adapter(adapter, output_f64, output_f32)?;
+        if !terminal
+            || output_frames + drained != adapter.expected_complete_output_frames(64 * CHUNK_FRAMES)
+        {
+            return Err("retention cycle failed complete-duration check".into());
+        }
+        Ok(())
+    };
+    points.push(observe("before_reuse", 0));
+    let mut reused = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
+    let expected = reused.expected_complete_output_frames(64 * CHUNK_FRAMES);
+    for round in 1..=rounds {
+        cycle(&mut reused)?;
+        reused.reset()?;
+        points.push(observe("after_reset", round));
+    }
+    drop(reused);
+    points.push(observe("after_reuse_drop", rounds));
+    for round in 1..=rounds {
+        let mut fresh = factory.create(rate, rate.channels, CHUNK_FRAMES)?;
+        cycle(&mut fresh)?;
+        drop(fresh);
+        points.push(observe("after_recreate_drop", round));
+    }
+    Ok(json!({
+        "valid": true, "rounds_per_lifecycle": rounds, "completed_streams": 2 * rounds,
+        "input_frames_per_stream": 64 * CHUNK_FRAMES,
+        "expected_output_frames_per_stream": expected,
+        "scope": "sequential one-instance cycles after initial 32-instance pool warmup; heap/commit snapshots, not allocation peaks or long-term leak freedom",
+        "points": points
     }))
 }
 

@@ -1287,6 +1287,35 @@ comparisons, and offline-render measurements.
 
 ### Resampler performance & Pareto updates
 
+#### 2026-10-10 inplace FFT spectrum and bounded retention
+
+The owned FFT now reuses the forward spectrum for inverse preparation, reading
+each conjugate pair before overwriting it. Retained Rust heap falls another
+**5.9–9.5%**, to 88.16 / 88.17 / 143.03 / 72.01 / 146.53 KiB for the four
+stereo directions and six-channel 44.1→48. Filter coefficients, geometry,
+arithmetic and scheduling are unchanged. The two existing FFT oracles cover
+556,212 outputs with maximum error 0; the allocation-free streaming test passes.
+The earlier full quality grids were not rerun for this storage-only change.
+
+The single 80-trial paired schedule does **not confirm another speedup**:
+baseline timing drift exceeds the apparent largest gain, and six-channel
+44.1→48 has a 2.9% higher observed median. All raw results remain visible;
+no extra timing retries were made. The memory benefit is established separately.
+
+The new optional retention mode measured **12 recipes in 14 children, 896
+complete streams**, with 32 reuse/reset and 32 recreate/drop cycles each.
+Heap busy-byte snapshots stay flat within each sequence and recreate/drop
+returns to the warmed baseline. r8brain's 1431.42 KiB process retention after
+initial pool warmup does not accumulate further in these cycles. This does
+not identify the retained blocks or prove long-term leak freedom.
+
+Project SoXR and raw libsoxr now have both capacity observations: respectively
+195.05 and 195.03 KiB/instance at common and advertised caller capacities.
+Exact native allocation calls/peaks and long-duration growth remain open.
+See the [current comparison](resampler-comparison.md#latest-spectrum-storage-and-lifecycle-results),
+[paired data](data/resampler-spectrum-reuse-2026-10-10.json), and
+[lifecycle data](data/resampler-retention-2026-10-10.json).
+
 #### 2026-10-10 shared FFT storage and supplemental diagnostics
 
 The latest owned FFT shares forward-input/inverse-output storage and scratch,
@@ -1315,7 +1344,7 @@ minimum native memory. Lazy native progress-label formatting removes successful
 wrapper allocations; all ten recipes report zero Rust-side hot allocation
 operations, without counting C/C++ malloc/free.
 
-The [main comparison](resampler-comparison.md#latest-storage-optimization-and-supplemental-metrics)
+The [main comparison](resampler-comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
 contains the updated tables, limits and metric-gap inventory. Raw evidence:
 [paired resources](data/resampler-fft-layout-2026-10-10.json),
 [diagnostics](data/resampler-diagnostics-2026-10-10.json), and

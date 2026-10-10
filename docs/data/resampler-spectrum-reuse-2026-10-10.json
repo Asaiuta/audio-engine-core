@@ -1,0 +1,4251 @@
+{
+  "schema": "spectrum_reuse_paired_v1",
+  "baseline_commit": "1e90a9a",
+  "pairs": [
+    {
+      "rate_pair": "music_44k1_to_48k",
+      "valid": true,
+      "schedule": ["baseline","candidate","candidate","baseline"],
+      "metrics": {
+        "wall_ns_per_input_sample": {
+          "baseline": 6.796061425896828,
+          "candidate": 6.527937772767029,
+          "reduction_pct": 3.9452800133338517
+        },
+        "cpu_ns_per_input_sample": {
+          "baseline": 6.7721635079210944,
+          "candidate": 6.509798124756109,
+          "reduction_pct": 3.874173782988377
+        },
+        "cycles_per_input_sample": {
+          "baseline": 20.89643680386539,
+          "candidate": 20.084616875161927,
+          "reduction_pct": 3.884968218855833
+        },
+        "one_core_realtime_cpu_pct": {
+          "baseline": 0.05973048213986405,
+          "candidate": 0.05741641946034888,
+          "reduction_pct": 3.874173782988388
+        }
+      },
+      "records": {
+        "baseline": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3090,
+                "peak_pagefile_bytes": 5468160,
+                "peak_working_set_bytes": 10014720,
+                "private_commit_bytes": 5468160,
+                "working_set_bytes": 10014720
+              },
+              "memory_after_drop": {
+                "page_faults": 3102,
+                "peak_pagefile_bytes": 5468160,
+                "peak_working_set_bytes": 10063872,
+                "private_commit_bytes": 3158016,
+                "working_set_bytes": 7831552
+              },
+              "memory_after_warmup": {
+                "page_faults": 3101,
+                "peak_pagefile_bytes": 5468160,
+                "peak_working_set_bytes": 10059776,
+                "private_commit_bytes": 5468160,
+                "working_set_bytes": 10059776
+              },
+              "memory_before_instances": {
+                "page_faults": 2230,
+                "peak_pagefile_bytes": 1880064,
+                "peak_working_set_bytes": 6578176,
+                "private_commit_bytes": 1810432,
+                "working_set_bytes": 6500352
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 114304.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 99976.0,
+              "pooled_working_set_increment_bytes_per_instance": 111232.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4141311,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 942079,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4141311,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 942079,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 3191040,
+                "reallocations": 0,
+                "retained_bytes": 3191040
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 99720,
+                "reallocations": 0,
+                "retained_bytes": 99720
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 86200,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 19939840,
+                  "complete_output_frames": 21703227,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.274173134251645,
+                  "cycles_per_input_sample": 19.391052020223515,
+                  "expected_complete_output_frames": 21703227,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.68487616945312,
+                  "one_core_realtime_cpu_pct": 0.05533820704409951,
+                  "process_calls": 38912,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 772653687,
+                  "timed_input_audio_seconds": 451.76743764172335,
+                  "timed_input_frames": 19922944,
+                  "trial_index": 0,
+                  "wall_ns": 250790300,
+                  "wall_ns_per_input_sample": 6.294007050363641
+                },
+                {
+                  "complete_input_frames": 19153408,
+                  "complete_output_frames": 20847247,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.532015865796233,
+                  "cycles_per_input_sample": 20.03230246452436,
+                  "expected_complete_output_frames": 20847247,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.90604835212966,
+                  "one_core_realtime_cpu_pct": 0.05761237993632277,
+                  "process_calls": 37376,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 766696793,
+                  "timed_input_audio_seconds": 433.93451247165535,
+                  "timed_input_frames": 19136512,
+                  "trial_index": 1,
+                  "wall_ns": 250235100,
+                  "wall_ns_per_input_sample": 6.538158573516427
+                },
+                {
+                  "complete_input_frames": 19546624,
+                  "complete_output_frames": 21275237,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.400498767827181,
+                  "cycles_per_input_sample": 19.70710874723908,
+                  "expected_complete_output_frames": 21275237,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.79776979927874,
+                  "one_core_realtime_cpu_pct": 0.056452399132235744,
+                  "process_calls": 38144,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 769748947,
+                  "timed_input_audio_seconds": 442.8509750566893,
+                  "timed_input_frames": 19529728,
+                  "trial_index": 2,
+                  "wall_ns": 250506600,
+                  "wall_ns_per_input_sample": 6.413468738530306
+                },
+                {
+                  "complete_input_frames": 20070912,
+                  "complete_output_frames": 21845891,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.233165466707517,
+                  "cycles_per_input_sample": 19.279867758158765,
+                  "expected_complete_output_frames": 21845891,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.70026113492396,
+                  "one_core_realtime_cpu_pct": 0.054976519416360295,
+                  "process_calls": 39168,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 773277553,
+                  "timed_input_audio_seconds": 454.7395918367347,
+                  "timed_input_frames": 20054016,
+                  "trial_index": 3,
+                  "wall_ns": 250751600,
+                  "wall_ns_per_input_sample": 6.251904855366626
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3065,
+                "peak_pagefile_bytes": 5267456,
+                "peak_working_set_bytes": 9924608,
+                "private_commit_bytes": 5267456,
+                "working_set_bytes": 9924608
+              },
+              "memory_after_drop": {
+                "page_faults": 3077,
+                "peak_pagefile_bytes": 5267456,
+                "peak_working_set_bytes": 9973760,
+                "private_commit_bytes": 2895872,
+                "working_set_bytes": 7630848
+              },
+              "memory_after_warmup": {
+                "page_faults": 3076,
+                "peak_pagefile_bytes": 5267456,
+                "peak_working_set_bytes": 9969664,
+                "private_commit_bytes": 5267456,
+                "working_set_bytes": 9969664
+              },
+              "memory_before_instances": {
+                "page_faults": 2228,
+                "peak_pagefile_bytes": 2084864,
+                "peak_working_set_bytes": 6574080,
+                "private_commit_bytes": 1830912,
+                "working_set_bytes": 6500352
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 107392.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 99976.0,
+              "pooled_working_set_increment_bytes_per_instance": 108416.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4141311,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 942079,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4141311,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 942079,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 3191040,
+                "reallocations": 0,
+                "retained_bytes": 3191040
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 99720,
+                "reallocations": 0,
+                "retained_bytes": 99720
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 76600,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 17187328,
+                  "complete_output_frames": 18707296,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.279956613788168,
+                  "cycles_per_input_sample": 22.53451657477226,
+                  "expected_complete_output_frames": 18707296,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.5852870306894,
+                  "one_core_realtime_cpu_pct": 0.06420921733361164,
+                  "process_calls": 33536,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 773854769,
+                  "timed_input_audio_seconds": 389.3521995464853,
+                  "timed_input_frames": 17170432,
+                  "trial_index": 0,
+                  "wall_ns": 251041100,
+                  "wall_ns_per_input_sample": 7.310273265110627
+                },
+                {
+                  "complete_input_frames": 17187328,
+                  "complete_output_frames": 18707296,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.279956613788168,
+                  "cycles_per_input_sample": 22.644649825933325,
+                  "expected_complete_output_frames": 18707296,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.079433170526,
+                  "one_core_realtime_cpu_pct": 0.06420921733361164,
+                  "process_calls": 33536,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777636840,
+                  "timed_input_audio_seconds": 389.3521995464853,
+                  "timed_input_frames": 17170432,
+                  "trial_index": 1,
+                  "wall_ns": 252322800,
+                  "wall_ns_per_input_sample": 7.347596146678197
+                },
+                {
+                  "complete_input_frames": 17842688,
+                  "complete_output_frames": 19420613,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.012311150045956,
+                  "cycles_per_input_sample": 21.760571143206427,
+                  "expected_complete_output_frames": 19420613,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.40950752529972,
+                  "one_core_realtime_cpu_pct": 0.06184858434340533,
+                  "process_calls": 34816,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775798830,
+                  "timed_input_audio_seconds": 404.21297052154193,
+                  "timed_input_frames": 17825792,
+                  "trial_index": 2,
+                  "wall_ns": 251485000,
+                  "wall_ns_per_input_sample": 7.0539642782772285
+                },
+                {
+                  "complete_input_frames": 17580544,
+                  "complete_output_frames": 19135286,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.116972510494403,
+                  "cycles_per_input_sample": 21.942468927867377,
+                  "expected_complete_output_frames": 19135286,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.78251403241495,
+                  "one_core_realtime_cpu_pct": 0.06277169754256064,
+                  "process_calls": 34304,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 770779601,
+                  "timed_input_audio_seconds": 398.26866213151925,
+                  "timed_input_frames": 17563648,
+                  "trial_index": 3,
+                  "wall_ns": 250544900,
+                  "wall_ns_per_input_sample": 7.132484663778277
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "candidate": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3004,
+                "peak_pagefile_bytes": 5181440,
+                "peak_working_set_bytes": 9740288,
+                "private_commit_bytes": 5181440,
+                "working_set_bytes": 9740288
+              },
+              "memory_after_drop": {
+                "page_faults": 3016,
+                "peak_pagefile_bytes": 5181440,
+                "peak_working_set_bytes": 9789440,
+                "private_commit_bytes": 2883584,
+                "working_set_bytes": 7557120
+              },
+              "memory_after_warmup": {
+                "page_faults": 3016,
+                "peak_pagefile_bytes": 5181440,
+                "peak_working_set_bytes": 9789440,
+                "private_commit_bytes": 5181440,
+                "working_set_bytes": 9789440
+              },
+              "memory_before_instances": {
+                "page_faults": 2213,
+                "peak_pagefile_bytes": 2125824,
+                "peak_working_set_bytes": 6582272,
+                "private_commit_bytes": 1802240,
+                "working_set_bytes": 6508544
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 105600.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 90528.0,
+              "pooled_working_set_increment_bytes_per_instance": 102528.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3839018,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 942122,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3839018,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 942122,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2888704,
+                "reallocations": 0,
+                "retained_bytes": 2888704
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 90272,
+                "reallocations": 0,
+                "retained_bytes": 90272
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 85100,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 18498048,
+                  "complete_output_frames": 20133930,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.76364763408688,
+                  "cycles_per_input_sample": 20.856550987730635,
+                  "expected_complete_output_frames": 20133930,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.42037918932623,
+                  "one_core_realtime_cpu_pct": 0.059655372132646274,
+                  "process_calls": 36096,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 770906178,
+                  "timed_input_audio_seconds": 419.07374149659864,
+                  "timed_input_frames": 18481152,
+                  "trial_index": 0,
+                  "wall_ns": 251457500,
+                  "wall_ns_per_input_sample": 6.803079699793606
+                },
+                {
+                  "complete_input_frames": 17449472,
+                  "complete_output_frames": 18992623,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.618638805876997,
+                  "cycles_per_input_sample": 22.226506226044847,
+                  "expected_complete_output_frames": 18992623,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.50756437103391,
+                  "one_core_realtime_cpu_pct": 0.06719639426783511,
+                  "process_calls": 34048,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774930518,
+                  "timed_input_audio_seconds": 395.29650793650796,
+                  "timed_input_frames": 17432576,
+                  "trial_index": 1,
+                  "wall_ns": 251759200,
+                  "wall_ns_per_input_sample": 7.220940840871711
+                },
+                {
+                  "complete_input_frames": 19284480,
+                  "complete_output_frames": 20989910,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.487580383715986,
+                  "cycles_per_input_sample": 20.0983731276324,
+                  "expected_complete_output_frames": 20989910,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.58532669962277,
+                  "one_core_realtime_cpu_pct": 0.05722045898437499,
+                  "process_calls": 37632,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774494185,
+                  "timed_input_audio_seconds": 436.9066666666667,
+                  "timed_input_frames": 19267584,
+                  "trial_index": 2,
+                  "wall_ns": 251041000,
+                  "wall_ns_per_input_sample": 6.51459466843378
+                },
+                {
+                  "complete_input_frames": 19284480,
+                  "complete_output_frames": 20989910,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.487580383715986,
+                  "cycles_per_input_sample": 20.07086062269146,
+                  "expected_complete_output_frames": 20989910,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.6618274869712,
+                  "one_core_realtime_cpu_pct": 0.05722045898437499,
+                  "process_calls": 37632,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 773433986,
+                  "timed_input_audio_seconds": 436.9066666666667,
+                  "timed_input_frames": 19267584,
+                  "trial_index": 3,
+                  "wall_ns": 250848300,
+                  "wall_ns_per_input_sample": 6.509594041474012
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3013,
+                "peak_pagefile_bytes": 5193728,
+                "peak_working_set_bytes": 9740288,
+                "private_commit_bytes": 5193728,
+                "working_set_bytes": 9740288
+              },
+              "memory_after_drop": {
+                "page_faults": 3025,
+                "peak_pagefile_bytes": 5193728,
+                "peak_working_set_bytes": 9789440,
+                "private_commit_bytes": 2908160,
+                "working_set_bytes": 7557120
+              },
+              "memory_after_warmup": {
+                "page_faults": 3025,
+                "peak_pagefile_bytes": 5193728,
+                "peak_working_set_bytes": 9789440,
+                "private_commit_bytes": 5193728,
+                "working_set_bytes": 9789440
+              },
+              "memory_before_instances": {
+                "page_faults": 2222,
+                "peak_pagefile_bytes": 2146304,
+                "peak_working_set_bytes": 6586368,
+                "private_commit_bytes": 1822720,
+                "working_set_bytes": 6508544
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 105344.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 90528.0,
+              "pooled_working_set_increment_bytes_per_instance": 102528.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3839018,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 942122,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3839018,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 942122,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2888704,
+                "reallocations": 0,
+                "retained_bytes": 2888704
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 90272,
+                "reallocations": 0,
+                "retained_bytes": 90272
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 84200,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 19153408,
+                  "complete_output_frames": 20847247,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.532015865796233,
+                  "cycles_per_input_sample": 20.308141812886277,
+                  "expected_complete_output_frames": 20847247,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.35336853621887,
+                  "one_core_realtime_cpu_pct": 0.05761237993632277,
+                  "process_calls": 37376,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777253999,
+                  "timed_input_audio_seconds": 433.93451247165535,
+                  "timed_input_frames": 19136512,
+                  "trial_index": 0,
+                  "wall_ns": 251627100,
+                  "wall_ns_per_input_sample": 6.574528837857181
+                },
+                {
+                  "complete_input_frames": 19284480,
+                  "complete_output_frames": 20989910,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.487580383715986,
+                  "cycles_per_input_sample": 20.028118989905533,
+                  "expected_complete_output_frames": 20989910,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.90644760246505,
+                  "one_core_realtime_cpu_pct": 0.05722045898437499,
+                  "process_calls": 37632,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771786930,
+                  "timed_input_audio_seconds": 436.9066666666667,
+                  "timed_input_frames": 19267584,
+                  "trial_index": 1,
+                  "wall_ns": 250234100,
+                  "wall_ns_per_input_sample": 6.493655353987298
+                },
+                {
+                  "complete_input_frames": 19415552,
+                  "complete_output_frames": 21132574,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.4437453811233105,
+                  "cycles_per_input_sample": 19.949130444913298,
+                  "expected_complete_output_frames": 21132574,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.52146100689446,
+                  "one_core_realtime_cpu_pct": 0.05683383426150761,
+                  "process_calls": 37888,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 773972638,
+                  "timed_input_audio_seconds": 439.878820861678,
+                  "timed_input_frames": 19398656,
+                  "trial_index": 2,
+                  "wall_ns": 251202100,
+                  "wall_ns_per_input_sample": 6.474729486413904
+                },
+                {
+                  "complete_input_frames": 19153408,
+                  "complete_output_frames": 20847247,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.532015865796233,
+                  "cycles_per_input_sample": 20.02069878251585,
+                  "expected_complete_output_frames": 20847247,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.85836090089816,
+                  "one_core_realtime_cpu_pct": 0.05761237993632277,
+                  "process_calls": 37376,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 766252685,
+                  "timed_input_audio_seconds": 433.93451247165535,
+                  "timed_input_frames": 19136512,
+                  "trial_index": 3,
+                  "wall_ns": 250354600,
+                  "wall_ns_per_input_sample": 6.541280877100278
+                }
+              ]
+            },
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "rate_pair": "music_48k_to_44k1",
+      "valid": true,
+      "schedule": ["candidate","baseline","baseline","candidate"],
+      "metrics": {
+        "wall_ns_per_input_sample": {
+          "baseline": 7.522032095388445,
+          "candidate": 6.125013220543956,
+          "reduction_pct": 18.572359930516168
+        },
+        "cpu_ns_per_input_sample": {
+          "baseline": 7.547776655093325,
+          "candidate": 6.11629361420675,
+          "reduction_pct": 18.965625326507162
+        },
+        "cycles_per_input_sample": {
+          "baseline": 23.16667341246614,
+          "candidate": 18.590706433969387,
+          "reduction_pct": 19.75236969514317
+        },
+        "one_core_realtime_cpu_pct": {
+          "baseline": 0.07245865588889591,
+          "candidate": 0.0587164186963848,
+          "reduction_pct": 18.96562532650715
+        }
+      },
+      "records": {
+        "baseline": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_48k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_48k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 48000,
+              "memory_after_construction": {
+                "page_faults": 3124,
+                "peak_pagefile_bytes": 5775360,
+                "peak_working_set_bytes": 10153984,
+                "private_commit_bytes": 5775360,
+                "working_set_bytes": 10153984
+              },
+              "memory_after_drop": {
+                "page_faults": 3136,
+                "peak_pagefile_bytes": 5775360,
+                "peak_working_set_bytes": 10203136,
+                "private_commit_bytes": 4325376,
+                "working_set_bytes": 7921664
+              },
+              "memory_after_warmup": {
+                "page_faults": 3135,
+                "peak_pagefile_bytes": 5775360,
+                "peak_working_set_bytes": 10199040,
+                "private_commit_bytes": 5775360,
+                "working_set_bytes": 10199040
+              },
+              "memory_before_instances": {
+                "page_faults": 2231,
+                "peak_pagefile_bytes": 2142208,
+                "peak_working_set_bytes": 6582272,
+                "private_commit_bytes": 1896448,
+                "working_set_bytes": 6504448
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33239,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 121216.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 99976.0,
+              "pooled_working_set_increment_bytes_per_instance": 115456.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4139223,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 939991,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4139223,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 939991,
+                "heap_count": 2
+              },
+              "rate_pair": "music_48k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 3191040,
+                "reallocations": 0,
+                "retained_bytes": 3191040
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 99720,
+                "reallocations": 0,
+                "retained_bytes": 99720
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 119700,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 12599808,
+                  "complete_output_frames": 11576074,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.934107462565104,
+                  "cycles_per_input_sample": 30.817243337631226,
+                  "expected_complete_output_frames": 11576074,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.97204781543081,
+                  "one_core_realtime_cpu_pct": 0.095367431640625,
+                  "process_calls": 24576,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 775541322,
+                  "timed_input_audio_seconds": 262.144,
+                  "timed_input_frames": 12582912,
+                  "trial_index": 0,
+                  "wall_ns": 250069900,
+                  "wall_ns_per_input_sample": 9.936885039011637
+                },
+                {
+                  "complete_input_frames": 12337664,
+                  "complete_output_frames": 11335229,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.14547145113032,
+                  "cycles_per_input_sample": 31.56424205861193,
+                  "expected_complete_output_frames": 11335229,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.50355685414331,
+                  "one_core_realtime_cpu_pct": 0.09739652593085107,
+                  "process_calls": 24064,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777791407,
+                  "timed_input_audio_seconds": 256.68266666666665,
+                  "timed_input_frames": 12320768,
+                  "trial_index": 1,
+                  "wall_ns": 251247300,
+                  "wall_ns_per_input_sample": 10.196089237294299
+                },
+                {
+                  "complete_input_frames": 13517312,
+                  "complete_output_frames": 12419030,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.258973945691748,
+                  "cycles_per_input_sample": 28.813642224061837,
+                  "expected_complete_output_frames": 12419030,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.09510315602049,
+                  "one_core_realtime_cpu_pct": 0.08888614987864077,
+                  "process_calls": 26368,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777992313,
+                  "timed_input_audio_seconds": 281.25866666666667,
+                  "timed_input_frames": 13500416,
+                  "trial_index": 2,
+                  "wall_ns": 252282900,
+                  "wall_ns_per_input_sample": 9.343523192174226
+                },
+                {
+                  "complete_input_frames": 13648384,
+                  "complete_output_frames": 12539453,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.169945350060097,
+                  "cycles_per_input_sample": 28.295880170968864,
+                  "expected_complete_output_frames": 12539453,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.7289765333729,
+                  "one_core_realtime_cpu_pct": 0.08803147536057693,
+                  "process_calls": 26624,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771429902,
+                  "timed_input_audio_seconds": 283.9893333333333,
+                  "timed_input_frames": 13631488,
+                  "trial_index": 3,
+                  "wall_ns": 250679400,
+                  "wall_ns_per_input_sample": 9.194865593543419
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_48k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_48k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 48000,
+              "memory_after_construction": {
+                "page_faults": 3123,
+                "peak_pagefile_bytes": 5783552,
+                "peak_working_set_bytes": 10153984,
+                "private_commit_bytes": 5783552,
+                "working_set_bytes": 10153984
+              },
+              "memory_after_drop": {
+                "page_faults": 3135,
+                "peak_pagefile_bytes": 5783552,
+                "peak_working_set_bytes": 10203136,
+                "private_commit_bytes": 3788800,
+                "working_set_bytes": 7913472
+              },
+              "memory_after_warmup": {
+                "page_faults": 3134,
+                "peak_pagefile_bytes": 5783552,
+                "peak_working_set_bytes": 10199040,
+                "private_commit_bytes": 5783552,
+                "working_set_bytes": 10199040
+              },
+              "memory_before_instances": {
+                "page_faults": 2229,
+                "peak_pagefile_bytes": 2076672,
+                "peak_working_set_bytes": 6574080,
+                "private_commit_bytes": 1822720,
+                "working_set_bytes": 6500352
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33239,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 123776.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 99976.0,
+              "pooled_working_set_increment_bytes_per_instance": 115584.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4139223,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 939991,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 4139223,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 939991,
+                "heap_count": 2
+              },
+              "rate_pair": "music_48k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 3191040,
+                "reallocations": 0,
+                "retained_bytes": 3191040
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 99720,
+                "reallocations": 0,
+                "retained_bytes": 99720
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 74700,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 21512704,
+                  "complete_output_frames": 19764797,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.815087295160061,
+                  "cycles_per_input_sample": 18.037466653963413,
+                  "expected_complete_output_frames": 19764797,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.41682092843381,
+                  "one_core_realtime_cpu_pct": 0.055824838033536585,
+                  "process_calls": 41984,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 775459840,
+                  "timed_input_audio_seconds": 447.82933333333335,
+                  "timed_input_frames": 21495808,
+                  "trial_index": 0,
+                  "wall_ns": 251466500,
+                  "wall_ns_per_input_sample": 5.84919859723347
+                },
+                {
+                  "complete_input_frames": 22430208,
+                  "complete_output_frames": 20607754,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.925607960126554,
+                  "cycles_per_input_sample": 17.289225215800325,
+                  "expected_complete_output_frames": 20607754,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.83276490762816,
+                  "one_core_realtime_cpu_pct": 0.05688583641721491,
+                  "process_calls": 43776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 775017598,
+                  "timed_input_audio_seconds": 466.944,
+                  "timed_input_frames": 22413312,
+                  "trial_index": 1,
+                  "wall_ns": 250985600,
+                  "wall_ns_per_input_sample": 5.599029719480995
+                },
+                {
+                  "complete_input_frames": 22299136,
+                  "complete_output_frames": 20487331,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.6098489200367645,
+                  "cycles_per_input_sample": 17.39417859245749,
+                  "expected_complete_output_frames": 20487331,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.5144887124696,
+                  "one_core_realtime_cpu_pct": 0.05385454963235294,
+                  "process_calls": 43520,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775162524,
+                  "timed_input_audio_seconds": 464.2133333333333,
+                  "timed_input_frames": 22282240,
+                  "trial_index": 2,
+                  "wall_ns": 251219700,
+                  "wall_ns_per_input_sample": 5.63721825094784
+                },
+                {
+                  "complete_input_frames": 21512704,
+                  "complete_output_frames": 19764797,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.815087295160061,
+                  "cycles_per_input_sample": 17.92463121181581,
+                  "expected_complete_output_frames": 19764797,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.88381514622192,
+                  "one_core_realtime_cpu_pct": 0.055824838033536585,
+                  "process_calls": 41984,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 770608862,
+                  "timed_input_audio_seconds": 447.82933333333335,
+                  "timed_input_frames": 21495808,
+                  "trial_index": 3,
+                  "wall_ns": 250290800,
+                  "wall_ns_per_input_sample": 5.821851404701791
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "candidate": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_48k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_48k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 48000,
+              "memory_after_construction": {
+                "page_faults": 3038,
+                "peak_pagefile_bytes": 5492736,
+                "peak_working_set_bytes": 9859072,
+                "private_commit_bytes": 5492736,
+                "working_set_bytes": 9859072
+              },
+              "memory_after_drop": {
+                "page_faults": 3050,
+                "peak_pagefile_bytes": 5492736,
+                "peak_working_set_bytes": 9908224,
+                "private_commit_bytes": 3690496,
+                "working_set_bytes": 8159232
+              },
+              "memory_after_warmup": {
+                "page_faults": 3050,
+                "peak_pagefile_bytes": 5492736,
+                "peak_working_set_bytes": 9908224,
+                "private_commit_bytes": 5492736,
+                "working_set_bytes": 9908224
+              },
+              "memory_before_instances": {
+                "page_faults": 2215,
+                "peak_pagefile_bytes": 2121728,
+                "peak_working_set_bytes": 6574080,
+                "private_commit_bytes": 1867776,
+                "working_set_bytes": 6496256
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33239,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 113280.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 90544.0,
+              "pooled_working_set_increment_bytes_per_instance": 106624.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3837442,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 940034,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3837442,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 940034,
+                "heap_count": 2
+              },
+              "rate_pair": "music_48k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2889216,
+                "reallocations": 0,
+                "retained_bytes": 2889216
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 90288,
+                "reallocations": 0,
+                "retained_bytes": 90288
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 85700,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 17973760,
+                  "complete_output_frames": 16513392,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.961126397125913,
+                  "cycles_per_input_sample": 21.410504000030294,
+                  "expected_complete_output_frames": 16513392,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.88672844993778,
+                  "one_core_realtime_cpu_pct": 0.06682681341240876,
+                  "process_calls": 35072,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 768931017,
+                  "timed_input_audio_seconds": 374.10133333333334,
+                  "timed_input_frames": 17956864,
+                  "trial_index": 0,
+                  "wall_ns": 250283500,
+                  "wall_ns_per_input_sample": 6.969020314460253
+                },
+                {
+                  "complete_input_frames": 18498048,
+                  "complete_output_frames": 16995082,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.76364763408688,
+                  "cycles_per_input_sample": 20.9773252230164,
+                  "expected_complete_output_frames": 16995082,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.55257092523362,
+                  "one_core_realtime_cpu_pct": 0.06493101728723404,
+                  "process_calls": 36096,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775370272,
+                  "timed_input_audio_seconds": 385.024,
+                  "timed_input_frames": 18481152,
+                  "trial_index": 1,
+                  "wall_ns": 251123600,
+                  "wall_ns_per_input_sample": 6.79404617201352
+                },
+                {
+                  "complete_input_frames": 18891264,
+                  "complete_output_frames": 17356349,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.622738308376736,
+                  "cycles_per_input_sample": 19.91701626777649,
+                  "expected_complete_output_frames": 17356349,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.90113783399947,
+                  "one_core_realtime_cpu_pct": 0.06357828776041667,
+                  "process_calls": 36864,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 751842189,
+                  "timed_input_audio_seconds": 393.216,
+                  "timed_input_frames": 18874368,
+                  "trial_index": 2,
+                  "wall_ns": 250247400,
+                  "wall_ns_per_input_sample": 6.629292170206706
+                },
+                {
+                  "complete_input_frames": 14303744,
+                  "complete_output_frames": 13141565,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 8.74930565510321,
+                  "cycles_per_input_sample": 25.87589106428514,
+                  "expected_complete_output_frames": 13141565,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.67267493551178,
+                  "one_core_realtime_cpu_pct": 0.08399333428899082,
+                  "process_calls": 27904,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 739369845,
+                  "timed_input_audio_seconds": 297.6426666666667,
+                  "timed_input_frames": 14286848,
+                  "trial_index": 3,
+                  "wall_ns": 250821000,
+                  "wall_ns_per_input_sample": 8.77803837487457
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_48k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_48k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 48000,
+              "memory_after_construction": {
+                "page_faults": 3050,
+                "peak_pagefile_bytes": 5509120,
+                "peak_working_set_bytes": 9875456,
+                "private_commit_bytes": 5509120,
+                "working_set_bytes": 9875456
+              },
+              "memory_after_drop": {
+                "page_faults": 3062,
+                "peak_pagefile_bytes": 5509120,
+                "peak_working_set_bytes": 9924608,
+                "private_commit_bytes": 3710976,
+                "working_set_bytes": 8179712
+              },
+              "memory_after_warmup": {
+                "page_faults": 3062,
+                "peak_pagefile_bytes": 5509120,
+                "peak_working_set_bytes": 9924608,
+                "private_commit_bytes": 5509120,
+                "working_set_bytes": 9924608
+              },
+              "memory_before_instances": {
+                "page_faults": 2223,
+                "peak_pagefile_bytes": 2138112,
+                "peak_working_set_bytes": 6586368,
+                "private_commit_bytes": 1802240,
+                "working_set_bytes": 6496256
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33239,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 115840.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 90544.0,
+              "pooled_working_set_increment_bytes_per_instance": 107136.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3837442,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 940034,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3837442,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 940034,
+                "heap_count": 2
+              },
+              "rate_pair": "music_48k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2889216,
+                "reallocations": 0,
+                "retained_bytes": 2889216
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 90288,
+                "reallocations": 0,
+                "retained_bytes": 90288
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 87300,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 22299136,
+                  "complete_output_frames": 20487331,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.6098489200367645,
+                  "cycles_per_input_sample": 17.264396600162282,
+                  "expected_complete_output_frames": 20487331,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.80633578604076,
+                  "one_core_realtime_cpu_pct": 0.05385454963235294,
+                  "process_calls": 43520,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 769378857,
+                  "timed_input_audio_seconds": 464.2133333333333,
+                  "timed_input_frames": 22282240,
+                  "trial_index": 0,
+                  "wall_ns": 250485100,
+                  "wall_ns_per_input_sample": 5.620734270881204
+                },
+                {
+                  "complete_input_frames": 22430208,
+                  "complete_output_frames": 20607754,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.577042786001462,
+                  "cycles_per_input_sample": 17.228290156314248,
+                  "expected_complete_output_frames": 20607754,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.90636775214269,
+                  "one_core_realtime_cpu_pct": 0.05353961074561403,
+                  "process_calls": 43776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 772286085,
+                  "timed_input_audio_seconds": 466.944,
+                  "timed_input_frames": 22413312,
+                  "trial_index": 1,
+                  "wall_ns": 250234300,
+                  "wall_ns_per_input_sample": 5.582269590500503
+                },
+                {
+                  "complete_input_frames": 22430208,
+                  "complete_output_frames": 20607754,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.577042786001462,
+                  "cycles_per_input_sample": 17.239140939991376,
+                  "expected_complete_output_frames": 20607754,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.72312870546216,
+                  "one_core_realtime_cpu_pct": 0.05353961074561403,
+                  "process_calls": 43776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 772772489,
+                  "timed_input_audio_seconds": 466.944,
+                  "timed_input_frames": 22413312,
+                  "trial_index": 2,
+                  "wall_ns": 250694100,
+                  "wall_ns_per_input_sample": 5.592526887592516
+                },
+                {
+                  "complete_input_frames": 22430208,
+                  "complete_output_frames": 20607754,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 5.577042786001462,
+                  "cycles_per_input_sample": 17.215503714935124,
+                  "expected_complete_output_frames": 20607754,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.43655271768054,
+                  "one_core_realtime_cpu_pct": 0.05353961074561403,
+                  "process_calls": 43776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771712912,
+                  "timed_input_audio_seconds": 466.944,
+                  "timed_input_frames": 22413312,
+                  "trial_index": 3,
+                  "wall_ns": 251416600,
+                  "wall_ns_per_input_sample": 5.608644541244061
+                }
+              ]
+            },
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "rate_pair": "music_44k1_to_96k",
+      "valid": true,
+      "schedule": ["baseline","candidate","candidate","baseline"],
+      "metrics": {
+        "wall_ns_per_input_sample": {
+          "baseline": 10.263455669548822,
+          "candidate": 10.255193458842292,
+          "reduction_pct": 0.08050125583962675
+        },
+        "cpu_ns_per_input_sample": {
+          "baseline": 10.200016996566504,
+          "candidate": 10.527511496960475,
+          "reduction_pct": -3.2107250458917047
+        },
+        "cycles_per_input_sample": {
+          "baseline": 31.619763386546815,
+          "candidate": 31.52266810591465,
+          "reduction_pct": 0.307071496535849
+        },
+        "one_core_realtime_cpu_pct": {
+          "baseline": 0.08996414990971657,
+          "candidate": 0.09285265140319138,
+          "reduction_pct": -3.2107250458916825
+        }
+      },
+      "records": {
+        "baseline": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_96k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_96k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3537,
+                "peak_pagefile_bytes": 7319552,
+                "peak_working_set_bytes": 11837440,
+                "private_commit_bytes": 7319552,
+                "working_set_bytes": 11837440
+              },
+              "memory_after_drop": {
+                "page_faults": 3551,
+                "peak_pagefile_bytes": 7319552,
+                "peak_working_set_bytes": 11894784,
+                "private_commit_bytes": 3407872,
+                "working_set_bytes": 7876608
+              },
+              "memory_after_warmup": {
+                "page_faults": 3550,
+                "peak_pagefile_bytes": 7319552,
+                "peak_working_set_bytes": 11890688,
+                "private_commit_bytes": 7319552,
+                "working_set_bytes": 11890688
+              },
+              "memory_before_instances": {
+                "page_faults": 2247,
+                "peak_pagefile_bytes": 2093056,
+                "peak_working_set_bytes": 6647808,
+                "private_commit_bytes": 1904640,
+                "working_set_bytes": 6561792
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33883,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 169216.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 156168.0,
+              "pooled_working_set_increment_bytes_per_instance": 166528.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 5952823,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 955447,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 5952823,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 955447,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_96k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 4989184,
+                "reallocations": 0,
+                "retained_bytes": 4989184
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 155912,
+                "reallocations": 0,
+                "retained_bytes": 155912
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 104300,
+              "to_rate_hz": 96000,
+              "trials": [
+                {
+                  "complete_input_frames": 12468736,
+                  "complete_output_frames": 27142827,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.038677014802632,
+                  "cycles_per_input_sample": 31.238730460719058,
+                  "expected_complete_output_frames": 27142827,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.09321778271394,
+                  "one_core_realtime_cpu_pct": 0.08854113127055921,
+                  "process_calls": 24320,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777959347,
+                  "timed_input_audio_seconds": 282.3546485260771,
+                  "timed_input_frames": 12451840,
+                  "trial_index": 0,
+                  "wall_ns": 252287700,
+                  "wall_ns_per_input_sample": 10.130538940429688
+                },
+                {
+                  "complete_input_frames": 11551232,
+                  "complete_output_frames": 25145539,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.837208140980113,
+                  "cycles_per_input_sample": 33.35962932760065,
+                  "expected_complete_output_frames": 25145539,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.99872001638379,
+                  "one_core_realtime_cpu_pct": 0.0955841758034446,
+                  "process_calls": 22528,
+                  "thread_cpu": {
+                    "kernel_ns": 31250000,
+                    "user_ns": 218750000
+                  },
+                  "thread_cycles": 769562347,
+                  "timed_input_audio_seconds": 261.54956916099775,
+                  "timed_input_frames": 11534336,
+                  "trial_index": 1,
+                  "wall_ns": 250003200,
+                  "wall_ns_per_input_sample": 10.837346857244318
+                },
+                {
+                  "complete_input_frames": 12206592,
+                  "complete_output_frames": 26572173,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.254562542002688,
+                  "cycles_per_input_sample": 31.90183106289115,
+                  "expected_complete_output_frames": 26572173,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.86987774937356,
+                  "one_core_realtime_cpu_pct": 0.09044524162046372,
+                  "process_calls": 23808,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777747245,
+                  "timed_input_audio_seconds": 276.4103401360544,
+                  "timed_input_frames": 12189696,
+                  "trial_index": 2,
+                  "wall_ns": 252857600,
+                  "wall_ns_per_input_sample": 10.371776293682796
+                },
+                {
+                  "complete_input_frames": 12337664,
+                  "complete_output_frames": 26857500,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.14547145113032,
+                  "cycles_per_input_sample": 31.500178032733025,
+                  "expected_complete_output_frames": 26857500,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.03896549442827,
+                  "one_core_realtime_cpu_pct": 0.08948305819896941,
+                  "process_calls": 24064,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 776212771,
+                  "timed_input_audio_seconds": 279.38249433106574,
+                  "timed_input_frames": 12320768,
+                  "trial_index": 3,
+                  "wall_ns": 252425900,
+                  "wall_ns_per_input_sample": 10.243919047903507
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_96k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_96k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3535,
+                "peak_pagefile_bytes": 7311360,
+                "peak_working_set_bytes": 11829248,
+                "private_commit_bytes": 7311360,
+                "working_set_bytes": 11829248
+              },
+              "memory_after_drop": {
+                "page_faults": 3549,
+                "peak_pagefile_bytes": 7311360,
+                "peak_working_set_bytes": 11886592,
+                "private_commit_bytes": 3399680,
+                "working_set_bytes": 7868416
+              },
+              "memory_after_warmup": {
+                "page_faults": 3548,
+                "peak_pagefile_bytes": 7311360,
+                "peak_working_set_bytes": 11882496,
+                "private_commit_bytes": 7311360,
+                "working_set_bytes": 11882496
+              },
+              "memory_before_instances": {
+                "page_faults": 2244,
+                "peak_pagefile_bytes": 2080768,
+                "peak_working_set_bytes": 6639616,
+                "private_commit_bytes": 1892352,
+                "working_set_bytes": 6553600
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33883,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 169344.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 156168.0,
+              "pooled_working_set_increment_bytes_per_instance": 166528.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 5952823,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 955447,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 5952823,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 955447,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_96k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 4989184,
+                "reallocations": 0,
+                "retained_bytes": 4989184
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 155912,
+                "reallocations": 0,
+                "retained_bytes": 155912
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 104000,
+              "to_rate_hz": 96000,
+              "trials": [
+                {
+                  "complete_input_frames": 12337664,
+                  "complete_output_frames": 26857500,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.14547145113032,
+                  "cycles_per_input_sample": 31.473169164454685,
+                  "expected_complete_output_frames": 26857500,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.14084543347352,
+                  "one_core_realtime_cpu_pct": 0.08948305819896941,
+                  "process_calls": 24064,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775547231,
+                  "timed_input_audio_seconds": 279.38249433106574,
+                  "timed_input_frames": 12320768,
+                  "trial_index": 0,
+                  "wall_ns": 252166500,
+                  "wall_ns_per_input_sample": 10.233392106725814
+                },
+                {
+                  "complete_input_frames": 12206592,
+                  "complete_output_frames": 26572173,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.254562542002688,
+                  "cycles_per_input_sample": 31.666929634668495,
+                  "expected_complete_output_frames": 26572173,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.72352649514487,
+                  "one_core_realtime_cpu_pct": 0.09044524162046372,
+                  "process_calls": 23808,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 772020491,
+                  "timed_input_audio_seconds": 276.4103401360544,
+                  "timed_input_frames": 12189696,
+                  "trial_index": 1,
+                  "wall_ns": 250693100,
+                  "wall_ns_per_input_sample": 10.282992291194136
+                },
+                {
+                  "complete_input_frames": 12075520,
+                  "complete_output_frames": 26286846,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 11.013901751974355,
+                  "cycles_per_input_sample": 32.00963953266973,
+                  "expected_complete_output_frames": 26286846,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 106.03094007779927,
+                  "one_core_realtime_cpu_pct": 0.09714261345241382,
+                  "process_calls": 23552,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 771984415,
+                  "timed_input_audio_seconds": 273.43818594104306,
+                  "timed_input_frames": 12058624,
+                  "trial_index": 2,
+                  "wall_ns": 250516500,
+                  "wall_ns_per_input_sample": 10.387441386347232
+                },
+                {
+                  "complete_input_frames": 12337664,
+                  "complete_output_frames": 26857500,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.14547145113032,
+                  "cycles_per_input_sample": 31.572597138425138,
+                  "expected_complete_output_frames": 26857500,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.09427829637117,
+                  "one_core_realtime_cpu_pct": 0.08948305819896941,
+                  "process_calls": 24064,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777997289,
+                  "timed_input_audio_seconds": 279.38249433106574,
+                  "timed_input_frames": 12320768,
+                  "trial_index": 3,
+                  "wall_ns": 252285000,
+                  "wall_ns_per_input_sample": 10.238201060193651
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "candidate": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_96k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_96k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3452,
+                "peak_pagefile_bytes": 7057408,
+                "peak_working_set_bytes": 11534336,
+                "private_commit_bytes": 7057408,
+                "working_set_bytes": 11534336
+              },
+              "memory_after_drop": {
+                "page_faults": 3466,
+                "peak_pagefile_bytes": 7057408,
+                "peak_working_set_bytes": 11591680,
+                "private_commit_bytes": 3330048,
+                "working_set_bytes": 7757824
+              },
+              "memory_after_warmup": {
+                "page_faults": 3466,
+                "peak_pagefile_bytes": 7057408,
+                "peak_working_set_bytes": 11591680,
+                "private_commit_bytes": 7057408,
+                "working_set_bytes": 11591680
+              },
+              "memory_before_instances": {
+                "page_faults": 2235,
+                "peak_pagefile_bytes": 2142208,
+                "peak_working_set_bytes": 6639616,
+                "private_commit_bytes": 1945600,
+                "working_set_bytes": 6557696
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33883,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 159744.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 146720.0,
+              "pooled_working_set_increment_bytes_per_instance": 157312.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 5650530,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 955490,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 5650530,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 955490,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_96k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 4686848,
+                "reallocations": 0,
+                "retained_bytes": 4686848
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 146464,
+                "reallocations": 0,
+                "retained_bytes": 146464
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 93400,
+              "to_rate_hz": 96000,
+              "trials": [
+                {
+                  "complete_input_frames": 11289088,
+                  "complete_output_frames": 24574885,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 11.089236237281977,
+                  "cycles_per_input_sample": 34.360210551772006,
+                  "expected_complete_output_frames": 24574885,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.65435882186225,
+                  "one_core_realtime_cpu_pct": 0.09780706361282704,
+                  "process_calls": 22016,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774629781,
+                  "timed_input_audio_seconds": 255.60526077097506,
+                  "timed_input_frames": 11272192,
+                  "trial_index": 0,
+                  "wall_ns": 250867100,
+                  "wall_ns_per_input_sample": 11.127698144247365
+                },
+                {
+                  "complete_input_frames": 11551232,
+                  "complete_output_frames": 25145539,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 11.514533649791371,
+                  "cycles_per_input_sample": 33.254042321985416,
+                  "expected_complete_output_frames": 25145539,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.65377461906967,
+                  "one_core_realtime_cpu_pct": 0.10155818679115988,
+                  "process_calls": 22528,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 767126595,
+                  "timed_input_audio_seconds": 261.54956916099775,
+                  "timed_input_frames": 11534336,
+                  "trial_index": 1,
+                  "wall_ns": 251410800,
+                  "wall_ns_per_input_sample": 10.898364673961293
+                },
+                {
+                  "complete_input_frames": 10764800,
+                  "complete_output_frames": 23433578,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 11.630174590320122,
+                  "cycles_per_input_sample": 34.582753669924855,
+                  "expected_complete_output_frames": 23433578,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.89925133266742,
+                  "one_core_realtime_cpu_pct": 0.10257813988662348,
+                  "process_calls": 20992,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 743384233,
+                  "timed_input_audio_seconds": 243.7166439909297,
+                  "timed_input_frames": 10747904,
+                  "trial_index": 2,
+                  "wall_ns": 252782500,
+                  "wall_ns_per_input_sample": 11.759618433510385
+                },
+                {
+                  "complete_input_frames": 11682304,
+                  "complete_output_frames": 25430866,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.715441757373595,
+                  "cycles_per_input_sample": 32.9002097912049,
+                  "expected_complete_output_frames": 25430866,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.94371170156968,
+                  "one_core_realtime_cpu_pct": 0.0945101963000351,
+                  "process_calls": 22784,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 767588741,
+                  "timed_input_audio_seconds": 264.5217233560091,
+                  "timed_input_frames": 11665408,
+                  "trial_index": 3,
+                  "wall_ns": 250140800,
+                  "wall_ns_per_input_sample": 10.721476694171349
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_96k","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_96k",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3449,
+                "peak_pagefile_bytes": 7061504,
+                "peak_working_set_bytes": 11542528,
+                "private_commit_bytes": 7061504,
+                "working_set_bytes": 11542528
+              },
+              "memory_after_drop": {
+                "page_faults": 3463,
+                "peak_pagefile_bytes": 7061504,
+                "peak_working_set_bytes": 11599872,
+                "private_commit_bytes": 3330048,
+                "working_set_bytes": 7761920
+              },
+              "memory_after_warmup": {
+                "page_faults": 3463,
+                "peak_pagefile_bytes": 7061504,
+                "peak_working_set_bytes": 11599872,
+                "private_commit_bytes": 7061504,
+                "working_set_bytes": 11599872
+              },
+              "memory_before_instances": {
+                "page_faults": 2231,
+                "peak_pagefile_bytes": 2138112,
+                "peak_working_set_bytes": 6643712,
+                "private_commit_bytes": 1941504,
+                "working_set_bytes": 6565888
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33883,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 160000.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 146720.0,
+              "pooled_working_set_increment_bytes_per_instance": 157312.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 5650530,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 955490,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 5650530,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 955490,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_96k",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 4686848,
+                "reallocations": 0,
+                "retained_bytes": 4686848
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 146464,
+                "reallocations": 0,
+                "retained_bytes": 146464
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 97200,
+              "to_rate_hz": 96000,
+              "trials": [
+                {
+                  "complete_input_frames": 12993024,
+                  "complete_output_frames": 28284134,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.633073903093434,
+                  "cycles_per_input_sample": 29.87643702343257,
+                  "expected_complete_output_frames": 28284134,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.538301542127,
+                  "one_core_realtime_cpu_pct": 0.08496371182528409,
+                  "process_calls": 25344,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775360942,
+                  "timed_input_audio_seconds": 294.24326530612245,
+                  "timed_input_frames": 12976128,
+                  "trial_index": 0,
+                  "wall_ns": 251159600,
+                  "wall_ns_per_input_sample": 9.677755953085542
+                },
+                {
+                  "complete_input_frames": 12993024,
+                  "complete_output_frames": 28284134,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.633073903093434,
+                  "cycles_per_input_sample": 29.856244751901336,
+                  "expected_complete_output_frames": 28284134,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.49817102462022,
+                  "one_core_realtime_cpu_pct": 0.08496371182528409,
+                  "process_calls": 25344,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774836907,
+                  "timed_input_audio_seconds": 294.24326530612245,
+                  "timed_input_frames": 12976128,
+                  "trial_index": 1,
+                  "wall_ns": 251260900,
+                  "wall_ns_per_input_sample": 9.681659274631077
+                },
+                {
+                  "complete_input_frames": 12861952,
+                  "complete_output_frames": 27998807,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 10.339581236547353,
+                  "cycles_per_input_sample": 30.1451264206244,
+                  "expected_complete_output_frames": 27998807,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.6254577931606,
+                  "one_core_realtime_cpu_pct": 0.09119510650634766,
+                  "process_calls": 25088,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 774431674,
+                  "timed_input_audio_seconds": 291.2711111111111,
+                  "timed_input_frames": 12845056,
+                  "trial_index": 2,
+                  "wall_ns": 251478200,
+                  "wall_ns_per_input_sample": 9.788910223513234
+                },
+                {
+                  "complete_input_frames": 12993024,
+                  "complete_output_frames": 28284134,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 9.633073903093434,
+                  "cycles_per_input_sample": 29.91068599200008,
+                  "expected_complete_output_frames": 28284134,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.34484064491491,
+                  "one_core_realtime_cpu_pct": 0.08496371182528409,
+                  "process_calls": 25344,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 776249780,
+                  "timed_input_audio_seconds": 294.24326530612245,
+                  "timed_input_frames": 12976128,
+                  "trial_index": 3,
+                  "wall_ns": 251648700,
+                  "wall_ns_per_input_sample": 9.696602098869555
+                }
+              ]
+            },
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "rate_pair": "music_96k_to_44k1",
+      "valid": true,
+      "schedule": ["candidate","baseline","baseline","candidate"],
+      "metrics": {
+        "wall_ns_per_input_sample": {
+          "baseline": 4.229130562200105,
+          "candidate": 4.203158558515983,
+          "reduction_pct": 0.6141215860361204
+        },
+        "cpu_ns_per_input_sample": {
+          "baseline": 4.210503151261464,
+          "candidate": 4.191995265909689,
+          "reduction_pct": 0.43956469540296084
+        },
+        "cycles_per_input_sample": {
+          "baseline": 13.012402046438286,
+          "candidate": 12.918735320509818,
+          "reduction_pct": 0.7198265592639475
+        },
+        "one_core_realtime_cpu_pct": {
+          "baseline": 0.0808416605042201,
+          "candidate": 0.08048630910546603,
+          "reduction_pct": 0.43956469540296084
+        }
+      },
+      "records": {
+        "baseline": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_96k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_96k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 96000,
+              "memory_after_construction": {
+                "page_faults": 2936,
+                "peak_pagefile_bytes": 5033984,
+                "peak_working_set_bytes": 9461760,
+                "private_commit_bytes": 5033984,
+                "working_set_bytes": 9461760
+              },
+              "memory_after_drop": {
+                "page_faults": 2950,
+                "peak_pagefile_bytes": 5033984,
+                "peak_working_set_bytes": 9519104,
+                "private_commit_bytes": 4661248,
+                "working_set_bytes": 7692288
+              },
+              "memory_after_warmup": {
+                "page_faults": 2949,
+                "peak_pagefile_bytes": 5033984,
+                "peak_working_set_bytes": 9515008,
+                "private_commit_bytes": 5033984,
+                "working_set_bytes": 9515008
+              },
+              "memory_before_instances": {
+                "page_faults": 2226,
+                "peak_pagefile_bytes": 1884160,
+                "peak_working_set_bytes": 6557696,
+                "private_commit_bytes": 1884160,
+                "working_set_bytes": 6557696
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33004,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 98432.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 78688.0,
+              "pooled_working_set_increment_bytes_per_instance": 92416.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 3452367,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 934351,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 3452367,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 934351,
+                "heap_count": 2
+              },
+              "rate_pair": "music_96k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 2510848,
+                "reallocations": 0,
+                "retained_bytes": 2510848
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 78464,
+                "reallocations": 0,
+                "retained_bytes": 78464
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 65500,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 30556672,
+                  "complete_output_frames": 14036971,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.093022817194206,
+                  "cycles_per_input_sample": 12.676321610872327,
+                  "expected_complete_output_frames": 14036971,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.60643505381536,
+                  "one_core_realtime_cpu_pct": 0.07858603809012876,
+                  "process_calls": 59648,
+                  "thread_cpu": {
+                    "kernel_ns": 31250000,
+                    "user_ns": 218750000
+                  },
+                  "thread_cycles": 774264045,
+                  "timed_input_audio_seconds": 318.12266666666665,
+                  "timed_input_frames": 30539776,
+                  "trial_index": 0,
+                  "wall_ns": 250987800,
+                  "wall_ns_per_input_sample": 4.109195168949504
+                },
+                {
+                  "complete_input_frames": 29770240,
+                  "complete_output_frames": 13675704,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.201208442318282,
+                  "cycles_per_input_sample": 13.010714829230624,
+                  "expected_complete_output_frames": 13675704,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.51611285286424,
+                  "one_core_realtime_cpu_pct": 0.08066320209251102,
+                  "process_calls": 58112,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774224548,
+                  "timed_input_audio_seconds": 309.93066666666664,
+                  "timed_input_frames": 29753344,
+                  "trial_index": 1,
+                  "wall_ns": 251215600,
+                  "wall_ns_per_input_sample": 4.221636398248211
+                },
+                {
+                  "complete_input_frames": 30032384,
+                  "complete_output_frames": 13796126,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.164516665529476,
+                  "cycles_per_input_sample": 12.854866944025698,
+                  "expected_complete_output_frames": 13796126,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.98724162796827,
+                  "one_core_realtime_cpu_pct": 0.07995871997816593,
+                  "process_calls": 58624,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771690209,
+                  "timed_input_audio_seconds": 312.66133333333335,
+                  "timed_input_frames": 30015488,
+                  "trial_index": 2,
+                  "wall_ns": 250031900,
+                  "wall_ns_per_input_sample": 4.165048057855998
+                },
+                {
+                  "complete_input_frames": 30556672,
+                  "complete_output_frames": 14036971,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.093022817194206,
+                  "cycles_per_input_sample": 12.618021412468774,
+                  "expected_complete_output_frames": 14036971,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.96529205060003,
+                  "one_core_realtime_cpu_pct": 0.07858603809012876,
+                  "process_calls": 59648,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 770703095,
+                  "timed_input_audio_seconds": 318.12266666666665,
+                  "timed_input_frames": 30539776,
+                  "trial_index": 3,
+                  "wall_ns": 250086800,
+                  "wall_ns_per_input_sample": 4.094443914716336
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_96k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_96k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 96000,
+              "memory_after_construction": {
+                "page_faults": 2929,
+                "peak_pagefile_bytes": 4870144,
+                "peak_working_set_bytes": 9363456,
+                "private_commit_bytes": 4870144,
+                "working_set_bytes": 9363456
+              },
+              "memory_after_drop": {
+                "page_faults": 2943,
+                "peak_pagefile_bytes": 4870144,
+                "peak_working_set_bytes": 9420800,
+                "private_commit_bytes": 3612672,
+                "working_set_bytes": 7483392
+              },
+              "memory_after_warmup": {
+                "page_faults": 2942,
+                "peak_pagefile_bytes": 4870144,
+                "peak_working_set_bytes": 9416704,
+                "private_commit_bytes": 4870144,
+                "working_set_bytes": 9416704
+              },
+              "memory_before_instances": {
+                "page_faults": 2219,
+                "peak_pagefile_bytes": 1806336,
+                "peak_working_set_bytes": 6537216,
+                "private_commit_bytes": 1720320,
+                "working_set_bytes": 6463488
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33004,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 98432.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 78688.0,
+              "pooled_working_set_increment_bytes_per_instance": 92288.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 3452367,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 934351,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 3452367,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 934351,
+                "heap_count": 2
+              },
+              "rate_pair": "music_96k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 2510848,
+                "reallocations": 0,
+                "retained_bytes": 2510848
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 78464,
+                "reallocations": 0,
+                "retained_bytes": 78464
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 62200,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 28197376,
+                  "complete_output_frames": 12953170,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.4356944949127906,
+                  "cycles_per_input_sample": 13.065038654416107,
+                  "expected_complete_output_frames": 12953170,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.7569521617531,
+                  "one_core_realtime_cpu_pct": 0.08516533430232558,
+                  "process_calls": 55040,
+                  "thread_cpu": {
+                    "kernel_ns": 46875000,
+                    "user_ns": 203125000
+                  },
+                  "thread_cycles": 736358121,
+                  "timed_input_audio_seconds": 293.5466666666667,
+                  "timed_input_frames": 28180480,
+                  "trial_index": 0,
+                  "wall_ns": 250609100,
+                  "wall_ns_per_input_sample": 4.446501620980197
+                },
+                {
+                  "complete_input_frames": 27410944,
+                  "complete_output_frames": 12591902,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.277845318807939,
+                  "cycles_per_input_sample": 14.105137674432052,
+                  "expected_complete_output_frames": 12591902,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 93.32336291410189,
+                  "one_core_realtime_cpu_pct": 0.08213463012111244,
+                  "process_calls": 53504,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 772793637,
+                  "timed_input_audio_seconds": 285.3546666666667,
+                  "timed_input_frames": 27394048,
+                  "trial_index": 1,
+                  "wall_ns": 251142900,
+                  "wall_ns_per_input_sample": 4.583895377565229
+                },
+                {
+                  "complete_input_frames": 29508096,
+                  "complete_output_frames": 13555282,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.238552517361111,
+                  "cycles_per_input_sample": 13.078626064724393,
+                  "expected_complete_output_frames": 13555282,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.93012885390534,
+                  "one_core_realtime_cpu_pct": 0.08138020833333334,
+                  "process_calls": 57600,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771408754,
+                  "timed_input_audio_seconds": 307.2,
+                  "timed_input_frames": 29491200,
+                  "trial_index": 2,
+                  "wall_ns": 250174800,
+                  "wall_ns_per_input_sample": 4.24151611328125
+                },
+                {
+                  "complete_input_frames": 29639168,
+                  "complete_output_frames": 13615493,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.219797860204646,
+                  "cycles_per_input_sample": 13.014089263645948,
+                  "expected_complete_output_frames": 13615493,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.60282377989529,
+                  "one_core_realtime_cpu_pct": 0.0810201189159292,
+                  "process_calls": 57856,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771013784,
+                  "timed_input_audio_seconds": 308.56533333333334,
+                  "timed_input_frames": 29622272,
+                  "trial_index": 3,
+                  "wall_ns": 250996900,
+                  "wall_ns_per_input_sample": 4.236624726151998
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "candidate": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_96k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_96k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 96000,
+              "memory_after_construction": {
+                "page_faults": 2886,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9322496,
+                "private_commit_bytes": 4890624,
+                "working_set_bytes": 9322496
+              },
+              "memory_after_drop": {
+                "page_faults": 2900,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9379840,
+                "private_commit_bytes": 4665344,
+                "working_set_bytes": 7815168
+              },
+              "memory_after_warmup": {
+                "page_faults": 2900,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9379840,
+                "private_commit_bytes": 4890624,
+                "working_set_bytes": 9379840
+              },
+              "memory_before_instances": {
+                "page_faults": 2209,
+                "peak_pagefile_bytes": 1867776,
+                "peak_working_set_bytes": 6553600,
+                "private_commit_bytes": 1867776,
+                "working_set_bytes": 6553600
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33004,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 94464.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 73960.0,
+              "pooled_working_set_increment_bytes_per_instance": 88320.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3301114,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 934394,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3301114,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 934394,
+                "heap_count": 2
+              },
+              "rate_pair": "music_96k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2359552,
+                "reallocations": 0,
+                "retained_bytes": 2359552
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 73736,
+                "reallocations": 0,
+                "retained_bytes": 73736
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 73400,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 29770240,
+                  "complete_output_frames": 13675704,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.201208442318282,
+                  "cycles_per_input_sample": 12.904349104423355,
+                  "expected_complete_output_frames": 13675704,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.63505671426698,
+                  "one_core_realtime_cpu_pct": 0.08066320209251102,
+                  "process_calls": 58112,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 767895076,
+                  "timed_input_audio_seconds": 309.93066666666664,
+                  "timed_input_frames": 29753344,
+                  "trial_index": 0,
+                  "wall_ns": 250915700,
+                  "wall_ns_per_input_sample": 4.216596628600805
+                },
+                {
+                  "complete_input_frames": 29508096,
+                  "complete_output_frames": 13555282,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.50346204969618,
+                  "cycles_per_input_sample": 13.106339687771268,
+                  "expected_complete_output_frames": 13555282,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.80894598953721,
+                  "one_core_realtime_cpu_pct": 0.08646647135416667,
+                  "process_calls": 57600,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 773043370,
+                  "timed_input_audio_seconds": 307.2,
+                  "timed_input_frames": 29491200,
+                  "trial_index": 1,
+                  "wall_ns": 251042100,
+                  "wall_ns_per_input_sample": 4.2562204996744795
+                },
+                {
+                  "complete_input_frames": 29639168,
+                  "complete_output_frames": 13615493,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.219797860204646,
+                  "cycles_per_input_sample": 13.014089263645948,
+                  "expected_complete_output_frames": 13615493,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.8272987731225,
+                  "one_core_realtime_cpu_pct": 0.0810201189159292,
+                  "process_calls": 57856,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771013784,
+                  "timed_input_audio_seconds": 308.56533333333334,
+                  "timed_input_frames": 29622272,
+                  "trial_index": 2,
+                  "wall_ns": 250432500,
+                  "wall_ns_per_input_sample": 4.2270981105028005
+                },
+                {
+                  "complete_input_frames": 29901312,
+                  "complete_output_frames": 13735915,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.182782089501097,
+                  "cycles_per_input_sample": 12.92725353910212,
+                  "expected_complete_output_frames": 13735915,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.87200403962282,
+                  "one_core_realtime_cpu_pct": 0.08030941611842106,
+                  "process_calls": 58368,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 772646845,
+                  "timed_input_audio_seconds": 311.296,
+                  "timed_input_frames": 29884416,
+                  "trial_index": 3,
+                  "wall_ns": 250320400,
+                  "wall_ns_per_input_sample": 4.188142743027001
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_96k_to_44k1","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_96k_to_44k1",
+              "channels": 2,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 96000,
+              "memory_after_construction": {
+                "page_faults": 2885,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9318400,
+                "private_commit_bytes": 4890624,
+                "working_set_bytes": 9318400
+              },
+              "memory_after_drop": {
+                "page_faults": 2899,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9375744,
+                "private_commit_bytes": 4665344,
+                "working_set_bytes": 7811072
+              },
+              "memory_after_warmup": {
+                "page_faults": 2899,
+                "peak_pagefile_bytes": 4890624,
+                "peak_working_set_bytes": 9375744,
+                "private_commit_bytes": 4890624,
+                "working_set_bytes": 9375744
+              },
+              "memory_before_instances": {
+                "page_faults": 2208,
+                "peak_pagefile_bytes": 1867776,
+                "peak_working_set_bytes": 6549504,
+                "private_commit_bytes": 1867776,
+                "working_set_bytes": 6549504
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33004,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 94464.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 73960.0,
+              "pooled_working_set_increment_bytes_per_instance": 88320.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3301114,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 934394,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 3301114,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 934394,
+                "heap_count": 2
+              },
+              "rate_pair": "music_96k_to_44k1",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 2359552,
+                "reallocations": 0,
+                "retained_bytes": 2359552
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 73736,
+                "reallocations": 0,
+                "retained_bytes": 73736
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 63000,
+              "to_rate_hz": 44100,
+              "trials": [
+                {
+                  "complete_input_frames": 30032384,
+                  "complete_output_frames": 13796126,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.164516665529476,
+                  "cycles_per_input_sample": 12.910217101917517,
+                  "expected_complete_output_frames": 13796126,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.57429995284161,
+                  "one_core_realtime_cpu_pct": 0.07995871997816593,
+                  "process_calls": 58624,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 775012933,
+                  "timed_input_audio_seconds": 312.66133333333335,
+                  "timed_input_frames": 30015488,
+                  "trial_index": 0,
+                  "wall_ns": 251068800,
+                  "wall_ns_per_input_sample": 4.182320807177947
+                },
+                {
+                  "complete_input_frames": 29639168,
+                  "complete_output_frames": 13615493,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.219797860204646,
+                  "cycles_per_input_sample": 13.005821413698449,
+                  "expected_complete_output_frames": 13615493,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.96852990678535,
+                  "one_core_realtime_cpu_pct": 0.0810201189159292,
+                  "process_calls": 57856,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 770523959,
+                  "timed_input_audio_seconds": 308.56533333333334,
+                  "timed_input_frames": 29622272,
+                  "trial_index": 1,
+                  "wall_ns": 250078700,
+                  "wall_ns_per_input_sample": 4.221126252571039
+                },
+                {
+                  "complete_input_frames": 30032384,
+                  "complete_output_frames": 13796126,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.164516665529476,
+                  "cycles_per_input_sample": 12.901270104287493,
+                  "expected_complete_output_frames": 13796126,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.57207903314715,
+                  "one_core_realtime_cpu_pct": 0.07995871997816593,
+                  "process_calls": 58624,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 774475836,
+                  "timed_input_audio_seconds": 312.66133333333335,
+                  "timed_input_frames": 30015488,
+                  "trial_index": 2,
+                  "wall_ns": 251074400,
+                  "wall_ns_per_input_sample": 4.182414092351255
+                },
+                {
+                  "complete_input_frames": 29901312,
+                  "complete_output_frames": 13735915,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 4.182782089501097,
+                  "cycles_per_input_sample": 12.905212017527798,
+                  "expected_complete_output_frames": 13735915,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.83439470606159,
+                  "one_core_realtime_cpu_pct": 0.08030941611842106,
+                  "process_calls": 58368,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771329449,
+                  "timed_input_audio_seconds": 311.296,
+                  "timed_input_frames": 29884416,
+                  "trial_index": 3,
+                  "wall_ns": 250414700,
+                  "wall_ns_per_input_sample": 4.189720488431161
+                }
+              ]
+            },
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "rate_pair": "music_44k1_to_48k_6ch",
+      "valid": true,
+      "schedule": ["baseline","candidate","candidate","baseline"],
+      "metrics": {
+        "wall_ns_per_input_sample": {
+          "baseline": 7.134341125588801,
+          "candidate": 7.343589259840553,
+          "reduction_pct": -2.932970691592529
+        },
+        "cpu_ns_per_input_sample": {
+          "baseline": 7.205590519268693,
+          "candidate": 7.3677126630854435,
+          "reduction_pct": -2.249949443882704
+        },
+        "cycles_per_input_sample": {
+          "baseline": 21.952216996505797,
+          "candidate": 22.643296114402055,
+          "reduction_pct": -3.1481062619154176
+        },
+        "one_core_realtime_cpu_pct": {
+          "baseline": 0.19065992513984958,
+          "candidate": 0.19494967706524086,
+          "reduction_pct": -2.249949443882726
+        }
+      },
+      "records": {
+        "baseline": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k_6ch","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k_6ch",
+              "channels": 6,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3565,
+                "peak_pagefile_bytes": 8990720,
+                "peak_working_set_bytes": 11956224,
+                "private_commit_bytes": 8990720,
+                "working_set_bytes": 11956224
+              },
+              "memory_after_drop": {
+                "page_faults": 3583,
+                "peak_pagefile_bytes": 8990720,
+                "peak_working_set_bytes": 12029952,
+                "private_commit_bytes": 4669440,
+                "working_set_bytes": 7704576
+              },
+              "memory_after_warmup": {
+                "page_faults": 3582,
+                "peak_pagefile_bytes": 8990720,
+                "peak_working_set_bytes": 12025856,
+                "private_commit_bytes": 8990720,
+                "working_set_bytes": 12025856
+              },
+              "memory_before_instances": {
+                "page_faults": 2251,
+                "peak_pagefile_bytes": 4009984,
+                "peak_working_set_bytes": 6660096,
+                "private_commit_bytes": 4005888,
+                "working_set_bytes": 6586368
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 155776.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 159752.0,
+              "pooled_working_set_increment_bytes_per_instance": 169984.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 7678391,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566327,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 7678391,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566327,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k_6ch",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 5103872,
+                "reallocations": 0,
+                "retained_bytes": 5103872
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 159496,
+                "reallocations": 0,
+                "retained_bytes": 159496
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 105800,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 5521920,
+                  "complete_output_frames": 6010253,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.568843781001984,
+                  "cycles_per_input_sample": 22.843354149470255,
+                  "expected_complete_output_frames": 6010253,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.7324378158277,
+                  "one_core_realtime_cpu_pct": 0.2002716064453125,
+                  "process_calls": 10752,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 754519277,
+                  "timed_input_audio_seconds": 124.83047619047619,
+                  "timed_input_frames": 5505024,
+                  "trial_index": 0,
+                  "wall_ns": 250670700,
+                  "wall_ns_per_input_sample": 7.589149475097656
+                },
+                {
+                  "complete_input_frames": 5784064,
+                  "complete_output_frames": 6295580,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.224805427320076,
+                  "cycles_per_input_sample": 22.67031562689579,
+                  "expected_complete_output_frames": 6295580,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 97.95735406999093,
+                  "one_core_realtime_cpu_pct": 0.1911683516068892,
+                  "process_calls": 11264,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 784461113,
+                  "timed_input_audio_seconds": 130.77478458049887,
+                  "timed_input_frames": 5767168,
+                  "trial_index": 1,
+                  "wall_ns": 255213100,
+                  "wall_ns_per_input_sample": 7.375459960012725
+                },
+                {
+                  "complete_input_frames": 5784064,
+                  "complete_output_frames": 6295580,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.224805427320076,
+                  "cycles_per_input_sample": 22.604606859611742,
+                  "expected_complete_output_frames": 6295580,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.49030126607312,
+                  "one_core_realtime_cpu_pct": 0.1911683516068892,
+                  "process_calls": 11264,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 782187392,
+                  "timed_input_audio_seconds": 130.77478458049887,
+                  "timed_input_frames": 5767168,
+                  "trial_index": 2,
+                  "wall_ns": 253832100,
+                  "wall_ns_per_input_sample": 7.335550134832209
+                },
+                {
+                  "complete_input_frames": 5784064,
+                  "complete_output_frames": 6295580,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.224805427320076,
+                  "cycles_per_input_sample": 22.60792330539588,
+                  "expected_complete_output_frames": 6295580,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.48754644672691,
+                  "one_core_realtime_cpu_pct": 0.1911683516068892,
+                  "process_calls": 11264,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 782302151,
+                  "timed_input_audio_seconds": 130.77478458049887,
+                  "timed_input_frames": 5767168,
+                  "trial_index": 3,
+                  "wall_ns": 253839200,
+                  "wall_ns_per_input_sample": 7.335755319306345
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\baseline.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k_6ch","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "c75b07c462d70d04e0d4b6ca2bc0a5a9ad67fdd5352b0d38b0b572d5ddf285ab",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_shared_time_sinc_v5:music_44k1_to_48k_6ch",
+              "channels": 6,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_shared_time_sinc_v5",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3571,
+                "peak_pagefile_bytes": 8998912,
+                "peak_working_set_bytes": 11972608,
+                "private_commit_bytes": 8998912,
+                "working_set_bytes": 11972608
+              },
+              "memory_after_drop": {
+                "page_faults": 3589,
+                "peak_pagefile_bytes": 8998912,
+                "peak_working_set_bytes": 12046336,
+                "private_commit_bytes": 4677632,
+                "working_set_bytes": 7720960
+              },
+              "memory_after_warmup": {
+                "page_faults": 3588,
+                "peak_pagefile_bytes": 8998912,
+                "peak_working_set_bytes": 12042240,
+                "private_commit_bytes": 8998912,
+                "working_set_bytes": 12042240
+              },
+              "memory_before_instances": {
+                "page_faults": 2247,
+                "peak_pagefile_bytes": 4022272,
+                "peak_working_set_bytes": 6660096,
+                "private_commit_bytes": 4018176,
+                "working_set_bytes": 6557696
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 155648.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 20.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 159752.0,
+              "pooled_working_set_increment_bytes_per_instance": 171392.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1236,
+                "busy_bytes": 7678391,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566327,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1236,
+                "busy_bytes": 7678391,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566327,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k_6ch",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 832,
+                "deallocations": 192,
+                "peak_live_bytes": 5103872,
+                "reallocations": 0,
+                "retained_bytes": 5103872
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 26,
+                "deallocations": 6,
+                "peak_live_bytes": 159496,
+                "reallocations": 0,
+                "retained_bytes": 159496
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 87300,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 6046208,
+                  "complete_output_frames": 6580907,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.910683452219203,
+                  "cycles_per_input_sample": 21.29982713339985,
+                  "expected_complete_output_frames": 6580907,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.67621179360964,
+                  "one_core_realtime_cpu_pct": 0.18285668414572012,
+                  "process_calls": 11776,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 770539820,
+                  "timed_input_audio_seconds": 136.71909297052153,
+                  "timed_input_frames": 6029312,
+                  "trial_index": 0,
+                  "wall_ns": 250812100,
+                  "wall_ns_per_input_sample": 6.933132116345392
+                },
+                {
+                  "complete_input_frames": 6177280,
+                  "complete_output_frames": 6723570,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.18637561121731,
+                  "cycles_per_input_sample": 21.24741390579981,
+                  "expected_complete_output_frames": 6723570,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 104.03635603091656,
+                  "one_core_realtime_cpu_pct": 0.19015149867281,
+                  "process_calls": 12032,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 785353372,
+                  "timed_input_audio_seconds": 139.69124716553287,
+                  "timed_input_frames": 6160384,
+                  "trial_index": 1,
+                  "wall_ns": 255319400,
+                  "wall_ns_per_input_sample": 6.907561822985927
+                },
+                {
+                  "complete_input_frames": 6177280,
+                  "complete_output_frames": 6723570,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.76364763408688,
+                  "cycles_per_input_sample": 21.190636384571697,
+                  "expected_complete_output_frames": 6723570,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.12972592760067,
+                  "one_core_realtime_cpu_pct": 0.17896611639793883,
+                  "process_calls": 12032,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 783254744,
+                  "timed_input_audio_seconds": 139.69124716553287,
+                  "timed_input_frames": 6160384,
+                  "trial_index": 2,
+                  "wall_ns": 254764800,
+                  "wall_ns_per_input_sample": 6.892557347074468
+                },
+                {
+                  "complete_input_frames": 6177280,
+                  "complete_output_frames": 6723570,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.18637561121731,
+                  "cycles_per_input_sample": 21.19613912595925,
+                  "expected_complete_output_frames": 6723570,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 104.48816240086163,
+                  "one_core_realtime_cpu_pct": 0.19015149867281,
+                  "process_calls": 12032,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 783458138,
+                  "timed_input_audio_seconds": 139.69124716553287,
+                  "timed_input_frames": 6160384,
+                  "trial_index": 3,
+                  "wall_ns": 254215400,
+                  "wall_ns_per_input_sample": 6.877693555033799
+                }
+              ]
+            },
+            "error": null
+          }
+        ],
+        "candidate": [
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k_6ch","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k_6ch",
+              "channels": 6,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3507,
+                "peak_pagefile_bytes": 8888320,
+                "peak_working_set_bytes": 11755520,
+                "private_commit_bytes": 8888320,
+                "working_set_bytes": 11755520
+              },
+              "memory_after_drop": {
+                "page_faults": 3525,
+                "peak_pagefile_bytes": 8888320,
+                "peak_working_set_bytes": 11829248,
+                "private_commit_bytes": 4943872,
+                "working_set_bytes": 7778304
+              },
+              "memory_after_warmup": {
+                "page_faults": 3525,
+                "peak_pagefile_bytes": 8888320,
+                "peak_working_set_bytes": 11829248,
+                "private_commit_bytes": 8888320,
+                "working_set_bytes": 11829248
+              },
+              "memory_before_instances": {
+                "page_faults": 2230,
+                "peak_pagefile_bytes": 3915776,
+                "peak_working_set_bytes": 6610944,
+                "private_commit_bytes": 3915776,
+                "working_set_bytes": 6533120
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 155392.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 150304.0,
+              "pooled_working_set_increment_bytes_per_instance": 165504.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 7376098,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566370,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 7376098,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566370,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k_6ch",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 4801536,
+                "reallocations": 0,
+                "retained_bytes": 4801536
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 150048,
+                "reallocations": 0,
+                "retained_bytes": 150048
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 92300,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 5915136,
+                  "complete_output_frames": 6438243,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.064254195601852,
+                  "cycles_per_input_sample": 22.22468937061451,
+                  "expected_complete_output_frames": 6438243,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.06913638749391,
+                  "one_core_realtime_cpu_pct": 0.18692016601562497,
+                  "process_calls": 11520,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 786519311,
+                  "timed_input_audio_seconds": 133.74693877551022,
+                  "timed_input_frames": 5898240,
+                  "trial_index": 0,
+                  "wall_ns": 254922200,
+                  "wall_ns_per_input_sample": 7.203340883608218
+                },
+                {
+                  "complete_input_frames": 5784064,
+                  "complete_output_frames": 6295580,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.224805427320076,
+                  "cycles_per_input_sample": 22.459465171351578,
+                  "expected_complete_output_frames": 6295580,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.16758727243518,
+                  "one_core_realtime_cpu_pct": 0.1911683516068892,
+                  "process_calls": 11264,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777165053,
+                  "timed_input_audio_seconds": 130.77478458049887,
+                  "timed_input_frames": 5767168,
+                  "trial_index": 1,
+                  "wall_ns": 252098500,
+                  "wall_ns_per_input_sample": 7.285450444077
+                },
+                {
+                  "complete_input_frames": 6046208,
+                  "complete_output_frames": 6580907,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.342601167982903,
+                  "cycles_per_input_sample": 21.6032113890717,
+                  "expected_complete_output_frames": 6580907,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 104.69981454583437,
+                  "one_core_realtime_cpu_pct": 0.19428522690482763,
+                  "process_calls": 11776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 781515010,
+                  "timed_input_audio_seconds": 136.71909297052153,
+                  "timed_input_frames": 6029312,
+                  "trial_index": 2,
+                  "wall_ns": 253701500,
+                  "wall_ns_per_input_sample": 7.013003031412761
+                },
+                {
+                  "complete_input_frames": 6046208,
+                  "complete_output_frames": 6580907,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 6.910683452219203,
+                  "cycles_per_input_sample": 21.497478236322817,
+                  "expected_complete_output_frames": 6580907,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 98.84802511530623,
+                  "one_core_realtime_cpu_pct": 0.18285668414572012,
+                  "process_calls": 11776,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 777690021,
+                  "timed_input_audio_seconds": 136.71909297052153,
+                  "timed_input_frames": 6029312,
+                  "trial_index": 3,
+                  "wall_ns": 252913500,
+                  "wall_ns_per_input_sample": 6.991220557171365
+                }
+              ]
+            },
+            "error": null
+          },
+          {
+            "command": ["<workspace>\\.trellis\\tasks\\10-08-rubato-dependency-audit\\research\\spectrum-reuse-v1\\candidate.exe","--resources","--resource-case=audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k_6ch","--resource-engines=audio_engine_core","--pinned","--pin-core","2"],
+            "binary_sha256": "bb73352af5bd738ddbe6c9526992faf0583f648e45a62ea03fee93a8f920e84a",
+            "exit_code": 0,
+            "measurement": {
+              "case_key": "audio_engine_core:audio_engine_core_owned_fft_inplace_spectrum_sinc_v6:music_44k1_to_48k_6ch",
+              "channels": 6,
+              "engine": {
+                "adapter_schema": "cross_project_resampler_v7_identified_trials_quality_grid",
+                "algorithm_id": "audio_engine_core_owned_fft_inplace_spectrum_sinc_v6",
+                "display_name": "audio-engine-core (rust)",
+                "engine_id": "audio_engine_core",
+                "implementation": "audio-engine-core 2.0.0 StreamingResampler",
+                "native_library": null,
+                "phase_response": "linear; project lifecycle semantics",
+                "quality_recipe": "owned fixed-ratio FFT/sinc and exact-2x High half-band, linear phase",
+                "sample_format": "interleaved_f64",
+                "upstream_version": "project-owned kernels; Rubato 4.0 response convention"
+              },
+              "from_rate_hz": 44100,
+              "memory_after_construction": {
+                "page_faults": 3480,
+                "peak_pagefile_bytes": 8716288,
+                "peak_working_set_bytes": 11677696,
+                "private_commit_bytes": 8716288,
+                "working_set_bytes": 11677696
+              },
+              "memory_after_drop": {
+                "page_faults": 3498,
+                "peak_pagefile_bytes": 8716288,
+                "peak_working_set_bytes": 11751424,
+                "private_commit_bytes": 4935680,
+                "working_set_bytes": 7860224
+              },
+              "memory_after_warmup": {
+                "page_faults": 3498,
+                "peak_pagefile_bytes": 8716288,
+                "peak_working_set_bytes": 11751424,
+                "private_commit_bytes": 8716288,
+                "working_set_bytes": 11751424
+              },
+              "memory_before_instances": {
+                "page_faults": 2237,
+                "peak_pagefile_bytes": 4005888,
+                "peak_working_set_bytes": 6664192,
+                "private_commit_bytes": 4001792,
+                "working_set_bytes": 6594560
+              },
+              "memory_only": false,
+              "output_capacity_frames": 33326,
+              "output_capacity_policy": "common_conservative",
+              "pooled_private_commit_increment_bytes_per_instance": 147328.0,
+              "pooled_process_heap_busy_blocks_increment_per_instance": 19.0,
+              "pooled_process_heap_busy_bytes_increment_per_instance": 150304.0,
+              "pooled_working_set_increment_bytes_per_instance": 161152.0,
+              "process_heap_after_construction": {
+                "busy_blocks": 1204,
+                "busy_bytes": 7376098,
+                "heap_count": 2
+              },
+              "process_heap_after_drop": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566370,
+                "heap_count": 2
+              },
+              "process_heap_after_warmup": {
+                "busy_blocks": 1204,
+                "busy_bytes": 7376098,
+                "heap_count": 2
+              },
+              "process_heap_before_instances": {
+                "busy_blocks": 596,
+                "busy_bytes": 2566370,
+                "heap_count": 2
+              },
+              "rate_pair": "music_44k1_to_48k_6ch",
+              "retention": null,
+              "rust_pool_heap": {
+                "allocations": 800,
+                "deallocations": 192,
+                "peak_live_bytes": 4801536,
+                "reallocations": 0,
+                "retained_bytes": 4801536
+              },
+              "rust_process_finish_reset_heap": {
+                "allocations": 0,
+                "deallocations": 0,
+                "peak_live_bytes": 0,
+                "reallocations": 0,
+                "retained_bytes": 0
+              },
+              "rust_setup_heap": {
+                "allocations": 25,
+                "deallocations": 6,
+                "peak_live_bytes": 150048,
+                "reallocations": 0,
+                "retained_bytes": 150048
+              },
+              "scheduling": {
+                "effective_affinity_mask": 4,
+                "effective_group": 0,
+                "effective_process_priority_class": 128,
+                "effective_thread_priority": 2,
+                "requested_core": 2
+              },
+              "setup_instrumented_ns": 96000,
+              "to_rate_hz": 48000,
+              "trials": [
+                {
+                  "complete_input_frames": 5521920,
+                  "complete_output_frames": 6010253,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 8.041896517314608,
+                  "cycles_per_input_sample": 23.413555992974175,
+                  "expected_complete_output_frames": 6010253,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 105.73304997207653,
+                  "one_core_realtime_cpu_pct": 0.21278858184814453,
+                  "process_calls": 10752,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 265625000
+                  },
+                  "thread_cycles": 773353126,
+                  "timed_input_audio_seconds": 124.83047619047619,
+                  "timed_input_frames": 5505024,
+                  "trial_index": 0,
+                  "wall_ns": 251222300,
+                  "wall_ns_per_input_sample": 7.605849372016059
+                },
+                {
+                  "complete_input_frames": 5652992,
+                  "complete_output_frames": 6152916,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.3928241581879846,
+                  "cycles_per_input_sample": 22.827127057452536,
+                  "expected_complete_output_frames": 6152916,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.8797048834384,
+                  "one_core_realtime_cpu_pct": 0.19561412722565408,
+                  "process_calls": 11008,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 771935277,
+                  "timed_input_audio_seconds": 127.80263038548753,
+                  "timed_input_frames": 5636096,
+                  "trial_index": 1,
+                  "wall_ns": 250301100,
+                  "wall_ns_per_input_sample": 7.401728075604106
+                },
+                {
+                  "complete_input_frames": 5652992,
+                  "complete_output_frames": 6152916,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.3928241581879846,
+                  "cycles_per_input_sample": 22.849695693614873,
+                  "expected_complete_output_frames": 6152916,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.79541939024999,
+                  "one_core_realtime_cpu_pct": 0.19561412722565408,
+                  "process_calls": 11008,
+                  "thread_cpu": {
+                    "kernel_ns": 0,
+                    "user_ns": 250000000
+                  },
+                  "thread_cycles": 772698471,
+                  "timed_input_audio_seconds": 127.80263038548753,
+                  "timed_input_frames": 5636096,
+                  "trial_index": 2,
+                  "wall_ns": 250512500,
+                  "wall_ns_per_input_sample": 7.40797944771227
+                },
+                {
+                  "complete_input_frames": 5652992,
+                  "complete_output_frames": 6152916,
+                  "complete_work_valid": true,
+                  "cpu_ns_per_input_sample": 7.3928241581879846,
+                  "cycles_per_input_sample": 22.865881838539774,
+                  "expected_complete_output_frames": 6152916,
+                  "finish_error": null,
+                  "finished": true,
+                  "measured_busy_thread_pct": 99.50791346632633,
+                  "one_core_realtime_cpu_pct": 0.19561412722565408,
+                  "process_calls": 11008,
+                  "thread_cpu": {
+                    "kernel_ns": 15625000,
+                    "user_ns": 234375000
+                  },
+                  "thread_cycles": 773245831,
+                  "timed_input_audio_seconds": 127.80263038548753,
+                  "timed_input_frames": 5636096,
+                  "trial_index": 3,
+                  "wall_ns": 251236300,
+                  "wall_ns_per_input_sample": 7.429383152215055
+                }
+              ]
+            },
+            "error": null
+          }
+        ]
+      }
+    }
+  ]
+}
