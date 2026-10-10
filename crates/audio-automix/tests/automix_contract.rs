@@ -22,47 +22,153 @@ use std::path::PathBuf;
 
 /// Relative tolerance for values that accumulate floating-point error.
 ///
-/// The golden was captured on Windows/MSVC. The same source reproduces these
-/// values only approximately on other toolchains and libm implementations: the
-/// 2026-10 CI runs reported `bpm_confidence` differing by 1.3e-9 (macOS) and
-/// `beat_grid_stability` by 4.5e-9 (Linux), which is visible platform noise —
-/// the values agree to seven significant digits — yet both exceeded the
-/// previous 1e-9 budget. 1e-6 relative leaves about 200x headroom over the
-/// largest observed spread, while any semantic change moves these fields by
-/// 1e-3 or more. Values that are exactly zero keep only the absolute floor, so
-/// a stray non-zero spill is still caught.
+/// The golden was captured on Windows/MSVC and the same source reproduces these
+/// values only approximately elsewhere. Measured cross-platform spreads for
+/// this exact source:
+///
+/// * Linux: `beat_grid_stability` off by 4.5e-9 absolute, 4.9e-9 relative.
+/// * macOS: `bpm_confidence` off by 1.3e-9 absolute at one case and 2.2e-7
+///   absolute (1.3e-6 relative) at another. Two orders of magnitude between
+///   two cases of the same field is near-tie amplification in a softmax-style
+///   aggregate, not uniform rounding noise, so a bound extrapolated from one
+///   observation does not cover the others.
+///
+/// The budget is therefore being calibrated against a full divergence profile
+/// rather than a single first failure: `compare` collects every field instead
+/// of asserting on the first one it visits. Values the golden records as
+/// exactly zero keep only the absolute floor, so a stray non-zero spill is
+/// still caught.
 const RELATIVE_TOLERANCE: f64 = 1e-6;
 const ABSOLUTE_FLOOR: f64 = 1e-9;
 
-fn compare(actual: &Value, expected: &Value, path: &str, exact: bool) {
+/// The divergence profile of one comparison.
+///
+/// The first field that fails says nothing about the rest, so a run that
+/// reports the whole profile replaces a chain of runs that each reveal one
+/// more field.
+#[derive(Default)]
+struct Divergence {
+    /// Fields that exceeded the budget: `(relative deviation, description)`.
+    exceeded: Vec<(f64, String)>,
+    /// The largest deviation among the fields that stayed inside the budget, so
+    /// a report also shows how much headroom the rest actually had.
+    closest: Option<(f64, String)>,
+}
+
+impl Divergence {
+    fn exceeded(&mut self, relative: f64, description: String) {
+        self.exceeded.push((relative, description));
+    }
+
+    fn within(&mut self, relative: f64, description: String) {
+        if !relative.is_finite() {
+            return;
+        }
+        if self
+            .closest
+            .as_ref()
+            .is_none_or(|(best, _)| relative > *best)
+        {
+            self.closest = Some((relative, description));
+        }
+    }
+
+    fn is_clean(&self) -> bool {
+        self.exceeded.is_empty()
+    }
+
+    fn report(mut self) -> String {
+        const SHOWN: usize = 25;
+        let mut message = format!(
+            "{} field(s) exceeded the golden budget ({:e} relative, {:e} absolute), \
+             worst first:\n",
+            self.exceeded.len(),
+            RELATIVE_TOLERANCE,
+            ABSOLUTE_FLOOR
+        );
+        self.exceeded
+            .sort_by(|left, right| right.0.total_cmp(&left.0));
+        for (relative, description) in self.exceeded.iter().take(SHOWN) {
+            message.push_str(&format!("  {relative:.3e}  {description}\n"));
+        }
+        if self.exceeded.len() > SHOWN {
+            message.push_str(&format!("  ... {} more\n", self.exceeded.len() - SHOWN));
+        }
+        if let Some((relative, description)) = &self.closest {
+            message.push_str(&format!(
+                "closest field inside the budget: {relative:.3e}  {description}\n"
+            ));
+        }
+        message
+    }
+}
+
+/// Numeric comparison. `exact` is for the descriptor opt-in parity check, which
+/// compares two runs of this same binary and so must agree bit for bit.
+fn compare(actual: &Value, expected: &Value, path: &str, exact: bool, divergence: &mut Divergence) {
     match (actual, expected) {
         (Value::Number(a), Value::Number(b)) => {
             let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
             if exact {
-                assert_eq!(a.to_bits(), b.to_bits(), "{path}: {a} != {b}");
+                if a.to_bits() != b.to_bits() {
+                    divergence.exceeded(f64::INFINITY, format!("{path}: {a} != {b}"));
+                }
             } else {
                 let tolerance = ABSOLUTE_FLOOR.max(RELATIVE_TOLERANCE * b.abs());
-                assert!((a - b).abs() <= tolerance, "{path}: {a} != {b}");
+                let delta = (a - b).abs();
+                // A field the golden pins at zero has no meaningful relative
+                // deviation. Report it as unbounded: `within` drops non-finite
+                // values, so an exactly-zero pair never becomes the "closest".
+                let relative = if b == 0.0 {
+                    f64::INFINITY
+                } else {
+                    delta / b.abs()
+                };
+                let description =
+                    format!("{path}: {a} != {b} (delta {delta:.3e}, tolerance {tolerance:.3e})");
+                if delta > tolerance {
+                    divergence.exceeded(relative, description);
+                } else {
+                    divergence.within(relative, description);
+                }
             }
         }
         (Value::Array(a), Value::Array(b)) => {
-            assert_eq!(a.len(), b.len(), "{path}");
+            if a.len() != b.len() {
+                divergence.exceeded(
+                    f64::INFINITY,
+                    format!("{path}: {} elements != {}", a.len(), b.len()),
+                );
+            }
+            // Compare the shared prefix even on a length mismatch, so one slip
+            // does not hide every element behind it.
             for (i, (a, b)) in a.iter().zip(b).enumerate() {
-                compare(a, b, &format!("{path}[{i}]"), exact);
+                compare(a, b, &format!("{path}[{i}]"), exact, divergence);
             }
         }
         (Value::Object(a), Value::Object(b)) => {
-            assert_eq!(
-                a.keys().collect::<Vec<_>>(),
-                b.keys().collect::<Vec<_>>(),
-                "{path}"
-            );
+            if a.keys().collect::<Vec<_>>() != b.keys().collect::<Vec<_>>() {
+                divergence.exceeded(f64::INFINITY, format!("{path}: keys changed"));
+            }
             for (key, value) in a {
-                compare(value, &b[key], &format!("{path}.{key}"), exact);
+                if let Some(expected) = b.get(key) {
+                    compare(value, expected, &format!("{path}.{key}"), exact, divergence);
+                }
             }
         }
-        _ => assert_eq!(actual, expected, "{path}"),
+        _ => {
+            if actual != expected {
+                divergence.exceeded(f64::INFINITY, format!("{path}: {actual} != {expected}"));
+            }
+        }
     }
+}
+
+/// Compare and, if anything diverged, fail with the whole profile.
+fn assert_contract(actual: &Value, expected: &Value, path: &str, exact: bool) {
+    let mut divergence = Divergence::default();
+    compare(actual, expected, path, exact, &mut divergence);
+    assert!(divergence.is_clean(), "{}", divergence.report());
 }
 
 #[test]
@@ -103,7 +209,7 @@ fn complete_results_match_the_pre_extraction_contract() {
                 None,
             )
             .unwrap();
-            compare(
+            assert_contract(
                 &serde_json::to_value(&companion.analysis).unwrap(),
                 &serde_json::to_value(&output).unwrap(),
                 "descriptor opt-in parity",
@@ -139,5 +245,5 @@ fn complete_results_match_the_pre_extraction_contract() {
         return;
     }
     let expected: Value = serde_json::from_slice(&fs::read(golden).unwrap()).unwrap();
-    compare(&actual, &expected, "contract", false);
+    assert_contract(&actual, &expected, "contract", false);
 }
