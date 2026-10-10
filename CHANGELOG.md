@@ -203,7 +203,7 @@ pin baseline comparability.
   reproducibility, CI enforcement, scope & limitations, and exploratory
   measurements. All existing measurements, gates, and baseline rules are
   retained.
-- **Resampler study rework**: `docs/resampler-comparison.md` repositioned from
+- **Resampler study rework**: `docs/resampler/comparison.md` repositioned from
   a benchmark report into a comparative Pareto study (`Resampler Comparison &
   Pareto Analysis`) with an executive summary, engine-vs-recipe identity
   principle, separated quality/performance/lifecycle comparisons, route

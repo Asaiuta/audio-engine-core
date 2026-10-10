@@ -187,8 +187,9 @@ Releases are cut from a green CI state on the release branch:
 
 1. Bump the version in `Cargo.toml`, move the `[Unreleased]` changelog entries
    into a dated release section, and refresh README status text if it changed.
-2. Verify the release locally with the commands in the Release Documentation
-   Checklist (`.trellis/spec/backend/quality-guidelines.md`): both feature
+2. Verify the release locally with the Release Documentation Checklist (kept in
+   the local development workspace, deliberately not distributed with this
+   repository): both feature
    matrices build/test/clippy/doc with `-D warnings`, `cargo test --test
    public_api` matches the committed snapshots, `cargo semver-checks` passes
    for both matrices against the committed baselines, and

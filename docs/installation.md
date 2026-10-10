@@ -3,7 +3,7 @@
 This page covers the native library setup required to build
 `audio-engine-core` with the opt-in `soxr` resampler backend. For the Cargo
 feature flags (`http`, `loudness-db`, `rubato`, `soxr`), see the
-[README](../README.md#installation--feature-flags).
+[README](../README.md#feature-flags).
 
 ## When SoXR is required
 

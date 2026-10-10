@@ -368,8 +368,8 @@ fn process_callback_block(
 `StreamingResampler` 在两种后端下均保留 `Send`、`Sync`、`UnwindSafe` 和
 `RefUnwindSafe`。推进或重置流需要 `&mut self`；纯 Rust 处理路径使用预分配存储，无需锁。
 
-替换契约与验证见 [`docs/resampler-replacement.md`](docs/resampler-replacement.md)，
-最新测量与适用范围见[跨引擎比较](docs/resampler-comparison.md)。
+替换契约与验证见 [`docs/resampler/replacement.md`](docs/resampler/replacement.md)，
+最新测量与适用范围见[跨引擎比较](docs/resampler/comparison.md)。
 
 ---
 
@@ -426,7 +426,7 @@ fn process_callback_block(
 ## 质量与验证
 
 下表保留历史组件探针的观测值。当前重采样比较与分析器边界见
-[十月比较报告](docs/resampler-comparison.md)；这些旧单项数值不是自有后端的新测量。
+[十月比较报告](docs/resampler/comparison.md)；这些旧单项数值不是自有后端的新测量。
 
 | 测量项                                                    |                 结果 |
 | -------------------------------------------------------------- | ----------------------: |
@@ -446,22 +446,22 @@ fn process_callback_block(
 
 ### 重采样器性能
 
-2026-10-10 修正后的比较使用 High/Linear、双声道、512 帧输入块与 15 次固定核心试验。
-下表为每个输入标量采样的耗时中位数，单位为纳秒：
+2026-10-10 当前资源批次使用 High/Linear、双声道与 512 帧调用块，
+每次固定核心试验至少 250 ms。下表为每个输入标量采样的耗时中位数，单位为纳秒：
 
 | 后端 | 44.1 → 48 kHz | 48 → 44.1 kHz |
 | --- | ---: | ---: |
-| 自有 Rust | 7.559 | 7.029 |
-| SoXR High | 6.897 | 6.563 |
+| CoreSinc(自有 Rust) | 6.615 | 6.151 |
+| Project SoXR High/Linear | 6.892 | 6.610 |
 
-两行来自同一机器的不同特性构建，滤波响应也不同。完整的 11 引擎研究保留了
+两行来自同一台机器上的选定配置，滤波响应不同。完整的 11 引擎研究保留了
 明确归属的原始试验、频响/混叠/镜像/声道探针、单次调用尾延迟和完整排空检查。
 这些证据不代表跨引擎质量相同，也不构成普遍的最快后端结论。
 
 完整方法学、配置、原始测量与可复现命令见:
 
 * `docs/quality.md`
-* `docs/resampler-comparison.md`
+* `docs/resampler/comparison.md`
 
 ---
 
@@ -661,9 +661,9 @@ cargo run --example equalizer_curve
 
 ## 文档
 
-* `docs/` — 架构与 API 文档
+* [`docs/README.md`](docs/README.md) — 文档索引
 * `docs/quality.md` — 基准方法学与质量验证
-* `docs/resampler-comparison.md` — 重采样器方法学与对比
+* `docs/resampler/` — CoreSinc/SoXR 对比、资源与替换报告
 * `docs/installation.md` — 各平台原生 SoXR 后端安装
 * `examples/` — 可运行示例
 * `benches/` — 公共 API 基准

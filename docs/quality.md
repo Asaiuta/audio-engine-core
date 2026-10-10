@@ -29,6 +29,68 @@ Results on this page are representative measurements from specific machines,
 builds, and configurations. They are evidence of the measured workload, not
 universal hardware guarantees.
 
+## Evidence Model
+
+Every measurement belongs to one of four evidence classes.
+
+| Class | Purpose | CI-enforced |
+| --- | --- | --- |
+| Quality gate | Deterministic correctness / signal-quality invariant | Yes |
+| Realtime-safety gate | Callback correctness and deadline integrity | Yes |
+| Performance regression | Same-machine regression detection | With baseline |
+| Report-only | Exploratory or environment-sensitive measurement | No |
+
+**Gate vs evidence.** A measurement becomes a gate only when it carries a
+pass/fail contract:
+
+```text
+                 Measurement
+                      │
+          ┌───────────┴───────────┐
+          │                       │
+       Evidence                  Gate
+          │                       │
+   useful information       pass/fail contract
+```
+
+A THD+N figure is evidence; `full_output_chain_worst_true_peak ≤ -1 dBTP` is a
+gate. A 1052× realtime decoder figure is evidence; it declares no contract.
+This distinction runs through every section below.
+
+**Enforcement semantics.** Quality `--enforce` applies deterministic objective
+gates while keeping report-only metrics and missing optional corpora distinct.
+Performance `--enforce` validates finite timing, stable case keys, and report
+integrity for the work each probe actually recorded; it does not by itself
+prove that every intended case ran. Probes state their own completeness rule:
+the fixture-driven `audio_gapless_comparison_perf` fails on any attempted
+fixture whose correctness probe could not produce a verdict (reported as
+`probe_failures`), but a fixture that was never supplied is recorded as
+`skipped` and gates nothing. Timing remains report-only unless a compatible
+same-machine baseline is supplied; the default gate allows exactly 10% median
+regression and fails above it.
+
+---
+
+## Evidence Summary
+
+The representative results below are the numbers cited by the README; the
+sections that follow provide methodology, gates, and reproduction for each.
+
+| Domain | Representative result | Evidence type |
+| --- | ---: | --- |
+| EBU R128 integrated parity vs direct `ebur128` | **0.000000 LU** | deterministic gate |
+| Resampler THD+N, 44.1 → 48 kHz (SoXR) | **−187.0 dB** | quality measurement |
+| Resampler THD+N, 44.1 → 48 kHz (Rubato UltraHigh) | **−204.9 dB** | quality measurement |
+| Worst fitted alias attenuation, 96 → 48 kHz | **−290.2 dB** | quality measurement |
+| True-peak limiter ceiling on intersample stress | **−1.00 dBTP** | enforced gate |
+| Full output-chain worst true peak | **−1.000 dBTP** | enforced gate |
+| DSP chain, 512 frames @ 48 kHz (no convolver) | **51.5 μs** (p95 callback utilization 0.51%) | performance measurement |
+| DSP chain with convolver, 512 frames @ 48 kHz | **61.9 μs** (p95 callback utilization 0.60%) | performance measurement |
+| Steady borrowed decode, warm local PCM/WAV | **19.79 ns/frame** (1052.5× realtime) | performance measurement |
+| Generation-based parameter snapshot | **~7 ns** | exploratory performance |
+
+---
+
 ## Analysis L1 evidence
 
 The linear descriptor, mel/MFCC and HPSS APIs are deterministic analysis-worker
@@ -115,6 +177,53 @@ AudioPlayer request/cache/runtime validation and diagnostic display remain a
 separate pending integration. This report establishes no automatic transition
 benefit, multichannel peak guarantee or real-music detector improvement.
 
+### L1 descriptor evidence (2026-09-23)
+
+`analysis::DescriptorAnalyzer` provides deterministic measurements of supplied
+mono PCM. It is independent of the display analyzer: no log rebanding, tilt,
+dB clamp, 0..1 normalization, temporal smoothing or peak hold. It reuses the
+original window definition and owns a separate real FFT. These descriptors
+make no claim about musical key, timbre class, structure, tempo accuracy or
+AutoMix readiness, and do not change the AutoMix schema.
+
+The first spectral frame ends after N input samples and subsequent frames
+after each configured hop. Incomplete tails are not padded. Subtract the
+unwindowed frame mean before windowing; use power `|FFT/N|^2` on bins
+1 through N/2 inclusive (DC excluded, Nyquist included, no bin doubling).
+Centroid and bandwidth are power-weighted mean and standard deviation in Hz.
+Rolloff is the smallest cumulative-power quantile bin, so a uniform brickwall
+band has 85% rolloff near 85% of its extent, not at the cutoff.
+
+Flatness is geometric/arithmetic mean of floored power; the configurable
+absolute power floor defaults to `1e-20` and affects both means. A rectangular
+window single-periodogram white-noise estimator converges near 0.561, not 1.
+An equal-power spectrum gives 1. Contrast is `10*log10(top_mean/bottom_mean)`
+over the largest/smallest `ceil(0.2 * bins)` powers in each documented band.
+There is no contrast floor: insufficient bins or a zero valley are undefined.
+
+Signal output covers all samples since reset, including the spectral tail:
+sample peak, RMS, linear peak/RMS crest, mean DC, absolute-threshold clipping
+count/fraction (inclusive, default threshold 1), and strict opposite-sign
+adjacent pairs divided by N-1. Exact zeros cross neither neighbour. Multiply
+ZCR by sample rate for crossings/second. Silent spectral descriptors and
+silent crest are absent; zero RMS/peak/DC/clipping/ZCR are defined. Before
+any input all signal measurements are absent; ZCR needs at least two samples.
+Non-finite input invalidates containing spectral windows and cumulative signal
+measurements; spectral frames recover after it leaves the ring, cumulative
+measurements require reset. Finite extreme samples are scaled before squaring.
+
+Evidence: `src/analysis/descriptors/tests.rs` uses tone, synthetic brickwall,
+brown/pink/white tilt, equal-power impulse, seeded white noise, explicit
+contrast powers, sine/square/impulse/DC forms, direct DFT, and frozen original
+window formulas. Tolerances are one FFT bin for tone centroid/rolloff,
+`0.025` around `0.56146` for the mean of 32 white-noise frames, and floating-
+point tolerances stated in each closed-form test. Chunk sizes 1/7/64/1000
+are compared by bits; first/primed pushes, accessors and reset are guarded by
+`assert_no_alloc`. The error matrix is rejected before allocation. No corpus
+was downloaded or scored. Allocation freedom is not a callback latency claim;
+use an analysis worker. A manual ignored cost sample records local throughput
+in the task research report rather than establishing a performance gate.
+
 ## Single-source pitch evidence
 
 `analysis::PitchAnalyzer` implements end-anchored YIN steps 1–5 and pYIN's
@@ -130,68 +239,6 @@ seeded white-noise frames were unvoiced. These are synthetic measurements,
 not real-recording accuracy. The threshold probability is uncalibrated;
 there is no level gate, predominant-melody extraction or HMM/Viterbi tracker.
 The approximate reference is `end_sample-(W+period_samples)/2`, not frame end.
-
----
-
-## Evidence Model
-
-Every measurement belongs to one of four evidence classes.
-
-| Class | Purpose | CI-enforced |
-| --- | --- | --- |
-| Quality gate | Deterministic correctness / signal-quality invariant | Yes |
-| Realtime-safety gate | Callback correctness and deadline integrity | Yes |
-| Performance regression | Same-machine regression detection | With baseline |
-| Report-only | Exploratory or environment-sensitive measurement | No |
-
-**Gate vs evidence.** A measurement becomes a gate only when it carries a
-pass/fail contract:
-
-```text
-                 Measurement
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-       Evidence                  Gate
-          │                       │
-   useful information       pass/fail contract
-```
-
-A THD+N figure is evidence; `full_output_chain_worst_true_peak ≤ -1 dBTP` is a
-gate. A 1052× realtime decoder figure is evidence; it declares no contract.
-This distinction runs through every section below.
-
-**Enforcement semantics.** Quality `--enforce` applies deterministic objective
-gates while keeping report-only metrics and missing optional corpora distinct.
-Performance `--enforce` validates finite timing, stable case keys, and report
-integrity for the work each probe actually recorded; it does not by itself
-prove that every intended case ran. Probes state their own completeness rule:
-the fixture-driven `audio_gapless_comparison_perf` fails on any attempted
-fixture whose correctness probe could not produce a verdict (reported as
-`probe_failures`), but a fixture that was never supplied is recorded as
-`skipped` and gates nothing. Timing remains report-only unless a compatible
-same-machine baseline is supplied; the default gate allows exactly 10% median
-regression and fails above it.
-
----
-
-## Evidence Summary
-
-The representative results below are the numbers cited by the README; the
-sections that follow provide methodology, gates, and reproduction for each.
-
-| Domain | Representative result | Evidence type |
-| --- | ---: | --- |
-| EBU R128 integrated parity vs direct `ebur128` | **0.000000 LU** | deterministic gate |
-| Resampler THD+N, 44.1 → 48 kHz (SoXR) | **−187.0 dB** | quality measurement |
-| Resampler THD+N, 44.1 → 48 kHz (Rubato UltraHigh) | **−204.9 dB** | quality measurement |
-| Worst fitted alias attenuation, 96 → 48 kHz | **−290.2 dB** | quality measurement |
-| True-peak limiter ceiling on intersample stress | **−1.00 dBTP** | enforced gate |
-| Full output-chain worst true peak | **−1.000 dBTP** | enforced gate |
-| DSP chain, 512 frames @ 48 kHz (no convolver) | **51.5 μs** (p95 callback utilization 0.51%) | performance measurement |
-| DSP chain with convolver, 512 frames @ 48 kHz | **61.9 μs** (p95 callback utilization 0.60%) | performance measurement |
-| Steady borrowed decode, warm local PCM/WAV | **19.79 ns/frame** (1052.5× realtime) | performance measurement |
-| Generation-based parameter snapshot | **~7 ns** | exploratory performance |
 
 ---
 
@@ -1153,7 +1200,7 @@ output-driven sinc stream with bounded history. Linear routes remove leading
 delay and emit the exact rounded input duration. The existing `rubato` feature
 selects this backend, whose runtime name is `rust`; it does not enable the
 upstream Rubato package. That package is optional under the benchmark-only
-`raw-rubato` feature. See [replacement evidence](resampler-replacement.md).
+`raw-rubato` feature. See [replacement evidence](resampler/replacement.md).
 
 For `PhaseResponse::Minimum` and `Maximum`, the pure-Rust backend instead
 builds an exact spectral (FFT block-convolution) rational resampler during
@@ -1321,7 +1368,7 @@ not identify the retained blocks or prove long-term leak freedom.
 Project SoXR and raw libsoxr now have both capacity observations: respectively
 195.05 and 195.03 KiB/instance at common and advertised caller capacities.
 Exact native allocation calls/peaks and long-duration growth remain open.
-See the [current comparison](resampler-comparison.md#latest-spectrum-storage-and-lifecycle-results),
+See the [current comparison](resampler/comparison.md#latest-spectrum-storage-and-lifecycle-results),
 [paired data](data/resampler-spectrum-reuse-2026-10-10.json), and
 [lifecycle data](data/resampler-retention-2026-10-10.json).
 
@@ -1353,7 +1400,7 @@ minimum native memory. Lazy native progress-label formatting removes successful
 wrapper allocations; all ten recipes report zero Rust-side hot allocation
 operations, without counting C/C++ malloc/free.
 
-The [main comparison](resampler-comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
+The [main comparison](resampler/comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
 contains the updated tables, limits and metric-gap inventory. Raw evidence:
 [paired resources](data/resampler-fft-layout-2026-10-10.json),
 [diagnostics](data/resampler-diagnostics-2026-10-10.json), and
@@ -1408,9 +1455,9 @@ but it is not a successful complete-stream check.
 Fusion closes part of the CPU gap without shortening the filter. FFmpeg uses
 short SIMD polyphase filters at its selected defaults, with a different
 bandwidth/rejection tradeoff; matching that speed at the owned response remains
-unproven. The main [resampler comparison](resampler-comparison.md) contains the
+unproven. The main [resampler comparison](resampler/comparison.md) contains the
 paired improvements, full engine table, quality results and FFmpeg analysis.
-See the [resource report](resampler-resources.md) and
+See the [resource report](resampler/resources.md) and
 [raw data](data/resampler-resources-2026-10-10.json) for all resource measurements.
 
 Native-inclusive heap snapshots have since been added for 11 recipes at stereo
@@ -1420,8 +1467,8 @@ complement private commit and working set; they are not exact native allocator
 request sizes, allocation-call counts or temporal peaks. The new
 `--resource-memory-only` mode collected these without rerunning throughput or
 quality grids. The main comparison now includes the
-[native heap table](resampler-comparison.md#native-inclusive-heap-snapshots-2026-10-10)
-and a prioritized [metric-gap inventory](resampler-comparison.md#coverage-verdict).
+[native heap table](resampler/comparison.md#native-inclusive-heap-snapshots-2026-10-10)
+and a prioritized [metric-gap inventory](resampler/comparison.md#coverage-verdict).
 
 #### Historical 2026-10-10 pre-fusion comparison repair
 
@@ -1445,7 +1492,7 @@ through the first producing call is distinct from compensated API latency.
 The reset/render repetition phase compares complete sample vectors, including
 warmup and every drain chunk; its working-set observations are report-only and
 do not establish long-duration leak freedom. Full tables, identities, numerical
-limits and commands are in [resampler-comparison.md](resampler-comparison.md).
+limits and commands are in [resampler/comparison.md](resampler/comparison.md).
 
 #### Historical 2026-07-27 adapter work
 
@@ -1483,7 +1530,7 @@ confirmation passed. Raw trials and all reports remain under the Pareto task's
 
 The July quality results use their original probe. For updated multi-engine
 throughput, lifecycle, latency and repaired objective-response measurements,
-see [resampler-comparison.md](resampler-comparison.md). The selected recipes
+see [resampler/comparison.md](resampler/comparison.md). The selected recipes
 have different quality/cost targets; their speed ordering does not establish
 equal-quality performance.
 
@@ -1552,49 +1599,3 @@ are not trimmed or hidden.
 Equal-rate resampler setup/finish (112.0/4.1 μs on the final SoXR quick run)
 and timer-quantized Convolver ownership operations remain report-only; only
 the seven stable timing cases gate against a baseline.
-## L1 descriptor evidence (2026-09-23)
-
-`analysis::DescriptorAnalyzer` provides deterministic measurements of supplied
-mono PCM. It is independent of the display analyzer: no log rebanding, tilt,
-dB clamp, 0..1 normalization, temporal smoothing or peak hold. It reuses the
-original window definition and owns a separate real FFT. These descriptors
-make no claim about musical key, timbre class, structure, tempo accuracy or
-AutoMix readiness, and do not change the AutoMix schema.
-
-The first spectral frame ends after N input samples and subsequent frames
-after each configured hop. Incomplete tails are not padded. Subtract the
-unwindowed frame mean before windowing; use power `|FFT/N|^2` on bins
-1 through N/2 inclusive (DC excluded, Nyquist included, no bin doubling).
-Centroid and bandwidth are power-weighted mean and standard deviation in Hz.
-Rolloff is the smallest cumulative-power quantile bin, so a uniform brickwall
-band has 85% rolloff near 85% of its extent, not at the cutoff.
-
-Flatness is geometric/arithmetic mean of floored power; the configurable
-absolute power floor defaults to `1e-20` and affects both means. A rectangular
-window single-periodogram white-noise estimator converges near 0.561, not 1.
-An equal-power spectrum gives 1. Contrast is `10*log10(top_mean/bottom_mean)`
-over the largest/smallest `ceil(0.2 * bins)` powers in each documented band.
-There is no contrast floor: insufficient bins or a zero valley are undefined.
-
-Signal output covers all samples since reset, including the spectral tail:
-sample peak, RMS, linear peak/RMS crest, mean DC, absolute-threshold clipping
-count/fraction (inclusive, default threshold 1), and strict opposite-sign
-adjacent pairs divided by N-1. Exact zeros cross neither neighbour. Multiply
-ZCR by sample rate for crossings/second. Silent spectral descriptors and
-silent crest are absent; zero RMS/peak/DC/clipping/ZCR are defined. Before
-any input all signal measurements are absent; ZCR needs at least two samples.
-Non-finite input invalidates containing spectral windows and cumulative signal
-measurements; spectral frames recover after it leaves the ring, cumulative
-measurements require reset. Finite extreme samples are scaled before squaring.
-
-Evidence: `src/analysis/descriptors/tests.rs` uses tone, synthetic brickwall,
-brown/pink/white tilt, equal-power impulse, seeded white noise, explicit
-contrast powers, sine/square/impulse/DC forms, direct DFT, and frozen original
-window formulas. Tolerances are one FFT bin for tone centroid/rolloff,
-`0.025` around `0.56146` for the mean of 32 white-noise frames, and floating-
-point tolerances stated in each closed-form test. Chunk sizes 1/7/64/1000
-are compared by bits; first/primed pushes, accessors and reset are guarded by
-`assert_no_alloc`. The error matrix is rejected before allocation. No corpus
-was downloaded or scored. Allocation freedom is not a callback latency claim;
-use an analysis worker. A manual ignored cost sample records local throughput
-in the task research report rather than establishing a performance gate.

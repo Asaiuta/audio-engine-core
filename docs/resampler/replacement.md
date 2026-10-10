@@ -1,12 +1,15 @@
 # Owned Rust resampler replacement
 
-The later [fused-FFT optimization and resource report](resampler-resources.md)
+The later [fused-FFT optimization and resource report](resources.md)
 describes the current inverse-transform implementation. The replacement and
 full-waveform replay evidence below identifies the preceding O8 integration;
 it was not rerun or relabeled for that local optimization.
 
 The default `rubato` Cargo feature selects the crate's owned Rust backend,
-reported as `rust`. Existing consumer feature selections continue to work.
+whose display name is **CoreSinc** and whose stable machine identifier remains
+`rust`. Existing consumer feature selections continue to work. The machine
+identifier is deliberately unchanged so benchmark records and consumers do not
+need a compatibility migration just for the display name.
 Production code no longer depends on upstream Rubato or directly on
 `sync_wrapper`. Upstream Rubato 4.0.0 remains optional under `raw-rubato`, solely
 for benchmark controls; the default `rubato` feature does not enable it.
@@ -28,7 +31,7 @@ public API limits; allocation geometry and counters are checked.
 
 The filter designs, normalization, interpolation/reduction ordering and delay
 conventions are adapted from Rubato 4.0.0 under its MIT license, reproduced in
-[NOTICE](../NOTICE). This is an owned implementation of the consumed backend
+[NOTICE](../../NOTICE). This is an owned implementation of the consumed backend
 functionality. Sample compatibility preserves the previous fractional timeline
 offset and does not establish corrected absolute origin or zero device latency.
 
@@ -67,9 +70,8 @@ The original R5 108-configuration tone suite is historical evidence, not a
 tone rerun for later optimization identities. The later complete waveform
 replays provide their recorded numerical compatibility evidence.
 
-The local frozen research is retained under
-`.trellis/tasks/10-08-rubato-dependency-audit/research/full-replacement-r5/`.
-The acceptance decision SHA-256 is
+The frozen research for this replacement is local to the development machine and
+deliberately not distributed with this repository. The acceptance decision SHA-256 is
 `32cf377ef84c1e502d59c1a2853dc022eb5cc7a1c54c0ec5b48403a1aec45083` and its binary SHA-256 is
 `addccc75664ce04be34ff33c268571c6c57605a5c6e3d38ee31f8e5c76ac6cbf`.
 
@@ -102,7 +104,7 @@ has eleven engine IDs, including the optional `raw_rubato` control and its
 on each trial and separately measure frequency response, alias/image rejection,
 channel isolation and process-call tails. The two October comparison runs cover
 48 Rust-build and 52 SoXR-build cases; their scope and the withdrawn v6 summaries
-are documented in [resampler-comparison.md](resampler-comparison.md).
+are documented in [comparison.md](comparison.md).
 
 A future algorithm may depart from Rubato sample equality if its frozen paired
 objective quality, bandwidth, phase and complete-stream transient criteria do

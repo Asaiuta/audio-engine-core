@@ -6,8 +6,8 @@ The production implementation remains **v10/P3**. The complete Metrical
 GiantSteps Acc2 acceptance gate and independent incremental-benefit evidence
 do not permit promotion.
 
-The repository's dated, hash-verifiable handoff is
-`.trellis/tasks/09-14-automix-baseline-exposure-governance/research/`.
+The dated, hash-verifiable handoff is retained in the local research workspace
+(deliberately not distributed with this repository). Its
 `baseline.json` separates production, research, performance and quality status;
 `evidence-lock.json` seals the retained files. This is a repository handoff,
 not a newly published crate release or deployed service.

@@ -1,0 +1,559 @@
+{
+  "schema": "resampler_polyphase_screen_v1",
+  "date": "2026-10-10",
+  "scope": "Research-only response and operation screen; no production route change",
+  "cases": [
+    {
+      "ni": 588,
+      "no": 640,
+      "up": 160,
+      "down": 147,
+      "reference_filter_length": 588,
+      "reference_filter_cutoff": 0.9767936972870626,
+      "reference_stopband_floor_db": -180.0,
+      "rows": [
+        {
+          "beta": 14.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 5120,
+          "stopband_db": -50.65761812973448,
+          "passband_db_at_0_8_cutoff": -0.025723710880557228,
+          "macs_per_input_frame_estimate": 34.82993197278912,
+          "retained_coefficient_bytes": 40960
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 10240,
+          "stopband_db": -137.8375144878038,
+          "passband_db_at_0_8_cutoff": -5.748270287112156e-07,
+          "macs_per_input_frame_estimate": 69.65986394557824,
+          "retained_coefficient_bytes": 81920
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 15360,
+          "stopband_db": -141.20100880642656,
+          "passband_db_at_0_8_cutoff": -3.874734829221989e-07,
+          "macs_per_input_frame_estimate": 104.48979591836735,
+          "retained_coefficient_bytes": 122880
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 20480,
+          "stopband_db": -144.53352233596715,
+          "passband_db_at_0_8_cutoff": -6.641644022860448e-08,
+          "macs_per_input_frame_estimate": 139.31972789115648,
+          "retained_coefficient_bytes": 163840
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 30720,
+          "stopband_db": -146.889470763796,
+          "passband_db_at_0_8_cutoff": -2.3717592319015505e-07,
+          "macs_per_input_frame_estimate": 208.9795918367347,
+          "retained_coefficient_bytes": 245760
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 40960,
+          "stopband_db": -151.02809600566508,
+          "passband_db_at_0_8_cutoff": -2.898217666108845e-07,
+          "macs_per_input_frame_estimate": 278.63945578231295,
+          "retained_coefficient_bytes": 327680
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 5120,
+          "stopband_db": -40.67704991741887,
+          "passband_db_at_0_8_cutoff": -0.08120523558734,
+          "macs_per_input_frame_estimate": 34.82993197278912,
+          "retained_coefficient_bytes": 40960
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 10240,
+          "stopband_db": -171.56270761499312,
+          "passband_db_at_0_8_cutoff": -7.138430216784173e-09,
+          "macs_per_input_frame_estimate": 69.65986394557824,
+          "retained_coefficient_bytes": 81920
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 15360,
+          "stopband_db": -176.37792323711693,
+          "passband_db_at_0_8_cutoff": 1.6792989423163837e-08,
+          "macs_per_input_frame_estimate": 104.48979591836735,
+          "retained_coefficient_bytes": 122880
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 20480,
+          "stopband_db": -178.34183681553003,
+          "passband_db_at_0_8_cutoff": 6.431697755091874e-09,
+          "macs_per_input_frame_estimate": 139.31972789115648,
+          "retained_coefficient_bytes": 163840
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 30720,
+          "stopband_db": -180.58244202679566,
+          "passband_db_at_0_8_cutoff": 1.6807803436312298e-09,
+          "macs_per_input_frame_estimate": 208.9795918367347,
+          "retained_coefficient_bytes": 245760
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 40960,
+          "stopband_db": -183.90077182388927,
+          "passband_db_at_0_8_cutoff": -6.534123801790801e-09,
+          "macs_per_input_frame_estimate": 278.63945578231295,
+          "retained_coefficient_bytes": 327680
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 5120,
+          "stopband_db": -37.522905352850564,
+          "passband_db_at_0_8_cutoff": -0.11691546999857853,
+          "macs_per_input_frame_estimate": 34.82993197278912,
+          "retained_coefficient_bytes": 40960
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 10240,
+          "stopband_db": -150.12301483163506,
+          "passband_db_at_0_8_cutoff": -2.866861641382176e-07,
+          "macs_per_input_frame_estimate": 69.65986394557824,
+          "retained_coefficient_bytes": 81920
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 15360,
+          "stopband_db": -192.40058204538374,
+          "passband_db_at_0_8_cutoff": 1.5806040777695483e-09,
+          "macs_per_input_frame_estimate": 104.48979591836735,
+          "retained_coefficient_bytes": 122880
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 20480,
+          "stopband_db": -194.87460311662872,
+          "passband_db_at_0_8_cutoff": -5.905936779634404e-10,
+          "macs_per_input_frame_estimate": 139.31972789115648,
+          "retained_coefficient_bytes": 163840
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 30720,
+          "stopband_db": -197.84858032048464,
+          "passband_db_at_0_8_cutoff": 9.597931987525248e-10,
+          "macs_per_input_frame_estimate": 208.9795918367347,
+          "retained_coefficient_bytes": 245760
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 40960,
+          "stopband_db": -200.50617390669342,
+          "passband_db_at_0_8_cutoff": -7.050448833398533e-10,
+          "macs_per_input_frame_estimate": 278.63945578231295,
+          "retained_coefficient_bytes": 327680
+        }
+      ],
+      "minimum_screened_candidate": {
+        "beta": 20.0,
+        "taps_per_phase": 96,
+        "coefficient_count": 15360,
+        "stopband_db": -192.40058204538374,
+        "passband_db_at_0_8_cutoff": 1.5806040777695483e-09,
+        "macs_per_input_frame_estimate": 104.48979591836735,
+        "retained_coefficient_bytes": 122880
+      }
+    },
+    {
+      "ni": 640,
+      "no": 588,
+      "up": 147,
+      "down": 160,
+      "reference_filter_length": 640,
+      "reference_filter_cutoff": 0.8974292093824887,
+      "reference_stopband_floor_db": -180.0,
+      "rows": [
+        {
+          "beta": 14.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -44.042109518553794,
+          "passband_db_at_0_8_cutoff": -0.055093983683627404,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -138.22379087214867,
+          "passband_db_at_0_8_cutoff": 6.202333906751619e-07,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -141.91503637837582,
+          "passband_db_at_0_8_cutoff": 8.704108033691744e-07,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -144.06900558348352,
+          "passband_db_at_0_8_cutoff": -7.097696857797643e-08,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -147.81750573436568,
+          "passband_db_at_0_8_cutoff": -2.3438557794432566e-07,
+          "macs_per_input_frame_estimate": 176.4,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -150.30311458274758,
+          "passband_db_at_0_8_cutoff": -3.355369393973875e-07,
+          "macs_per_input_frame_estimate": 235.2,
+          "retained_coefficient_bytes": 301056
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -36.0153978038109,
+          "passband_db_at_0_8_cutoff": -0.13921547501901238,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -151.66638303288565,
+          "passband_db_at_0_8_cutoff": -2.471045011637431e-07,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -174.77896533358117,
+          "passband_db_at_0_8_cutoff": -7.623140739311863e-09,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -177.48857749734515,
+          "passband_db_at_0_8_cutoff": -3.636166435034385e-09,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -180.92745497745395,
+          "passband_db_at_0_8_cutoff": -8.552679129047318e-09,
+          "macs_per_input_frame_estimate": 176.4,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -182.97370653046997,
+          "passband_db_at_0_8_cutoff": -6.735942111455105e-09,
+          "macs_per_input_frame_estimate": 235.2,
+          "retained_coefficient_bytes": 301056
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -33.40178956238632,
+          "passband_db_at_0_8_cutoff": -0.18851825019699875,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -114.1256799276446,
+          "passband_db_at_0_8_cutoff": -1.7607860808671186e-05,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -190.90090888786986,
+          "passband_db_at_0_8_cutoff": -4.245162373271255e-11,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -193.90869558200757,
+          "passband_db_at_0_8_cutoff": 1.6660145614662105e-09,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -197.4698860703708,
+          "passband_db_at_0_8_cutoff": -6.961316045657823e-10,
+          "macs_per_input_frame_estimate": 176.4,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -199.59270168841047,
+          "passband_db_at_0_8_cutoff": -6.051116279733993e-10,
+          "macs_per_input_frame_estimate": 235.2,
+          "retained_coefficient_bytes": 301056
+        }
+      ],
+      "minimum_screened_candidate": {
+        "beta": 20.0,
+        "taps_per_phase": 96,
+        "coefficient_count": 14112,
+        "stopband_db": -190.90090888786986,
+        "passband_db_at_0_8_cutoff": -4.245162373271255e-11,
+        "macs_per_input_frame_estimate": 88.2,
+        "retained_coefficient_bytes": 112896
+      }
+    },
+    {
+      "ni": 1280,
+      "no": 588,
+      "up": 147,
+      "down": 320,
+      "reference_filter_length": 1280,
+      "reference_filter_cutoff": 0.44871460469124436,
+      "reference_stopband_floor_db": -180.0,
+      "rows": [
+        {
+          "beta": 14.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -18.650886112927704,
+          "passband_db_at_0_8_cutoff": -1.0808924428475022,
+          "macs_per_input_frame_estimate": 14.7,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -44.04955173025752,
+          "passband_db_at_0_8_cutoff": -0.05504673811656314,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -103.50552651181873,
+          "passband_db_at_0_8_cutoff": -6.0720003127766514e-05,
+          "macs_per_input_frame_estimate": 44.1,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -138.2462705607838,
+          "passband_db_at_0_8_cutoff": 6.22175598127579e-07,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -141.91970717377507,
+          "passband_db_at_0_8_cutoff": 8.696799685853038e-07,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 14.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -144.12424573442476,
+          "passband_db_at_0_8_cutoff": -6.970474291297942e-08,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 301056
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -16.624225614116703,
+          "passband_db_at_0_8_cutoff": -1.388258880476063,
+          "macs_per_input_frame_estimate": 14.7,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -36.02073975556322,
+          "passband_db_at_0_8_cutoff": -0.13912934635855922,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -69.68115918238783,
+          "passband_db_at_0_8_cutoff": -0.002888244594577037,
+          "macs_per_input_frame_estimate": 44.1,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -151.7184718780887,
+          "passband_db_at_0_8_cutoff": -2.45601868704847e-07,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -174.77605589006205,
+          "passband_db_at_0_8_cutoff": -7.60125822042166e-09,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 18.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -177.50209304563643,
+          "passband_db_at_0_8_cutoff": -3.6248191937307097e-09,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 301056
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 32,
+          "coefficient_count": 4704,
+          "stopband_db": -15.894772874252723,
+          "passband_db_at_0_8_cutoff": -1.5209583802232722,
+          "macs_per_input_frame_estimate": 14.7,
+          "retained_coefficient_bytes": 37632
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 64,
+          "coefficient_count": 9408,
+          "stopband_db": -33.40653194242665,
+          "passband_db_at_0_8_cutoff": -0.18841440325203712,
+          "macs_per_input_frame_estimate": 29.4,
+          "retained_coefficient_bytes": 75264
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 96,
+          "coefficient_count": 14112,
+          "stopband_db": -62.26303085558726,
+          "passband_db_at_0_8_cutoff": -0.006770193970531117,
+          "macs_per_input_frame_estimate": 44.1,
+          "retained_coefficient_bytes": 112896
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 128,
+          "coefficient_count": 18816,
+          "stopband_db": -114.14193195004431,
+          "passband_db_at_0_8_cutoff": -1.7575095587400862e-05,
+          "macs_per_input_frame_estimate": 58.8,
+          "retained_coefficient_bytes": 150528
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 192,
+          "coefficient_count": 28224,
+          "stopband_db": -190.89264922615467,
+          "passband_db_at_0_8_cutoff": -4.3817111425358776e-11,
+          "macs_per_input_frame_estimate": 88.2,
+          "retained_coefficient_bytes": 225792
+        },
+        {
+          "beta": 20.0,
+          "taps_per_phase": 256,
+          "coefficient_count": 37632,
+          "stopband_db": -193.91032557467,
+          "passband_db_at_0_8_cutoff": 1.6680145766314584e-09,
+          "macs_per_input_frame_estimate": 117.6,
+          "retained_coefficient_bytes": 301056
+        }
+      ],
+      "minimum_screened_candidate": {
+        "beta": 20.0,
+        "taps_per_phase": 192,
+        "coefficient_count": 28224,
+        "stopband_db": -190.89264922615467,
+        "passband_db_at_0_8_cutoff": -4.3817111425358776e-11,
+        "macs_per_input_frame_estimate": 88.2,
+        "retained_coefficient_bytes": 225792
+      }
+    }
+  ],
+  "method": {
+    "reference": "current reference_filter geometry and explicit retained-band cutoff",
+    "candidate": "linear Kaiser prototype with project quality rolloff 0.96",
+    "stopband_test": "maximum FFT magnitude at frequencies >= 1.2 * cutoff",
+    "note": "This screen is a design/cost filter, not a streaming acceptance test."
+  }
+}

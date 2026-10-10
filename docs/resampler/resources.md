@@ -1,5 +1,9 @@
 # Resampler CPU, memory and FFT results
 
+The project-owned Rust backend is named **CoreSinc**. Its stable machine name
+remains `rust`, so existing feature selection and historical measurements stay
+compatible.
+
 Measured on 2026-10-10, Intel Core i5-12500H (16 logical processors), Windows/x86_64, Rust 1.93.1. The latest owned implementation also shares frequency storage by preparing inverse conjugate pairs in place. It follows the time-buffer and fused-inverse optimizations documented below.
 
 ## Latest targeted optimization
@@ -9,7 +13,18 @@ straight to the caller after an internally fragmented input block is completed.
 The fixed three-case comparison was complete-work valid but inconclusive for
 throughput; it is retained as a copy-path observation, not a speed claim. The
 compact coefficient tail removes 848 bytes at 48→44.1 and 5,552 bytes at
-96→44.1 per instance. See the [raw targeted observations](data/resampler-targeted-optimization-2026-10-10.json).
+96→44.1 per instance. See the [raw targeted observations](../data/resampler-targeted-optimization-2026-10-10.json).
+
+The next direct-polyphase idea was screened separately against the current
+quality floor. A short kernel is not sufficient: the 44.1↔48 cases need about
+96 taps per phase and 88–105 estimated multiply-accumulates per input frame,
+while 96→44.1 needs about 192 taps per phase. This would retain roughly
+110–220 KiB of coefficients before streaming state, so it is not an obvious
+CPU or memory win over the current FFT. The screen is research-only and did not
+change the production route; see the [machine-readable polyphase screen](../data/resampler-polyphase-screen-2026-10-10.json).
+The supporting research note is local to the development machine and is
+deliberately not distributed with this repository.
+
 ## Latest frequency storage and bounded retention
 
 Retained Rust heap falls another **5.9–9.5%**, to **88.16 / 88.17 / 143.03 /
@@ -23,8 +38,8 @@ The one 80-trial timing schedule is **inconclusive for speed**. The apparent
 unchanged baseline children (9.195–10.196 versus 5.599–5.849 ns/sample). The
 six-channel observed median increased 2.9%; other cases were faster or flat.
 All observations are retained without further retries. See the
-[current table](resampler-comparison.md#latest-spectrum-storage-and-lifecycle-results)
-and [raw paired data](data/resampler-spectrum-reuse-2026-10-10.json).
+[current table](comparison.md#latest-spectrum-storage-and-lifecycle-results)
+and [raw paired data](../data/resampler-spectrum-reuse-2026-10-10.json).
 
 Optional `--resource-retention-rounds=32` collects 32 one-instance reuse/reset
 and 32 recreate/drop streams after initial pool warmup. Fourteen fresh children
@@ -36,7 +51,7 @@ these 64 streams; this is not proof of a cache or long-term leak freedom.
 
 SoXR capacity comparisons are now filled: project SoXR uses 195.05 KiB/instance
 at both 33,326 and 622 advertised caller frames; raw libsoxr uses 195.03 KiB at
-33,326 and 1,070 frames. See [lifecycle and capacity observations](data/resampler-retention-2026-10-10.json).
+33,326 and 1,070 frames. See [lifecycle and capacity observations](../data/resampler-retention-2026-10-10.json).
 Native exact allocation-call counts, temporal peaks and long-duration growth
 remain outside these snapshots.
 
@@ -47,8 +62,8 @@ stereo 44.1→48 and 48→44.1 use 97.38 KiB instead of 106.62; 44.1→96 uses
 152.26 instead of 161.49; 96→44.1 uses 76.63 instead of 81.27; six-channel
 44.1→48 uses 155.76 instead of 164.99. The final paired schedule measured
 **0.3% / 5.5% / 4.7% / 3.1% / 2.6%** lower wall medians in that order; the
-first case is effectively flat. See the [current table and validation](resampler-comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
-and [80 paired trials](data/resampler-fft-layout-2026-10-10.json). These are
+first case is effectively flat. See the [current table and validation](comparison.md#earlier-time-buffer-optimization-and-supplemental-metrics)
+and [80 paired trials](../data/resampler-fft-layout-2026-10-10.json). These are
 local observations, not universal speed claims or FFmpeg-speed parity.
 
 The new `--resource-output=adapter` option permits a second capacity policy.
@@ -56,8 +71,8 @@ Twenty fresh memory-only children measured ten recipes at stereo 44.1→48.
 FFmpeg's warmed process-heap increment changes from **2241.22 KiB** with 33,326
 caller frames to **705.22 KiB** with the adapter's advertised 8,749 frames.
 The other nine recipes had unchanged busy-byte increments between the policies.
-See the [capacity table](resampler-comparison.md#output-capacity-memory-comparison)
-and [raw observations](data/resampler-capacity-memory-2026-10-10.json).
+See the [capacity table](comparison.md#output-capacity-memory-comparison)
+and [raw observations](../data/resampler-capacity-memory-2026-10-10.json).
 Advertised capacity is not minimum native capacity. SoXR capacity sensitivity
 was not measured in that earlier round; the latest observations above fill it.
 
@@ -69,7 +84,7 @@ been remeasured solely to update those numbers.
 
 `--diagnostics` separately adds selected multi-level response, phase-slope delay,
 impulse ringing, dense finite transition/stopband samples, silence and
-64/128/512-frame call tails. Its [report](data/resampler-diagnostics-2026-10-10.json)
+64/128/512-frame call tails. Its [report](../data/resampler-diagnostics-2026-10-10.json)
 has 447 complete renders per owned arm with identical quality metrics, plus
 192 FFmpeg control renders. These supplements do not close the full parameter,
 native allocation-peak, multistream, platform or device-latency gaps.
@@ -92,7 +107,7 @@ The first indexed-loop candidate had two regressions and was retained as a faile
 
 ## Added resource coverage
 
-57 current recipe/rate/channel configurations, 248 steady trials. The [machine-readable report](data/resampler-resources-2026-10-10.json) includes every rate, raw trials, thread user/kernel time, cycles, single-core audio-time budget, Rust setup/peak heap and hot allocation calls, process working-set/private-commit snapshots, and endpoint failures.
+57 current recipe/rate/channel configurations, 248 steady trials. The [machine-readable report](../data/resampler-resources-2026-10-10.json) includes every rate, raw trials, thread user/kernel time, cycles, single-core audio-time budget, Rust setup/peak heap and hot allocation calls, process working-set/private-commit snapshots, and endpoint failures.
 
 The table below selects stereo 44.1->48 kHz. CPU budget is the fraction of **one logical CPU needed to keep up with real-time audio**, not whole-machine Task Manager utilization. CPU-time accounting is quantized; use the recorded trials and cycle results rather than treating the last decimal as exact.
 
@@ -125,8 +140,8 @@ at stereo 44.1→48 kHz measured 11 recipes, including every native library in t
 comparison, without rerunning quality grids or steady timing. Examples are
 FFmpeg **2241.22 KiB/instance**, libsamplerate **859.58**, project SoXR **195.05**,
 SpeexDSP **39.53** and zita **15.89**. See the
-[full table and scope](resampler-comparison.md#native-inclusive-heap-snapshots-2026-10-10)
-and [raw heap snapshots](data/resampler-native-heap-2026-10-10.json).
+[full table and scope](comparison.md#native-inclusive-heap-snapshots-2026-10-10)
+and [raw heap snapshots](../data/resampler-native-heap-2026-10-10.json).
 
 These process heap increments include adapter/runtime allocations and allocator
 slabs. They do not establish library-specific requested bytes, native allocation
@@ -137,7 +152,7 @@ release snapshot so its deallocation does not look like a native memory decrease
 The native-memory addition did not rerun the owned Rust recipe or update the
 earlier CPU table.
 
-CPU and per-instance/process memory reporting are now implemented and measured. The existing [quality and latency report](resampler-comparison.md) supplies the finite response, alias/image, distortion, channel-isolation, DC/step, startup and call-tail observations; unchanged engines were not rerendered for this resource addition.
+CPU and per-instance/process memory reporting are now implemented and measured. The existing [quality and latency report](comparison.md) supplies the finite response, alias/image, distortion, channel-isolation, DC/step, startup and call-tail observations; unchanged engines were not rerendered for this resource addition.
 
 Coverage is still incomplete for exact native allocator accounting/peak payload, hours-long memory trends, other platforms/CPUs, the complete parameter/level matrix and consuming-application device latency. Finite tone grids are not continuous-band guarantees.
 

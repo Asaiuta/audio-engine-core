@@ -256,9 +256,9 @@ MIREX triples and selected primary labels against `tempo_eval` revision
 `57e3eb22d21686b649f5e828816218953f95d788`: zero differences, including the
 one equal-salience tie. Running the pinned public `equal1/equal2` and the
 actual Rust metric on the frozen v8 predictions gives identical per-track
-scores: 201/661 and 346/661. See the task's
-[protocol audit](../../../.trellis/tasks/09-02-automix-tempo-beat-precision/research/protocol-audit-2026-09-09.md)
-for source hashes and the public baseline table.
+scores: 201/661 and 346/661. The full protocol audit — with source hashes and
+the public baseline table — is retained in the local research workspace, which
+is deliberately not distributed with this repository.
 
 Those public v2 scores share labels, inventory and metric definitions with
 this runner. They are not controlled 60-second comparisons: the published

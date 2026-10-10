@@ -375,8 +375,8 @@ Finalization uses `finish_checked()` to drain resampler state, while `reset()` c
 At least one resampler backend must be enabled — enabling neither is a compile error, and when both are enabled, `soxr` wins.
 
 The replacement contract and validation are documented in
-[`docs/resampler-replacement.md`](docs/resampler-replacement.md). Current
-measurements and their limits are in [the cross-engine comparison](docs/resampler-comparison.md).
+[`docs/resampler/replacement.md`](docs/resampler/replacement.md). Current
+measurements and their limits are in [the cross-engine comparison](docs/resampler/comparison.md).
 
 ---
 
@@ -434,7 +434,7 @@ In the offline render chain the limiter runs in the output-rate domain, after an
 
 The table below retains historical component-probe observations. Current resampler
 comparisons and analyzer limits are documented in
-[the October comparison](docs/resampler-comparison.md); these older single-probe
+[the October comparison](docs/resampler/comparison.md); these older single-probe
 figures are not new measurements of the owned backend.
 
 | Measurement                                                    |                  Result |
@@ -455,15 +455,16 @@ They are **not universal performance or quality guarantees**.
 
 ### Resampler performance
 
-The repaired 2026-10-10 comparison uses High/Linear, stereo, 512-frame blocks
-and 15 pinned trials. Median nanoseconds per input scalar sample:
+The current 2026-10-10 resource run uses High/Linear, stereo and 512-frame
+caller blocks, with at least 250 ms per pinned trial. Median nanoseconds per
+input scalar sample:
 
 | Backend | 44.1 → 48 kHz | 48 → 44.1 kHz |
 | --- | ---: | ---: |
-| Owned Rust | 7.559 | 7.029 |
-| SoXR High | 6.897 | 6.563 |
+| CoreSinc (owned Rust) | 6.615 | 6.151 |
+| Project SoXR High/Linear | 6.892 | 6.610 |
 
-These are machine-specific results from separate feature builds with different
+These are machine-specific results from selected recipes with different
 filter responses. The full 11-engine study retains identified raw trials,
 frequency/alias/image/channel probes, per-call tails and complete drain checks.
 It does not establish equal quality across engines or a universal fastest backend.
@@ -471,7 +472,7 @@ It does not establish equal quality across engines or a universal fastest backen
 See:
 
 * `docs/quality.md`
-* `docs/resampler-comparison.md`
+* `docs/resampler/comparison.md`
 
 for the full methodology, configurations, raw measurements, and reproducible commands.
 
@@ -681,9 +682,9 @@ Stable `1.0.0` release: the public API is fully documented (`missing_docs` is de
 
 ## Documentation
 
-* `docs/` — architecture and API documentation
+* [`docs/README.md`](docs/README.md) — documentation index
 * `docs/quality.md` — benchmark methodology and quality validation
-* `docs/resampler-comparison.md` — resampler methodology and comparisons
+* `docs/resampler/` — CoreSinc/SoXR comparison, resource and replacement reports
 * `docs/installation.md` — native SoXR backend setup per platform
 * `examples/` — runnable examples
 * `benches/` — public-API benchmarks
