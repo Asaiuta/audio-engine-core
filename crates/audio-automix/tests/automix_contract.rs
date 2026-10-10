@@ -20,6 +20,20 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 
+/// Relative tolerance for values that accumulate floating-point error.
+///
+/// The golden was captured on Windows/MSVC. The same source reproduces these
+/// values only approximately on other toolchains and libm implementations: the
+/// 2026-10 CI runs reported `bpm_confidence` differing by 1.3e-9 (macOS) and
+/// `beat_grid_stability` by 4.5e-9 (Linux), which is visible platform noise —
+/// the values agree to seven significant digits — yet both exceeded the
+/// previous 1e-9 budget. 1e-6 relative leaves about 200x headroom over the
+/// largest observed spread, while any semantic change moves these fields by
+/// 1e-3 or more. Values that are exactly zero keep only the absolute floor, so
+/// a stray non-zero spill is still caught.
+const RELATIVE_TOLERANCE: f64 = 1e-6;
+const ABSOLUTE_FLOOR: f64 = 1e-9;
+
 fn compare(actual: &Value, expected: &Value, path: &str, exact: bool) {
     match (actual, expected) {
         (Value::Number(a), Value::Number(b)) => {
@@ -27,10 +41,8 @@ fn compare(actual: &Value, expected: &Value, path: &str, exact: bool) {
             if exact {
                 assert_eq!(a.to_bits(), b.to_bits(), "{path}: {a} != {b}");
             } else {
-                assert!(
-                    (a - b).abs() <= 1e-9 * b.abs().max(1.0),
-                    "{path}: {a} != {b}"
-                );
+                let tolerance = ABSOLUTE_FLOOR.max(RELATIVE_TOLERANCE * b.abs());
+                assert!((a - b).abs() <= tolerance, "{path}: {a} != {b}");
             }
         }
         (Value::Array(a), Value::Array(b)) => {

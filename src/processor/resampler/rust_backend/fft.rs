@@ -1,11 +1,11 @@
 //! Synchronous FFT control. See NOTICE: filter constants are from Rubato.
 
-use super::{Config, InitError, ProcessError, Quality, gcd, samples, zeroed};
+use super::{gcd, samples, zeroed, Config, InitError, ProcessError, Quality};
 use realfft::{RealToComplex, RealToComplexEven};
 use rustfft::num_complex::Complex64 as Complex;
 use rustfft::{Fft, FftPlanner};
 use std::{f64::consts::PI, sync::Arc};
-use windowfunctions::{Symmetry, WindowFunction, window};
+use windowfunctions::{window, Symmetry, WindowFunction};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Geometry {

@@ -4,9 +4,8 @@ use super::super::{
     halfband_backend::Halfband2xResampler, spectral_backend::SpectralNonlinearResampler,
 };
 use super::{
-    BackendProgress, Config, InitError, ProcessError, Quality,
-    fft::{FftKernel, Geometry, reference_filter},
-    gcd, zeroed,
+    fft::{reference_filter, FftKernel, Geometry},
+    gcd, zeroed, BackendProgress, Config, InitError, ProcessError, Quality,
 };
 use crate::config::PhaseResponse;
 

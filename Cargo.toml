@@ -36,7 +36,12 @@ include = [
 [workspace]
 members = ["crates/audio-automix"]
 default-members = [".", "crates/audio-automix"]
-resolver = "2"
+# Resolver v3 is v2 plus MSRV-aware dependency selection: dependencies are
+# resolved against the `rust-version` above, so a transitive bump that raises a
+# dependency's own MSRV past ours does not silently break the `msrv` CI job.
+# Cargo.lock is not tracked, so CI resolves from scratch and this is what keeps
+# that resolution inside the declared MSRV.
+resolver = "3"
 
 [lib]
 name = "audio_engine_core"

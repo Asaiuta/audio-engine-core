@@ -56,11 +56,28 @@ fn record_allocation(bytes: usize) {
     PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
 }
 
+/// Saturating decrement of [`LIVE_BYTES`].
+///
+/// `AtomicUsize::fetch_update` is deprecated in favour of `try_update`, but
+/// `try_update` does not exist on this workspace's declared MSRV (1.87), so the
+/// CAS loop the two `fetch_update` call sites used to share is written out
+/// instead. It is the same loop `fetch_update` runs, so the counting semantics
+/// are unchanged.
+fn saturating_sub_live_bytes(bytes: usize) {
+    let mut current = LIVE_BYTES.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_sub(bytes);
+        match LIVE_BYTES.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => return,
+            Err(observed) => current = observed,
+        }
+    }
+}
+
 fn record_deallocation(bytes: usize) {
     DEALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
-    let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(current.saturating_sub(bytes))
-    });
+    saturating_sub_live_bytes(bytes);
 }
 
 fn adjust_live_bytes(old_size: usize, new_size: usize) {
@@ -71,10 +88,7 @@ fn adjust_live_bytes(old_size: usize, new_size: usize) {
             .saturating_add(delta);
         PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
     } else {
-        let delta = old_size - new_size;
-        let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            Some(current.saturating_sub(delta))
-        });
+        saturating_sub_live_bytes(old_size - new_size);
     }
 }
 
