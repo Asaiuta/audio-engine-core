@@ -76,6 +76,17 @@ version bumps, as permitted by SemVer.
   selection. Report schema v2 records selected coverage and split identity;
   development metrics remain diagnostic. Source-pinned GTZAN mini preparation
   preserves native annotations and checks overlap with the frozen evaluation.
+- `FFTConvolver::fft_size()` now reports the **largest** transform size in use.
+  Stereo impulse responses of at least 65536 taps per channel take a scheduled
+  late partition with an 8192-point transform, so the accessor returns 8192
+  where it previously returned 2048; `partition_size()` still reports the base
+  1024 and the published routing constants are unchanged. Shorter impulse
+  responses and other channel counts keep uniform partitioning and their
+  previous values, and the `PARTITIONED_CONVOLUTION_PARTITION_SIZE` rustdoc now
+  calls 1024 the *base* partition size rather than the uniform one. No
+  signature was added, removed or renamed, so the public API/SemVer gates still
+  pass. Measurement scope, the rejected configurations and the CPU/memory
+  trade-off are recorded in `docs/convolver-performance.md`.
 
 ### Removed
 
