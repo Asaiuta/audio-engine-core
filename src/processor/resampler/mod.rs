@@ -2,7 +2,7 @@
 //!
 //! Two backends implement the same streaming contract (arbitrary input
 //! granularity, duration-aligned drain, `clear` restoring initial state): the
-//! owned pure-Rust backend (`rubato` feature, default), which routes common
+//! owned pure-Rust **CoreSinc** backend (`rubato` feature, default), which routes common
 //! sample-rate ratios through FFT resampling at every quality tier (UltraHigh
 //! selects a 2x longer FFT filter) and uses windowed sinc only
 //! for pathological ratios, and the native SoXR / SoX VHQ backend (`soxr`
@@ -44,7 +44,8 @@ use rust_backend::{MonoBackend, BACKEND_NAME};
 #[cfg(feature = "soxr")]
 use soxr_backend::{MonoBackend, BACKEND_NAME};
 
-/// Compile-time selected resampler backend name: `"rust"` (owned pure Rust,
+/// Compile-time selected resampler backend machine name: `"rust"` (the owned
+/// pure-Rust **CoreSinc** implementation,
 /// default) or `"soxr"` (native SoX VHQ, opt-in). Follows the same precedence as
 /// the backend selection above — SoXR wins when both features are enabled — so
 /// benchmark reports and diagnostics can label the measured backend without
