@@ -9,6 +9,7 @@ Cargo.lock
 # Editor / OS noise
 *.swp
 .DS_Store
+__pycache__/
 
 # Local agent-tooling scaffolding (per-developer, not part of the crate).
 .agents/
