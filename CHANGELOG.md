@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Since 1.0.0 the public API is stable: breaking changes are reserved for major
 version bumps, as permitted by SemVer.
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-25
 
 ### Added
 
@@ -881,6 +881,7 @@ public API surface changes.
   - Lock-free DSP parameter snapshots and realtime processor adapters.
   - A streaming pipeline/ring-buffer primitive.
 
-[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Asaiuta/audio-engine-core/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/Asaiuta/audio-engine-core/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/Asaiuta/audio-engine-core/releases/tag/v0.1.0
