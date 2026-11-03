@@ -1,8 +1,8 @@
-//! IIR Biquad Equalizer - 10-band fixed-band graphic EQ
+//! IIR Biquad IirEqualizer - 10-band fixed-band graphic EQ
 
 use std::cmp::Ordering;
 
-use super::lockfree_params::{validate_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
+use super::lockfree_params::{validate_iir_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
 use super::traits::ProcessError;
 
 pub use super::lockfree_params::EQ_BANDS;
@@ -17,7 +17,7 @@ fn checked_band_gain(gain_db: f64) -> Result<f64, ProcessError> {
         return Ok(gain_db);
     }
     Err(ProcessError::InvalidParameter {
-        processor: "Equalizer",
+        processor: "IirEqualizer",
         parameter: "eq band gain",
         message: "value must be finite",
     })
@@ -25,7 +25,7 @@ fn checked_band_gain(gain_db: f64) -> Result<f64, ProcessError> {
 
 /// IIR Biquad filter section (SOS - Second Order Section)
 ///
-/// Crate-internal: this is the building block of [`Equalizer`], not a
+/// Crate-internal: this is the building block of [`IirEqualizer`], not a
 /// user-facing type. Keeping it private leaves the biquad representation free
 /// to change without a breaking release.
 #[derive(Clone)]
@@ -106,14 +106,32 @@ impl BiquadSection {
     }
 }
 
-/// 10-band Parametric EQ
+/// Canonical ten ISO octave band centers in Hz, in the order every equalizer
+/// surface in this crate addresses them.
 ///
-/// Band centers are fixed at 31 Hz through 16 kHz. A band whose center
-/// frequency is at or above the Nyquist frequency of the configured sample
-/// rate (for example the 16 kHz band on 22.05 kHz material) is a transparent
-/// identity stage at every gain setting; it re-arms automatically when a later
-/// sample-rate change brings the band back below Nyquist.
-pub struct Equalizer {
+/// This is the single definition of the band layout. [`IirEqualizer`] designs its
+/// biquads from it, and `FirEq::STANDARD_BANDS` is derived from it, so the IIR
+/// and FIR paths cannot drift apart.
+/// Exported because a consuming application needs the identical ordering to
+/// build the gain list a band-indexed setter expects.
+pub const EQ_BAND_FREQUENCIES_HZ: [f64; EQ_BANDS] = [
+    31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+];
+
+/// 10-band IIR parametric EQ
+///
+/// Band centers are fixed at 31 Hz through 16 kHz as listed in
+/// [`EQ_BAND_FREQUENCIES_HZ`]. A band whose center frequency is at or above the
+/// Nyquist frequency of the configured sample rate (for example the 16 kHz band
+/// on 22.05 kHz material) is a transparent identity stage at every gain setting;
+/// it re-arms automatically when a later sample-rate change brings the band back
+/// below Nyquist.
+///
+/// This type is the recursive-filter path only. A linear-phase equivalent is
+/// [`FirEq`](super::FirEq), which produces an impulse response for
+/// [`ConvolverControl`](super::ConvolverControl) instead of filtering in place.
+/// The two are alternatives, not stages that stack.
+pub struct IirEqualizer {
     bands: Vec<[BiquadSection; EQ_BANDS]>, // current active filters [channel][band]
     target_bands: Vec<[BiquadSection; EQ_BANDS]>, // target filters (new params) [channel][band]
     target_gains: Vec<f64>,                // target gain per band (dB)
@@ -125,10 +143,7 @@ pub struct Equalizer {
 const EQ_SMOOTH_SAMPLES: u32 = 1024; // ~23ms @ 44100Hz
 const INV_EQ_SMOOTH: f64 = 1.0 / EQ_SMOOTH_SAMPLES as f64;
 
-impl Equalizer {
-    const FREQUENCIES: [f64; EQ_BANDS] = [
-        31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
-    ];
+impl IirEqualizer {
     const Q: f64 = 1.41;
 
     /// Construct a disabled, flat 10-band equalizer for `channels` streams.
@@ -150,7 +165,7 @@ impl Equalizer {
 
     fn build_channel_bank(sample_rate: f64) -> [BiquadSection; EQ_BANDS] {
         std::array::from_fn(|idx| {
-            BiquadSection::peaking_eq(Self::FREQUENCIES[idx], 0.0, Self::Q, sample_rate)
+            BiquadSection::peaking_eq(EQ_BAND_FREQUENCIES_HZ[idx], 0.0, Self::Q, sample_rate)
         })
     }
 
@@ -170,7 +185,7 @@ impl Equalizer {
         gain_db: f64,
         sample_rate: f64,
     ) -> Result<(), ProcessError> {
-        validate_eq_band_index("Equalizer", band_idx)?;
+        validate_iir_eq_band_index("IirEqualizer", band_idx)?;
         let gain_db = checked_band_gain(gain_db)?;
         self.set_band_gain_validated(band_idx, gain_db, sample_rate);
         Ok(())
@@ -196,7 +211,7 @@ impl Equalizer {
     ///
     /// Callers must supply `band_idx < EQ_BANDS` and a finite `gain_db`. This
     /// kernel owns the published-range clamp. Callback-side parameter sync
-    /// calls it directly because [`AtomicEqParams`](super::AtomicEqParams) has
+    /// calls it directly because [`AtomicIirEqParams`](super::AtomicIirEqParams) has
     /// already sanitized its snapshot, so the audio thread pays no validation
     /// and handles no `Result`.
     pub(crate) fn set_band_gain_validated(
@@ -206,7 +221,7 @@ impl Equalizer {
         sample_rate: f64,
     ) {
         let gain_db = gain_db.clamp(EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX);
-        let freq = Self::FREQUENCIES[band_idx];
+        let freq = EQ_BAND_FREQUENCIES_HZ[band_idx];
         // Update target filters for all channels
         for ch in 0..self.channels {
             self.target_bands[ch][band_idx] =
@@ -386,7 +401,7 @@ mod tests {
 
     fn assert_transition_adopts_target_state(transition_input: &[f64]) {
         const BAND: usize = 5;
-        let mut eq = Equalizer::new(1, 48_000.0);
+        let mut eq = IirEqualizer::new(1, 48_000.0);
         eq.set_enabled(true);
 
         let mut warmup = (0..257)
@@ -421,8 +436,8 @@ mod tests {
 
     #[test]
     fn transition_is_equivalent_across_irregular_chunks() {
-        let mut whole = Equalizer::new(2, 48_000.0);
-        let mut chunked = Equalizer::new(2, 48_000.0);
+        let mut whole = IirEqualizer::new(2, 48_000.0);
+        let mut chunked = IirEqualizer::new(2, 48_000.0);
         whole.set_enabled(true);
         chunked.set_enabled(true);
         whole.set_band_gain(5, 9.0, 48_000.0).unwrap();
@@ -455,7 +470,7 @@ mod tests {
 
     #[test]
     fn transition_completion_is_allocation_free() {
-        let mut eq = Equalizer::new(2, 48_000.0);
+        let mut eq = IirEqualizer::new(2, 48_000.0);
         eq.set_enabled(true);
         eq.set_band_gain(5, 12.0, 48_000.0).unwrap();
         let mut buffer = vec![0.25; EQ_SMOOTH_SAMPLES as usize * 2];
@@ -466,7 +481,7 @@ mod tests {
     #[test]
     fn fixed_band_banks_are_allocated_per_channel() {
         for channels in [1, 2, 6, 8] {
-            let eq = Equalizer::new(channels, 48_000.0);
+            let eq = IirEqualizer::new(channels, 48_000.0);
             assert_eq!(eq.bands.len(), channels);
             assert_eq!(eq.target_bands.len(), channels);
             assert!(eq.bands.iter().all(|bank| bank.len() == EQ_BANDS));
@@ -477,7 +492,7 @@ mod tests {
     #[test]
     fn process_with_zero_channels_is_a_noop_not_a_panic() {
         // A zero-channel EQ can be constructed; process must not divide by zero.
-        let mut eq = Equalizer::new(0, 48_000.0);
+        let mut eq = IirEqualizer::new(0, 48_000.0);
         eq.set_enabled(true);
         let mut buffer = vec![0.25; 8];
         eq.process(&mut buffer);
@@ -486,7 +501,7 @@ mod tests {
 
     #[test]
     fn reset_clears_current_and_target_bank_state() {
-        let mut eq = Equalizer::new(2, 48_000.0);
+        let mut eq = IirEqualizer::new(2, 48_000.0);
         eq.set_enabled(true);
         eq.set_band_gain(0, 6.0, 48_000.0).unwrap();
 
@@ -512,7 +527,7 @@ mod tests {
 
     #[test]
     fn settled_reset_adopts_target_and_clears_transition_state() {
-        let mut eq = Equalizer::new(2, 48_000.0);
+        let mut eq = IirEqualizer::new(2, 48_000.0);
         eq.set_enabled(true);
         eq.set_band_gain(5, 9.0, 48_000.0).unwrap();
         let mut buffer = vec![0.25; 2 * 137];
@@ -534,8 +549,8 @@ mod tests {
     #[test]
     fn settled_stereo_fast_path_matches_regular_path() {
         let gains = [12.0, 9.0, 6.0, 3.0, -3.0, -6.0, -9.0, -12.0, 6.0, -6.0];
-        let mut regular = Equalizer::new(2, 48_000.0);
-        let mut fast = Equalizer::new(2, 48_000.0);
+        let mut regular = IirEqualizer::new(2, 48_000.0);
+        let mut fast = IirEqualizer::new(2, 48_000.0);
         regular.set_enabled(true);
         fast.set_enabled(true);
         regular.set_all_bands(&gains, 48_000.0).unwrap();
@@ -566,7 +581,7 @@ mod tests {
         assert!(max_abs <= 1.0e-12, "max_abs={max_abs:.3e}");
     }
 
-    fn assert_bank_bit_equal(actual: &Equalizer, expected: &Equalizer) {
+    fn assert_bank_bit_equal(actual: &IirEqualizer, expected: &IirEqualizer) {
         assert_eq!(actual.channels, expected.channels, "channels");
         assert_eq!(actual.target_gains, expected.target_gains, "target gains");
         assert_eq!(
@@ -587,8 +602,8 @@ mod tests {
         }
     }
 
-    fn configured_stereo_eq() -> Equalizer {
-        let mut eq = Equalizer::new(2, 48_000.0);
+    fn configured_stereo_eq() -> IirEqualizer {
+        let mut eq = IirEqualizer::new(2, 48_000.0);
         eq.set_enabled(true);
         eq.set_band_gain(2, 6.0, 48_000.0).unwrap();
         eq
@@ -603,7 +618,7 @@ mod tests {
             assert_eq!(
                 eq.set_band_gain(band, 12.0, 48_000.0).unwrap_err(),
                 ProcessError::InvalidParameter {
-                    processor: "Equalizer",
+                    processor: "IirEqualizer",
                     parameter: "eq band index",
                     message: "band index must be below EQ_BANDS",
                 }
@@ -622,7 +637,7 @@ mod tests {
             assert_eq!(
                 eq.set_band_gain(2, bad, 48_000.0).unwrap_err(),
                 ProcessError::InvalidParameter {
-                    processor: "Equalizer",
+                    processor: "IirEqualizer",
                     parameter: "eq band gain",
                     message: "value must be finite",
                 }
@@ -640,15 +655,15 @@ mod tests {
 
     #[test]
     fn whole_bank_write_is_rejected_atomically_when_any_gain_is_non_finite() {
-        let mut eq = Equalizer::new(2, 48_000.0);
-        let untouched = Equalizer::new(2, 48_000.0);
+        let mut eq = IirEqualizer::new(2, 48_000.0);
+        let untouched = IirEqualizer::new(2, 48_000.0);
 
         let mut gains = [3.0; EQ_BANDS];
         gains[EQ_BANDS - 1] = f64::NAN;
         assert_eq!(
             eq.set_all_bands(&gains, 48_000.0).unwrap_err(),
             ProcessError::InvalidParameter {
-                processor: "Equalizer",
+                processor: "IirEqualizer",
                 parameter: "eq band gain",
                 message: "value must be finite",
             }
@@ -660,7 +675,7 @@ mod tests {
 
     #[test]
     fn band_gain_is_clamped_to_the_published_range() {
-        let mut eq = Equalizer::new(1, 48_000.0);
+        let mut eq = IirEqualizer::new(1, 48_000.0);
 
         eq.set_band_gain(0, EQ_BAND_GAIN_DB_MAX + 40.0, 48_000.0)
             .unwrap();
@@ -673,8 +688,8 @@ mod tests {
 
     #[test]
     fn checked_and_validated_band_writes_produce_identical_state() {
-        let mut checked = Equalizer::new(2, 48_000.0);
-        let mut kernel = Equalizer::new(2, 48_000.0);
+        let mut checked = IirEqualizer::new(2, 48_000.0);
+        let mut kernel = IirEqualizer::new(2, 48_000.0);
         let gains = [12.0, 9.0, 6.0, 3.0, -3.0, -6.0, -9.0, -12.0, 6.0, -6.0];
 
         checked.set_all_bands(&gains, 48_000.0).unwrap();
@@ -706,9 +721,9 @@ mod tests {
             96_000.0, 192_000.0,
         ] {
             for gain_db in [EQ_BAND_GAIN_DB_MIN, -3.0, 0.0, 3.0, EQ_BAND_GAIN_DB_MAX] {
-                for (band, &freq) in Equalizer::FREQUENCIES.iter().enumerate() {
+                for (band, &freq) in EQ_BAND_FREQUENCIES_HZ.iter().enumerate() {
                     let section =
-                        BiquadSection::peaking_eq(freq, gain_db, Equalizer::Q, sample_rate);
+                        BiquadSection::peaking_eq(freq, gain_db, IirEqualizer::Q, sample_rate);
                     assert_section_is_strictly_stable(
                         &section,
                         &format!("band {band} ({freq} Hz) at {gain_db} dB, fs {sample_rate}"),
@@ -724,7 +739,7 @@ mod tests {
         // band: the 16 kHz band (and at 8 kHz playback also the 8 kHz band)
         // must be a stable pass-through instead of diverging to NaN.
         for sample_rate in [8_000.0, 22_050.0, 24_000.0] {
-            let mut eq = Equalizer::new(2, sample_rate);
+            let mut eq = IirEqualizer::new(2, sample_rate);
             eq.set_enabled(true);
             let gains = [EQ_BAND_GAIN_DB_MAX; EQ_BANDS];
             eq.set_all_bands(&gains, sample_rate).unwrap();
@@ -747,7 +762,7 @@ mod tests {
         // Only the 16 kHz band is driven; at 22.05 kHz it must contribute
         // exactly nothing (identity coefficients), so once the crossfade has
         // settled the samples pass through bit-exactly.
-        let mut eq = Equalizer::new(1, 22_050.0);
+        let mut eq = IirEqualizer::new(1, 22_050.0);
         eq.set_enabled(true);
         eq.set_band_gain(EQ_BANDS - 1, 12.0, 22_050.0).unwrap();
 
@@ -769,12 +784,12 @@ mod tests {
     fn nyquist_guard_boundary_designs_strictly_below_and_bypasses_at_and_above() {
         // Exactly at Nyquist (fs = 32 kHz, 16 kHz band) the double pole sits
         // on the unit circle, so the guard must include equality.
-        let at_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, 32_000.0);
+        let at_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, IirEqualizer::Q, 32_000.0);
         assert_eq!(at_nyquist.b0, 1.0);
         assert_eq!(at_nyquist.b1, 0.0);
         assert_eq!(at_nyquist.a2, 0.0);
 
-        let below_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, 32_001.0);
+        let below_nyquist = BiquadSection::peaking_eq(16_000.0, 12.0, IirEqualizer::Q, 32_001.0);
         assert!(
             below_nyquist.b0 != 1.0,
             "band strictly below Nyquist must still be designed"
@@ -784,13 +799,13 @@ mod tests {
         // A non-finite or non-positive sample rate cannot construct an
         // unstable section either.
         for sample_rate in [f64::NAN, 0.0, -48_000.0] {
-            let guarded = BiquadSection::peaking_eq(16_000.0, 12.0, Equalizer::Q, sample_rate);
+            let guarded = BiquadSection::peaking_eq(16_000.0, 12.0, IirEqualizer::Q, sample_rate);
             assert_eq!(guarded.b0, 1.0);
             assert_eq!(guarded.a2, 0.0);
         }
     }
 
-    impl Equalizer {
+    impl IirEqualizer {
         fn process_sample_by_sample_for_test(&mut self, buffer: &mut [f64]) {
             let frames = buffer.len() / self.channels;
             for frame in 0..frames {

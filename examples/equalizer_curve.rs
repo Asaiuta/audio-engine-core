@@ -10,14 +10,14 @@
 //! cargo run --example equalizer_curve
 //! ```
 
-use audio_engine_core::Equalizer;
+use audio_engine_core::IirEqualizer;
 
 fn main() {
     const SAMPLE_RATE: f64 = 48_000.0;
     const CHANNELS: usize = 2;
     const FRAMES: usize = 4_800; // 100 ms
 
-    let mut eq = Equalizer::new(CHANNELS, SAMPLE_RATE);
+    let mut eq = IirEqualizer::new(CHANNELS, SAMPLE_RATE);
 
     // Ten band gains in dB, from low to high frequency: lift the lows, leave
     // the mids flat, gently roll off the highs.

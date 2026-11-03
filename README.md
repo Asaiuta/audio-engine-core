@@ -242,7 +242,7 @@ let (mut pipeline, controller) = PlaybackPipeline::builder(spec)
 let parameters = controller.parameters();
 
 parameters.set_volume(0.8)?;
-parameters.set_eq_band_gain_db(3, 2.5)?;
+parameters.set_iir_eq_band_gain_db(3, 2.5)?;
 
 let mut samples = [0.0_f64; 512 * 2];
 

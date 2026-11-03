@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use audio_engine_core::processor::{
-    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicEqParams, AtomicNoiseShaperParams,
+    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicIirEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, CrossfeedParamsSnapshot,
-    DynamicLoudnessParamsSnapshot, EqParamsSnapshot, NoiseShaperParamsSnapshot,
+    DynamicLoudnessParamsSnapshot, IirEqParamsSnapshot, NoiseShaperParamsSnapshot,
     PeakLimiterParamsSnapshot, RealtimeSnapshotReader, SaturationParamsSnapshot,
     VolumeParamsSnapshot, EQ_BANDS,
 };
@@ -58,7 +58,7 @@ struct BenchReport {
 }
 
 struct CurrentParams {
-    eq: Arc<AtomicEqParams>,
+    eq: Arc<AtomicIirEqParams>,
     saturation: Arc<AtomicSaturationParams>,
     crossfeed: Arc<AtomicCrossfeedParams>,
     limiter: Arc<AtomicPeakLimiterParams>,
@@ -68,7 +68,7 @@ struct CurrentParams {
 }
 
 struct CurrentCache {
-    eq: Arc<EqParamsSnapshot>,
+    eq: Arc<IirEqParamsSnapshot>,
     saturation: Arc<SaturationParamsSnapshot>,
     crossfeed: Arc<CrossfeedParamsSnapshot>,
     limiter: Arc<PeakLimiterParamsSnapshot>,
@@ -85,14 +85,14 @@ struct CurrentCache {
 }
 
 struct RealtimeCache {
-    eq_reader: RealtimeSnapshotReader<EqParamsSnapshot>,
+    eq_reader: RealtimeSnapshotReader<IirEqParamsSnapshot>,
     saturation_reader: RealtimeSnapshotReader<SaturationParamsSnapshot>,
     crossfeed_reader: RealtimeSnapshotReader<CrossfeedParamsSnapshot>,
     limiter_reader: RealtimeSnapshotReader<PeakLimiterParamsSnapshot>,
     volume_reader: RealtimeSnapshotReader<VolumeParamsSnapshot>,
     noise_reader: RealtimeSnapshotReader<NoiseShaperParamsSnapshot>,
     dynamic_reader: RealtimeSnapshotReader<DynamicLoudnessParamsSnapshot>,
-    eq: EqParamsSnapshot,
+    eq: IirEqParamsSnapshot,
     saturation: SaturationParamsSnapshot,
     crossfeed: CrossfeedParamsSnapshot,
     limiter: PeakLimiterParamsSnapshot,
@@ -110,7 +110,7 @@ struct RealtimeCache {
 
 impl CurrentParams {
     fn new() -> Self {
-        let eq = Arc::new(AtomicEqParams::new());
+        let eq = Arc::new(AtomicIirEqParams::new());
         let saturation = Arc::new(AtomicSaturationParams::new());
         let crossfeed = Arc::new(AtomicCrossfeedParams::new());
         let limiter = Arc::new(AtomicPeakLimiterParams::new());
@@ -359,7 +359,7 @@ fn realtime_cache_sum(cache: &RealtimeCache) -> f64 {
 
 #[allow(clippy::too_many_arguments)]
 fn snapshot_sum(
-    eq: &EqParamsSnapshot,
+    eq: &IirEqParamsSnapshot,
     saturation: &SaturationParamsSnapshot,
     crossfeed: &CrossfeedParamsSnapshot,
     limiter: &PeakLimiterParamsSnapshot,

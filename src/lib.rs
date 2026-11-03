@@ -8,14 +8,14 @@
 //!
 //! # Example
 //!
-//! Apply a 10-band graphic equalizer to a block of interleaved stereo audio:
+//! Apply a 10-band IIR equalizer to a block of interleaved stereo audio:
 //!
 //! ```
-//! use audio_engine_core::Equalizer;
+//! use audio_engine_core::IirEqualizer;
 //!
 //! # fn main() -> Result<(), audio_engine_core::ProcessError> {
 //! let sample_rate = 48_000.0;
-//! let mut eq = Equalizer::new(2, sample_rate);
+//! let mut eq = IirEqualizer::new(2, sample_rate);
 //!
 //! // Boost the lowest band by +6 dB, leave the rest flat. An out-of-range band
 //! // index or a non-finite gain is rejected instead of silently ignored.
@@ -135,14 +135,15 @@ pub use pipeline::{
     CallbackSpec, DynamicLoudnessTelemetry, PlaybackBuilder, PlaybackConfig, PlaybackController,
     PlaybackCrossfeedConfig, PlaybackDynamicLoudnessConfig, PlaybackLifecycleState,
     PlaybackLifecycleStatus, PlaybackNoiseShapingConfig, PlaybackParameters, PlaybackPipeline,
-    PlaybackSaturationConfig, PlaybackTiming, RingBuffer, MAX_STOP_FADE_MS,
+    PlaybackSaturationConfig, PlaybackTiming, RingBuffer, FIR_EQ_DEFAULT_TAPS, MAX_STOP_FADE_MS,
 };
 pub use processor::{
     callback_stage_names, callback_stage_order_csv, canonical_output_stage_descriptors,
     canonical_post_render_analysis_descriptors, finish_checked, offline_render_stage_names,
     offline_render_stage_order_csv, post_render_analysis_names, post_render_analysis_order_csv,
-    process_checked, AtomicLoudnessState, ChainFinishPolicy, ConvolutionStrategy, ConvolverControl,
-    ConvolverStatus, DownmixCoefficients, DownmixError, Downmixer, DspChain, Equalizer,
+    process_checked, AtomicEqKind, AtomicLoudnessState, ChainFinishPolicy, ConvolutionStrategy,
+    ConvolverControl, ConvolverStatus, DownmixCoefficients, DownmixError, Downmixer, DspChain,
+    EqKind, IirEqualizer, EQ_BAND_FREQUENCIES_HZ,
     FFTConvolver, FixedInPlaceProcessor, FrameDuration, FrameRounding, LimiterMode, LoudnessInfo,
     LoudnessNormalizer, NoiseShaper, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams,
     OutputRenderChain, OutputStageDescriptor, OutputStageId, PeakLimiter,

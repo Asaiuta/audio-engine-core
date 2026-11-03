@@ -19,7 +19,7 @@ use std::sync::{
 use super::convolver::FFTConvolver;
 use super::crossfeed::Crossfeed;
 use super::dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS_N};
-use super::eq::Equalizer;
+use super::iir_eq::IirEqualizer;
 use super::lockfree_params::*;
 use super::loudness::{LimiterMode, PeakLimiter};
 use super::noise_shaper::{NoiseShaper, NoiseShaperCurve};
@@ -176,28 +176,40 @@ where
 // EQ Adapter
 // ============================================================================
 
-/// Equalizer processor adapter with lock-free parameters
-pub struct EqProcessor {
+/// IirEqualizer processor adapter with lock-free parameters
+pub struct IirEqProcessor {
     /// Internal EQ processor (audio thread exclusive)
-    eq: Equalizer,
+    eq: IirEqualizer,
     /// Channel count for reinitialization
     channels: usize,
     /// Lock-free parameters reference
-    params: Arc<AtomicEqParams>,
-    params_reader: RealtimeSnapshotReader<EqParamsSnapshot>,
+    params: Arc<AtomicIirEqParams>,
+    params_reader: RealtimeSnapshotReader<IirEqParamsSnapshot>,
     cached_generation: u64,
     /// Local parameter cache
-    cached: EqParamsSnapshot,
+    cached: IirEqParamsSnapshot,
     /// Sample rate for coefficient recalculation
     sample_rate: f64,
+    /// Which equalizer kind owns the output. The stage stays silent unless this
+    /// selector says `Iir`, so an enable flag written for the inactive path can
+    /// never leak into the rendered signal.
+    kind: Arc<AtomicEqKind>,
     lifecycle: FixedLifecycle,
 }
 
-impl EqProcessor {
+impl IirEqProcessor {
     /// Create new EQ processor with lock-free params
-    pub fn new(channels: usize, sample_rate: f64, params: Arc<AtomicEqParams>) -> Self {
+    ///
+    /// `kind` is the shared equalizer selector. The stage contributes only
+    /// while it reads [`EqKind::Iir`].
+    pub fn new(
+        channels: usize,
+        sample_rate: f64,
+        params: Arc<AtomicIirEqParams>,
+        kind: Arc<AtomicEqKind>,
+    ) -> Self {
         let (params_reader, cached, cached_generation) = params.subscribe_realtime();
-        let mut eq = Equalizer::new(channels, sample_rate);
+        let mut eq = IirEqualizer::new(channels, sample_rate);
         eq.set_all_bands_validated(&cached.gains, sample_rate);
         eq.reset_settled();
         eq.set_enabled(cached.enabled);
@@ -209,8 +221,18 @@ impl EqProcessor {
             cached_generation,
             cached,
             sample_rate,
+            kind,
             lifecycle: FixedLifecycle::default(),
         }
+    }
+
+    /// Whether this stage may contribute to the current block.
+    ///
+    /// Both conditions are required: the IIR equalizer must be enabled *and*
+    /// the shared selector must name the IIR path. Reading the selector per
+    /// block keeps a kind switch effective without a parameter publish.
+    fn effective_enabled(&self) -> bool {
+        self.cached.enabled && self.kind.get() == EqKind::Iir
     }
 
     /// Synchronize parameters from lock-free storage
@@ -223,7 +245,7 @@ impl EqProcessor {
             self.cached_generation = generation;
 
             // Apply to internal EQ. The snapshot is already finite and clamped
-            // by `AtomicEqParams`, so the audio thread uses the validated
+            // by `AtomicIirEqParams`, so the audio thread uses the validated
             // kernel and handles no `Result` here.
             self.eq
                 .set_all_bands_validated(&self.cached.gains, self.sample_rate);
@@ -232,18 +254,18 @@ impl EqProcessor {
     }
 }
 
-impl StreamingProcessor for EqProcessor {
+impl StreamingProcessor for IirEqProcessor {
     fn name(&self) -> &'static str {
-        "Equalizer"
+        "IirEqualizer"
     }
 
     fn process(&mut self, buffers: ProcessBuffers<'_>) -> Result<ProcessProgress, ProcessError> {
-        self.lifecycle.ensure_processing("Equalizer")?;
+        self.lifecycle.ensure_processing("IirEqualizer")?;
         self.sync_params();
 
         process_fixed_1_to_1(
-            "Equalizer",
-            self.cached.enabled,
+            "IirEqualizer",
+            self.effective_enabled(),
             Some(self.channels),
             buffers,
             |buffer, _channels| {
@@ -255,8 +277,8 @@ impl StreamingProcessor for EqProcessor {
 
     fn finish(&mut self, output: AudioBlockMut<'_>) -> Result<ProcessProgress, ProcessError> {
         finish_fixed_unknown(
-            "Equalizer",
-            self.cached.enabled,
+            "IirEqualizer",
+            self.effective_enabled(),
             Some(self.channels),
             &mut self.lifecycle,
             output,
@@ -271,7 +293,7 @@ impl StreamingProcessor for EqProcessor {
     }
 
     fn tail(&self) -> TailSpec {
-        if self.cached.enabled {
+        if self.effective_enabled() {
             TailSpec::Unknown
         } else {
             TailSpec::None
@@ -279,9 +301,9 @@ impl StreamingProcessor for EqProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate_hz: u32) -> Result<(), ProcessError> {
-        let sample_rate = validate_sample_rate("Equalizer", sample_rate_hz)?;
+        let sample_rate = validate_sample_rate("IirEqualizer", sample_rate_hz)?;
         self.sample_rate = sample_rate;
-        self.eq = Equalizer::new(self.channels, sample_rate);
+        self.eq = IirEqualizer::new(self.channels, sample_rate);
         self.eq
             .set_all_bands_validated(&self.cached.gains, sample_rate);
         self.eq.reset_settled();
@@ -2211,7 +2233,7 @@ impl StreamingProcessor for DynamicLoudnessProcessor {
     }
 }
 
-impl FixedInPlaceProcessor for EqProcessor {}
+impl FixedInPlaceProcessor for IirEqProcessor {}
 impl FixedInPlaceProcessor for SaturationProcessor {}
 impl FixedInPlaceProcessor for CrossfeedProcessor {}
 impl FixedInPlaceProcessor for PeakLimiterProcessor {}

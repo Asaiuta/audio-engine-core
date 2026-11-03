@@ -9,10 +9,10 @@ use audio_engine_core::config::{PhaseResponse, ResampleQuality};
 use audio_engine_core::processor::{
     finish_checked, offline_render_stage_order_csv, post_render_analysis_order_csv,
     process_checked, AtomicCrossfeedParams, AtomicDynamicLoudnessParams,
-    AtomicDynamicLoudnessTelemetry, AtomicEqParams, AtomicNoiseShaperParams,
+    AtomicDynamicLoudnessTelemetry, AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams,
     AtomicPeakLimiterParams, AtomicSaturationParams, AtomicVolumeParams, ConvolverControl,
-    Crossfeed, CrossfeedParamsSnapshot, CrossfeedProcessor, DynamicLoudness, EqParamsSnapshot,
-    EqProcessor, Equalizer, LimiterMode, NoiseShaper, NoiseShaperCurve, NoiseShaperParamsSnapshot,
+    Crossfeed, CrossfeedParamsSnapshot, CrossfeedProcessor, DynamicLoudness, IirEqParamsSnapshot,
+    IirEqProcessor, IirEqualizer, LimiterMode, NoiseShaper, NoiseShaperCurve, NoiseShaperParamsSnapshot,
     NoiseShaperProcessor, OfflineRenderPolicy, OutputChainBuilder, OutputChainParams, PeakLimiter,
     PeakLimiterParamsSnapshot, PeakLimiterProcessor, ProcessBuffers, ProcessState, RenderTimeline,
     RenderedOutput, Saturation, SaturationParamsSnapshot, SaturationProcessor, SaturationQuality,
@@ -1689,7 +1689,7 @@ fn measure_listening_eq(frames: usize) -> Result<ListeningEqSection, String> {
     for (frequency, band) in frequencies.into_iter().zip(bands) {
         let input_mono = sine_mono(frames, SAMPLE_RATE, frequency, amplitude);
         let mut samples = stereo_from_mono(&input_mono);
-        let mut eq = Equalizer::new(CHANNELS, SAMPLE_RATE as f64);
+        let mut eq = IirEqualizer::new(CHANNELS, SAMPLE_RATE as f64);
         let mut gains = [0.0; EQ_BANDS];
         gains[band] = LISTENING_EQ_TARGET_GAIN_DB;
         eq.set_enabled(true);
@@ -1894,7 +1894,7 @@ enum Stage {
 /// The six in-scope parameter publishers, all live at once so one probe body
 /// serves every case.
 struct ParamHandles {
-    eq: Arc<AtomicEqParams>,
+    eq: Arc<AtomicIirEqParams>,
     saturation: Arc<AtomicSaturationParams>,
     crossfeed: Arc<AtomicCrossfeedParams>,
     limiter: Arc<AtomicPeakLimiterParams>,
@@ -1902,7 +1902,7 @@ struct ParamHandles {
     noise_shaper: Arc<AtomicNoiseShaperParams>,
 }
 
-/// EQ band centre frequencies, mirroring the private `Equalizer::FREQUENCIES`
+/// EQ band centre frequencies, mirroring the private `IirEqualizer::FREQUENCIES`
 /// table so each band can be probed where it has authority.
 ///
 /// A drift between this list and the real one only moves the probe tone off the
@@ -1922,13 +1922,13 @@ const PARAM_STEP_EQ_BAND_HZ: [f64; EQ_BANDS] = [
 fn parameter_transition_cases() -> Vec<ParameterTransitionCase> {
     let mut cases = Vec::new();
 
-    // --- Equalizer -------------------------------------------------------
+    // --- IirEqualizer -------------------------------------------------------
     // Per-band gains crossfade over EQ_SMOOTH_SAMPLES; `enabled` is a bypass
     // gate in `process_fixed_1_to_1` and steps.
     for (band, &hz) in PARAM_STEP_EQ_BAND_HZ.iter().enumerate() {
         cases.push(ParameterTransitionCase {
             key: PARAM_STEP_EQ_BAND_KEYS[band],
-            processor: "Equalizer",
+            processor: "IirEqualizer",
             proc: ProcKind::Eq,
             field: "gains[n]",
             kind: SmoothingKind::Smoothed,
@@ -1948,7 +1948,7 @@ fn parameter_transition_cases() -> Vec<ParameterTransitionCase> {
     }
     cases.push(ParameterTransitionCase {
         key: "param_step_eq_enabled",
-        processor: "Equalizer",
+        processor: "IirEqualizer",
         proc: ProcKind::Eq,
         field: "enabled",
         kind: SmoothingKind::HardSwitch,
@@ -2720,7 +2720,7 @@ impl ParamHandles {
     /// All six publishers at their shipped defaults.
     fn new() -> Self {
         Self {
-            eq: Arc::new(AtomicEqParams::new()),
+            eq: Arc::new(AtomicIirEqParams::new()),
             saturation: Arc::new(AtomicSaturationParams::new()),
             crossfeed: Arc::new(AtomicCrossfeedParams::new()),
             limiter: Arc::new(AtomicPeakLimiterParams::new()),
@@ -2735,10 +2735,11 @@ fn build_parameter_transition_processor(
     handles: &ParamHandles,
 ) -> Result<Box<dyn StreamingProcessor>, String> {
     Ok(match case.proc {
-        ProcKind::Eq => Box::new(EqProcessor::new(
+        ProcKind::Eq => Box::new(IirEqProcessor::new(
             CHANNELS,
             SAMPLE_RATE as f64,
             Arc::clone(&handles.eq),
+            Arc::new(AtomicEqKind::new()),
         )),
         ProcKind::Saturation => {
             // `SaturationProcessor::new` takes no rate and defaults to 44.1 kHz,
@@ -2798,7 +2799,7 @@ struct ParameterTransitionSection {
 fn parameter_transition_required_keys() -> Vec<&'static str> {
     let mut required = Vec::new();
 
-    let EqParamsSnapshot { gains, enabled: _ } = EqParamsSnapshot::default();
+    let IirEqParamsSnapshot { gains, enabled: _ } = IirEqParamsSnapshot::default();
     for (band, _) in gains.iter().enumerate() {
         required.push(PARAM_STEP_EQ_BAND_KEYS[band]);
     }
@@ -3907,7 +3908,7 @@ fn render_full_output_chain(
     channels: usize,
     render_policy: OfflineRenderPolicy,
 ) -> Result<RenderedOutput, String> {
-    let eq_params = Arc::new(AtomicEqParams::new());
+    let eq_params = Arc::new(AtomicIirEqParams::new());
     let saturation_params = Arc::new(AtomicSaturationParams::new());
     let crossfeed_params = Arc::new(AtomicCrossfeedParams::new());
     let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
@@ -3933,6 +3934,7 @@ fn render_full_output_chain(
         channels,
         output_sample_rate: RESAMPLE_TO,
         eq_params,
+        eq_kind: Arc::new(AtomicEqKind::new()),
         saturation_params,
         crossfeed_params,
         convolver_control: ConvolverControl::default(),

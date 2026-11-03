@@ -15,7 +15,7 @@
 use super::traits::ProcessError;
 use std::ptr;
 use std::sync::{
-    atomic::{AtomicPtr, AtomicU64, Ordering},
+    atomic::{AtomicPtr, AtomicU64, AtomicU8, Ordering},
     Arc, Mutex, MutexGuard,
 };
 
@@ -141,10 +141,10 @@ pub const NOISE_SHAPER_BITS_MAX: u32 = 32;
 ///
 /// This is the single shared policy for both parameter layers: the atomic
 /// publishers here, and the infallible setters on the standalone DSP cores.
-/// Fallible entry points such as [`Equalizer::set_band_gain`] instead report
+/// Fallible entry points such as [`IirEqualizer::set_band_gain`] instead report
 /// the rejection; see the crate's parameter-validation spec.
 ///
-/// [`Equalizer::set_band_gain`]: super::eq::Equalizer::set_band_gain
+/// [`IirEqualizer::set_band_gain`]: super::iir_eq::IirEqualizer::set_band_gain
 #[inline]
 pub(crate) fn sanitized(value: f64, min: f64, max: f64) -> Option<f64> {
     value.is_finite().then(|| value.clamp(min, max))
@@ -552,9 +552,9 @@ pub const EQ_BANDS: usize = 10;
 /// A band index is an address, not a value: unlike a gain it cannot be clamped
 /// into range without silently editing a different band than the caller asked
 /// for. Every public EQ entry point that returns a `Result` rejects it here, so
-/// the playback facade and the raw [`Equalizer`](crate::processor::Equalizer)
+/// the playback facade and the raw [`IirEqualizer`](crate::processor::IirEqualizer)
 /// report the same parameter identity for the same mistake.
-pub(crate) fn validate_eq_band_index(
+pub(crate) fn validate_iir_eq_band_index(
     processor: &'static str,
     band: usize,
 ) -> Result<(), ProcessError> {
@@ -570,14 +570,14 @@ pub(crate) fn validate_eq_band_index(
 
 /// EQ parameter snapshot for audio thread
 #[derive(Debug, Clone, Copy)]
-pub struct EqParamsSnapshot {
+pub struct IirEqParamsSnapshot {
     /// Gain for each band in dB
     pub gains: [f64; EQ_BANDS],
     /// Whether EQ is enabled
     pub enabled: bool,
 }
 
-impl Default for EqParamsSnapshot {
+impl Default for IirEqParamsSnapshot {
     fn default() -> Self {
         Self {
             gains: [0.0; EQ_BANDS],
@@ -587,11 +587,11 @@ impl Default for EqParamsSnapshot {
 }
 
 /// EQ parameters published as complete immutable snapshots.
-pub struct AtomicEqParams {
-    shared: SharedParams<EqParamsSnapshot>,
+pub struct AtomicIirEqParams {
+    shared: SharedParams<IirEqParamsSnapshot>,
 }
 
-impl AtomicEqParams {
+impl AtomicIirEqParams {
     /// Create new EQ params with default values
     pub fn new() -> Self {
         Self {
@@ -612,18 +612,18 @@ impl AtomicEqParams {
             };
             *slot = gain;
         }
-        self.shared.publish(EqParamsSnapshot {
+        self.shared.publish(IirEqParamsSnapshot {
             gains: clamped,
             enabled,
         });
     }
 
     /// Read the current EQ parameter snapshot.
-    pub fn read(&self) -> EqParamsSnapshot {
+    pub fn read(&self) -> IirEqParamsSnapshot {
         self.shared.read()
     }
 
-    impl_snapshot_accessors!(EqParamsSnapshot);
+    impl_snapshot_accessors!(IirEqParamsSnapshot);
 
     /// Update a single band gain by patching and publishing a new snapshot.
     ///
@@ -631,7 +631,7 @@ impl AtomicEqParams {
     /// above [`EQ_BANDS`], or a non-finite gain, publishes nothing and leaves
     /// the previously published snapshot in effect, so an advanced caller
     /// cannot poison callback-side filter state. Use
-    /// [`PlaybackParameters::set_eq_band_gain_db`](crate::PlaybackParameters::set_eq_band_gain_db)
+    /// [`PlaybackParameters::set_iir_eq_band_gain_db`](crate::PlaybackParameters::set_iir_eq_band_gain_db)
     /// when the rejection has to be reported back to a user or persisted.
     pub fn set_band_gain(&self, band: usize, gain_db: f64) {
         if band >= EQ_BANDS {
@@ -656,7 +656,68 @@ impl AtomicEqParams {
     impl_enabled_reader!();
 }
 
-impl_default_via_new!(AtomicEqParams);
+impl_default_via_new!(AtomicIirEqParams);
+
+/// Which equalizer implementation answers the kind-agnostic EQ controls.
+///
+/// The output chain carries exactly one ten-band equalizer, in one of two
+/// implementations: a recursive biquad bank ([`EqKind::Iir`]) or a linear-phase
+/// impulse response rendered into the convolution slot ([`EqKind::Fir`]). They
+/// are alternatives, never stacked, so a single selector is the only honest
+/// representation of "which equalizer is in use".
+///
+/// Publishing this selector is separate from enabling an equalizer: it decides
+/// *which* path a band edit or an enable/disable acts on, not whether either is
+/// currently audible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EqKind {
+    /// Ten-band recursive biquad equalizer.
+    #[default]
+    Iir,
+    /// Ten-band linear-phase equalizer rendered to an impulse response and run
+    /// through the chain's single convolution slot.
+    ///
+    /// Because that slot is shared with room/reverb convolution, selecting
+    /// `Fir` supersedes any previously loaded impulse response, and loading one
+    /// afterwards supersedes the FIR equalizer's.
+    Fir,
+}
+
+/// Lock-free publication of the active [`EqKind`].
+///
+/// The audio callback reads this per block to arbitrate which equalizer path is
+/// allowed to contribute, so a band edit or an enable flag written for the
+/// inactive path cannot leak into the output.
+pub struct AtomicEqKind {
+    kind: AtomicU8,
+}
+
+/// Discriminant tag for [`EqKind::Fir`] in [`AtomicEqKind`].
+const FIR_TAG: u8 = EqKind::Fir as u8;
+
+impl AtomicEqKind {
+    /// Create a selector defaulting to [`EqKind::Iir`].
+    pub fn new() -> Self {
+        Self {
+            kind: AtomicU8::new(EqKind::Iir as u8),
+        }
+    }
+
+    /// Publish the active equalizer kind.
+    pub fn set(&self, kind: EqKind) {
+        self.kind.store(kind as u8, Ordering::Release);
+    }
+
+    /// Load the active equalizer kind.
+    pub fn get(&self) -> EqKind {
+        match self.kind.load(Ordering::Acquire) {
+            FIR_TAG => EqKind::Fir,
+            _ => EqKind::Iir,
+        }
+    }
+}
+
+impl_default_via_new!(AtomicEqKind);
 
 // ============================================================================
 // Saturation Parameters (Simple Atomic)
@@ -1818,7 +1879,7 @@ mod tests {
 
     #[test]
     fn test_eq_params_write_read() {
-        let params = AtomicEqParams::new();
+        let params = AtomicIirEqParams::new();
         let gains = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
 
         params.write(&gains, true);
@@ -1972,7 +2033,7 @@ mod tests {
     /// forcing consumers to reload every block.
     #[test]
     fn load_if_changed_tracks_publication_identity_not_value() {
-        let params = AtomicEqParams::new();
+        let params = AtomicIirEqParams::new();
         let cached = params.load();
 
         // Repeated reads without a publish must all be the same allocation.
@@ -2003,7 +2064,7 @@ mod tests {
 
     #[test]
     fn test_eq_snapshot_publication_keeps_old_and_new_consistent() {
-        let params = AtomicEqParams::new();
+        let params = AtomicIirEqParams::new();
         let old = params.load();
 
         params.set_band_gain(3, 6.0);
@@ -2059,7 +2120,7 @@ mod tests {
         const UPDATES: u64 = 10_000;
         const MAX_READ_ATTEMPTS: usize = 20_000_000;
 
-        let params = Arc::new(AtomicEqParams::new());
+        let params = Arc::new(AtomicIirEqParams::new());
         let (reader, initial, initial_generation) = params.subscribe_realtime();
         let ready = Arc::new(AtomicBool::new(false));
         let start = Arc::new(AtomicBool::new(false));

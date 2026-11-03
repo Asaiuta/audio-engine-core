@@ -12,20 +12,22 @@ use std::panic::AssertUnwindSafe;
 
 /// Standard 10-band EQ frequencies (ISO octave bands)
 ///
-/// Supported as the default band layout for [`FirEq`]; nothing in this crate
-/// consumes it, but a consuming application needs it to build the gain list
-/// [`FirEq::set_bands`] expects.
+/// The default band layout for [`FirEq`]. Centers are taken by reference from
+/// [`EQ_BAND_FREQUENCIES_HZ`](super::EQ_BAND_FREQUENCIES_HZ), the crate's single
+/// definition of the band layout, so this list cannot drift from the IIR
+/// equalizer's. Nothing in this crate consumes the gains; a consuming
+/// application needs it to build the list [`FirEq::set_bands`] expects.
 pub const STANDARD_BANDS: [(f64, f64); 10] = [
-    (31.0, 0.0),    // 31 Hz
-    (62.0, 0.0),    // 62 Hz
-    (125.0, 0.0),   // 125 Hz
-    (250.0, 0.0),   // 250 Hz
-    (500.0, 0.0),   // 500 Hz
-    (1000.0, 0.0),  // 1 kHz
-    (2000.0, 0.0),  // 2 kHz
-    (4000.0, 0.0),  // 4 kHz
-    (8000.0, 0.0),  // 8 kHz
-    (16000.0, 0.0), // 16 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[0], 0.0),  // 31 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[1], 0.0),  // 62 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[2], 0.0),  // 125 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[3], 0.0),  // 250 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[4], 0.0),  // 500 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[5], 0.0),  // 1 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[6], 0.0),  // 2 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[7], 0.0),  // 4 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[8], 0.0),  // 8 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[9], 0.0),  // 16 kHz
 ];
 
 /// Phase mode for FIR EQ
@@ -49,7 +51,7 @@ pub enum FirPhaseMode {
 /// Supported, but not used by any other type in this crate. It exists for a
 /// consuming application that wants linear- or minimum-phase EQ applied through
 /// [`FFTConvolver`](super::FFTConvolver); the output chain's own EQ stage is the
-/// IIR [`Equalizer`](super::Equalizer) and does not use this type.
+/// IIR [`IirEqualizer`](super::IirEqualizer) and does not use this type.
 pub struct FirEq {
     /// Number of FIR taps (must be odd for linear phase)
     num_taps: usize,
@@ -139,9 +141,9 @@ impl FirEq {
     /// * `band_idx` - Band index (0-9 for standard 10-band EQ)
     /// * `gain_db` - Gain in dB, clamped to the published
     ///   [`EQ_BAND_GAIN_DB_MIN`]..=[`EQ_BAND_GAIN_DB_MAX`] range. A non-finite
-    ///   gain is ignored rather than clamped, matching [`Equalizer`].
+    ///   gain is ignored rather than clamped, matching [`IirEqualizer`].
     ///
-    /// [`Equalizer`]: super::eq::Equalizer
+    /// [`IirEqualizer`]: super::iir_eq::IirEqualizer
     pub fn set_band(&mut self, band_idx: usize, gain_db: f64) {
         let Some(gain_db) = sanitized(gain_db, EQ_BAND_GAIN_DB_MIN, EQ_BAND_GAIN_DB_MAX) else {
             return;
@@ -369,6 +371,23 @@ fn minimum_phase_tail_weight(index: usize, num_taps: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The FIR band layout must be the crate's single band definition, not a
+    /// second copy that can drift. Both equalizer kinds address bands by index,
+    /// so a divergence here would silently apply a correction to the wrong
+    /// frequency on one path only.
+    #[test]
+    fn standard_bands_match_the_canonical_band_layout() {
+        assert_eq!(STANDARD_BANDS.len(), crate::processor::EQ_BANDS);
+        for (index, (frequency, gain_db)) in STANDARD_BANDS.iter().enumerate() {
+            assert_eq!(
+                *frequency,
+                super::super::EQ_BAND_FREQUENCIES_HZ[index],
+                "band {index} centre must come from the canonical layout"
+            );
+            assert_eq!(*gain_db, 0.0, "the default layout is flat");
+        }
+    }
 
     /// Reference implementation of the linear-phase IR using a full complex
     /// inverse FFT with the Hermitian half written out by hand — the formulation

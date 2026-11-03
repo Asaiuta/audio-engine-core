@@ -16,7 +16,7 @@ use support::{
 
 use audio_engine_core::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, ConvolverControl, FFTConvolver, NoiseShaperCurve, OfflineRenderPolicy,
     OutputChainBuilder, OutputChainParams, OutputRenderChain, SaturationQualityValue,
     SaturationTypeValue, StreamingResampler, EQ_BANDS, RESAMPLER_BACKEND_NAME,
@@ -803,7 +803,7 @@ fn build_params(scenario: Scenario) -> OutputChainParams {
 fn build_params_with_activity(scenario: Scenario, active: bool) -> OutputChainParams {
     let source_rate_hz = scenario.source_rate_hz();
     let output_rate_hz = scenario.output_rate_hz();
-    let eq_params = Arc::new(AtomicEqParams::new());
+    let eq_params = Arc::new(AtomicIirEqParams::new());
     let saturation_params = Arc::new(AtomicSaturationParams::new());
     let crossfeed_params = Arc::new(AtomicCrossfeedParams::new());
     let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
@@ -858,6 +858,7 @@ fn build_params_with_activity(scenario: Scenario, active: bool) -> OutputChainPa
         channels: CHANNELS,
         output_sample_rate: output_rate_hz,
         eq_params,
+        eq_kind: Arc::new(AtomicEqKind::new()),
         saturation_params,
         crossfeed_params,
         convolver_control,

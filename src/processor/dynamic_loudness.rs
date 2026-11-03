@@ -17,7 +17,7 @@
 //! Source buffer
 //!   → Loudness normalizer gain
 //!   → canonical output chain:
-//!     Volume → Equalizer → Saturation → Crossfeed → Convolver
+//!     Volume → IirEqualizer → Saturation → Crossfeed → Convolver
 //!     → DynamicLoudness → PeakLimiter → optional resampler
 //!     → NoiseShaper → final output
 //! ```

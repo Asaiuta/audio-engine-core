@@ -38,7 +38,7 @@ macro_rules! impl_test_process_block {
     }
 
 impl_test_process_block!(
-    EqProcessor,
+    IirEqProcessor,
     SaturationProcessor,
     CrossfeedProcessor,
     PeakLimiterProcessor,
@@ -558,8 +558,8 @@ fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
 
 #[test]
 fn test_eq_processor() {
-    let params = Arc::new(AtomicEqParams::new());
-    let mut proc = EqProcessor::new(2, 44100.0, Arc::clone(&params));
+    let params = Arc::new(AtomicIirEqParams::new());
+    let mut proc = IirEqProcessor::new(2, 44100.0, Arc::clone(&params), Arc::new(AtomicEqKind::new()));
 
     // Set params from "main thread"
     let gains = [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
@@ -1581,9 +1581,9 @@ fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
         );
     }
 
-    let eq = Arc::new(AtomicEqParams::new());
+    let eq = Arc::new(AtomicIirEqParams::new());
     eq.set_enabled(false);
-    assert_rearmed(EqProcessor::new(2, 48_000.0, eq), 2);
+    assert_rearmed(IirEqProcessor::new(2, 48_000.0, eq, Arc::new(AtomicEqKind::new())), 2);
 
     let saturation = Arc::new(AtomicSaturationParams::new());
     saturation.set_armed(false);
@@ -1938,9 +1938,9 @@ fn max_abs_delta(left: &[f64], right: &[f64]) -> f64 {
 
 #[test]
 fn fixed_bypass_copies_out_of_place_and_reports_backpressure() {
-    let params = Arc::new(AtomicEqParams::new());
+    let params = Arc::new(AtomicIirEqParams::new());
     params.write(&[0.0; EQ_BANDS], false);
-    let mut proc = EqProcessor::new(2, 48_000.0, params);
+    let mut proc = IirEqProcessor::new(2, 48_000.0, params, Arc::new(AtomicEqKind::new()));
     let input = [0.1, -0.2, 0.3, -0.4];
     let mut output = [9.0, 9.0];
 

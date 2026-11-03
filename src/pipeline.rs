@@ -6,17 +6,18 @@
 //! decode files, or resample source audio.
 use crate::audio_block::AudioBlockMut;
 use crate::dsp::{db_to_linear, linear_to_db};
-use crate::processor::lockfree_params::validate_eq_band_index;
+use crate::processor::lockfree_params::validate_iir_eq_band_index;
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
-    AtomicVolumeParams, ChainFinishPolicy, ConvolverControl, ConvolverStatus, DspChain,
-    DynamicLoudnessTuningSnapshot, FFTConvolver, FrameDuration, NoiseShaperCurve,
-    OutputChainBuilder, OutputChainParams, ProcessError, ProcessProgress, ProcessState,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
+    AtomicSaturationParams, AtomicVolumeParams, ChainFinishPolicy, ConvolverControl,
+    ConvolverStatus, DspChain, DynamicLoudnessTuningSnapshot, EqKind, FFTConvolver, FirEq,
+    FrameDuration, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
+    ProcessError, ProcessProgress, ProcessState,
     SaturationParamsSnapshot, SaturationQuality, SaturationType, TailSpec, LOUDNESS_BANDS_N,
 };
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Documented value ranges for the facade's intent-level controls.
 ///
@@ -570,6 +571,7 @@ pub struct PlaybackConfig {
     volume: f64,
     eq_enabled: bool,
     eq_gains: [f64; crate::processor::EQ_BANDS],
+    eq_kind: EqKind,
     limiter_enabled: bool,
     limiter_threshold: f64,
     saturation: PlaybackSaturationConfig,
@@ -585,6 +587,7 @@ impl PlaybackConfig {
             volume: 1.0,
             eq_enabled: false,
             eq_gains: [0.0; crate::processor::EQ_BANDS],
+            eq_kind: EqKind::Iir,
             limiter_enabled: false,
             limiter_threshold: 0.0,
             saturation: PlaybackSaturationConfig::disabled(),
@@ -600,9 +603,22 @@ impl PlaybackConfig {
         self
     }
     /// Enable EQ with per-band gains in dB.
+    ///
+    /// Enables whichever kind [`Self::with_eq_kind`] names; the default is
+    /// [`EqKind::Iir`]. Selecting [`EqKind::Fir`] renders these gains into an
+    /// impulse response instead of loading a recursive filter bank.
     pub fn with_eq(mut self, band_gains_db: [f64; crate::processor::EQ_BANDS]) -> Self {
         self.eq_enabled = true;
         self.eq_gains = band_gains_db;
+        self
+    }
+    /// Select which equalizer implementation the EQ controls address.
+    ///
+    /// The chain carries one equalizer slot, filled either by the recursive
+    /// biquad bank or by a linear-phase impulse response through the single
+    /// convolution stage. It is not a preference among stacking stages.
+    pub fn with_eq_kind(mut self, kind: EqKind) -> Self {
+        self.eq_kind = kind;
         self
     }
     /// Limiter is always true-peak in this facade. Its release is fixed to the
@@ -794,7 +810,8 @@ pub struct DynamicLoudnessTelemetry {
 #[derive(Clone)]
 pub struct PlaybackParameters {
     volume: Arc<AtomicVolumeParams>,
-    eq: Arc<AtomicEqParams>,
+    eq: Arc<AtomicIirEqParams>,
+    eq_kind: Arc<AtomicEqKind>,
     limiter: Arc<AtomicPeakLimiterParams>,
     saturation: Arc<AtomicSaturationParams>,
     crossfeed: Arc<AtomicCrossfeedParams>,
@@ -817,31 +834,45 @@ impl PlaybackParameters {
     pub fn set_muted(&self, muted: bool) {
         self.volume.set_muted(muted);
     }
-    /// Enable or bypass the equalizer.
-    pub fn set_eq_enabled(&self, enabled: bool) {
+    /// Enable or bypass the *recursive* (IIR) equalizer.
+    ///
+    /// This writes the IIR path only. When the shared selector names
+    /// [`EqKind::Fir`] the stage stays silent regardless, so this cannot
+    /// re-activate a bypassed path behind the selector's back. Prefer
+    /// [`PlaybackController::set_eq_enabled`] for kind-agnostic use.
+    pub fn set_iir_eq_enabled(&self, enabled: bool) {
         self.eq.set_enabled(enabled);
     }
     /// Publish one equalizer band gain in dB, clamped to
+    /// Publish one *recursive* (IIR) equalizer band gain in dB, clamped to
     /// [`EQ_BAND_GAIN_DB_MIN`]..=[`EQ_BAND_GAIN_DB_MAX`].
     ///
     /// `band` addresses one of [`EQ_BANDS`](crate::processor::EQ_BANDS) bands.
     /// An index at or above that count is rejected with
     /// [`ProcessError::InvalidParameter`] rather than clamped, because clamping
     /// would edit a different band than the caller asked for.
-    pub fn set_eq_band_gain_db(&self, band: usize, gain_db: f64) -> Result<(), ProcessError> {
-        validate_eq_band_index("PlaybackParameters", band)?;
+    ///
+    /// This writes the IIR path only and is thereby invisible while the shared
+    /// selector names [`EqKind::Fir`]. Use
+    /// [`PlaybackController::set_eq_band_gain_db`] to address whichever kind is
+    /// active.
+    pub fn set_iir_eq_band_gain_db(&self, band: usize, gain_db: f64) -> Result<(), ProcessError> {
+        validate_iir_eq_band_index("PlaybackParameters", band)?;
         self.eq.set_band_gain(
             band,
             checked_parameter("PlaybackParameters", "eq band gain", gain_db)?,
         );
         Ok(())
     }
-    /// Publish enablement and all band gains (dB) as one coherent callback
-    /// snapshot. Prefer this over per-band writes when applying a preset.
+    /// Publish *recursive* (IIR) enablement and all band gains (dB) as one
+    /// coherent callback snapshot. Prefer this over per-band writes when
+    /// applying a preset.
     ///
-    /// Gains are clamped like [`Self::set_eq_band_gain_db`], so
-    /// [`Self::eq_band_gains_db`] reports the applied values.
-    pub fn set_eq(
+    /// Gains are clamped like [`Self::set_iir_eq_band_gain_db`], so
+    /// [`Self::iir_eq_band_gains_db`] reports the applied values. Like every
+    /// IIR write here, it only takes audible effect while the shared selector
+    /// names [`EqKind::Iir`].
+    pub fn set_iir_eq(
         &self,
         enabled: bool,
         band_gains_db: [f64; crate::processor::EQ_BANDS],
@@ -1066,13 +1097,32 @@ impl PlaybackParameters {
     pub fn muted(&self) -> bool {
         self.volume.read().muted
     }
-    /// Current equalizer enablement.
-    pub fn eq_enabled(&self) -> bool {
+    /// Current *recursive* (IIR) equalizer enablement.
+    ///
+    /// Reports the IIR path's own flag, which is not the same question as
+    /// "is the equalizer audible right now": a `true` here stays silent while
+    /// the shared selector names [`EqKind::Fir`]. Use
+    /// [`Self::eq_kind`] together with this, or
+    /// [`PlaybackController::eq_enabled`] for the kind-agnostic answer.
+    pub fn iir_eq_enabled(&self) -> bool {
         self.eq.read().enabled
     }
-    /// Current equalizer band gains in dB.
-    pub fn eq_band_gains_db(&self) -> [f64; crate::processor::EQ_BANDS] {
+    /// Current *recursive* (IIR) equalizer band gains in dB.
+    pub fn iir_eq_band_gains_db(&self) -> [f64; crate::processor::EQ_BANDS] {
         self.eq.read().gains
+    }
+    /// Which equalizer implementation the controls currently address.
+    pub fn eq_kind(&self) -> EqKind {
+        self.eq_kind.get()
+    }
+    /// Publish which equalizer implementation the controls address.
+    ///
+    /// Arbitration happens inside the chain: the IIR stage reads this per block
+    /// and stays silent unless it names [`EqKind::Iir`]. Choosing
+    /// [`EqKind::Fir`] therefore silences the IIR path without clearing its
+    /// flags, which is what makes "switch away and back" lossless.
+    pub fn set_eq_kind(&self, kind: EqKind) {
+        self.eq_kind.set(kind);
     }
     /// Current limiter enablement.
     pub fn limiter_enabled(&self) -> bool {
@@ -1140,6 +1190,13 @@ pub struct PlaybackController {
     /// and drop-release lifecycles stay paired with this controller; never
     /// exposed directly through the high-level facade.
     convolver_lease: ConvolverControl,
+    /// Control-thread state for the linear-phase (FIR) equalizer path.
+    ///
+    /// The FIR path does not filter in place; it designs an impulse response and
+    /// hands it to the chain's single convolution slot. Keeping the generator
+    /// and the last published gains here means a band edit re-designs only the
+    /// response, and a round trip between kinds restores the previous sound.
+    fir_eq: Mutex<FirEqState>,
     /// Lock-free lifecycle request channel shared with the callback-owned
     /// pipeline.
     lifecycle: Arc<LifecycleChannel>,
@@ -1147,6 +1204,56 @@ pub struct PlaybackController {
     channels: usize,
     /// Callback sample rate for publishing kernels in the correct domain.
     sample_rate_hz: u32,
+}
+
+/// Tap count used when this controller first designs a linear-phase response.
+///
+/// 1023 taps is the crate's documented default for a ten-band linear-phase EQ:
+/// long enough for useful low-frequency resolution at 44.1 kHz, short enough to
+/// stay well under `PARTITIONED_CONVOLUTION_IR_THRESHOLD`, so the response
+/// runs on the plain overlap-save path.
+pub const FIR_EQ_DEFAULT_TAPS: usize = 1023;
+
+/// Control-thread state for the linear-phase equalizer path.
+struct FirEqState {
+    /// Impulse-response generator, rearmed on every publish.
+    generator: FirEq,
+    /// Band gains in dB, the single stored description of the FIR response.
+    gains_db: [f64; crate::processor::EQ_BANDS],
+    /// Whether the FIR equalizer is enabled.
+    enabled: bool,
+    /// Whether the response currently in the convolution slot was published by
+    /// this controller's FIR path.
+    ///
+    /// Tracked so a handover to [`EqKind::Iir`] can release its own response
+    /// without clobbering a room/reverb IR the application loaded.
+    owns_convolution_slot: bool,
+    /// Whether this path's gains have ever been set independently.
+    ///
+    /// Until it has, a handover seeds the FIR curve from the IIR path so
+    /// switching kind shifts the filter implementation rather than silently
+    /// flattening the user's EQ. Once the FIR path has been edited it keeps its
+    /// own curve, so a round trip restores each side's settings.
+    gains_configured: bool,
+}
+
+impl FirEqState {
+    /// An idle, flat FIR path for `sample_rate_hz`.
+    fn new(sample_rate_hz: u32) -> Result<Self, ProcessError> {
+        if sample_rate_hz == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "FirEqState",
+                sample_rate_hz,
+            });
+        }
+        Ok(Self {
+            generator: FirEq::new(f64::from(sample_rate_hz), FIR_EQ_DEFAULT_TAPS),
+            gains_db: [0.0; crate::processor::EQ_BANDS],
+            enabled: false,
+            owns_convolution_slot: false,
+            gains_configured: false,
+        })
+    }
 }
 impl PlaybackController {
     /// Return a clonable, safe publisher for ordinary DSP parameters.
@@ -1215,6 +1322,14 @@ impl PlaybackController {
             .convolver_lease
             .publish_at_rate(kernel, self.sample_rate_hz)?;
         self.convolver_lease.set_enabled(true);
+        // A room/reverb response supersedes any linear-phase EQ response in the
+        // shared slot. Recording that here keeps a later handover to
+        // `EqKind::Iir` from releasing an IR this controller did not publish.
+        let mut state = self
+            .fir_eq
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.owns_convolution_slot = false;
         Ok(generation)
     }
     /// Enable or bypass convolution without discarding the loaded kernel.
@@ -1229,6 +1344,234 @@ impl PlaybackController {
     /// a control thread after superseding IRs so memory is returned promptly.
     pub fn reclaim_retired_convolution_kernels(&self) -> bool {
         self.convolver_lease.reclaim_retired()
+    }
+
+    // --- kind-agnostic equalizer facade ------------------------------------
+    //
+    // The chain carries one equalizer slot in one of two implementations. These
+    // methods answer "the equalizer" without the caller having to know which
+    // implementation is behind it, which is what keeps an application from
+    // inventing a second source of truth for the selected kind.
+
+    /// Which equalizer implementation the controls currently address.
+    pub fn eq_kind(&self) -> EqKind {
+        self.parameters.eq_kind()
+    }
+    /// Whether the equalizer is currently audible.
+    ///
+    /// This is the kind-agnostic answer: `true` means the active kind is both
+    /// enabled and free to contribute. It is deliberately weaker than "the
+    /// underlying flag is set", because a flag set on the inactive path renders
+    /// nothing.
+    pub fn eq_enabled(&self) -> bool {
+        match self.parameters.eq_kind() {
+            EqKind::Iir => self.parameters.iir_eq_enabled(),
+            EqKind::Fir => self
+                .fir_eq
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .enabled,
+        }
+    }
+    /// Enable or bypass the active equalizer, whatever kind it is.
+    pub fn set_eq_enabled(&self, enabled: bool) -> Result<(), ProcessError> {
+        match self.parameters.eq_kind() {
+            EqKind::Iir => {
+                self.parameters.set_iir_eq_enabled(enabled);
+                Ok(())
+            }
+            EqKind::Fir => {
+                let mut state = self
+                    .fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.enabled = enabled;
+                if enabled {
+                    // Re-arm the convolution slot with the current response.
+                    Self::publish_fir_eq(
+                        &self.convolver_lease,
+                        &mut state,
+                        self.sample_rate()?,
+                        self.channels,
+                    )?;
+                } else if state.owns_convolution_slot {
+                    // Only release the slot this path published. A room IR the
+                    // application loaded is not the equalizer's to switch off.
+                    self.convolver_lease.set_enabled(false);
+                }
+                Ok(())
+            }
+        }
+    }
+    /// Current band gains in dB for the active equalizer.
+    pub fn eq_band_gains_db(&self) -> [f64; crate::processor::EQ_BANDS] {
+        match self.parameters.eq_kind() {
+            EqKind::Iir => self.parameters.iir_eq_band_gains_db(),
+            EqKind::Fir => self
+                .fir_eq
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .gains_db,
+        }
+    }
+    /// Publish one band gain in dB to the active equalizer.
+    ///
+    /// On the FIR path this re-renders the impulse response and republishes it
+    /// into the convolution slot, so a drag that emits many edits per second
+    /// costs one FFT-domain redesign per edit. That is cheap enough for a
+    /// ten-band bank at the default tap count, but a caller that batches edits
+    /// should prefer [`Self::set_eq`], which renders once for the whole bank.
+    pub fn set_eq_band_gain_db(&self, band: usize, gain_db: f64) -> Result<(), ProcessError> {
+        match self.parameters.eq_kind() {
+            EqKind::Iir => self.parameters.set_iir_eq_band_gain_db(band, gain_db),
+            EqKind::Fir => {
+                validate_iir_eq_band_index("PlaybackController", band)?;
+                let gain_db = checked_parameter("PlaybackController", "eq band gain", gain_db)?;
+                let mut state = self
+                    .fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.gains_db[band] = gain_db;
+                if state.enabled {
+                    Self::publish_fir_eq(
+                        &self.convolver_lease,
+                        &mut state,
+                        self.sample_rate()?,
+                        self.channels,
+                    )?;
+                }
+                Ok(())
+            }
+        }
+    }
+    /// Publish enablement and all band gains as one coherent edit.
+    ///
+    /// Prefer this over per-band writes when applying a preset: the FIR path
+    /// renders a single impulse response for the whole bank instead of one per
+    /// band.
+    pub fn set_eq(
+        &self,
+        enabled: bool,
+        band_gains_db: [f64; crate::processor::EQ_BANDS],
+    ) -> Result<(), ProcessError> {
+        match self.parameters.eq_kind() {
+            EqKind::Iir => self.parameters.set_iir_eq(enabled, band_gains_db),
+            EqKind::Fir => {
+                for gain in band_gains_db {
+                    checked_parameter("PlaybackController", "eq band gain", gain)?;
+                }
+                let mut state = self
+                    .fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.gains_db = band_gains_db;
+                state.enabled = enabled;
+                state.gains_configured = true;
+                if enabled {
+                    Self::publish_fir_eq(
+                        &self.convolver_lease,
+                        &mut state,
+                        self.sample_rate()?,
+                        self.channels,
+                    )?;
+                } else if state.owns_convolution_slot {
+                    self.convolver_lease.set_enabled(false);
+                }
+                Ok(())
+            }
+        }
+    }
+    /// Select which equalizer implementation the controls address.
+    ///
+    /// The two kinds are alternatives that share one chain slot, so switching is
+    /// a handover rather than an addition:
+    ///
+    /// * switching to [`EqKind::Fir`] renders the stored band gains into an
+    ///   impulse response and publishes it into the convolution slot, which
+    ///   supersedes any room/reverb IR loaded through
+    ///   [`Self::load_impulse_response`];
+    /// * switching to [`EqKind::Iir`] clears the convolution slot only if this
+    ///   controller published the FIR response there, so an unrelated room IR is
+    ///   left alone.
+    ///
+    /// A handover is meant to change the filter implementation, not the curve:
+    /// on first entry the FIR path inherits the IIR path's gains and enablement,
+    /// so the same EQ survives the switch. Once the FIR path has been edited it
+    /// keeps its own settings, and neither direction clears the other kind's
+    /// state, which is what makes a round trip return to the previous sound
+    /// instead of a degraded one.
+    pub fn set_eq_kind(&self, kind: EqKind) -> Result<(), ProcessError> {
+        let current = self.parameters.eq_kind();
+        if current == kind {
+            return Ok(());
+        }
+        match kind {
+            EqKind::Fir => {
+                let sample_rate_hz = self.sample_rate()?;
+                let mut state = self
+                    .fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.generator = FirEq::new(f64::from(sample_rate_hz), FIR_EQ_DEFAULT_TAPS);
+                if !state.gains_configured {
+                    // Inherit the curve and enablement so a handover is a change
+                    // of implementation, not a silent flattening.
+                    state.gains_db = self.parameters.iir_eq_band_gains_db();
+                    state.enabled = self.parameters.iir_eq_enabled();
+                }
+                if state.enabled {
+                    Self::publish_fir_eq(
+                        &self.convolver_lease,
+                        &mut state,
+                        sample_rate_hz,
+                        self.channels,
+                    )?;
+                }
+            }
+            EqKind::Iir => {
+                let mut state = self
+                    .fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.owns_convolution_slot {
+                    self.convolver_lease.set_enabled(false);
+                    state.owns_convolution_slot = false;
+                }
+            }
+        }
+        self.parameters.set_eq_kind(kind);
+        Ok(())
+    }
+
+    /// Callback sample rate in hertz, validated for FIR design.
+    fn sample_rate(&self) -> Result<u32, ProcessError> {
+        if self.sample_rate_hz == 0 {
+            return Err(ProcessError::InvalidSampleRate {
+                processor: "PlaybackController",
+                sample_rate_hz: self.sample_rate_hz,
+            });
+        }
+        Ok(self.sample_rate_hz)
+    }
+
+    /// Design the FIR response from the stored gains and publish it.
+    ///
+    /// Marking the slot as owned here is what lets a later switch to
+    /// [`EqKind::Iir`] tell "my own FIR response" apart from a room IR the
+    /// application loaded, so it can release one without destroying the other.
+    fn publish_fir_eq(
+        lease: &ConvolverControl,
+        state: &mut FirEqState,
+        sample_rate_hz: u32,
+        channels: usize,
+    ) -> Result<u64, ProcessError> {
+        state.generator.set_bands(&state.gains_db);
+        let interleaved = state.generator.get_ir(channels);
+        let kernel = FFTConvolver::new(&interleaved, channels)?;
+        let generation = lease.publish_at_rate(kernel, sample_rate_hz)?;
+        lease.set_enabled(true);
+        state.owns_convolution_slot = true;
+        Ok(generation)
     }
 }
 
@@ -1264,7 +1607,7 @@ impl PlaybackBuilder {
         self.config.validate()?;
         let volume = Arc::new(AtomicVolumeParams::new());
         volume.set_volume(self.config.volume);
-        let eq = Arc::new(AtomicEqParams::new());
+        let eq = Arc::new(AtomicIirEqParams::new());
         eq.write(&self.config.eq_gains, self.config.eq_enabled);
         let limiter = Arc::new(AtomicPeakLimiterParams::new());
         limiter.set_enabled(self.config.limiter_enabled);
@@ -1309,10 +1652,27 @@ impl PlaybackBuilder {
         let telemetry = Arc::new(AtomicDynamicLoudnessTelemetry::new());
         let convolver = ConvolverControl::default();
         let lifecycle = Arc::new(LifecycleChannel::new());
+        let eq_kind = Arc::new(AtomicEqKind::new());
+        eq_kind.set(self.config.eq_kind);
+        // Arm the linear-phase path when the initial configuration selects it,
+        // so a pipeline built with `EqKind::Fir` starts audible rather than
+        // waiting for the first runtime edit.
+        let mut fir_eq = FirEqState::new(self.spec.sample_rate_hz)?;
+        fir_eq.gains_db = self.config.eq_gains;
+        fir_eq.enabled = self.config.eq_enabled;
+        if self.config.eq_kind == EqKind::Fir && self.config.eq_enabled {
+            PlaybackController::publish_fir_eq(
+                &convolver,
+                &mut fir_eq,
+                self.spec.sample_rate_hz,
+                self.spec.channels,
+            )?;
+        }
         let params = OutputChainParams {
             channels: self.spec.channels,
             output_sample_rate: self.spec.sample_rate_hz,
             eq_params: Arc::clone(&eq),
+            eq_kind: Arc::clone(&eq_kind),
             saturation_params: Arc::clone(&saturation),
             crossfeed_params: Arc::clone(&crossfeed),
             convolver_control: convolver.clone(),
@@ -1334,6 +1694,7 @@ impl PlaybackBuilder {
                 parameters: PlaybackParameters {
                     volume,
                     eq,
+                    eq_kind: Arc::clone(&eq_kind),
                     limiter,
                     saturation,
                     crossfeed,
@@ -1343,6 +1704,7 @@ impl PlaybackBuilder {
                     saturation_armed: self.config.saturation.enabled,
                 },
                 convolver_lease: convolver,
+                fir_eq: Mutex::new(fir_eq),
                 lifecycle,
                 channels: self.spec.channels,
                 sample_rate_hz: self.spec.sample_rate_hz,
@@ -1725,6 +2087,142 @@ mod playback_facade_tests {
         CallbackSpec::stereo(RATE, MAX).unwrap()
     }
 
+    // --- equalizer kind handover ------------------------------------------
+
+    /// Selecting `Fir` and editing bands must not disturb the IIR flags, and
+    /// `eq_enabled` must report the kind that is actually audible.
+    #[test]
+    fn eq_kind_selects_which_equalizer_the_controls_address() {
+        let (_pipeline, controller) = PlaybackBuilder::new(spec())
+            .configure(PlaybackConfig::transparent())
+            .build()
+            .unwrap();
+        assert_eq!(controller.eq_kind(), EqKind::Iir);
+        assert!(!controller.eq_enabled());
+
+        let mut gains = [0.0; crate::processor::EQ_BANDS];
+        gains[2] = 3.0;
+        controller.set_eq(true, gains).unwrap();
+        assert!(controller.eq_enabled(), "IIR is the active kind");
+        assert_eq!(controller.eq_band_gains_db(), gains);
+
+        // Hand over to FIR: the FIR path carries the same gains, and the IIR
+        // flag stays set but is no longer what `eq_enabled` reports.
+        controller.set_eq_kind(EqKind::Fir).unwrap();
+        assert_eq!(controller.eq_kind(), EqKind::Fir);
+        assert_eq!(controller.eq_band_gains_db(), gains);
+        assert!(controller.eq_enabled(), "FIR inherited the enabled state");
+
+        // A FIR-only edit lands on the FIR path and leaves IIR untouched.
+        controller.set_eq_band_gain_db(5, 6.0).unwrap();
+        assert_eq!(controller.eq_band_gains_db()[5], 6.0);
+        assert_eq!(
+            controller.parameters().iir_eq_band_gains_db()[5],
+            0.0,
+            "the IIR path must not absorb a FIR edit"
+        );
+    }
+
+    /// A round trip must restore the previous sound, not a degraded one: the
+    /// historical bug was `disable_fir_eq` rewriting the user's kind choice.
+    #[test]
+    fn eq_kind_round_trip_preserves_each_paths_own_settings() {
+        let (_pipeline, controller) = PlaybackBuilder::new(spec())
+            .configure(PlaybackConfig::transparent())
+            .build()
+            .unwrap();
+
+        let mut iir_gains = [0.0; crate::processor::EQ_BANDS];
+        iir_gains[0] = 1.5;
+        controller.set_eq(true, iir_gains).unwrap();
+
+        controller.set_eq_kind(EqKind::Fir).unwrap();
+        let mut fir_gains = [0.0; crate::processor::EQ_BANDS];
+        fir_gains[9] = -4.0;
+        controller.set_eq(true, fir_gains).unwrap();
+        assert_eq!(controller.eq_band_gains_db(), fir_gains);
+
+        // Turning the FIR equalizer off must not rewrite the selected kind.
+        controller.set_eq_enabled(false).unwrap();
+        assert_eq!(
+            controller.eq_kind(),
+            EqKind::Fir,
+            "disabling an equalizer must not change which kind is selected"
+        );
+        assert!(!controller.eq_enabled());
+
+        // Back to IIR: its own gains and enabled flag survived untouched.
+        controller.set_eq_kind(EqKind::Iir).unwrap();
+        assert_eq!(controller.eq_band_gains_db(), iir_gains);
+        assert!(controller.eq_enabled(), "IIR was re-enabled on the way back");
+    }
+
+    /// The convolution slot is shared, so a handover must release the FIR
+    /// response it published without destroying a room IR it never owned.
+    #[test]
+    fn eq_kind_handover_releases_only_its_own_convolution_response() {
+        let (_pipeline, controller) = PlaybackBuilder::new(spec())
+            .configure(PlaybackConfig::transparent())
+            .build()
+            .unwrap();
+
+        controller.set_eq_kind(EqKind::Fir).unwrap();
+        controller.set_eq(true, [1.0; crate::processor::EQ_BANDS]).unwrap();
+        assert!(
+            controller.convolution_status().enabled,
+            "enabling FIR EQ arms the convolution slot"
+        );
+
+        controller.set_eq_kind(EqKind::Iir).unwrap();
+        assert!(
+            !controller.convolution_status().enabled,
+            "handover back to IIR must release the FIR response it published"
+        );
+    }
+
+    /// A room IR loaded by the application is not the FIR equalizer's to clear.
+    #[test]
+    fn eq_kind_handover_leaves_a_foreign_impulse_response_alone() {
+        let (_pipeline, controller) = PlaybackBuilder::new(spec())
+            .configure(PlaybackConfig::transparent())
+            .build()
+            .unwrap();
+
+        let ir = [1.0, 0.0, 0.0, 0.0];
+        controller.load_impulse_response(&ir).unwrap();
+        assert!(controller.convolution_status().enabled);
+
+        // Selecting FIR then IIR must not take the room response down with it.
+        controller.set_eq_kind(EqKind::Fir).unwrap();
+        controller.set_eq_enabled(false).unwrap();
+        controller.set_eq_kind(EqKind::Iir).unwrap();
+        assert!(
+            controller.convolution_status().enabled,
+            "a room IR the controller did not publish must survive the handover"
+        );
+    }
+
+    /// Building with `EqKind::Fir` must start audible rather than waiting for
+    /// the first runtime edit.
+    #[test]
+    fn eq_kind_fir_build_starts_armed() {
+        let mut gains = [0.0; crate::processor::EQ_BANDS];
+        gains[1] = 2.0;
+        let (_pipeline, controller) = PlaybackBuilder::new(spec())
+            .configure(
+                PlaybackConfig::transparent()
+                    .with_eq(gains)
+                    .with_eq_kind(EqKind::Fir),
+            )
+            .build()
+            .unwrap();
+
+        assert_eq!(controller.eq_kind(), EqKind::Fir);
+        assert!(controller.eq_enabled());
+        assert_eq!(controller.eq_band_gains_db(), gains);
+        assert!(controller.convolution_status().enabled);
+    }
+
     #[test]
     fn callback_spec_validates_all_prepare_bounds() {
         assert!(CallbackSpec::new(0, RATE, MAX).is_err());
@@ -1739,8 +2237,8 @@ mod playback_facade_tests {
             .build()
             .unwrap();
         let parameters = controller.parameters();
-        parameters.set_eq_enabled(true);
-        parameters.set_eq_band_gain_db(0, 2.0).unwrap();
+        parameters.set_iir_eq_enabled(true);
+        parameters.set_iir_eq_band_gain_db(0, 2.0).unwrap();
         parameters.set_limiter_threshold_db(-1.0).unwrap();
         assert!(pipeline.process(&mut [0.25, -0.25]).is_ok());
         assert!(matches!(
@@ -1967,9 +2465,9 @@ mod playback_facade_tests {
 
         let mut gains = [0.0; crate::processor::EQ_BANDS];
         gains[3] = 4.5;
-        parameters.set_eq(true, gains).unwrap();
-        assert!(parameters.eq_enabled());
-        assert_eq!(parameters.eq_band_gains_db(), gains);
+        parameters.set_iir_eq(true, gains).unwrap();
+        assert!(parameters.iir_eq_enabled());
+        assert_eq!(parameters.iir_eq_band_gains_db(), gains);
 
         parameters.set_limiter_enabled(true);
         parameters.set_limiter_threshold_db(-2.0).unwrap();
@@ -2405,7 +2903,7 @@ mod playback_facade_tests {
             .build()
             .unwrap();
         let parameters = controller.parameters();
-        parameters.set_eq_enabled(true);
+        parameters.set_iir_eq_enabled(true);
 
         for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             assert!(matches!(
@@ -2413,11 +2911,11 @@ mod playback_facade_tests {
                 Err(ProcessError::InvalidParameter { .. })
             ));
             assert!(matches!(
-                parameters.set_eq_band_gain_db(0, bad),
+                parameters.set_iir_eq_band_gain_db(0, bad),
                 Err(ProcessError::InvalidParameter { .. })
             ));
             assert!(matches!(
-                parameters.set_eq(true, [bad; crate::processor::EQ_BANDS]),
+                parameters.set_iir_eq(true, [bad; crate::processor::EQ_BANDS]),
                 Err(ProcessError::InvalidParameter { .. })
             ));
             assert!(matches!(
@@ -2460,7 +2958,7 @@ mod playback_facade_tests {
         volume.set_volume(f64::NAN);
         assert!((volume.read().volume - 0.5).abs() < 1e-12);
 
-        let eq = AtomicEqParams::new();
+        let eq = AtomicIirEqParams::new();
         eq.write(&[3.0; crate::processor::EQ_BANDS], true);
         eq.write(&[f64::NAN; crate::processor::EQ_BANDS], true);
         eq.set_band_gain(0, f64::INFINITY);
@@ -2478,7 +2976,7 @@ mod playback_facade_tests {
 
     #[test]
     fn low_level_eq_setter_no_ops_for_an_invalid_band_index() {
-        let eq = AtomicEqParams::new();
+        let eq = AtomicIirEqParams::new();
         eq.write(&[3.0; crate::processor::EQ_BANDS], true);
 
         eq.set_band_gain(crate::processor::EQ_BANDS, 12.0);
@@ -2498,8 +2996,8 @@ mod playback_facade_tests {
         let (_pipeline, controller) = PlaybackPipeline::builder(spec()).build().unwrap();
         let parameters = controller.parameters();
 
-        parameters.set_eq_band_gain_db(0, 6.0).unwrap();
-        let applied = parameters.eq_band_gains_db();
+        parameters.set_iir_eq_band_gain_db(0, 6.0).unwrap();
+        let applied = parameters.iir_eq_band_gains_db();
 
         for band in [
             crate::processor::EQ_BANDS,
@@ -2507,7 +3005,7 @@ mod playback_facade_tests {
             usize::MAX,
         ] {
             assert_eq!(
-                parameters.set_eq_band_gain_db(band, 3.0).unwrap_err(),
+                parameters.set_iir_eq_band_gain_db(band, 3.0).unwrap_err(),
                 ProcessError::InvalidParameter {
                     processor: "PlaybackParameters",
                     parameter: "eq band index",
@@ -2518,14 +3016,14 @@ mod playback_facade_tests {
 
         // A rejected index publishes nothing, so the reader still reports the
         // last edit that actually reached the callback.
-        assert_eq!(parameters.eq_band_gains_db(), applied);
+        assert_eq!(parameters.iir_eq_band_gains_db(), applied);
 
         // The highest valid band is still addressable.
         parameters
-            .set_eq_band_gain_db(crate::processor::EQ_BANDS - 1, -3.0)
+            .set_iir_eq_band_gain_db(crate::processor::EQ_BANDS - 1, -3.0)
             .unwrap();
         assert!(
-            (parameters.eq_band_gains_db()[crate::processor::EQ_BANDS - 1] + 3.0).abs() < 1e-12
+            (parameters.iir_eq_band_gains_db()[crate::processor::EQ_BANDS - 1] + 3.0).abs() < 1e-12
         );
     }
 
@@ -2565,13 +3063,13 @@ mod playback_facade_tests {
 
         assert_single_publication("set_volume", volume, || parameters.set_volume(0.5).unwrap());
         assert_single_publication("set_muted", volume, || parameters.set_muted(true));
-        assert_single_publication("set_eq_enabled", eq, || parameters.set_eq_enabled(true));
-        assert_single_publication("set_eq_band_gain_db", eq, || {
-            parameters.set_eq_band_gain_db(0, 3.0).unwrap()
+        assert_single_publication("set_iir_eq_enabled", eq, || parameters.set_iir_eq_enabled(true));
+        assert_single_publication("set_iir_eq_band_gain_db", eq, || {
+            parameters.set_iir_eq_band_gain_db(0, 3.0).unwrap()
         });
-        assert_single_publication("set_eq", eq, || {
+        assert_single_publication("set_iir_eq", eq, || {
             parameters
-                .set_eq(true, [1.0; crate::processor::EQ_BANDS])
+                .set_iir_eq(true, [1.0; crate::processor::EQ_BANDS])
                 .unwrap()
         });
         assert_single_publication("set_limiter_enabled", limiter, || {
@@ -2685,14 +3183,14 @@ mod playback_facade_tests {
         // A preset written through `set_eq` reports the same gains the
         // equalizer actually applies.
         parameters
-            .set_eq(true, [40.0; crate::processor::EQ_BANDS])
+            .set_iir_eq(true, [40.0; crate::processor::EQ_BANDS])
             .unwrap();
         assert!(parameters
-            .eq_band_gains_db()
+            .iir_eq_band_gains_db()
             .iter()
             .all(|gain| (*gain - EQ_BAND_GAIN_DB_MAX).abs() < 1e-12));
-        parameters.set_eq_band_gain_db(0, 40.0).unwrap();
-        assert!((parameters.eq_band_gains_db()[0] - EQ_BAND_GAIN_DB_MAX).abs() < 1e-12);
+        parameters.set_iir_eq_band_gain_db(0, 40.0).unwrap();
+        assert!((parameters.iir_eq_band_gains_db()[0] - EQ_BAND_GAIN_DB_MAX).abs() < 1e-12);
 
         parameters.set_limiter_threshold_db(12.0).unwrap();
         assert!((parameters.limiter_threshold_db() - LIMITER_THRESHOLD_DB_MAX).abs() < 1e-12);

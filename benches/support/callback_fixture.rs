@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use audio_engine_core::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, ConvolverControl, DspChain, FFTConvolver, NoiseShaperCurve,
     OutputChainBuilder, OutputChainParams, SaturationQualityValue, SaturationTypeValue, EQ_BANDS,
 };
@@ -85,7 +85,7 @@ pub struct CallbackChainFixture {
 }
 
 struct CallbackParamRefs<'a> {
-    eq: &'a AtomicEqParams,
+    eq: &'a AtomicIirEqParams,
     saturation: &'a AtomicSaturationParams,
     crossfeed: &'a AtomicCrossfeedParams,
     limiter: &'a AtomicPeakLimiterParams,
@@ -96,7 +96,7 @@ struct CallbackParamRefs<'a> {
 
 impl CallbackChainFixture {
     pub fn build(scenario: CallbackScenario) -> Result<Self, String> {
-        let eq_params = Arc::new(AtomicEqParams::new());
+        let eq_params = Arc::new(AtomicIirEqParams::new());
         let saturation_params = Arc::new(AtomicSaturationParams::new());
         let crossfeed_params = Arc::new(AtomicCrossfeedParams::new());
         let limiter_params = Arc::new(AtomicPeakLimiterParams::new());
@@ -135,6 +135,7 @@ impl CallbackChainFixture {
             channels: CALLBACK_CHANNELS,
             output_sample_rate: CALLBACK_SAMPLE_RATE_HZ,
             eq_params,
+            eq_kind: Arc::new(AtomicEqKind::new()),
             saturation_params,
             crossfeed_params,
             convolver_control,

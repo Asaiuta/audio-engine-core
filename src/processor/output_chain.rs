@@ -9,13 +9,13 @@ use crate::config::{PhaseResponse, ResampleQuality};
 
 use super::adapters::{
     ConvolverControl, ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor,
-    EqProcessor, NoiseShaperProcessor, NoiseShaperSnapshotLatch, PeakLimiterProcessor,
+    IirEqProcessor, NoiseShaperProcessor, NoiseShaperSnapshotLatch, PeakLimiterProcessor,
     SaturationProcessor, VolumeProcessor,
 };
 use super::dsp_chain::DspChain;
 use super::lockfree_params::{
-    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
+    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqKind,
+    AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams,
 };
 use super::resampler::StreamingResampler;
@@ -750,8 +750,8 @@ macro_rules! output_stage_manifest {
             ),
             (
                 eq,
-                Equalizer,
-                "Equalizer",
+                IirEqualizer,
+                "IirEqualizer",
                 source,
                 yes,
                 true,
@@ -911,13 +911,25 @@ macro_rules! callback_stage_count_one {
 pub enum OutputStageId {
     /// Lock-free gain smoothing stage.
     Volume,
-    /// Ten-band equalizer stage.
-    Equalizer,
+    /// Ten-band *recursive* (IIR biquad) equalizer stage.
+    ///
+    /// This stage carries IIR filter state, not an impulse response. Its
+    /// linear-phase counterpart is not a stage of its own: `FirEq` renders an
+    /// impulse response that runs through [`Self::Convolver`], which is why the
+    /// two equalizer kinds share one chain slot and cannot be active together.
+    IirEqualizer,
     /// Nonlinear saturation stage.
     Saturation,
     /// Stereo crossfeed stage.
     Crossfeed,
     /// Dynamically published FIR convolution stage.
+    ///
+    /// This is the chain's single convolution slot. It carries whatever impulse
+    /// response the application publishes, which makes it serve two mutually
+    /// exclusive roles: a linear-phase `FirEq` response, or a room/reverb
+    /// impulse response loaded through
+    /// [`PlaybackController::load_impulse_response`](crate::PlaybackController::load_impulse_response).
+    /// Publishing one supersedes the other; there is no way to run both.
     Convolver,
     /// Level-dependent equal-loudness compensation stage.
     DynamicLoudness,
@@ -1034,10 +1046,11 @@ macro_rules! add_callback_stage {
         $chain.add(VolumeProcessor::new(Arc::clone(&$params.volume_params)))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (eq, $($rest:tt)*)) => {
-        $chain.add(EqProcessor::new(
+        $chain.add(IirEqProcessor::new(
             $params.channels,
             $rate as f64,
             Arc::clone(&$params.eq_params),
+            Arc::clone(&$params.eq_kind),
         ))?;
     };
     ($chain:ident, $params:ident, $rate:ident, $latch:ident, (saturation, $($rest:tt)*)) => {
@@ -1245,7 +1258,7 @@ struct SourceStageTiming {
 struct SourcePipeline<'a> {
     channels: usize,
     volume: &'a mut VolumeProcessor,
-    eq: &'a mut EqProcessor,
+    eq: &'a mut IirEqProcessor,
     saturation: &'a mut SaturationProcessor,
     crossfeed: &'a mut CrossfeedProcessor,
     convolver: &'a mut ConvolverProcessor,
@@ -1368,7 +1381,12 @@ pub struct OutputChainParams {
     /// Final output-device sample rate in hertz.
     pub output_sample_rate: u32,
     /// Shared equalizer parameter snapshot.
-    pub eq_params: Arc<AtomicEqParams>,
+    pub eq_params: Arc<AtomicIirEqParams>,
+    /// Which equalizer implementation may contribute to the output.
+    ///
+    /// The IIR stage reads this per block, so a band edit or enable flag written
+    /// while `EqKind::Fir` is selected cannot leak into the rendered signal.
+    pub eq_kind: Arc<AtomicEqKind>,
     /// Shared saturation parameter snapshot.
     pub saturation_params: Arc<AtomicSaturationParams>,
     /// Shared crossfeed parameter snapshot.
@@ -1512,7 +1530,7 @@ pub struct OutputRenderChain {
     source_sample_rate: u32,
     output_sample_rate: u32,
     volume: VolumeProcessor,
-    eq: EqProcessor,
+    eq: IirEqProcessor,
     saturation: SaturationProcessor,
     crossfeed: CrossfeedProcessor,
     convolver: ConvolverProcessor,
@@ -1572,10 +1590,11 @@ impl OutputRenderChain {
             source_sample_rate: source_sample_rate_hz,
             output_sample_rate: params.output_sample_rate,
             volume: VolumeProcessor::new(Arc::clone(&params.volume_params)),
-            eq: EqProcessor::new(
+            eq: IirEqProcessor::new(
                 params.channels,
                 source_sample_rate,
                 Arc::clone(&params.eq_params),
+                Arc::clone(&params.eq_kind),
             ),
             saturation: SaturationProcessor::new(
                 params.channels,

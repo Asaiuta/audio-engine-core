@@ -10,7 +10,7 @@
 //!
 //! ## Core Processors
 //! - [`StreamingResampler`] and [`Resampler`] - backend-selectable resampling (SoXR or pure Rust)
-//! - [`Equalizer`] - 10-band fixed-band graphic IIR equalizer
+//! - [`IirEqualizer`] - 10-band fixed-band graphic IIR equalizer
 //! - [`VolumeProcessor`] and [`NoiseShaper`] - Volume control and noise shaping
 //! - [`FFTConvolver`] - FFT convolution for FIR filters, with partitioned long-IR routing
 //! - [`LoudnessNormalizer`] and [`LoudnessInfo`] - EBU R128 loudness normalization
@@ -34,7 +34,7 @@ mod atomic_f64;
 mod convolver;
 mod crossfeed;
 mod dynamic_loudness;
-mod eq;
+mod iir_eq;
 mod fir_design;
 mod fir_eq;
 mod loudness;
@@ -57,7 +57,7 @@ pub use convolver::{
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
 pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
-pub use eq::Equalizer;
+pub use iir_eq::{IirEqualizer, EQ_BAND_FREQUENCIES_HZ};
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
 pub use loudness::{
     AtomicLoudnessState, LimiterMode, LoudnessInfo, LoudnessNormalizer, PeakLimiter,
@@ -76,7 +76,7 @@ pub use saturation::{Saturation, SaturationQuality, SaturationSettings, Saturati
 // Re-export unified abstraction types
 pub use adapters::{
     ConvolverControl, ConvolverProcessor, ConvolverStatus, CrossfeedProcessor,
-    DynamicLoudnessProcessor, EqProcessor, NoiseShaperProcessor, PeakLimiterProcessor,
+    DynamicLoudnessProcessor, IirEqProcessor, NoiseShaperProcessor, PeakLimiterProcessor,
     SaturationEvent, SaturationEventKind, SaturationProcessor, VolumeProcessor,
     SATURATION_TRANSITION_FRAMES,
 };
@@ -84,10 +84,10 @@ pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
 pub use dsp_chain::{ChainFinishPolicy, DspChain};
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
     AtomicVolumeParams, CrossfeedParamsSnapshot, DynamicLoudnessParamsSnapshot,
-    DynamicLoudnessTuningSnapshot, EqParamsSnapshot, NoiseShaperParamsSnapshot,
-    PeakLimiterParamsSnapshot, RealtimeSnapshotReader, SaturationParamsSnapshot,
+    DynamicLoudnessTuningSnapshot, IirEqParamsSnapshot, NoiseShaperParamsSnapshot,
+    EqKind, PeakLimiterParamsSnapshot, RealtimeSnapshotReader, SaturationParamsSnapshot,
     SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, CROSSFEED_CUTOFF_HZ_MAX,
     CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN,
     DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX, DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,

@@ -8,6 +8,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Since 1.0.0 the public API is stable: breaking changes are reserved for major
 version bumps, as permitted by SemVer.
 
+## [2.1.0] - 2026-11-04
+
+### Changed
+
+- **Breaking, accepted as a documented SemVer exception.** Renamed the
+  equalizer surface so each name states which implementation it addresses. The
+  previous names implied a single equalizer while the chain can carry either a
+  recursive (IIR) or a linear-phase (FIR) filter, which made "the equalizer" a
+  question the API could not answer:
+
+  | 2.0.0 | 2.1.0 |
+  | --- | --- |
+  | `Equalizer` | `IirEqualizer` |
+  | `AtomicEqParams` | `AtomicIirEqParams` |
+  | `EqProcessor` | `IirEqProcessor` |
+  | `EqParamsSnapshot` | `IirEqParamsSnapshot` |
+  | `OutputStageId::Eq` | `OutputStageId::IirEqualizer` |
+  | `PlaybackParameters::{eq_enabled, set_eq_enabled, eq_band_gains_db, set_eq_band_gain_db, set_eq}` | `PlaybackParameters::{iir_eq_enabled, set_iir_eq_enabled, iir_eq_band_gains_db, set_iir_eq_band_gain_db, set_iir_eq}` |
+
+  This is a breaking change shipped in a minor bump, which SemVer reserves for
+  majors. It is deliberate: the old names are the defect being fixed, so a
+  deprecation window would extend the misleading surface rather than shorten
+  it. Callers migrate by mechanical rename; behavior is otherwise identical.
+
+- Unified the ten-band layout into one definition. `EQ_BANDS`,
+  `processor::EQ_BAND_FREQUENCIES_HZ` and `FirEq::STANDARD_BANDS` previously
+  carried three independent copies of the same centre frequencies, so a change
+  to one could silently desynchronize the IIR and FIR paths. `STANDARD_BANDS` is
+  now derived from the canonical layout, and a test pins them together.
+
+### Added
+
+- `processor::{EqKind, AtomicEqKind}` and `PlaybackConfig::with_eq_kind` select
+  which equalizer implementation the controls address. The selected kind is
+  arbitrated inside the chain: the IIR stage reads it per block and stays silent
+  unless it names `EqKind::Iir`, so a `true` flag on the inactive path renders
+  nothing. This makes one value the source of truth instead of two switches an
+  application had to keep synchronized.
+- `PlaybackController` gained a kind-agnostic equalizer facade:
+  `eq_kind`, `eq_enabled`, `set_eq_enabled`, `eq_band_gains_db`,
+  `set_eq_band_gain_db`, `set_eq`, and `set_eq_kind`. `eq_enabled` reports
+  whether the equalizer is *audible*, which is deliberately stronger than "the
+  underlying flag is set".
+- `PlaybackController::FIR_EQ_DEFAULT_TAPS` and `FIR_EQ_DEFAULT_TAPS` at the
+  crate root expose the 1023-tap default used for linear-phase design.
+- `PlaybackConfig::with_eq` publishes an initial equalizer curve.
+
+### Fixed
+
+- Switching equalizer kind no longer discards the current curve. The FIR path
+  inherits the IIR path's gains and enablement on first entry, so a handover
+  changes the filter implementation rather than silently flattening the EQ.
+  Previously the freshly built FIR state started flat and the switch was
+  audible as a loss of correction.
+- Disabling the FIR equalizer no longer switches off a room/reverb impulse
+  response the application loaded through `load_impulse_response`. The FIR path
+  now releases the shared convolution slot only when it published what is
+  currently there; `PlaybackController` tracks that ownership so the two uses of
+  the single slot cannot take each other down.
+- Turning an equalizer off no longer rewrites the selected kind. `eq_kind`
+  reflects only an explicit `set_eq_kind`.
+- Corrected the `OutputStageId::IirEqualizer` documentation, which described the
+  stage as the linear-phase equalizer while its own name said otherwise, and
+  documented that the convolution slot is a single mutually exclusive resource
+  shared by room convolution and the FIR equalizer.
+- README and the `lib.rs` example used `set_eq_band_gain_db`, which no longer
+  exists on `PlaybackParameters`; both now call `set_iir_eq_band_gain_db` and
+  label the example as the IIR path.
+
 ## [2.0.0] - 2026-10-25
 
 ### Added

@@ -180,7 +180,7 @@ fn offline_render_order_preserves_render_only_nodes() {
         offline_render_stage_names(),
         vec![
             "Volume",
-            "Equalizer",
+            "IirEqualizer",
             "Saturation",
             "Crossfeed",
             "Convolver",
@@ -872,7 +872,8 @@ fn test_params() -> OutputChainParams {
     OutputChainParams {
         channels: CHANNELS,
         output_sample_rate: SAMPLE_RATE,
-        eq_params: Arc::new(AtomicEqParams::new()),
+        eq_params: Arc::new(AtomicIirEqParams::new()),
+        eq_kind: Arc::new(AtomicEqKind::new()),
         saturation_params: Arc::new(AtomicSaturationParams::new()),
         crossfeed_params: Arc::new(AtomicCrossfeedParams::new()),
         convolver_control: ConvolverControl::default(),
