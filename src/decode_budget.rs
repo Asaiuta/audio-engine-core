@@ -8,8 +8,10 @@ use serde::Serialize;
 
 const BYTES_PER_MIB_USIZE: usize = 1024 * 1024;
 
-/// Decoded-buffer budget shared by non-Range downloads, playback loads, and
-/// gapless preload.
+/// Per-operation decoded-buffer budget. Non-Range HTTP downloads retain a
+/// total-byte admission cap of one eighth of this value, but use temporary
+/// files rather than an in-memory source buffer. This is not a process-wide
+/// reservation shared between decoder instances.
 /// Environment variable name for the decode-buffer memory budget override.
 pub const ENV_DECODE_MAX_MEMORY_MB: &str = "DECODE_MAX_MEMORY_MB";
 /// Built-in decode-buffer budget (mebibytes) when the environment is absent.

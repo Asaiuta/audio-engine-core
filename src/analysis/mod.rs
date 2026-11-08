@@ -1,10 +1,10 @@
-//! Offline and read-only audio analysis APIs.
+//! Streaming and offline read-only audio analysis APIs.
 //!
-//! Analysis consumes decoded audio and reports measurements or placement
-//! evidence; it does not transform samples on the realtime callback path. The
-//! implementation modules are being moved here incrementally. Interleaved block
-//! geometry is validated by the shared [`crate::audio_block`] contract; the
-//! processor lifecycle/error protocol is not duplicated in this module.
+//! Analyzers consume decoded blocks and publish measurements from bounded
+//! windows or accumulated statistics. They do not transform playback samples.
+//! Streaming input does not by itself guarantee callback-safe execution; use
+//! each analyzer's documented cost and realtime contract. Interleaved geometry
+//! is validated by the shared [`crate::audio_block`] contract.
 
 mod descriptors;
 mod hpss;

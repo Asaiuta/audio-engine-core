@@ -431,10 +431,11 @@ impl Resampler {
     ///
     /// Optimised for multi-channel parallelism:
     /// - De-interleaves channels
-    /// - Processes each channel on a separate thread (Rayon)
+    /// - Processes each channel on a scoped worker thread
     /// - Re-interleaves result
     ///
-    /// This avoids phase discontinuities from time-chunking while maintaining high performance.
+    /// Each channel keeps one backend stream across chunks. Deinterleaved input
+    /// is released before the final interleaved output is allocated.
     ///
     /// # Cost model
     ///
@@ -457,54 +458,49 @@ impl Resampler {
             return Ok(input.samples().to_vec());
         }
 
-        // 1. De-interleave
-        let frames = input.frames();
-        let mut plan_channels: Vec<Vec<f64>> = vec![Vec::with_capacity(frames); self.channels];
-        deinterleave_frame_major(input.samples(), self.channels, frames, &mut plan_channels);
+        // Drop deinterleaved input after the workers join, before allocating
+        // the final output. Cloning an empty Vec does not preserve capacity.
+        let resampled_channels = {
+            let frames = input.frames();
+            let mut plan_channels: Vec<Vec<f64>> = (0..self.channels)
+                .map(|_| Vec::with_capacity(frames))
+                .collect();
+            deinterleave_frame_major(input.samples(), self.channels, frames, &mut plan_channels);
 
-        // 2. Process channels in parallel.
-        //
-        // One scoped thread per channel. This is an offline one-shot path over
-        // a bounded channel count, so a work-stealing pool would add scheduling
-        // machinery (and a dependency) for no benefit: the per-channel tasks
-        // are long, equal-sized, and never nested.
-        let channel_count = self.channels;
-        let resampled_channels: Result<Vec<Vec<f64>>, ResamplerError> = if channel_count <= 1 {
-            plan_channels
-                .into_iter()
-                .enumerate()
-                .map(|(ch_idx, channel_data)| {
-                    self.resample_one_channel(ch_idx, &channel_data, phase, quality)
-                })
-                .collect()
-        } else {
-            std::thread::scope(|scope| {
-                let handles: Vec<_> = plan_channels
-                    .iter()
+            let channel_count = self.channels;
+            if channel_count <= 1 {
+                plan_channels
+                    .into_iter()
                     .enumerate()
                     .map(|(ch_idx, channel_data)| {
-                        scope.spawn(move || {
-                            self.resample_one_channel(ch_idx, channel_data, phase, quality)
+                        self.resample_one_channel(ch_idx, &channel_data, phase, quality)
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            } else {
+                // This bounded offline fan-out needs no persistent worker pool.
+                std::thread::scope(|scope| {
+                    let handles: Vec<_> = plan_channels
+                        .iter()
+                        .enumerate()
+                        .map(|(ch_idx, channel_data)| {
+                            scope.spawn(move || {
+                                self.resample_one_channel(ch_idx, channel_data, phase, quality)
+                            })
                         })
-                    })
-                    .collect();
+                        .collect();
 
-                handles
-                    .into_iter()
-                    .map(|handle| {
-                        // A panic inside a channel worker is a bug in this
-                        // crate, not a runtime condition. Surface it as a typed
-                        // error instead of unwinding through the caller.
-                        handle.join().unwrap_or(Err(ResamplerError::BackendStalled {
-                            operation: "process",
-                            channel: None,
-                        }))
-                    })
-                    .collect()
-            })
-        };
-
-        let resampled_channels = resampled_channels?;
+                    handles
+                        .into_iter()
+                        .map(|handle| {
+                            handle.join().unwrap_or(Err(ResamplerError::BackendStalled {
+                                operation: "process",
+                                channel: None,
+                            }))
+                        })
+                        .collect()
+                })
+            }
+        }?;
 
         // 3. Re-interleave
         if resampled_channels.is_empty() {

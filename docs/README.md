@@ -4,6 +4,11 @@ Reference material for `audio-engine-core`. Every figure listed here is
 machine-specific benchmark evidence from the recording runs, not a universal
 performance or quality guarantee.
 
+## API and integration
+
+* [`api-streaming.md`](api-streaming.md) — public capability inventory, streaming
+  composition, memory ownership, feature gates, and application boundaries.
+
 ## Analysis and quality
 
 * [`quality.md`](quality.md) — evidence model and summary, benchmark

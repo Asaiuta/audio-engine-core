@@ -228,7 +228,7 @@ impl DecodeCancelToken {
 /// Errors returned by the streaming decoder.
 #[derive(Error, Debug)]
 pub enum DecoderError {
-    /// A local file could not be opened.
+    /// Local source or temporary download storage I/O failed.
     #[error("Failed to open file: {0}")]
     FileOpen(#[from] std::io::Error),
     /// An HTTP(S) source failed. Only constructible with the `http` feature.

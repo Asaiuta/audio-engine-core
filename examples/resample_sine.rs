@@ -1,7 +1,7 @@
 //! Offline resampling of a synthetic sine wave.
 //!
 //! This example needs no audio files and no optional features. It generates a
-//! mono 48 kHz sine, streams it through the SoX VHQ engine to 44.1 kHz in
+//! mono 48 kHz sine, streams it through the selected backend to 44.1 kHz in
 //! fixed-size chunks, then finishes the stream and prints the frame counts
 //! so you can verify the ratio.
 //!

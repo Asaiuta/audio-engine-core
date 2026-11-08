@@ -16,7 +16,7 @@ The core deliberately does **not** own your UI, audio device, playback runtime, 
 
 > **Production origin:** `audio-engine-core` was extracted from the Lyne audio engine as its application-agnostic core layer.
 
-> **Status:** `2.0.0` unreleased — breaking API migration; see CHANGELOG and the AutoMix migration guide. Requires Rust 1.87+.
+> **Checkout version:** `2.1.0` — see CHANGELOG and the AutoMix migration guide for API changes. Requires Rust 1.87+.
 
 ---
 
@@ -210,10 +210,12 @@ That makes it possible to reuse the same processing layer across different playe
 | **Noise**             | Noise shaping / dithering support                                                                          |
 | **Realtime control**  | Generation-based lock-free atomic parameter snapshots                                                      |
 | **Streaming**         | Ring-buffer and pipeline primitives                                                                        |
-| **Analysis**          | Spectrum analysis and objective measurement benches; AutoMix is in the separate `audio-automix` package                                     |
+| **Analysis**          | Streaming spectrum, descriptors, Mel/MFCC, HPSS masks, pitch and loudness; AutoMix is in `audio-automix`                                     |
 | **Offline rendering** | Latency-compensated rendering and configurable effect-tail policies                                        |
 
 ---
+
+See the [public API and streaming guide](docs/api-streaming.md) for callable entry points, feature gates, and bounded-memory composition.
 
 ## Realtime processing model
 
@@ -542,9 +544,9 @@ LGPL-2.1 linking obligation.
 
 ### `http`
 
-Provides HTTP/HTTPS streaming decode through `reqwest`, including Range streaming and full-download fallback.
+Provides HTTP/HTTPS decode through `reqwest`: bounded Range reads, or a complete download into an automatically cleaned temporary file when Range is unavailable. The fallback copies through a fixed 64KiB buffer and keeps the existing total-download cap (256MiB by default); it needs disk space and completes before decoding starts.
 
-`MediaLocation` validates local versus HTTP identity independently of this feature. Without the feature, HTTP locations return `DecoderError::FeatureUnavailable`; `reqwest` and the `NetworkError` type are not compiled.
+`MediaLocation` validates local versus HTTP identity independently of this feature. Without the feature, HTTP locations return `DecoderError::FeatureUnavailable`; `reqwest`, `tempfile`, and the `NetworkError` type are not compiled.
 
 ### `loudness-db`
 
@@ -597,8 +599,8 @@ fn analyze_file(
     let mut meter =
         LoudnessMeter::new(info.channels, info.sample_rate)?;
 
-    while let Some(samples) = decoder.decode_next()? {
-        meter.process(&samples)?;
+    while let Some(samples) = decoder.decode_next_borrowed()? {
+        meter.process(samples)?;
     }
 
     Ok(meter.integrated_loudness())
@@ -610,9 +612,10 @@ Runnable examples:
 ```bash
 cargo run --example resample_sine
 cargo run --example equalizer_curve
+cargo run --example stream_file -- path/to/music.flac 44100
 ```
 
-The examples do not require external audio files or optional features.
+The first two examples generate their input. `stream_file` accepts a local audio file and demonstrates borrowed decode → streaming resampling → DSP → metering without collecting whole-track PCM; it does not open a device. All three work with the default features or a local-only `rubato` build.
 
 ---
 
@@ -694,13 +697,13 @@ Good fit if you are:
 * experimenting with high-quality DSP (EQ, crossfeed, saturation, convolution),
 * writing offline loudness-analysis tooling.
 
-May not fit if you need: a complete player, a high-level playback API, or an audio device abstraction.
+May not fit if you need a complete player, device-level play/pause scheduling, or an audio device abstraction. `PlaybackPipeline` is the high-level DSP facade.
 
 ---
 
 ## Project status
 
-Stable `1.0.0` release: the public API is fully documented (`missing_docs` is denied at compile time), frozen by committed surface snapshots, and guarded by a SemVer gate in CI — any breaking change fails the build before it can ship. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85; the higher crate MSRV reflects existing DSP code in this repository). Used in production as the audio foundation of the Lyne player. Breaking changes are reserved for major version bumps per the policy in `CONTRIBUTING.md`; notable changes are recorded in `CHANGELOG.md`.
+The manifest currently declares `2.1.0`. The public API is fully documented (`missing_docs` is denied at compile time), frozen by committed surface snapshots, and guarded by a SemVer gate in CI — any breaking change fails the build before it can ship. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85; the higher crate MSRV reflects existing DSP code in this repository). Used in production as the audio foundation of the Lyne player. Breaking changes are reserved for major version bumps per the policy in `CONTRIBUTING.md`; notable changes are recorded in `CHANGELOG.md`.
 
 ---
 

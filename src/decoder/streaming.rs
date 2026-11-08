@@ -565,7 +565,9 @@ impl StreamingDecoder {
     ///
     /// The returned slice remains valid until the next mutable decoder call.
     /// Callers that immediately copy into final storage avoid an intermediate
-    /// caller-owned staging allocation.
+    /// caller-owned staging allocation. Container/codec packet handling can
+    /// still allocate and perform I/O; call this on a decode worker, not an
+    /// audio callback.
     pub fn decode_next_borrowed(&mut self) -> Result<Option<&[f64]>, DecoderError> {
         let Some((start, end)) = self.decode_next_span()? else {
             return Ok(None);
@@ -579,6 +581,8 @@ impl StreamingDecoder {
     /// Decode the next packet's samples, appending into `out`.
     ///
     /// Returns the number of samples appended, or `None` at end of stream.
+    /// Consume and clear `out` between packets to reuse its capacity without
+    /// retaining the entire stream. This method does not clear it for you.
     pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
         let Some(samples) = self.decode_next_borrowed()? else {
             return Ok(None);

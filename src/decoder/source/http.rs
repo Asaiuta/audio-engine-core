@@ -1,5 +1,6 @@
 use std::fmt;
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
@@ -24,7 +25,7 @@ use crate::decoder::error::{network_error_to_decoder_error, with_network_retry, 
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_RANGE_STREAM_TIMEOUT: Duration = Duration::from_secs(30);
 const HTTP_FULL_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
-const NON_RANGE_DOWNLOAD_MEMORY_DIVISOR: usize = 8;
+const NON_RANGE_DOWNLOAD_LIMIT_DIVISOR: usize = 8;
 const RANGE_PREFETCH: usize = 256 * 1024;
 const READ_CHUNK_SIZE: usize = 64 * 1024;
 
@@ -50,10 +51,10 @@ pub(super) fn open_http_media_source(
                 "HTTP URL does not support valid Range responses, falling back to full download: {}",
                 log_identity
             );
-            let (cursor, content_type) =
+            let (file, content_type) =
                 download_full_source(url, credentials, cancel_token.as_ref())?;
             let hint = hint_from_url_and_content_type(url, content_type.as_deref());
-            let stream = MediaSourceStream::new(Box::new(cursor), Default::default());
+            let stream = MediaSourceStream::new(Box::new(file), Default::default());
             Ok((stream, hint))
         }
         Err(error) => Err(network_error_to_decoder_error(error)),
@@ -220,9 +221,9 @@ fn download_full_source(
     url: &Url,
     credentials: Option<&HttpCredentials>,
     cancel_token: Option<&DecodeCancelToken>,
-) -> Result<(Cursor<Vec<u8>>, Option<String>), DecoderError> {
+) -> Result<(File, Option<String>), DecoderError> {
     let (_, max_memory_bytes) = configured_decode_memory_limit();
-    let max_download_bytes = max_memory_bytes / NON_RANGE_DOWNLOAD_MEMORY_DIVISOR;
+    let max_download_bytes = max_memory_bytes / NON_RANGE_DOWNLOAD_LIMIT_DIVISOR;
     let client =
         build_client(HTTP_FULL_DOWNLOAD_TIMEOUT).map_err(network_error_to_decoder_error)?;
 
@@ -238,20 +239,24 @@ fn download_full_source(
     })
     .map_err(network_error_to_decoder_error)?;
 
-    let content_length = response.content_length();
-    let download_capacity = checked_download_capacity(content_length, max_download_bytes)?;
-    if let Some(length) = content_length {
-        log::info!(
-            "Downloading {} MB file (server does not support Range)",
-            length / BYTES_PER_MIB as u64
-        );
-    } else {
-        log::warn!("Content-Length unknown; enforcing the download memory limit while reading");
-    }
-
+    check_download_length(response.content_length(), max_download_bytes)?;
     let content_type = header_string(response.headers(), CONTENT_TYPE);
-    let mut stream = response;
-    let mut buffer = Vec::with_capacity(download_capacity.unwrap_or(RANGE_PREFETCH));
+    check_cancelled(cancel_token).map_err(network_error_to_decoder_error)?;
+    // The anonymous file is removed automatically on close, including failures.
+    // Keep the existing total-download cap independently of the fixed RAM buffer.
+    let file = tempfile::tempfile()?;
+    let file = copy_download_to_file(response, file, max_download_bytes, cancel_token)?;
+    Ok((file, content_type))
+}
+
+/// Copy a response into owned temporary storage and rewind it for the decoder.
+fn copy_download_to_file(
+    mut stream: impl Read,
+    mut file: File,
+    max_download_bytes: usize,
+    cancel_token: Option<&DecodeCancelToken>,
+) -> Result<File, DecoderError> {
+    let mut downloaded = 0_usize;
     let mut chunk = [0_u8; READ_CHUNK_SIZE];
     loop {
         check_cancelled(cancel_token).map_err(network_error_to_decoder_error)?;
@@ -259,41 +264,39 @@ fn download_full_source(
             .read(&mut chunk)
             .map_err(NetworkError::from_io)
             .map_err(network_error_to_decoder_error)?;
+        check_cancelled(cancel_token).map_err(network_error_to_decoder_error)?;
         if read == 0 {
             break;
         }
-        if buffer.len().saturating_add(read) > max_download_bytes {
+        if read > max_download_bytes - downloaded {
             return Err(DecoderError::Network(NetworkError::Other(format!(
-                "Downloaded file exceeds memory limit: more than {} MB",
+                "Downloaded file exceeds download limit: more than {} MB",
                 bytes_to_mib(max_download_bytes)
             ))));
         }
-        buffer.extend_from_slice(&chunk[..read]);
+        file.write_all(&chunk[..read])?;
+        downloaded += read;
     }
-
-    log::debug!(
-        "Downloaded {} bytes into buffer with initial capacity {}",
-        buffer.len(),
-        download_capacity.unwrap_or(RANGE_PREFETCH)
-    );
-    Ok((Cursor::new(buffer), content_type))
+    file.rewind()?;
+    log::debug!("Downloaded {downloaded} bytes into temporary storage");
+    Ok(file)
 }
 
-fn checked_download_capacity(
+/// Reject an advertised size above the existing non-Range download limit.
+fn check_download_length(
     content_length: Option<u64>,
     max_download_bytes: usize,
-) -> Result<Option<usize>, DecoderError> {
-    let Some(length) = content_length else {
-        return Ok(None);
-    };
-    if length > max_download_bytes as u64 {
-        return Err(DecoderError::Network(NetworkError::Other(format!(
-            "File too large for non-Range download: {} MB (limit: {} MB). Server must support Range requests for files this size. Increase DECODE_MAX_MEMORY_MB env var if needed.",
-            length / BYTES_PER_MIB as u64,
-            bytes_to_mib(max_download_bytes)
-        ))));
+) -> Result<(), DecoderError> {
+    if let Some(length) = content_length {
+        if length > max_download_bytes as u64 {
+            return Err(DecoderError::Network(NetworkError::Other(format!(
+                "File too large for non-Range download: {} MB (limit: {} MB). Server must support Range requests for files this size. Increase DECODE_MAX_MEMORY_MB env var if needed.",
+                length / BYTES_PER_MIB as u64,
+                bytes_to_mib(max_download_bytes)
+            ))));
+        }
     }
-    Ok(Some(length as usize))
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -717,7 +720,7 @@ impl symphonia::core::io::MediaSource for RangeStream {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
+    use std::io::Cursor;
     use std::net::TcpListener;
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc};
@@ -1110,9 +1113,15 @@ mod tests {
             body: b"data".to_vec(),
         };
         let (url, request_rx, handle) = serve_once(response);
-        let (cursor, content_type) =
+        let (mut file, content_type) =
             download_full_source(&url, None, None).expect("bounded full download");
-        assert_eq!(cursor.into_inner(), b"data");
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).expect("read downloaded file");
+        assert_eq!(bytes, b"data");
+        file.seek(SeekFrom::Start(1)).expect("seek downloaded file");
+        let mut suffix = [0_u8; 3];
+        file.read_exact(&mut suffix).expect("read after seek");
+        assert_eq!(&suffix, b"ata");
         assert_eq!(content_type.as_deref(), Some("audio/flac"));
         let request = request_rx.recv().expect("captured request");
         assert!(
@@ -1120,6 +1129,160 @@ mod tests {
             "unexpected request:\n{request}"
         );
         handle.join().expect("test server completed");
+    }
+
+    #[test]
+    fn unknown_length_download_is_seekable_temporary_storage() {
+        let response = TestResponse {
+            status: "200 OK",
+            headers: Vec::new(),
+            body: vec![0x5a; READ_CHUNK_SIZE + 17],
+        };
+        let (url, request_rx, handle) = serve_once(response);
+        let (mut file, _) =
+            download_full_source(&url, None, None).expect("unknown length download");
+        assert_eq!(
+            file.metadata().unwrap().len(),
+            (READ_CHUNK_SIZE + 17) as u64
+        );
+        assert_eq!(file.stream_position().unwrap(), 0);
+        file.seek(SeekFrom::End(-17)).unwrap();
+        let mut tail = [0_u8; 17];
+        file.read_exact(&mut tail).unwrap();
+        assert_eq!(tail, [0x5a; 17]);
+        assert!(request_rx.recv().unwrap().starts_with("GET "));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn full_download_rejects_advertised_oversize_before_reading_body() {
+        let (_, budget) = configured_decode_memory_limit();
+        let response = TestResponse {
+            status: "200 OK",
+            headers: vec![(
+                "Content-Length",
+                (budget / NON_RANGE_DOWNLOAD_LIMIT_DIVISOR + 1).to_string(),
+            )],
+            body: Vec::new(),
+        };
+        let (url, request_rx, handle) = serve_once(response);
+        let result = download_full_source(&url, None, None);
+        assert!(matches!(
+            result,
+            Err(DecoderError::Network(NetworkError::Other(_)))
+        ));
+        assert!(request_rx.recv().unwrap().starts_with("GET "));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn download_copy_keeps_fixed_read_chunks_and_releases_temporary_storage() {
+        struct GeneratedBody {
+            remaining: usize,
+            reads: usize,
+        }
+        impl Read for GeneratedBody {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                assert!(
+                    buffer.len() <= READ_CHUNK_SIZE,
+                    "body read buffer grew with the source"
+                );
+                let count = self.remaining.min(buffer.len());
+                buffer[..count].fill(0x5a);
+                self.remaining -= count;
+                self.reads += 1;
+                Ok(count)
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let file = tempfile::tempfile_in(directory.path()).unwrap();
+        let length = 4 * 1024 * 1024 + 17;
+        let mut body = GeneratedBody {
+            remaining: length,
+            reads: 0,
+        };
+        let mut file = assert_no_alloc::assert_no_alloc(|| {
+            copy_download_to_file(&mut body, file, length, None)
+        })
+        .unwrap();
+        assert_eq!(body.remaining, 0);
+        assert!(body.reads > 1);
+        assert_eq!(file.metadata().unwrap().len(), length as u64);
+        assert_eq!(file.stream_position().unwrap(), 0);
+        file.seek(SeekFrom::End(-1)).unwrap();
+        let mut last = [0];
+        file.read_exact(&mut last).unwrap();
+        assert_eq!(last, [0x5a]);
+        drop(file);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn download_copy_releases_partial_file_on_limit_and_read_failure() {
+        struct BrokenBody;
+        impl Read for BrokenBody {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset))
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let limit = READ_CHUNK_SIZE + 4;
+        let file = tempfile::tempfile_in(directory.path()).unwrap();
+        let oversized = std::io::repeat(0x33).take((limit + 1) as u64);
+        let result = copy_download_to_file(oversized, file, limit, None);
+        assert!(matches!(
+            result,
+            Err(DecoderError::Network(NetworkError::Other(_)))
+        ));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+
+        let file = tempfile::tempfile_in(directory.path()).unwrap();
+        let body = std::io::repeat(0x33)
+            .take(READ_CHUNK_SIZE as u64)
+            .chain(BrokenBody);
+        let result = copy_download_to_file(body, file, limit, None);
+        assert!(matches!(
+            result,
+            Err(DecoderError::Network(NetworkError::ConnectionReset))
+        ));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn download_copy_observes_cancellation_after_read_and_releases_file() {
+        struct CancelOnRead(Arc<AtomicBool>);
+        impl Read for CancelOnRead {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                buffer[0] = 0x55;
+                self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok(1)
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let file = tempfile::tempfile_in(directory.path()).unwrap();
+        let flag = Arc::new(AtomicBool::new(false));
+        let token = DecodeCancelToken::from_flag(Arc::clone(&flag));
+        let result = copy_download_to_file(CancelOnRead(flag), file, 16, Some(&token));
+        assert!(matches!(result, Err(DecoderError::Canceled)));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn download_copy_preserves_storage_write_failure_as_file_io() {
+        let named = tempfile::NamedTempFile::new().unwrap();
+        let readonly = File::open(named.path()).unwrap();
+        let result = copy_download_to_file(Cursor::new(b"data"), readonly, 4, None);
+        assert!(matches!(result, Err(DecoderError::FileOpen(_))));
+    }
+
+    #[test]
+    fn cancelled_full_download_returns_before_network_request() {
+        let token = DecodeCancelToken::from_flag(Arc::new(AtomicBool::new(true)));
+        let url = Url::parse("http://127.0.0.1:9/never-requested.flac").unwrap();
+        assert!(matches!(
+            download_full_source(&url, None, Some(&token)),
+            Err(DecoderError::Canceled)
+        ));
     }
 
     #[test]
@@ -1138,6 +1301,13 @@ mod tests {
         let location = HttpMediaLocation::from_url(url).expect("valid test URL");
         let result = open_http_media_source(&location, None, None);
         assert!(result.is_ok(), "bounded fallback should open successfully");
+        let (mut source, _) = result.unwrap();
+        let mut bytes = [0_u8; 4];
+        source.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"data");
+        source.seek(SeekFrom::Start(1)).unwrap();
+        source.read_exact(&mut bytes[..3]).unwrap();
+        assert_eq!(&bytes[..3], b"ata");
 
         let capability_request = request_rx.recv().expect("captured capability request");
         assert!(
