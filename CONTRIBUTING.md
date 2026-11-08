@@ -159,15 +159,22 @@ The processing path is designed to run on the audio callback thread:
 
 ## Semantic versioning policy
 
-This crate follows [Semantic Versioning](https://semver.org/) with the 1.x
-contract:
+This crate follows [Semantic Versioning](https://semver.org/):
 
 - **Breaking changes** (removing or changing public items, altering documented
-  behavior) bump the **major** version (`1.0` → `2.0`).
+  behavior) bump the **major** version (`2.0` → `3.0`).
 - **New features and non-breaking additions** bump the **minor** version
-  (`1.0.0` → `1.1.0`).
+  (`2.0.0` → `2.1.0`).
 - **Bug fixes and documentation-only changes** bump the **patch** version
-  (`1.0.0` → `1.0.1`).
+  (`2.0.0` → `2.0.1`).
+
+The 2.1.0 equalizer migration is an explicitly documented exception to this
+policy; see [CHANGELOG](CHANGELOG.md#210---2026-11-09). Its reviewed removals
+and new required struct field are recorded in
+[the baseline history](https://github.com/Asaiuta/audio-engine-core/blob/v2.1.0/tests/semver-baseline/README.md). This exception does
+not disable future compatibility checks: CI continues to compare all three
+feature matrices under `--release-type minor` against the reviewed 2.1.0
+contract. Baselines must never be refreshed solely to make a failing gate green.
 
 The public API surface is everything re-exported from `lib.rs` and the public
 items of the `config`, `decoder`, `diagnostics`, `pipeline`, `processor`, and
@@ -176,9 +183,9 @@ required dependency optional behind a default-on feature, is **not** considered
 a breaking change because existing default builds are unaffected. Turning a
 previously optional dependency **on** by default is reviewed as if it were
 breaking, because it changes what existing default builds link (as `soxr` did
-at 1.0.0, adding the LGPL-2.1 libsoxr build requirement). Both the SemVer
-guarantee and the MSRV (see above) are enforced by CI: any breaking change
-fails `cargo-semver-checks` against the committed rustdoc-JSON baselines, and
+at 1.0.0, adding the LGPL-2.1 libsoxr build requirement). CI checks both the public API contract and the MSRV (see above):
+`cargo-semver-checks` reports detectable compatibility regressions against the
+committed rustdoc-JSON baselines, and
 raising the MSRV is a deliberate, changelog-recorded decision.
 
 ## Publishing a release
@@ -189,13 +196,13 @@ Releases are cut from a green CI state on the release branch:
    into a dated release section, and refresh README status text if it changed.
 2. Verify the release locally with the Release Documentation Checklist (kept in
    the local development workspace, deliberately not distributed with this
-   repository): both feature
+   repository): all three feature
    matrices build/test/clippy/doc with `-D warnings`, `cargo test --test
    public_api` matches the committed snapshots, `cargo semver-checks` passes
-   for both matrices against the committed baselines, and
+   for all three matrices against the committed baselines, and
    `cargo package --allow-dirty` verifies the package.
 3. Commit the release changes, then create an annotated tag:
-   `git tag -a v1.0.0 -m "audio-engine-core 1.0.0"`.
+   `git tag -a v2.1.0 -m "audio-engine-core 2.1.0"`.
 4. Push the branch and tags (`git push origin <branch> --tags`); changelog
    compare links resolve only after the tag lands on origin.
 5. Publish from the tagged commit: `cargo login` (once per machine, token from

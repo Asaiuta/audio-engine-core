@@ -34,9 +34,9 @@ mod atomic_f64;
 mod convolver;
 mod crossfeed;
 mod dynamic_loudness;
-mod iir_eq;
 mod fir_design;
 mod fir_eq;
+mod iir_eq;
 mod loudness;
 mod noise_shaper;
 mod output_chain;
@@ -57,8 +57,8 @@ pub use convolver::{
 };
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
 pub use dynamic_loudness::{DynamicLoudness, LOUDNESS_BANDS, LOUDNESS_BANDS_N};
-pub use iir_eq::{IirEqualizer, EQ_BAND_FREQUENCIES_HZ};
 pub use fir_eq::{FirEq, FirPhaseMode, STANDARD_BANDS};
+pub use iir_eq::{IirEqualizer, EQ_BAND_FREQUENCIES_HZ};
 pub use loudness::{
     AtomicLoudnessState, LimiterMode, LoudnessInfo, LoudnessNormalizer, PeakLimiter,
 };
@@ -84,12 +84,12 @@ pub use downmix::{DownmixCoefficients, DownmixError, Downmixer};
 pub use dsp_chain::{ChainFinishPolicy, DspChain};
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
-    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
-    AtomicVolumeParams, CrossfeedParamsSnapshot, DynamicLoudnessParamsSnapshot,
-    DynamicLoudnessTuningSnapshot, IirEqParamsSnapshot, NoiseShaperParamsSnapshot,
-    EqKind, PeakLimiterParamsSnapshot, RealtimeSnapshotReader, SaturationParamsSnapshot,
-    SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot, CROSSFEED_CUTOFF_HZ_MAX,
-    CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
+    AtomicSaturationParams, AtomicVolumeParams, CrossfeedParamsSnapshot,
+    DynamicLoudnessParamsSnapshot, DynamicLoudnessTuningSnapshot, EqKind, IirEqParamsSnapshot,
+    NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, RealtimeSnapshotReader,
+    SaturationParamsSnapshot, SaturationQualityValue, SaturationTypeValue, VolumeParamsSnapshot,
+    CROSSFEED_CUTOFF_HZ_MAX, CROSSFEED_CUTOFF_HZ_MIN, CROSSFEED_MIX_MAX, CROSSFEED_MIX_MIN,
     DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MAX, DYNAMIC_LOUDNESS_COMPENSATION_REF_DB_MIN,
     DYNAMIC_LOUDNESS_PRE_GAIN_DB_MAX, DYNAMIC_LOUDNESS_PRE_GAIN_DB_MIN,
     DYNAMIC_LOUDNESS_STRENGTH_MAX, DYNAMIC_LOUDNESS_STRENGTH_MIN,

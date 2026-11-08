@@ -14,9 +14,9 @@ use super::adapters::{
 };
 use super::dsp_chain::DspChain;
 use super::lockfree_params::{
-    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry, AtomicEqKind,
-    AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
-    AtomicVolumeParams,
+    AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
+    AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
+    AtomicSaturationParams, AtomicVolumeParams,
 };
 use super::resampler::StreamingResampler;
 use super::traits::{

@@ -18,16 +18,16 @@ use std::panic::AssertUnwindSafe;
 /// equalizer's. Nothing in this crate consumes the gains; a consuming
 /// application needs it to build the list [`FirEq::set_bands`] expects.
 pub const STANDARD_BANDS: [(f64, f64); 10] = [
-    (super::EQ_BAND_FREQUENCIES_HZ[0], 0.0),  // 31 Hz
-    (super::EQ_BAND_FREQUENCIES_HZ[1], 0.0),  // 62 Hz
-    (super::EQ_BAND_FREQUENCIES_HZ[2], 0.0),  // 125 Hz
-    (super::EQ_BAND_FREQUENCIES_HZ[3], 0.0),  // 250 Hz
-    (super::EQ_BAND_FREQUENCIES_HZ[4], 0.0),  // 500 Hz
-    (super::EQ_BAND_FREQUENCIES_HZ[5], 0.0),  // 1 kHz
-    (super::EQ_BAND_FREQUENCIES_HZ[6], 0.0),  // 2 kHz
-    (super::EQ_BAND_FREQUENCIES_HZ[7], 0.0),  // 4 kHz
-    (super::EQ_BAND_FREQUENCIES_HZ[8], 0.0),  // 8 kHz
-    (super::EQ_BAND_FREQUENCIES_HZ[9], 0.0),  // 16 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[0], 0.0), // 31 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[1], 0.0), // 62 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[2], 0.0), // 125 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[3], 0.0), // 250 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[4], 0.0), // 500 Hz
+    (super::EQ_BAND_FREQUENCIES_HZ[5], 0.0), // 1 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[6], 0.0), // 2 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[7], 0.0), // 4 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[8], 0.0), // 8 kHz
+    (super::EQ_BAND_FREQUENCIES_HZ[9], 0.0), // 16 kHz
 ];
 
 /// Phase mode for FIR EQ

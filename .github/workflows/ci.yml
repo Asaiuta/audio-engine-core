@@ -131,7 +131,7 @@ jobs:
         with:
           tool: cargo-semver-checks@0.50.0
 
-      # The reviewed 2.0 baseline includes the intentional AutoMix removal.
+      # The reviewed 2.1 baseline includes the documented equalizer migration.
       # Keep a real minor-release compatibility check; --release-type major
       # skips all checks. See tests/semver-baseline/README.md for provenance.
       - name: SemVer compatibility (all features)

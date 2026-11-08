@@ -2,7 +2,9 @@
 
 use std::cmp::Ordering;
 
-use super::lockfree_params::{validate_iir_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN};
+use super::lockfree_params::{
+    validate_iir_eq_band_index, EQ_BAND_GAIN_DB_MAX, EQ_BAND_GAIN_DB_MIN,
+};
 use super::traits::ProcessError;
 
 pub use super::lockfree_params::EQ_BANDS;

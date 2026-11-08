@@ -12,9 +12,9 @@ use crate::processor::{
     AtomicEqKind, AtomicIirEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
     AtomicSaturationParams, AtomicVolumeParams, ChainFinishPolicy, ConvolverControl,
     ConvolverStatus, DspChain, DynamicLoudnessTuningSnapshot, EqKind, FFTConvolver, FirEq,
-    FrameDuration, NoiseShaperCurve, OutputChainBuilder, OutputChainParams,
-    ProcessError, ProcessProgress, ProcessState,
-    SaturationParamsSnapshot, SaturationQuality, SaturationType, TailSpec, LOUDNESS_BANDS_N,
+    FrameDuration, NoiseShaperCurve, OutputChainBuilder, OutputChainParams, ProcessError,
+    ProcessProgress, ProcessState, SaturationParamsSnapshot, SaturationQuality, SaturationType,
+    TailSpec, LOUDNESS_BANDS_N,
 };
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1366,11 +1366,12 @@ impl PlaybackController {
     pub fn eq_enabled(&self) -> bool {
         match self.parameters.eq_kind() {
             EqKind::Iir => self.parameters.iir_eq_enabled(),
-            EqKind::Fir => self
-                .fir_eq
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .enabled,
+            EqKind::Fir => {
+                self.fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .enabled
+            }
         }
     }
     /// Enable or bypass the active equalizer, whatever kind it is.
@@ -1407,11 +1408,12 @@ impl PlaybackController {
     pub fn eq_band_gains_db(&self) -> [f64; crate::processor::EQ_BANDS] {
         match self.parameters.eq_kind() {
             EqKind::Iir => self.parameters.iir_eq_band_gains_db(),
-            EqKind::Fir => self
-                .fir_eq
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .gains_db,
+            EqKind::Fir => {
+                self.fir_eq
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .gains_db
+            }
         }
     }
     /// Publish one band gain in dB to the active equalizer.
@@ -2154,7 +2156,10 @@ mod playback_facade_tests {
         // Back to IIR: its own gains and enabled flag survived untouched.
         controller.set_eq_kind(EqKind::Iir).unwrap();
         assert_eq!(controller.eq_band_gains_db(), iir_gains);
-        assert!(controller.eq_enabled(), "IIR was re-enabled on the way back");
+        assert!(
+            controller.eq_enabled(),
+            "IIR was re-enabled on the way back"
+        );
     }
 
     /// The convolution slot is shared, so a handover must release the FIR
@@ -2167,7 +2172,9 @@ mod playback_facade_tests {
             .unwrap();
 
         controller.set_eq_kind(EqKind::Fir).unwrap();
-        controller.set_eq(true, [1.0; crate::processor::EQ_BANDS]).unwrap();
+        controller
+            .set_eq(true, [1.0; crate::processor::EQ_BANDS])
+            .unwrap();
         assert!(
             controller.convolution_status().enabled,
             "enabling FIR EQ arms the convolution slot"
@@ -3063,7 +3070,9 @@ mod playback_facade_tests {
 
         assert_single_publication("set_volume", volume, || parameters.set_volume(0.5).unwrap());
         assert_single_publication("set_muted", volume, || parameters.set_muted(true));
-        assert_single_publication("set_iir_eq_enabled", eq, || parameters.set_iir_eq_enabled(true));
+        assert_single_publication("set_iir_eq_enabled", eq, || {
+            parameters.set_iir_eq_enabled(true)
+        });
         assert_single_publication("set_iir_eq_band_gain_db", eq, || {
             parameters.set_iir_eq_band_gain_db(0, 3.0).unwrap()
         });

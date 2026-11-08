@@ -559,7 +559,12 @@ fn convolver_kernels_are_destroyed_by_control_not_audio_thread() {
 #[test]
 fn test_eq_processor() {
     let params = Arc::new(AtomicIirEqParams::new());
-    let mut proc = IirEqProcessor::new(2, 44100.0, Arc::clone(&params), Arc::new(AtomicEqKind::new()));
+    let mut proc = IirEqProcessor::new(
+        2,
+        44100.0,
+        Arc::clone(&params),
+        Arc::new(AtomicEqKind::new()),
+    );
 
     // Set params from "main thread"
     let gains = [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
@@ -1583,7 +1588,10 @@ fn sample_rate_change_rearms_every_fixed_adapter_lifecycle() {
 
     let eq = Arc::new(AtomicIirEqParams::new());
     eq.set_enabled(false);
-    assert_rearmed(IirEqProcessor::new(2, 48_000.0, eq, Arc::new(AtomicEqKind::new())), 2);
+    assert_rearmed(
+        IirEqProcessor::new(2, 48_000.0, eq, Arc::new(AtomicEqKind::new())),
+        2,
+    );
 
     let saturation = Arc::new(AtomicSaturationParams::new());
     saturation.set_armed(false);

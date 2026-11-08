@@ -5,10 +5,10 @@ All notable changes to `audio-engine-core` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Since 1.0.0 the public API is stable: breaking changes are reserved for major
-version bumps, as permitted by SemVer.
+Since 1.0.0 the public API follows SemVer. The deliberate 2.1.0 exception and
+its required migration are recorded below.
 
-## [2.1.0] - 2026-11-04
+## [2.1.0] - 2026-11-09
 
 ### Changed
 
@@ -24,19 +24,28 @@ version bumps, as permitted by SemVer.
   | `AtomicEqParams` | `AtomicIirEqParams` |
   | `EqProcessor` | `IirEqProcessor` |
   | `EqParamsSnapshot` | `IirEqParamsSnapshot` |
-  | `OutputStageId::Eq` | `OutputStageId::IirEqualizer` |
+  | `OutputStageId::Equalizer` | `OutputStageId::IirEqualizer` |
   | `PlaybackParameters::{eq_enabled, set_eq_enabled, eq_band_gains_db, set_eq_band_gain_db, set_eq}` | `PlaybackParameters::{iir_eq_enabled, set_iir_eq_enabled, iir_eq_band_gains_db, set_iir_eq_band_gain_db, set_iir_eq}` |
 
   This is a breaking change shipped in a minor bump, which SemVer reserves for
   majors. It is deliberate: the old names are the defect being fixed, so a
   deprecation window would extend the misleading surface rather than shorten
-  it. Callers migrate by mechanical rename; behavior is otherwise identical.
+  it. Rename the affected imports, methods and match arms. Callers constructing
+  `OutputChainParams` literals must also provide the new `eq_kind` field, using
+  a shared `Arc<AtomicEqKind>` initialized with `EqKind::Iir` to retain the old
+  IIR selection (`AtomicEqKind::new()` defaults to IIR). The renamed
+  `IirEqProcessor::new` also takes this shared selector as its fourth argument.
+  `OutputChainBuilder::new` still requires the caller to supply the complete
+  parameter struct; `PlaybackPipeline::builder` supplies these handles. Share
+  the selector with controls that change the active equalizer. The behavior
+  fixes below are separate from the renames.
 
 - Unified the ten-band layout into one definition. `EQ_BANDS`,
   `processor::EQ_BAND_FREQUENCIES_HZ` and `FirEq::STANDARD_BANDS` previously
   carried three independent copies of the same centre frequencies, so a change
   to one could silently desynchronize the IIR and FIR paths. `STANDARD_BANDS` is
   now derived from the canonical layout, and a test pins them together.
+- `PlaybackConfig::with_eq` initializes the selected IIR or FIR equalizer curve.
 
 ### Added
 
@@ -51,12 +60,25 @@ version bumps, as permitted by SemVer.
   `set_eq_band_gain_db`, `set_eq`, and `set_eq_kind`. `eq_enabled` reports
   whether the equalizer is *audible*, which is deliberately stronger than "the
   underlying flag is set".
-- `PlaybackController::FIR_EQ_DEFAULT_TAPS` and `FIR_EQ_DEFAULT_TAPS` at the
+- `pipeline::FIR_EQ_DEFAULT_TAPS` and `FIR_EQ_DEFAULT_TAPS` at the
   crate root expose the 1023-tap default used for linear-phase design.
-- `PlaybackConfig::with_eq` publishes an initial equalizer curve.
+- The [public API and streaming guide](docs/api-streaming.md) and `stream_file`
+  example compose borrowed decode, streaming resampling, DSP and loudness
+  measurement without collecting whole-track PCM.
 
 ### Fixed
 
+- Non-Range HTTP fallback now stores the complete download in an automatically
+  cleaned temporary file through a fixed 64KiB copy buffer. The existing
+  256MiB default download cap remains; decoding still waits for download
+  completion, and temporary storage needs disk space. Storage failures return
+  `DecoderError::FileOpen` without falling back to a full-file RAM buffer.
+- Offline parallel resampling now reserves each channel independently and
+  releases deinterleaved input before allocating the interleaved output. In
+  the recorded 30-second stereo 48kHz-to-44.1kHz case, peak requested Rust
+  bytes including caller input fell from 89.33MiB to 64.39MiB; 90 deterministic
+  cases retained byte-identical output. This is a scoped measurement, not a
+  process-wide memory ceiling.
 - Switching equalizer kind no longer discards the current curve. The FIR path
   inherits the IIR path's gains and enablement on first entry, so a handover
   changes the filter implementation rather than silently flattening the EQ.
@@ -950,7 +972,8 @@ public API surface changes.
   - Lock-free DSP parameter snapshots and realtime processor adapters.
   - A streaming pipeline/ring-buffer primitive.
 
-[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Asaiuta/audio-engine-core/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Asaiuta/audio-engine-core/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Asaiuta/audio-engine-core/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/Asaiuta/audio-engine-core/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/Asaiuta/audio-engine-core/releases/tag/v0.1.0

@@ -16,7 +16,7 @@ The core deliberately does **not** own your UI, audio device, playback runtime, 
 
 > **Production origin:** `audio-engine-core` was extracted from the Lyne audio engine as its application-agnostic core layer.
 
-> **Checkout version:** `2.1.0` — see CHANGELOG and the AutoMix migration guide for API changes. Requires Rust 1.87+.
+> **Checkout version:** `2.1.0` — see CHANGELOG for the breaking 2.1 equalizer migration and the AutoMix guide for the 2.0 package split. Requires Rust 1.87+.
 
 ---
 
@@ -703,7 +703,7 @@ May not fit if you need a complete player, device-level play/pause scheduling, o
 
 ## Project status
 
-The manifest currently declares `2.1.0`. The public API is fully documented (`missing_docs` is denied at compile time), frozen by committed surface snapshots, and guarded by a SemVer gate in CI — any breaking change fails the build before it can ship. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85; the higher crate MSRV reflects existing DSP code in this repository). Used in production as the audio foundation of the Lyne player. Breaking changes are reserved for major version bumps per the policy in `CONTRIBUTING.md`; notable changes are recorded in `CHANGELOG.md`.
+The manifest currently declares `2.1.0`. The public API is fully documented (`missing_docs` is denied at compile time), checked by committed surface snapshots and a SemVer gate in CI for detectable compatibility regressions. Requires Rust 1.87+ (Symphonia 0.6 itself requires 1.85; the higher crate MSRV reflects existing DSP code in this repository). Used in production as the audio foundation of the Lyne player. The versioning policy and documented 2.1.0 exception are described in `CONTRIBUTING.md`; migration details and notable changes are recorded in `CHANGELOG.md`.
 
 ---
 

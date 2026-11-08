@@ -1130,6 +1130,7 @@ pub fn audio_engine_core::pipeline::PlaybackConfig::with_crossfeed(self, audio_e
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_drain_policy(self, audio_engine_core::processor::dsp_chain::ChainFinishPolicy) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_dynamic_loudness(self, audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_eq(self, [f64; 10]) -> Self
+pub fn audio_engine_core::pipeline::PlaybackConfig::with_eq_kind(self, audio_engine_core::processor::lockfree_params::EqKind) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_limiter(self, bool, f64) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_noise_shaping(self, audio_engine_core::pipeline::PlaybackNoiseShapingConfig) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_saturation(self, audio_engine_core::pipeline::PlaybackSaturationConfig) -> Self
@@ -1153,6 +1154,9 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::Playb
 pub struct audio_engine_core::pipeline::PlaybackController
 impl audio_engine_core::pipeline::PlaybackController
 pub fn audio_engine_core::pipeline::PlaybackController::convolution_status(&self) -> audio_engine_core::ConvolverStatus
+pub fn audio_engine_core::pipeline::PlaybackController::eq_band_gains_db(&self) -> [f64; 10]
+pub fn audio_engine_core::pipeline::PlaybackController::eq_enabled(&self) -> bool
+pub fn audio_engine_core::pipeline::PlaybackController::eq_kind(&self) -> audio_engine_core::processor::lockfree_params::EqKind
 pub fn audio_engine_core::pipeline::PlaybackController::lifecycle_status(&self) -> audio_engine_core::pipeline::PlaybackLifecycleStatus
 pub fn audio_engine_core::pipeline::PlaybackController::load_impulse_response(&self, &[f64]) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackController::parameters(&self) -> audio_engine_core::pipeline::PlaybackParameters
@@ -1161,7 +1165,11 @@ pub fn audio_engine_core::pipeline::PlaybackController::request_drain(&self) -> 
 pub fn audio_engine_core::pipeline::PlaybackController::request_reset(&self) -> u64
 pub fn audio_engine_core::pipeline::PlaybackController::request_stop_with_fade(&self, u32) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackController::set_convolution_enabled(&self, bool)
-impl core::marker::Freeze for audio_engine_core::pipeline::PlaybackController
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_enabled(&self, bool) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_kind(&self, audio_engine_core::processor::lockfree_params::EqKind) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+impl !core::marker::Freeze for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Send for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackController
@@ -1271,8 +1279,9 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::crossfeed(&self) -> (boo
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_telemetry(&self) -> audio_engine_core::pipeline::DynamicLoudnessTelemetry
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_tuning(&self) -> (f64, f64, f64)
-pub fn audio_engine_core::pipeline::PlaybackParameters::eq_band_gains_db(&self) -> [f64; 10]
-pub fn audio_engine_core::pipeline::PlaybackParameters::eq_enabled(&self) -> bool
+pub fn audio_engine_core::pipeline::PlaybackParameters::eq_kind(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::pipeline::PlaybackParameters::iir_eq_band_gains_db(&self) -> [f64; 10]
+pub fn audio_engine_core::pipeline::PlaybackParameters::iir_eq_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_threshold_db(&self) -> f64
 pub fn audio_engine_core::pipeline::PlaybackParameters::muted(&self) -> bool
@@ -1284,9 +1293,10 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed_enabled(&s
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness(&self, bool, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_tuning(&self, f64, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_enabled(&self, bool)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_kind(&self, audio_engine_core::processor::lockfree_params::EqKind)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_limiter_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_limiter_threshold_db(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_muted(&self, bool)
@@ -1413,6 +1423,7 @@ pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_VOLUME_DB_MAX: f64
 pub const audio_engine_core::pipeline::DYNAMIC_LOUDNESS_VOLUME_DB_MIN: f64
 pub const audio_engine_core::pipeline::EQ_BAND_GAIN_DB_MAX: f64
 pub const audio_engine_core::pipeline::EQ_BAND_GAIN_DB_MIN: f64
+pub const audio_engine_core::pipeline::FIR_EQ_DEFAULT_TAPS: usize
 pub const audio_engine_core::pipeline::LIMITER_THRESHOLD_DB_MAX: f64
 pub const audio_engine_core::pipeline::LIMITER_THRESHOLD_DB_MIN: f64
 pub const audio_engine_core::pipeline::MAX_STOP_FADE_MS: u32
@@ -1572,27 +1583,27 @@ impl core::marker::Unpin for audio_engine_core::processor::adapters::DynamicLoud
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-pub struct audio_engine_core::processor::adapters::EqProcessor
-impl audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>) -> Self
-impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
-impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
-pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
-pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
-impl core::marker::Freeze for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Send for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Sync for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Unpin for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::EqProcessor
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::EqProcessor
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::EqProcessor
+pub struct audio_engine_core::processor::adapters::IirEqProcessor
+impl audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicIirEqParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqKind>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::name(&self) -> &'static str
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail_energy_observation_barrier(&self) -> bool
+impl core::marker::Freeze for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Send for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Sync for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Unpin for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::IirEqProcessor
 pub struct audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::new(usize, u32, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>) -> core::result::Result<Self, audio_engine_core::processor::traits::ProcessError>
@@ -1823,6 +1834,29 @@ impl core::marker::UnsafeUnpin for audio_engine_core::processor::dsp_chain::DspC
 impl !core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::dsp_chain::DspChain
 impl !core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::dsp_chain::DspChain
 pub mod audio_engine_core::processor::lockfree_params
+pub enum audio_engine_core::processor::lockfree_params::EqKind
+pub audio_engine_core::processor::lockfree_params::EqKind::Fir
+pub audio_engine_core::processor::lockfree_params::EqKind::Iir
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::clone(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::Eq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::PartialEq for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::eq(&self, &audio_engine_core::processor::lockfree_params::EqKind) -> bool
+impl core::default::Default for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::default() -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::StructuralPartialEq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
 #[repr(u8)] pub enum audio_engine_core::processor::lockfree_params::SaturationQualityValue
 pub audio_engine_core::processor::lockfree_params::SaturationQualityValue::Direct = 0
 pub audio_engine_core::processor::lockfree_params::SaturationQualityValue::Oversampled2x = 1
@@ -1948,29 +1982,43 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Atom
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
-pub struct audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl audio_engine_core::processor::lockfree_params::AtomicEqParams
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::is_enabled(&self) -> bool
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load(&self) -> alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64)>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::EqParamsSnapshot, u64)>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::new() -> Self
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::read(&self) -> audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::set_band_gain(&self, usize, f64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::set_enabled(&self, bool)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, audio_engine_core::processor::lockfree_params::EqParamsSnapshot, u64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::write(&self, &[f64; 10], bool)
-impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicEqParams
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::default() -> Self
-impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
+pub struct audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::get(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::new() -> Self
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::set(&self, audio_engine_core::processor::lockfree_params::EqKind)
+impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::default() -> Self
+impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub struct audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::is_enabled(&self) -> bool
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load(&self) -> alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::new() -> Self
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::read(&self) -> audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::set_band_gain(&self, usize, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::set_enabled(&self, bool)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::write(&self, &[f64; 10], bool)
+impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::default() -> Self
+impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
 pub struct audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams
 impl audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams
 pub fn audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams::bits(&self) -> u32
@@ -2134,23 +2182,23 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Dyna
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
-pub struct audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub audio_engine_core::processor::lockfree_params::EqParamsSnapshot::enabled: bool
-pub audio_engine_core::processor::lockfree_params::EqParamsSnapshot::gains: [f64; 10]
-impl core::clone::Clone for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::default::Default for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::default() -> Self
-impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Send for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Sync for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
+pub struct audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::enabled: bool
+pub audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::gains: [f64; 10]
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::default::Default for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::default() -> Self
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
 pub struct audio_engine_core::processor::lockfree_params::NoiseShaperParamsSnapshot
 pub audio_engine_core::processor::lockfree_params::NoiseShaperParamsSnapshot::bits: u32
 pub audio_engine_core::processor::lockfree_params::NoiseShaperParamsSnapshot::curve: audio_engine_core::processor::NoiseShaperCurve
@@ -2575,7 +2623,7 @@ pub trait audio_engine_core::processor::traits::FixedInPlaceProcessor: audio_eng
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::IirEqProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
@@ -2630,16 +2678,16 @@ pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
-impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
-pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
-pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
+impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::name(&self) -> &'static str
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
@@ -2750,6 +2798,29 @@ impl core::marker::Unpin for audio_engine_core::processor::downmix::DownmixError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::downmix::DownmixError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::downmix::DownmixError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::downmix::DownmixError
+pub enum audio_engine_core::processor::EqKind
+pub audio_engine_core::processor::EqKind::Fir
+pub audio_engine_core::processor::EqKind::Iir
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::clone(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::Eq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::PartialEq for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::eq(&self, &audio_engine_core::processor::lockfree_params::EqKind) -> bool
+impl core::default::Default for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::default() -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::StructuralPartialEq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
 pub enum audio_engine_core::processor::FirPhaseMode
 pub audio_engine_core::processor::FirPhaseMode::Linear
 pub audio_engine_core::processor::FirPhaseMode::Minimum
@@ -2848,7 +2919,7 @@ pub enum audio_engine_core::processor::OutputStageId
 pub audio_engine_core::processor::OutputStageId::Convolver
 pub audio_engine_core::processor::OutputStageId::Crossfeed
 pub audio_engine_core::processor::OutputStageId::DynamicLoudness
-pub audio_engine_core::processor::OutputStageId::Equalizer
+pub audio_engine_core::processor::OutputStageId::IirEqualizer
 pub audio_engine_core::processor::OutputStageId::NoiseShaper
 pub audio_engine_core::processor::OutputStageId::PeakLimiter
 pub audio_engine_core::processor::OutputStageId::Quantize
@@ -3346,29 +3417,43 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Atom
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry
-pub struct audio_engine_core::processor::AtomicEqParams
-impl audio_engine_core::processor::lockfree_params::AtomicEqParams
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::is_enabled(&self) -> bool
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load(&self) -> alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64)>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::EqParamsSnapshot, u64)>
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, u64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::new() -> Self
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::read(&self) -> audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::set_band_gain(&self, usize, f64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::set_enabled(&self, bool)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::EqParamsSnapshot>, audio_engine_core::processor::lockfree_params::EqParamsSnapshot, u64)
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::write(&self, &[f64; 10], bool)
-impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicEqParams
-pub fn audio_engine_core::processor::lockfree_params::AtomicEqParams::default() -> Self
-impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqParams
+pub struct audio_engine_core::processor::AtomicEqKind
+impl audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::get(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::new() -> Self
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::set(&self, audio_engine_core::processor::lockfree_params::EqKind)
+impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::default() -> Self
+impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub struct audio_engine_core::processor::AtomicIirEqParams
+impl audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::is_enabled(&self) -> bool
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load(&self) -> alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_if_changed(&self, &alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>) -> core::option::Option<alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_if_changed_since(&self, u64) -> core::option::Option<(alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_realtime_if_changed_since(&self, &audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64) -> core::option::Option<(audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot, u64)>
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::load_with_generation(&self) -> (alloc::sync::Arc<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::new() -> Self
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::read(&self) -> audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::set_band_gain(&self, usize, f64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::set_enabled(&self, bool)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::subscribe_realtime(&self) -> (audio_engine_core::processor::lockfree_params::RealtimeSnapshotReader<audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot>, audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot, u64)
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::write(&self, &[f64; 10], bool)
+impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+pub fn audio_engine_core::processor::lockfree_params::AtomicIirEqParams::default() -> Self
+impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicIirEqParams
 pub struct audio_engine_core::processor::AtomicLoudnessState
 impl audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
@@ -3809,60 +3894,6 @@ impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::Dyna
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::DynamicLoudnessTuningSnapshot
-pub struct audio_engine_core::processor::EqParamsSnapshot
-pub audio_engine_core::processor::EqParamsSnapshot::enabled: bool
-pub audio_engine_core::processor::EqParamsSnapshot::gains: [f64; 10]
-impl core::clone::Clone for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::default::Default for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::default() -> Self
-impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub fn audio_engine_core::processor::lockfree_params::EqParamsSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Send for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Sync for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::EqParamsSnapshot
-pub struct audio_engine_core::processor::EqProcessor
-impl audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>) -> Self
-impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
-impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
-pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
-pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
-impl core::marker::Freeze for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Send for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Sync for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::Unpin for audio_engine_core::processor::adapters::EqProcessor
-impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::EqProcessor
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::EqProcessor
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::EqProcessor
-pub struct audio_engine_core::processor::Equalizer
-impl audio_engine_core::Equalizer
-pub fn audio_engine_core::Equalizer::is_enabled(&self) -> bool
-pub fn audio_engine_core::Equalizer::new(usize, f64) -> Self
-pub fn audio_engine_core::Equalizer::process(&mut self, &mut [f64])
-pub fn audio_engine_core::Equalizer::reset(&mut self)
-pub fn audio_engine_core::Equalizer::set_all_bands(&mut self, &[f64; 10], f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::Equalizer::set_band_gain(&mut self, usize, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::Equalizer::set_enabled(&mut self, bool)
-impl core::marker::Freeze for audio_engine_core::Equalizer
-impl core::marker::Send for audio_engine_core::Equalizer
-impl core::marker::Sync for audio_engine_core::Equalizer
-impl core::marker::Unpin for audio_engine_core::Equalizer
-impl core::marker::UnsafeUnpin for audio_engine_core::Equalizer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::Equalizer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::Equalizer
 pub struct audio_engine_core::processor::FFTConvolver
 impl audio_engine_core::FFTConvolver
 pub fn audio_engine_core::FFTConvolver::channels(&self) -> usize
@@ -3932,6 +3963,60 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::FrameDuration
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::FrameDuration
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::FrameDuration
+pub struct audio_engine_core::processor::IirEqParamsSnapshot
+pub audio_engine_core::processor::IirEqParamsSnapshot::enabled: bool
+pub audio_engine_core::processor::IirEqParamsSnapshot::gains: [f64; 10]
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::clone(&self) -> audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::default::Default for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::default() -> Self
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub fn audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::IirEqParamsSnapshot
+pub struct audio_engine_core::processor::IirEqProcessor
+impl audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::new(usize, f64, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicIirEqParams>, alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqKind>) -> Self
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::name(&self) -> &'static str
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail_energy_observation_barrier(&self) -> bool
+impl core::marker::Freeze for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Send for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Sync for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::Unpin for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::adapters::IirEqProcessor
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::adapters::IirEqProcessor
+pub struct audio_engine_core::processor::IirEqualizer
+impl audio_engine_core::IirEqualizer
+pub fn audio_engine_core::IirEqualizer::is_enabled(&self) -> bool
+pub fn audio_engine_core::IirEqualizer::new(usize, f64) -> Self
+pub fn audio_engine_core::IirEqualizer::process(&mut self, &mut [f64])
+pub fn audio_engine_core::IirEqualizer::reset(&mut self)
+pub fn audio_engine_core::IirEqualizer::set_all_bands(&mut self, &[f64; 10], f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::IirEqualizer::set_band_gain(&mut self, usize, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::IirEqualizer::set_enabled(&mut self, bool)
+impl core::marker::Freeze for audio_engine_core::IirEqualizer
+impl core::marker::Send for audio_engine_core::IirEqualizer
+impl core::marker::Sync for audio_engine_core::IirEqualizer
+impl core::marker::Unpin for audio_engine_core::IirEqualizer
+impl core::marker::UnsafeUnpin for audio_engine_core::IirEqualizer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::IirEqualizer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::IirEqualizer
 pub struct audio_engine_core::processor::LoudnessInfo
 pub audio_engine_core::processor::LoudnessInfo::current_gain_db: f64
 pub audio_engine_core::processor::LoudnessInfo::integrated_lufs: f64
@@ -4088,7 +4173,8 @@ pub audio_engine_core::processor::OutputChainParams::convolver_control: audio_en
 pub audio_engine_core::processor::OutputChainParams::crossfeed_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams>
 pub audio_engine_core::processor::OutputChainParams::dynamic_loudness_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams>
 pub audio_engine_core::processor::OutputChainParams::dynamic_loudness_telemetry: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry>
-pub audio_engine_core::processor::OutputChainParams::eq_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>
+pub audio_engine_core::processor::OutputChainParams::eq_kind: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqKind>
+pub audio_engine_core::processor::OutputChainParams::eq_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicIirEqParams>
 pub audio_engine_core::processor::OutputChainParams::limiter_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>
 pub audio_engine_core::processor::OutputChainParams::noise_shaper_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>
 pub audio_engine_core::processor::OutputChainParams::output_sample_rate: u32
@@ -4562,6 +4648,7 @@ pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_TRANSITION_DB_MIN: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_VOLUME_MAX: f64
 pub const audio_engine_core::processor::DYNAMIC_LOUDNESS_VOLUME_MIN: f64
 pub const audio_engine_core::processor::EQ_BANDS: usize
+pub const audio_engine_core::processor::EQ_BAND_FREQUENCIES_HZ: [f64; 10]
 pub const audio_engine_core::processor::EQ_BAND_GAIN_DB_MAX: f64
 pub const audio_engine_core::processor::EQ_BAND_GAIN_DB_MIN: f64
 pub const audio_engine_core::processor::LIMITER_RELEASE_MS_MAX: f64
@@ -4593,7 +4680,7 @@ pub trait audio_engine_core::processor::FixedInPlaceProcessor: audio_engine_core
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::IirEqProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
@@ -4648,16 +4735,16 @@ pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
-impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
-pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
-pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
+impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::name(&self) -> &'static str
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
@@ -4814,6 +4901,29 @@ impl core::marker::Unpin for audio_engine_core::processor::downmix::DownmixError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::downmix::DownmixError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::downmix::DownmixError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::downmix::DownmixError
+pub enum audio_engine_core::EqKind
+pub audio_engine_core::EqKind::Fir
+pub audio_engine_core::EqKind::Iir
+impl core::clone::Clone for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::clone(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::Eq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::cmp::PartialEq for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::eq(&self, &audio_engine_core::processor::lockfree_params::EqKind) -> bool
+impl core::default::Default for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::default() -> audio_engine_core::processor::lockfree_params::EqKind
+impl core::fmt::Debug for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::EqKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::StructuralPartialEq for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Freeze for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::EqKind
 pub enum audio_engine_core::FrameRounding
 pub audio_engine_core::FrameRounding::Ceil
 pub audio_engine_core::FrameRounding::Floor
@@ -4956,7 +5066,7 @@ pub enum audio_engine_core::OutputStageId
 pub audio_engine_core::OutputStageId::Convolver
 pub audio_engine_core::OutputStageId::Crossfeed
 pub audio_engine_core::OutputStageId::DynamicLoudness
-pub audio_engine_core::OutputStageId::Equalizer
+pub audio_engine_core::OutputStageId::IirEqualizer
 pub audio_engine_core::OutputStageId::NoiseShaper
 pub audio_engine_core::OutputStageId::PeakLimiter
 pub audio_engine_core::OutputStageId::Quantize
@@ -5238,6 +5348,20 @@ impl core::marker::Unpin for audio_engine_core::processor::traits::TimingError
 impl core::marker::UnsafeUnpin for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::traits::TimingError
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::traits::TimingError
+pub struct audio_engine_core::AtomicEqKind
+impl audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::get(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::new() -> Self
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::set(&self, audio_engine_core::processor::lockfree_params::EqKind)
+impl core::default::Default for audio_engine_core::processor::lockfree_params::AtomicEqKind
+pub fn audio_engine_core::processor::lockfree_params::AtomicEqKind::default() -> Self
+impl !core::marker::Freeze for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Send for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Sync for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::Unpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::marker::UnsafeUnpin for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::processor::lockfree_params::AtomicEqKind
 pub struct audio_engine_core::AtomicLoudnessState
 impl audio_engine_core::AtomicLoudnessState
 pub fn audio_engine_core::AtomicLoudnessState::album_gain_db(&self) -> f64
@@ -5459,22 +5583,6 @@ impl core::marker::Unpin for audio_engine_core::pipeline::DynamicLoudnessTelemet
 impl core::marker::UnsafeUnpin for audio_engine_core::pipeline::DynamicLoudnessTelemetry
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::pipeline::DynamicLoudnessTelemetry
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::DynamicLoudnessTelemetry
-pub struct audio_engine_core::Equalizer
-impl audio_engine_core::Equalizer
-pub fn audio_engine_core::Equalizer::is_enabled(&self) -> bool
-pub fn audio_engine_core::Equalizer::new(usize, f64) -> Self
-pub fn audio_engine_core::Equalizer::process(&mut self, &mut [f64])
-pub fn audio_engine_core::Equalizer::reset(&mut self)
-pub fn audio_engine_core::Equalizer::set_all_bands(&mut self, &[f64; 10], f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::Equalizer::set_band_gain(&mut self, usize, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::Equalizer::set_enabled(&mut self, bool)
-impl core::marker::Freeze for audio_engine_core::Equalizer
-impl core::marker::Send for audio_engine_core::Equalizer
-impl core::marker::Sync for audio_engine_core::Equalizer
-impl core::marker::Unpin for audio_engine_core::Equalizer
-impl core::marker::UnsafeUnpin for audio_engine_core::Equalizer
-impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::Equalizer
-impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::Equalizer
 pub struct audio_engine_core::FFTConvolver
 impl audio_engine_core::FFTConvolver
 pub fn audio_engine_core::FFTConvolver::channels(&self) -> usize
@@ -5550,6 +5658,22 @@ impl core::marker::Unpin for audio_engine_core::HttpMediaLocation
 impl core::marker::UnsafeUnpin for audio_engine_core::HttpMediaLocation
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::HttpMediaLocation
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::HttpMediaLocation
+pub struct audio_engine_core::IirEqualizer
+impl audio_engine_core::IirEqualizer
+pub fn audio_engine_core::IirEqualizer::is_enabled(&self) -> bool
+pub fn audio_engine_core::IirEqualizer::new(usize, f64) -> Self
+pub fn audio_engine_core::IirEqualizer::process(&mut self, &mut [f64])
+pub fn audio_engine_core::IirEqualizer::reset(&mut self)
+pub fn audio_engine_core::IirEqualizer::set_all_bands(&mut self, &[f64; 10], f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::IirEqualizer::set_band_gain(&mut self, usize, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::IirEqualizer::set_enabled(&mut self, bool)
+impl core::marker::Freeze for audio_engine_core::IirEqualizer
+impl core::marker::Send for audio_engine_core::IirEqualizer
+impl core::marker::Sync for audio_engine_core::IirEqualizer
+impl core::marker::Unpin for audio_engine_core::IirEqualizer
+impl core::marker::UnsafeUnpin for audio_engine_core::IirEqualizer
+impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::IirEqualizer
+impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::IirEqualizer
 pub struct audio_engine_core::LoudnessConfig
 pub audio_engine_core::LoudnessConfig::enabled: bool
 pub audio_engine_core::LoudnessConfig::mode: audio_engine_core::config::NormalizationMode
@@ -5687,7 +5811,8 @@ pub audio_engine_core::OutputChainParams::convolver_control: audio_engine_core::
 pub audio_engine_core::OutputChainParams::crossfeed_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicCrossfeedParams>
 pub audio_engine_core::OutputChainParams::dynamic_loudness_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessParams>
 pub audio_engine_core::OutputChainParams::dynamic_loudness_telemetry: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicDynamicLoudnessTelemetry>
-pub audio_engine_core::OutputChainParams::eq_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqParams>
+pub audio_engine_core::OutputChainParams::eq_kind: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicEqKind>
+pub audio_engine_core::OutputChainParams::eq_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicIirEqParams>
 pub audio_engine_core::OutputChainParams::limiter_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicPeakLimiterParams>
 pub audio_engine_core::OutputChainParams::noise_shaper_params: alloc::sync::Arc<audio_engine_core::processor::lockfree_params::AtomicNoiseShaperParams>
 pub audio_engine_core::OutputChainParams::output_sample_rate: u32
@@ -5782,6 +5907,7 @@ pub fn audio_engine_core::pipeline::PlaybackConfig::with_crossfeed(self, audio_e
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_drain_policy(self, audio_engine_core::processor::dsp_chain::ChainFinishPolicy) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_dynamic_loudness(self, audio_engine_core::pipeline::PlaybackDynamicLoudnessConfig) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_eq(self, [f64; 10]) -> Self
+pub fn audio_engine_core::pipeline::PlaybackConfig::with_eq_kind(self, audio_engine_core::processor::lockfree_params::EqKind) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_limiter(self, bool, f64) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_noise_shaping(self, audio_engine_core::pipeline::PlaybackNoiseShapingConfig) -> Self
 pub fn audio_engine_core::pipeline::PlaybackConfig::with_saturation(self, audio_engine_core::pipeline::PlaybackSaturationConfig) -> Self
@@ -5805,6 +5931,9 @@ impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::pipeline::Playb
 pub struct audio_engine_core::PlaybackController
 impl audio_engine_core::pipeline::PlaybackController
 pub fn audio_engine_core::pipeline::PlaybackController::convolution_status(&self) -> audio_engine_core::ConvolverStatus
+pub fn audio_engine_core::pipeline::PlaybackController::eq_band_gains_db(&self) -> [f64; 10]
+pub fn audio_engine_core::pipeline::PlaybackController::eq_enabled(&self) -> bool
+pub fn audio_engine_core::pipeline::PlaybackController::eq_kind(&self) -> audio_engine_core::processor::lockfree_params::EqKind
 pub fn audio_engine_core::pipeline::PlaybackController::lifecycle_status(&self) -> audio_engine_core::pipeline::PlaybackLifecycleStatus
 pub fn audio_engine_core::pipeline::PlaybackController::load_impulse_response(&self, &[f64]) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackController::parameters(&self) -> audio_engine_core::pipeline::PlaybackParameters
@@ -5813,7 +5942,11 @@ pub fn audio_engine_core::pipeline::PlaybackController::request_drain(&self) -> 
 pub fn audio_engine_core::pipeline::PlaybackController::request_reset(&self) -> u64
 pub fn audio_engine_core::pipeline::PlaybackController::request_stop_with_fade(&self, u32) -> core::result::Result<u64, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackController::set_convolution_enabled(&self, bool)
-impl core::marker::Freeze for audio_engine_core::pipeline::PlaybackController
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_enabled(&self, bool) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackController::set_eq_kind(&self, audio_engine_core::processor::lockfree_params::EqKind) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+impl !core::marker::Freeze for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Send for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Sync for audio_engine_core::pipeline::PlaybackController
 impl core::marker::Unpin for audio_engine_core::pipeline::PlaybackController
@@ -5923,8 +6056,9 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::crossfeed(&self) -> (boo
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness(&self) -> (bool, f64, f64)
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_telemetry(&self) -> audio_engine_core::pipeline::DynamicLoudnessTelemetry
 pub fn audio_engine_core::pipeline::PlaybackParameters::dynamic_loudness_tuning(&self) -> (f64, f64, f64)
-pub fn audio_engine_core::pipeline::PlaybackParameters::eq_band_gains_db(&self) -> [f64; 10]
-pub fn audio_engine_core::pipeline::PlaybackParameters::eq_enabled(&self) -> bool
+pub fn audio_engine_core::pipeline::PlaybackParameters::eq_kind(&self) -> audio_engine_core::processor::lockfree_params::EqKind
+pub fn audio_engine_core::pipeline::PlaybackParameters::iir_eq_band_gains_db(&self) -> [f64; 10]
+pub fn audio_engine_core::pipeline::PlaybackParameters::iir_eq_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_enabled(&self) -> bool
 pub fn audio_engine_core::pipeline::PlaybackParameters::limiter_threshold_db(&self) -> f64
 pub fn audio_engine_core::pipeline::PlaybackParameters::muted(&self) -> bool
@@ -5936,9 +6070,10 @@ pub fn audio_engine_core::pipeline::PlaybackParameters::set_crossfeed_enabled(&s
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness(&self, bool, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_dynamic_loudness_tuning(&self, f64, f64, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_enabled(&self, bool)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_eq_kind(&self, audio_engine_core::processor::lockfree_params::EqKind)
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq(&self, bool, [f64; 10]) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq_band_gain_db(&self, usize, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::pipeline::PlaybackParameters::set_iir_eq_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_limiter_enabled(&self, bool)
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_limiter_threshold_db(&self, f64) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::pipeline::PlaybackParameters::set_muted(&self, bool)
@@ -6253,6 +6388,8 @@ impl core::marker::Unpin for audio_engine_core::UnknownTailPolicy
 impl core::marker::UnsafeUnpin for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::RefUnwindSafe for audio_engine_core::UnknownTailPolicy
 impl core::panic::unwind_safe::UnwindSafe for audio_engine_core::UnknownTailPolicy
+pub const audio_engine_core::EQ_BAND_FREQUENCIES_HZ: [f64; 10]
+pub const audio_engine_core::FIR_EQ_DEFAULT_TAPS: usize
 pub const audio_engine_core::MAX_STOP_FADE_MS: u32
 pub const audio_engine_core::PARTITIONED_CONVOLUTION_IR_THRESHOLD: usize
 pub const audio_engine_core::PARTITIONED_CONVOLUTION_PARTITION_SIZE: usize
@@ -6262,7 +6399,7 @@ pub trait audio_engine_core::FixedInPlaceProcessor: audio_engine_core::processor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::ConvolverProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::CrossfeedProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::DynamicLoudnessProcessor
-impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::EqProcessor
+impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::IirEqProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::PeakLimiterProcessor
 impl audio_engine_core::processor::traits::FixedInPlaceProcessor for audio_engine_core::processor::adapters::SaturationProcessor
@@ -6317,16 +6454,16 @@ pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::reset(&
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
 pub fn audio_engine_core::processor::adapters::DynamicLoudnessProcessor::tail_energy_observation_barrier(&self) -> bool
-impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::EqProcessor
-pub fn audio_engine_core::processor::adapters::EqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
-pub fn audio_engine_core::processor::adapters::EqProcessor::name(&self) -> &'static str
-pub fn audio_engine_core::processor::adapters::EqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
-pub fn audio_engine_core::processor::adapters::EqProcessor::tail_energy_observation_barrier(&self) -> bool
+impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::IirEqProcessor
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::name(&self) -> &'static str
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::output_sample_rate_hz(&self, u32) -> core::result::Result<u32, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::process(&mut self, audio_engine_core::processor::traits::ProcessBuffers<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::reset(&mut self) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::set_sample_rate(&mut self, u32) -> core::result::Result<(), audio_engine_core::processor::traits::ProcessError>
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail(&self) -> audio_engine_core::processor::traits::TailSpec
+pub fn audio_engine_core::processor::adapters::IirEqProcessor::tail_energy_observation_barrier(&self) -> bool
 impl audio_engine_core::processor::traits::StreamingProcessor for audio_engine_core::processor::adapters::NoiseShaperProcessor
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::finish(&mut self, audio_engine_core::audio_block::AudioBlockMut<'_>) -> core::result::Result<audio_engine_core::processor::traits::ProcessProgress, audio_engine_core::processor::traits::ProcessError>
 pub fn audio_engine_core::processor::adapters::NoiseShaperProcessor::latency(&self) -> audio_engine_core::processor::traits::FrameDuration
